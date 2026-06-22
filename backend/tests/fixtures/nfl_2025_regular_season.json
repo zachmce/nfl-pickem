@@ -1,0 +1,7157 @@
+{
+  "metadata": {
+    "generated_at": "2026-06-22T17:18:31.289158+00:00",
+    "season": 2025,
+    "season_type": 2,
+    "source": "ESPN site scoreboard (games/scores/status/teams) + ESPN core API (historical odds), pulled once for offline test data",
+    "odds_provider": "ESPN BET",
+    "note": "Odds are ESPN BET stand-in lines, NOT real DraftKings lines. 2025 has no DraftKings odds available anywhere.",
+    "games_total": 272,
+    "games_with_odds": 193,
+    "games_without_odds": 79
+  },
+  "games": [
+    {
+      "espn_event_id": "401772510",
+      "competition_id": "401772510",
+      "week": 1,
+      "kickoff": "2025-09-05T00:20Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "21",
+        "abbreviation": "PHI",
+        "score": 24
+      },
+      "away": {
+        "team_id": "6",
+        "abbreviation": "DAL",
+        "score": 20
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -7.5,
+        "total": 47.5,
+        "favorite_team_id": "21",
+        "underdog_team_id": "6"
+      }
+    },
+    {
+      "espn_event_id": "401772714",
+      "competition_id": "401772714",
+      "week": 1,
+      "kickoff": "2025-09-06T00:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "24",
+        "abbreviation": "LAC",
+        "score": 27
+      },
+      "away": {
+        "team_id": "12",
+        "abbreviation": "KC",
+        "score": 21
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 3.5,
+        "total": 47.5,
+        "favorite_team_id": "12",
+        "underdog_team_id": "24"
+      }
+    },
+    {
+      "espn_event_id": "401772830",
+      "competition_id": "401772830",
+      "week": 1,
+      "kickoff": "2025-09-07T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "1",
+        "abbreviation": "ATL",
+        "score": 20
+      },
+      "away": {
+        "team_id": "27",
+        "abbreviation": "TB",
+        "score": 23
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -1.5,
+        "total": 47.5,
+        "favorite_team_id": "1",
+        "underdog_team_id": "27"
+      }
+    },
+    {
+      "espn_event_id": "401772829",
+      "competition_id": "401772829",
+      "week": 1,
+      "kickoff": "2025-09-07T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "5",
+        "abbreviation": "CLE",
+        "score": 16
+      },
+      "away": {
+        "team_id": "4",
+        "abbreviation": "CIN",
+        "score": 17
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 5.5,
+        "total": 47.5,
+        "favorite_team_id": "4",
+        "underdog_team_id": "5"
+      }
+    },
+    {
+      "espn_event_id": "401772719",
+      "competition_id": "401772719",
+      "week": 1,
+      "kickoff": "2025-09-07T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "11",
+        "abbreviation": "IND",
+        "score": 33
+      },
+      "away": {
+        "team_id": "15",
+        "abbreviation": "MIA",
+        "score": 8
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -1.5,
+        "total": 47.5,
+        "favorite_team_id": "11",
+        "underdog_team_id": "15"
+      }
+    },
+    {
+      "espn_event_id": "401772720",
+      "competition_id": "401772720",
+      "week": 1,
+      "kickoff": "2025-09-07T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "17",
+        "abbreviation": "NE",
+        "score": 13
+      },
+      "away": {
+        "team_id": "13",
+        "abbreviation": "LV",
+        "score": 20
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -2.5,
+        "total": 44.5,
+        "favorite_team_id": "17",
+        "underdog_team_id": "13"
+      }
+    },
+    {
+      "espn_event_id": "401772718",
+      "competition_id": "401772718",
+      "week": 1,
+      "kickoff": "2025-09-07T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "18",
+        "abbreviation": "NO",
+        "score": 13
+      },
+      "away": {
+        "team_id": "22",
+        "abbreviation": "ARI",
+        "score": 20
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 5.5,
+        "total": 44.5,
+        "favorite_team_id": "22",
+        "underdog_team_id": "18"
+      }
+    },
+    {
+      "espn_event_id": "401772721",
+      "competition_id": "401772721",
+      "week": 1,
+      "kickoff": "2025-09-07T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "20",
+        "abbreviation": "NYJ",
+        "score": 32
+      },
+      "away": {
+        "team_id": "23",
+        "abbreviation": "PIT",
+        "score": 34
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 2.5,
+        "total": 38.5,
+        "favorite_team_id": "23",
+        "underdog_team_id": "20"
+      }
+    },
+    {
+      "espn_event_id": "401772827",
+      "competition_id": "401772827",
+      "week": 1,
+      "kickoff": "2025-09-07T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "28",
+        "abbreviation": "WSH",
+        "score": 21
+      },
+      "away": {
+        "team_id": "19",
+        "abbreviation": "NYG",
+        "score": 6
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -5.5,
+        "total": 45.5,
+        "favorite_team_id": "28",
+        "underdog_team_id": "19"
+      }
+    },
+    {
+      "espn_event_id": "401772828",
+      "competition_id": "401772828",
+      "week": 1,
+      "kickoff": "2025-09-07T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "30",
+        "abbreviation": "JAX",
+        "score": 26
+      },
+      "away": {
+        "team_id": "29",
+        "abbreviation": "CAR",
+        "score": 10
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -4.5,
+        "total": 44.5,
+        "favorite_team_id": "30",
+        "underdog_team_id": "29"
+      }
+    },
+    {
+      "espn_event_id": "401772832",
+      "competition_id": "401772832",
+      "week": 1,
+      "kickoff": "2025-09-07T20:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "7",
+        "abbreviation": "DEN",
+        "score": 20
+      },
+      "away": {
+        "team_id": "10",
+        "abbreviation": "TEN",
+        "score": 12
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -9.5,
+        "total": 43.5,
+        "favorite_team_id": "7",
+        "underdog_team_id": "10"
+      }
+    },
+    {
+      "espn_event_id": "401772831",
+      "competition_id": "401772831",
+      "week": 1,
+      "kickoff": "2025-09-07T20:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "26",
+        "abbreviation": "SEA",
+        "score": 13
+      },
+      "away": {
+        "team_id": "25",
+        "abbreviation": "SF",
+        "score": 17
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 1.5,
+        "total": 44.5,
+        "favorite_team_id": "25",
+        "underdog_team_id": "26"
+      }
+    },
+    {
+      "espn_event_id": "401772722",
+      "competition_id": "401772722",
+      "week": 1,
+      "kickoff": "2025-09-07T20:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "9",
+        "abbreviation": "GB",
+        "score": 27
+      },
+      "away": {
+        "team_id": "8",
+        "abbreviation": "DET",
+        "score": 13
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -1.5,
+        "total": 48.5,
+        "favorite_team_id": "9",
+        "underdog_team_id": "8"
+      }
+    },
+    {
+      "espn_event_id": "401772723",
+      "competition_id": "401772723",
+      "week": 1,
+      "kickoff": "2025-09-07T20:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "14",
+        "abbreviation": "LAR",
+        "score": 14
+      },
+      "away": {
+        "team_id": "34",
+        "abbreviation": "HOU",
+        "score": 9
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -3.5,
+        "total": 43.5,
+        "favorite_team_id": "14",
+        "underdog_team_id": "34"
+      }
+    },
+    {
+      "espn_event_id": "401772918",
+      "competition_id": "401772918",
+      "week": 1,
+      "kickoff": "2025-09-08T00:20Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "2",
+        "abbreviation": "BUF",
+        "score": 41
+      },
+      "away": {
+        "team_id": "33",
+        "abbreviation": "BAL",
+        "score": 40
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 1.5,
+        "total": 51.5,
+        "favorite_team_id": "33",
+        "underdog_team_id": "2"
+      }
+    },
+    {
+      "espn_event_id": "401772810",
+      "competition_id": "401772810",
+      "week": 1,
+      "kickoff": "2025-09-09T00:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "3",
+        "abbreviation": "CHI",
+        "score": 24
+      },
+      "away": {
+        "team_id": "16",
+        "abbreviation": "MIN",
+        "score": 27
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -1.5,
+        "total": 43.5,
+        "favorite_team_id": "3",
+        "underdog_team_id": "16"
+      }
+    },
+    {
+      "espn_event_id": "401772936",
+      "competition_id": "401772936",
+      "week": 2,
+      "kickoff": "2025-09-12T00:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "9",
+        "abbreviation": "GB",
+        "score": 27
+      },
+      "away": {
+        "team_id": "28",
+        "abbreviation": "WSH",
+        "score": 18
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -3.5,
+        "total": 47.5,
+        "favorite_team_id": "9",
+        "underdog_team_id": "28"
+      }
+    },
+    {
+      "espn_event_id": "401772725",
+      "competition_id": "401772725",
+      "week": 2,
+      "kickoff": "2025-09-14T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "4",
+        "abbreviation": "CIN",
+        "score": 31
+      },
+      "away": {
+        "team_id": "30",
+        "abbreviation": "JAX",
+        "score": 27
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -3.5,
+        "total": 50.5,
+        "favorite_team_id": "4",
+        "underdog_team_id": "30"
+      }
+    },
+    {
+      "espn_event_id": "401772834",
+      "competition_id": "401772834",
+      "week": 2,
+      "kickoff": "2025-09-14T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "6",
+        "abbreviation": "DAL",
+        "score": 40
+      },
+      "away": {
+        "team_id": "19",
+        "abbreviation": "NYG",
+        "score": 37
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -4.5,
+        "total": 44.5,
+        "favorite_team_id": "6",
+        "underdog_team_id": "19"
+      }
+    },
+    {
+      "espn_event_id": "401772835",
+      "competition_id": "401772835",
+      "week": 2,
+      "kickoff": "2025-09-14T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "8",
+        "abbreviation": "DET",
+        "score": 52
+      },
+      "away": {
+        "team_id": "3",
+        "abbreviation": "CHI",
+        "score": 21
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -6.5,
+        "total": 45.5,
+        "favorite_team_id": "8",
+        "underdog_team_id": "3"
+      }
+    },
+    {
+      "espn_event_id": "401772724",
+      "competition_id": "401772724",
+      "week": 2,
+      "kickoff": "2025-09-14T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "10",
+        "abbreviation": "TEN",
+        "score": 19
+      },
+      "away": {
+        "team_id": "14",
+        "abbreviation": "LAR",
+        "score": 33
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 5.5,
+        "total": 40.5,
+        "favorite_team_id": "14",
+        "underdog_team_id": "10"
+      }
+    },
+    {
+      "espn_event_id": "401772728",
+      "competition_id": "401772728",
+      "week": 2,
+      "kickoff": "2025-09-14T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "15",
+        "abbreviation": "MIA",
+        "score": 27
+      },
+      "away": {
+        "team_id": "17",
+        "abbreviation": "NE",
+        "score": 33
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -2.5,
+        "total": 42.5,
+        "favorite_team_id": "15",
+        "underdog_team_id": "17"
+      }
+    },
+    {
+      "espn_event_id": "401772833",
+      "competition_id": "401772833",
+      "week": 2,
+      "kickoff": "2025-09-14T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "18",
+        "abbreviation": "NO",
+        "score": 21
+      },
+      "away": {
+        "team_id": "25",
+        "abbreviation": "SF",
+        "score": 26
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 2.5,
+        "total": 40.5,
+        "favorite_team_id": "25",
+        "underdog_team_id": "18"
+      }
+    },
+    {
+      "espn_event_id": "401772727",
+      "competition_id": "401772727",
+      "week": 2,
+      "kickoff": "2025-09-14T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "20",
+        "abbreviation": "NYJ",
+        "score": 10
+      },
+      "away": {
+        "team_id": "2",
+        "abbreviation": "BUF",
+        "score": 30
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 5.5,
+        "total": 46.5,
+        "favorite_team_id": "2",
+        "underdog_team_id": "20"
+      }
+    },
+    {
+      "espn_event_id": "401772836",
+      "competition_id": "401772836",
+      "week": 2,
+      "kickoff": "2025-09-14T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "23",
+        "abbreviation": "PIT",
+        "score": 17
+      },
+      "away": {
+        "team_id": "26",
+        "abbreviation": "SEA",
+        "score": 31
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -3.5,
+        "total": 40.5,
+        "favorite_team_id": "23",
+        "underdog_team_id": "26"
+      }
+    },
+    {
+      "espn_event_id": "401772726",
+      "competition_id": "401772726",
+      "week": 2,
+      "kickoff": "2025-09-14T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "33",
+        "abbreviation": "BAL",
+        "score": 41
+      },
+      "away": {
+        "team_id": "5",
+        "abbreviation": "CLE",
+        "score": 17
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -12.5,
+        "total": 46.5,
+        "favorite_team_id": "33",
+        "underdog_team_id": "5"
+      }
+    },
+    {
+      "espn_event_id": "401772729",
+      "competition_id": "401772729",
+      "week": 2,
+      "kickoff": "2025-09-14T20:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "11",
+        "abbreviation": "IND",
+        "score": 29
+      },
+      "away": {
+        "team_id": "7",
+        "abbreviation": "DEN",
+        "score": 28
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 1.5,
+        "total": 43.5,
+        "favorite_team_id": "7",
+        "underdog_team_id": "11"
+      }
+    },
+    {
+      "espn_event_id": "401772730",
+      "competition_id": "401772730",
+      "week": 2,
+      "kickoff": "2025-09-14T20:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "22",
+        "abbreviation": "ARI",
+        "score": 27
+      },
+      "away": {
+        "team_id": "29",
+        "abbreviation": "CAR",
+        "score": 22
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -6.5,
+        "total": 45.5,
+        "favorite_team_id": "22",
+        "underdog_team_id": "29"
+      }
+    },
+    {
+      "espn_event_id": "401772837",
+      "competition_id": "401772837",
+      "week": 2,
+      "kickoff": "2025-09-14T20:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "12",
+        "abbreviation": "KC",
+        "score": 17
+      },
+      "away": {
+        "team_id": "21",
+        "abbreviation": "PHI",
+        "score": 20
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 1.5,
+        "total": 46.5,
+        "favorite_team_id": "21",
+        "underdog_team_id": "12"
+      }
+    },
+    {
+      "espn_event_id": "401772919",
+      "competition_id": "401772919",
+      "week": 2,
+      "kickoff": "2025-09-15T00:20Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "16",
+        "abbreviation": "MIN",
+        "score": 6
+      },
+      "away": {
+        "team_id": "1",
+        "abbreviation": "ATL",
+        "score": 22
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -3.5,
+        "total": 44.5,
+        "favorite_team_id": "16",
+        "underdog_team_id": "1"
+      }
+    },
+    {
+      "espn_event_id": "401772715",
+      "competition_id": "401772715",
+      "week": 2,
+      "kickoff": "2025-09-15T23:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "34",
+        "abbreviation": "HOU",
+        "score": 19
+      },
+      "away": {
+        "team_id": "27",
+        "abbreviation": "TB",
+        "score": 20
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -2.5,
+        "total": 42.5,
+        "favorite_team_id": "34",
+        "underdog_team_id": "27"
+      }
+    },
+    {
+      "espn_event_id": "401772811",
+      "competition_id": "401772811",
+      "week": 2,
+      "kickoff": "2025-09-16T02:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "13",
+        "abbreviation": "LV",
+        "score": 9
+      },
+      "away": {
+        "team_id": "24",
+        "abbreviation": "LAC",
+        "score": 20
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 3.5,
+        "total": 46.5,
+        "favorite_team_id": "24",
+        "underdog_team_id": "13"
+      }
+    },
+    {
+      "espn_event_id": "401772937",
+      "competition_id": "401772937",
+      "week": 3,
+      "kickoff": "2025-09-19T00:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "2",
+        "abbreviation": "BUF",
+        "score": 31
+      },
+      "away": {
+        "team_id": "15",
+        "abbreviation": "MIA",
+        "score": 21
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -11.5,
+        "total": 50.5,
+        "favorite_team_id": "2",
+        "underdog_team_id": "15"
+      }
+    },
+    {
+      "espn_event_id": "401772842",
+      "competition_id": "401772842",
+      "week": 3,
+      "kickoff": "2025-09-21T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "5",
+        "abbreviation": "CLE",
+        "score": 13
+      },
+      "away": {
+        "team_id": "9",
+        "abbreviation": "GB",
+        "score": 10
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 7.5,
+        "total": 40.5,
+        "favorite_team_id": "9",
+        "underdog_team_id": "5"
+      }
+    },
+    {
+      "espn_event_id": "401772733",
+      "competition_id": "401772733",
+      "week": 3,
+      "kickoff": "2025-09-21T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "10",
+        "abbreviation": "TEN",
+        "score": 20
+      },
+      "away": {
+        "team_id": "11",
+        "abbreviation": "IND",
+        "score": 41
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 5.5,
+        "total": 42.5,
+        "favorite_team_id": "11",
+        "underdog_team_id": "10"
+      }
+    },
+    {
+      "espn_event_id": "401772731",
+      "competition_id": "401772731",
+      "week": 3,
+      "kickoff": "2025-09-21T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "16",
+        "abbreviation": "MIN",
+        "score": 48
+      },
+      "away": {
+        "team_id": "4",
+        "abbreviation": "CIN",
+        "score": 10
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -3.5,
+        "total": 42.5,
+        "favorite_team_id": "16",
+        "underdog_team_id": "4"
+      }
+    },
+    {
+      "espn_event_id": "401772732",
+      "competition_id": "401772732",
+      "week": 3,
+      "kickoff": "2025-09-21T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "17",
+        "abbreviation": "NE",
+        "score": 14
+      },
+      "away": {
+        "team_id": "23",
+        "abbreviation": "PIT",
+        "score": 21
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 1.5,
+        "total": 44.5,
+        "favorite_team_id": "23",
+        "underdog_team_id": "17"
+      }
+    },
+    {
+      "espn_event_id": "401772839",
+      "competition_id": "401772839",
+      "week": 3,
+      "kickoff": "2025-09-21T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "21",
+        "abbreviation": "PHI",
+        "score": 33
+      },
+      "away": {
+        "team_id": "14",
+        "abbreviation": "LAR",
+        "score": 26
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -3.5,
+        "total": 45.5,
+        "favorite_team_id": "21",
+        "underdog_team_id": "14"
+      }
+    },
+    {
+      "espn_event_id": "401772840",
+      "competition_id": "401772840",
+      "week": 3,
+      "kickoff": "2025-09-21T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "27",
+        "abbreviation": "TB",
+        "score": 29
+      },
+      "away": {
+        "team_id": "20",
+        "abbreviation": "NYJ",
+        "score": 27
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -6.5,
+        "total": 42.5,
+        "favorite_team_id": "27",
+        "underdog_team_id": "20"
+      }
+    },
+    {
+      "espn_event_id": "401772841",
+      "competition_id": "401772841",
+      "week": 3,
+      "kickoff": "2025-09-21T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "28",
+        "abbreviation": "WSH",
+        "score": 41
+      },
+      "away": {
+        "team_id": "13",
+        "abbreviation": "LV",
+        "score": 24
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -2.5,
+        "total": 44.5,
+        "favorite_team_id": "28",
+        "underdog_team_id": "13"
+      }
+    },
+    {
+      "espn_event_id": "401772838",
+      "competition_id": "401772838",
+      "week": 3,
+      "kickoff": "2025-09-21T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "29",
+        "abbreviation": "CAR",
+        "score": 30
+      },
+      "away": {
+        "team_id": "1",
+        "abbreviation": "ATL",
+        "score": 0
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 4.5,
+        "total": 43.5,
+        "favorite_team_id": "1",
+        "underdog_team_id": "29"
+      }
+    },
+    {
+      "espn_event_id": "401772734",
+      "competition_id": "401772734",
+      "week": 3,
+      "kickoff": "2025-09-21T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "30",
+        "abbreviation": "JAX",
+        "score": 17
+      },
+      "away": {
+        "team_id": "34",
+        "abbreviation": "HOU",
+        "score": 10
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -1.5,
+        "total": 42.5,
+        "favorite_team_id": "30",
+        "underdog_team_id": "34"
+      }
+    },
+    {
+      "espn_event_id": "401772735",
+      "competition_id": "401772735",
+      "week": 3,
+      "kickoff": "2025-09-21T20:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "24",
+        "abbreviation": "LAC",
+        "score": 23
+      },
+      "away": {
+        "team_id": "7",
+        "abbreviation": "DEN",
+        "score": 20
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -2.5,
+        "total": 45.5,
+        "favorite_team_id": "24",
+        "underdog_team_id": "7"
+      }
+    },
+    {
+      "espn_event_id": "401772736",
+      "competition_id": "401772736",
+      "week": 3,
+      "kickoff": "2025-09-21T20:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "26",
+        "abbreviation": "SEA",
+        "score": 44
+      },
+      "away": {
+        "team_id": "18",
+        "abbreviation": "NO",
+        "score": 13
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -6.5,
+        "total": 41.5,
+        "favorite_team_id": "26",
+        "underdog_team_id": "18"
+      }
+    },
+    {
+      "espn_event_id": "401772844",
+      "competition_id": "401772844",
+      "week": 3,
+      "kickoff": "2025-09-21T20:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "3",
+        "abbreviation": "CHI",
+        "score": 31
+      },
+      "away": {
+        "team_id": "6",
+        "abbreviation": "DAL",
+        "score": 14
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 1.5,
+        "total": 50.5,
+        "favorite_team_id": "6",
+        "underdog_team_id": "3"
+      }
+    },
+    {
+      "espn_event_id": "401772843",
+      "competition_id": "401772843",
+      "week": 3,
+      "kickoff": "2025-09-21T20:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "25",
+        "abbreviation": "SF",
+        "score": 16
+      },
+      "away": {
+        "team_id": "22",
+        "abbreviation": "ARI",
+        "score": 15
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -1.5,
+        "total": 43.5,
+        "favorite_team_id": "25",
+        "underdog_team_id": "22"
+      }
+    },
+    {
+      "espn_event_id": "401772920",
+      "competition_id": "401772920",
+      "week": 3,
+      "kickoff": "2025-09-22T00:20Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "19",
+        "abbreviation": "NYG",
+        "score": 9
+      },
+      "away": {
+        "team_id": "12",
+        "abbreviation": "KC",
+        "score": 22
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 5.5,
+        "total": 44.5,
+        "favorite_team_id": "12",
+        "underdog_team_id": "19"
+      }
+    },
+    {
+      "espn_event_id": "401772812",
+      "competition_id": "401772812",
+      "week": 3,
+      "kickoff": "2025-09-23T00:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "33",
+        "abbreviation": "BAL",
+        "score": 30
+      },
+      "away": {
+        "team_id": "8",
+        "abbreviation": "DET",
+        "score": 38
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -4.5,
+        "total": 53.5,
+        "favorite_team_id": "33",
+        "underdog_team_id": "8"
+      }
+    },
+    {
+      "espn_event_id": "401772938",
+      "competition_id": "401772938",
+      "week": 4,
+      "kickoff": "2025-09-26T00:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "22",
+        "abbreviation": "ARI",
+        "score": 20
+      },
+      "away": {
+        "team_id": "26",
+        "abbreviation": "SEA",
+        "score": 23
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 1.5,
+        "total": 43.5,
+        "favorite_team_id": "26",
+        "underdog_team_id": "22"
+      }
+    },
+    {
+      "espn_event_id": "401772632",
+      "competition_id": "401772632",
+      "week": 4,
+      "kickoff": "2025-09-28T13:30Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "23",
+        "abbreviation": "PIT",
+        "score": 24
+      },
+      "away": {
+        "team_id": "16",
+        "abbreviation": "MIN",
+        "score": 21
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 2.5,
+        "total": 41.5,
+        "favorite_team_id": "16",
+        "underdog_team_id": "23"
+      }
+    },
+    {
+      "espn_event_id": "401772739",
+      "competition_id": "401772739",
+      "week": 4,
+      "kickoff": "2025-09-28T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "1",
+        "abbreviation": "ATL",
+        "score": 34
+      },
+      "away": {
+        "team_id": "28",
+        "abbreviation": "WSH",
+        "score": 27
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -2.5,
+        "total": 44.5,
+        "favorite_team_id": "1",
+        "underdog_team_id": "28"
+      }
+    },
+    {
+      "espn_event_id": "401772740",
+      "competition_id": "401772740",
+      "week": 4,
+      "kickoff": "2025-09-28T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "2",
+        "abbreviation": "BUF",
+        "score": 31
+      },
+      "away": {
+        "team_id": "18",
+        "abbreviation": "NO",
+        "score": 19
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -14.5,
+        "total": 48.5,
+        "favorite_team_id": "2",
+        "underdog_team_id": "18"
+      }
+    },
+    {
+      "espn_event_id": "401772846",
+      "competition_id": "401772846",
+      "week": 4,
+      "kickoff": "2025-09-28T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "8",
+        "abbreviation": "DET",
+        "score": 34
+      },
+      "away": {
+        "team_id": "5",
+        "abbreviation": "CLE",
+        "score": 10
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -10.5,
+        "total": 44.5,
+        "favorite_team_id": "8",
+        "underdog_team_id": "5"
+      }
+    },
+    {
+      "espn_event_id": "401772847",
+      "competition_id": "401772847",
+      "week": 4,
+      "kickoff": "2025-09-28T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "17",
+        "abbreviation": "NE",
+        "score": 42
+      },
+      "away": {
+        "team_id": "29",
+        "abbreviation": "CAR",
+        "score": 13
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -3.0,
+        "total": 42.5,
+        "favorite_team_id": "17",
+        "underdog_team_id": "29"
+      }
+    },
+    {
+      "espn_event_id": "401772737",
+      "competition_id": "401772737",
+      "week": 4,
+      "kickoff": "2025-09-28T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "19",
+        "abbreviation": "NYG",
+        "score": 21
+      },
+      "away": {
+        "team_id": "24",
+        "abbreviation": "LAC",
+        "score": 18
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 5.5,
+        "total": 43.5,
+        "favorite_team_id": "24",
+        "underdog_team_id": "19"
+      }
+    },
+    {
+      "espn_event_id": "401772845",
+      "competition_id": "401772845",
+      "week": 4,
+      "kickoff": "2025-09-28T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "27",
+        "abbreviation": "TB",
+        "score": 25
+      },
+      "away": {
+        "team_id": "21",
+        "abbreviation": "PHI",
+        "score": 31
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 3.5,
+        "total": 43.5,
+        "favorite_team_id": "21",
+        "underdog_team_id": "27"
+      }
+    },
+    {
+      "espn_event_id": "401772738",
+      "competition_id": "401772738",
+      "week": 4,
+      "kickoff": "2025-09-28T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "34",
+        "abbreviation": "HOU",
+        "score": 26
+      },
+      "away": {
+        "team_id": "10",
+        "abbreviation": "TEN",
+        "score": 0
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -7.5,
+        "total": 39.5,
+        "favorite_team_id": "34",
+        "underdog_team_id": "10"
+      }
+    },
+    {
+      "espn_event_id": "401772849",
+      "competition_id": "401772849",
+      "week": 4,
+      "kickoff": "2025-09-28T20:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "14",
+        "abbreviation": "LAR",
+        "score": 27
+      },
+      "away": {
+        "team_id": "11",
+        "abbreviation": "IND",
+        "score": 20
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -3.5,
+        "total": 49.5,
+        "favorite_team_id": "14",
+        "underdog_team_id": "11"
+      }
+    },
+    {
+      "espn_event_id": "401772848",
+      "competition_id": "401772848",
+      "week": 4,
+      "kickoff": "2025-09-28T20:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "25",
+        "abbreviation": "SF",
+        "score": 21
+      },
+      "away": {
+        "team_id": "30",
+        "abbreviation": "JAX",
+        "score": 26
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -3.5,
+        "total": 46.5,
+        "favorite_team_id": "25",
+        "underdog_team_id": "30"
+      }
+    },
+    {
+      "espn_event_id": "401772741",
+      "competition_id": "401772741",
+      "week": 4,
+      "kickoff": "2025-09-28T20:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "12",
+        "abbreviation": "KC",
+        "score": 37
+      },
+      "away": {
+        "team_id": "33",
+        "abbreviation": "BAL",
+        "score": 20
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 2.5,
+        "total": 49.5,
+        "favorite_team_id": "33",
+        "underdog_team_id": "12"
+      }
+    },
+    {
+      "espn_event_id": "401772742",
+      "competition_id": "401772742",
+      "week": 4,
+      "kickoff": "2025-09-28T20:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "13",
+        "abbreviation": "LV",
+        "score": 24
+      },
+      "away": {
+        "team_id": "3",
+        "abbreviation": "CHI",
+        "score": 25
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -2.5,
+        "total": 46.5,
+        "favorite_team_id": "13",
+        "underdog_team_id": "3"
+      }
+    },
+    {
+      "espn_event_id": "401772921",
+      "competition_id": "401772921",
+      "week": 4,
+      "kickoff": "2025-09-29T00:20Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "6",
+        "abbreviation": "DAL",
+        "score": 40
+      },
+      "away": {
+        "team_id": "9",
+        "abbreviation": "GB",
+        "score": 40
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 6.5,
+        "total": 46.5,
+        "favorite_team_id": "9",
+        "underdog_team_id": "6"
+      }
+    },
+    {
+      "espn_event_id": "401772813",
+      "competition_id": "401772813",
+      "week": 4,
+      "kickoff": "2025-09-29T23:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "15",
+        "abbreviation": "MIA",
+        "score": 27
+      },
+      "away": {
+        "team_id": "20",
+        "abbreviation": "NYJ",
+        "score": 21
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -2.5,
+        "total": 43.5,
+        "favorite_team_id": "15",
+        "underdog_team_id": "20"
+      }
+    },
+    {
+      "espn_event_id": "401772716",
+      "competition_id": "401772716",
+      "week": 4,
+      "kickoff": "2025-09-30T00:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "7",
+        "abbreviation": "DEN",
+        "score": 28
+      },
+      "away": {
+        "team_id": "4",
+        "abbreviation": "CIN",
+        "score": 3
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -7.5,
+        "total": 44.5,
+        "favorite_team_id": "7",
+        "underdog_team_id": "4"
+      }
+    },
+    {
+      "espn_event_id": "401772939",
+      "competition_id": "401772939",
+      "week": 5,
+      "kickoff": "2025-10-03T00:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "14",
+        "abbreviation": "LAR",
+        "score": 23
+      },
+      "away": {
+        "team_id": "25",
+        "abbreviation": "SF",
+        "score": 26
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -8.5,
+        "total": 43.5,
+        "favorite_team_id": "14",
+        "underdog_team_id": "25"
+      }
+    },
+    {
+      "espn_event_id": "401772633",
+      "competition_id": "401772633",
+      "week": 5,
+      "kickoff": "2025-10-05T13:30Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "5",
+        "abbreviation": "CLE",
+        "score": 17
+      },
+      "away": {
+        "team_id": "16",
+        "abbreviation": "MIN",
+        "score": 21
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 3.5,
+        "total": 35.5,
+        "favorite_team_id": "16",
+        "underdog_team_id": "5"
+      }
+    },
+    {
+      "espn_event_id": "401772851",
+      "competition_id": "401772851",
+      "week": 5,
+      "kickoff": "2025-10-05T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "11",
+        "abbreviation": "IND",
+        "score": 40
+      },
+      "away": {
+        "team_id": "13",
+        "abbreviation": "LV",
+        "score": 6
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -7.5,
+        "total": 46.5,
+        "favorite_team_id": "11",
+        "underdog_team_id": "13"
+      }
+    },
+    {
+      "espn_event_id": "401772744",
+      "competition_id": "401772744",
+      "week": 5,
+      "kickoff": "2025-10-05T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "18",
+        "abbreviation": "NO",
+        "score": 26
+      },
+      "away": {
+        "team_id": "19",
+        "abbreviation": "NYG",
+        "score": 14
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -2.5,
+        "total": 42.5,
+        "favorite_team_id": "18",
+        "underdog_team_id": "19"
+      }
+    },
+    {
+      "espn_event_id": "401772850",
+      "competition_id": "401772850",
+      "week": 5,
+      "kickoff": "2025-10-05T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "20",
+        "abbreviation": "NYJ",
+        "score": 22
+      },
+      "away": {
+        "team_id": "6",
+        "abbreviation": "DAL",
+        "score": 37
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -2.5,
+        "total": 47.5,
+        "favorite_team_id": "20",
+        "underdog_team_id": "6"
+      }
+    },
+    {
+      "espn_event_id": "401772745",
+      "competition_id": "401772745",
+      "week": 5,
+      "kickoff": "2025-10-05T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "21",
+        "abbreviation": "PHI",
+        "score": 17
+      },
+      "away": {
+        "team_id": "7",
+        "abbreviation": "DEN",
+        "score": 21
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -4.5,
+        "total": 44.5,
+        "favorite_team_id": "21",
+        "underdog_team_id": "7"
+      }
+    },
+    {
+      "espn_event_id": "401772852",
+      "competition_id": "401772852",
+      "week": 5,
+      "kickoff": "2025-10-05T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "29",
+        "abbreviation": "CAR",
+        "score": 27
+      },
+      "away": {
+        "team_id": "15",
+        "abbreviation": "MIA",
+        "score": 24
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 1.5,
+        "total": 44.5,
+        "favorite_team_id": "15",
+        "underdog_team_id": "29"
+      }
+    },
+    {
+      "espn_event_id": "401772743",
+      "competition_id": "401772743",
+      "week": 5,
+      "kickoff": "2025-10-05T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "33",
+        "abbreviation": "BAL",
+        "score": 10
+      },
+      "away": {
+        "team_id": "34",
+        "abbreviation": "HOU",
+        "score": 44
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 2.5,
+        "total": 41.5,
+        "favorite_team_id": "34",
+        "underdog_team_id": "33"
+      }
+    },
+    {
+      "espn_event_id": "401772747",
+      "competition_id": "401772747",
+      "week": 5,
+      "kickoff": "2025-10-05T20:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "22",
+        "abbreviation": "ARI",
+        "score": 21
+      },
+      "away": {
+        "team_id": "10",
+        "abbreviation": "TEN",
+        "score": 22
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -7.5,
+        "total": 41.5,
+        "favorite_team_id": "22",
+        "underdog_team_id": "10"
+      }
+    },
+    {
+      "espn_event_id": "401772746",
+      "competition_id": "401772746",
+      "week": 5,
+      "kickoff": "2025-10-05T20:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "26",
+        "abbreviation": "SEA",
+        "score": 35
+      },
+      "away": {
+        "team_id": "27",
+        "abbreviation": "TB",
+        "score": 38
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -3.5,
+        "total": 45.5,
+        "favorite_team_id": "26",
+        "underdog_team_id": "27"
+      }
+    },
+    {
+      "espn_event_id": "401772854",
+      "competition_id": "401772854",
+      "week": 5,
+      "kickoff": "2025-10-05T20:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "4",
+        "abbreviation": "CIN",
+        "score": 24
+      },
+      "away": {
+        "team_id": "8",
+        "abbreviation": "DET",
+        "score": 37
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 9.5,
+        "total": 48.5,
+        "favorite_team_id": "8",
+        "underdog_team_id": "4"
+      }
+    },
+    {
+      "espn_event_id": "401772853",
+      "competition_id": "401772853",
+      "week": 5,
+      "kickoff": "2025-10-05T20:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "24",
+        "abbreviation": "LAC",
+        "score": 10
+      },
+      "away": {
+        "team_id": "28",
+        "abbreviation": "WSH",
+        "score": 27
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -3.5,
+        "total": 48.5,
+        "favorite_team_id": "24",
+        "underdog_team_id": "28"
+      }
+    },
+    {
+      "espn_event_id": "401772922",
+      "competition_id": "401772922",
+      "week": 5,
+      "kickoff": "2025-10-06T00:20Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "2",
+        "abbreviation": "BUF",
+        "score": 20
+      },
+      "away": {
+        "team_id": "17",
+        "abbreviation": "NE",
+        "score": 23
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -7.5,
+        "total": 48.5,
+        "favorite_team_id": "2",
+        "underdog_team_id": "17"
+      }
+    },
+    {
+      "espn_event_id": "401772814",
+      "competition_id": "401772814",
+      "week": 5,
+      "kickoff": "2025-10-07T00:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "30",
+        "abbreviation": "JAX",
+        "score": 31
+      },
+      "away": {
+        "team_id": "12",
+        "abbreviation": "KC",
+        "score": 28
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 3.5,
+        "total": 45.5,
+        "favorite_team_id": "12",
+        "underdog_team_id": "30"
+      }
+    },
+    {
+      "espn_event_id": "401772940",
+      "competition_id": "401772940",
+      "week": 6,
+      "kickoff": "2025-10-10T00:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "19",
+        "abbreviation": "NYG",
+        "score": 34
+      },
+      "away": {
+        "team_id": "21",
+        "abbreviation": "PHI",
+        "score": 17
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 7.5,
+        "total": 41.5,
+        "favorite_team_id": "21",
+        "underdog_team_id": "19"
+      }
+    },
+    {
+      "espn_event_id": "401772634",
+      "competition_id": "401772634",
+      "week": 6,
+      "kickoff": "2025-10-12T13:30Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "20",
+        "abbreviation": "NYJ",
+        "score": 11
+      },
+      "away": {
+        "team_id": "7",
+        "abbreviation": "DEN",
+        "score": 13
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 6.5,
+        "total": 43.5,
+        "favorite_team_id": "7",
+        "underdog_team_id": "20"
+      }
+    },
+    {
+      "espn_event_id": "401772856",
+      "competition_id": "401772856",
+      "week": 6,
+      "kickoff": "2025-10-12T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "11",
+        "abbreviation": "IND",
+        "score": 31
+      },
+      "away": {
+        "team_id": "22",
+        "abbreviation": "ARI",
+        "score": 27
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -8.5,
+        "total": 46.5,
+        "favorite_team_id": "11",
+        "underdog_team_id": "22"
+      }
+    },
+    {
+      "espn_event_id": "401772750",
+      "competition_id": "401772750",
+      "week": 6,
+      "kickoff": "2025-10-12T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "15",
+        "abbreviation": "MIA",
+        "score": 27
+      },
+      "away": {
+        "team_id": "24",
+        "abbreviation": "LAC",
+        "score": 29
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 3.5,
+        "total": 45.5,
+        "favorite_team_id": "24",
+        "underdog_team_id": "15"
+      }
+    },
+    {
+      "espn_event_id": "401772751",
+      "competition_id": "401772751",
+      "week": 6,
+      "kickoff": "2025-10-12T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "18",
+        "abbreviation": "NO",
+        "score": 19
+      },
+      "away": {
+        "team_id": "17",
+        "abbreviation": "NE",
+        "score": 25
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 3.5,
+        "total": 46.5,
+        "favorite_team_id": "17",
+        "underdog_team_id": "18"
+      }
+    },
+    {
+      "espn_event_id": "401772748",
+      "competition_id": "401772748",
+      "week": 6,
+      "kickoff": "2025-10-12T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "23",
+        "abbreviation": "PIT",
+        "score": 23
+      },
+      "away": {
+        "team_id": "5",
+        "abbreviation": "CLE",
+        "score": 9
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -6.5,
+        "total": 37.5,
+        "favorite_team_id": "23",
+        "underdog_team_id": "5"
+      }
+    },
+    {
+      "espn_event_id": "401772858",
+      "competition_id": "401772858",
+      "week": 6,
+      "kickoff": "2025-10-12T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "29",
+        "abbreviation": "CAR",
+        "score": 30
+      },
+      "away": {
+        "team_id": "6",
+        "abbreviation": "DAL",
+        "score": 27
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 2.5,
+        "total": 45.5,
+        "favorite_team_id": "6",
+        "underdog_team_id": "29"
+      }
+    },
+    {
+      "espn_event_id": "401772857",
+      "competition_id": "401772857",
+      "week": 6,
+      "kickoff": "2025-10-12T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "30",
+        "abbreviation": "JAX",
+        "score": 12
+      },
+      "away": {
+        "team_id": "26",
+        "abbreviation": "SEA",
+        "score": 20
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 1.5,
+        "total": 47.5,
+        "favorite_team_id": "26",
+        "underdog_team_id": "30"
+      }
+    },
+    {
+      "espn_event_id": "401772855",
+      "competition_id": "401772855",
+      "week": 6,
+      "kickoff": "2025-10-12T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "33",
+        "abbreviation": "BAL",
+        "score": 3
+      },
+      "away": {
+        "team_id": "14",
+        "abbreviation": "LAR",
+        "score": 17
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 6.5,
+        "total": 44.5,
+        "favorite_team_id": "14",
+        "underdog_team_id": "33"
+      }
+    },
+    {
+      "espn_event_id": "401772859",
+      "competition_id": "401772859",
+      "week": 6,
+      "kickoff": "2025-10-12T20:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "13",
+        "abbreviation": "LV",
+        "score": 20
+      },
+      "away": {
+        "team_id": "10",
+        "abbreviation": "TEN",
+        "score": 10
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -4.5,
+        "total": 41.5,
+        "favorite_team_id": "13",
+        "underdog_team_id": "10"
+      }
+    },
+    {
+      "espn_event_id": "401772752",
+      "competition_id": "401772752",
+      "week": 6,
+      "kickoff": "2025-10-12T20:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "9",
+        "abbreviation": "GB",
+        "score": 27
+      },
+      "away": {
+        "team_id": "4",
+        "abbreviation": "CIN",
+        "score": 18
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -13.5,
+        "total": 44.5,
+        "favorite_team_id": "9",
+        "underdog_team_id": "4"
+      }
+    },
+    {
+      "espn_event_id": "401772749",
+      "competition_id": "401772749",
+      "week": 6,
+      "kickoff": "2025-10-12T20:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "27",
+        "abbreviation": "TB",
+        "score": 30
+      },
+      "away": {
+        "team_id": "25",
+        "abbreviation": "SF",
+        "score": 19
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -3.5,
+        "total": 46.5,
+        "favorite_team_id": "27",
+        "underdog_team_id": "25"
+      }
+    },
+    {
+      "espn_event_id": "401772923",
+      "competition_id": "401772923",
+      "week": 6,
+      "kickoff": "2025-10-13T00:20Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "12",
+        "abbreviation": "KC",
+        "score": 30
+      },
+      "away": {
+        "team_id": "8",
+        "abbreviation": "DET",
+        "score": 17
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -2.5,
+        "total": 51.5,
+        "favorite_team_id": "12",
+        "underdog_team_id": "8"
+      }
+    },
+    {
+      "espn_event_id": "401772815",
+      "competition_id": "401772815",
+      "week": 6,
+      "kickoff": "2025-10-13T23:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "1",
+        "abbreviation": "ATL",
+        "score": 24
+      },
+      "away": {
+        "team_id": "2",
+        "abbreviation": "BUF",
+        "score": 14
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 3.5,
+        "total": 49.5,
+        "favorite_team_id": "2",
+        "underdog_team_id": "1"
+      }
+    },
+    {
+      "espn_event_id": "401772717",
+      "competition_id": "401772717",
+      "week": 6,
+      "kickoff": "2025-10-14T00:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "28",
+        "abbreviation": "WSH",
+        "score": 24
+      },
+      "away": {
+        "team_id": "3",
+        "abbreviation": "CHI",
+        "score": 25
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -5.5,
+        "total": 48.5,
+        "favorite_team_id": "28",
+        "underdog_team_id": "3"
+      }
+    },
+    {
+      "espn_event_id": "401772941",
+      "competition_id": "401772941",
+      "week": 7,
+      "kickoff": "2025-10-17T00:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "4",
+        "abbreviation": "CIN",
+        "score": 33
+      },
+      "away": {
+        "team_id": "23",
+        "abbreviation": "PIT",
+        "score": 31
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 5.5,
+        "total": 44.5,
+        "favorite_team_id": "23",
+        "underdog_team_id": "4"
+      }
+    },
+    {
+      "espn_event_id": "401772635",
+      "competition_id": "401772635",
+      "week": 7,
+      "kickoff": "2025-10-19T13:30Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "30",
+        "abbreviation": "JAX",
+        "score": 7
+      },
+      "away": {
+        "team_id": "14",
+        "abbreviation": "LAR",
+        "score": 35
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 3.5,
+        "total": 43.5,
+        "favorite_team_id": "14",
+        "underdog_team_id": "30"
+      }
+    },
+    {
+      "espn_event_id": "401772861",
+      "competition_id": "401772861",
+      "week": 7,
+      "kickoff": "2025-10-19T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "3",
+        "abbreviation": "CHI",
+        "score": 26
+      },
+      "away": {
+        "team_id": "18",
+        "abbreviation": "NO",
+        "score": 14
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -3.5,
+        "total": 43.5,
+        "favorite_team_id": "3",
+        "underdog_team_id": "18"
+      }
+    },
+    {
+      "espn_event_id": "401772754",
+      "competition_id": "401772754",
+      "week": 7,
+      "kickoff": "2025-10-19T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "5",
+        "abbreviation": "CLE",
+        "score": 31
+      },
+      "away": {
+        "team_id": "15",
+        "abbreviation": "MIA",
+        "score": 6
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -2.5,
+        "total": 35.5,
+        "favorite_team_id": "5",
+        "underdog_team_id": "15"
+      }
+    },
+    {
+      "espn_event_id": "401772755",
+      "competition_id": "401772755",
+      "week": 7,
+      "kickoff": "2025-10-19T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "10",
+        "abbreviation": "TEN",
+        "score": 13
+      },
+      "away": {
+        "team_id": "17",
+        "abbreviation": "NE",
+        "score": 31
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 6.5,
+        "total": 41.5,
+        "favorite_team_id": "17",
+        "underdog_team_id": "10"
+      }
+    },
+    {
+      "espn_event_id": "401772753",
+      "competition_id": "401772753",
+      "week": 7,
+      "kickoff": "2025-10-19T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "12",
+        "abbreviation": "KC",
+        "score": 31
+      },
+      "away": {
+        "team_id": "13",
+        "abbreviation": "LV",
+        "score": 0
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -13.5,
+        "total": 45.5,
+        "favorite_team_id": "12",
+        "underdog_team_id": "13"
+      }
+    },
+    {
+      "espn_event_id": "401772862",
+      "competition_id": "401772862",
+      "week": 7,
+      "kickoff": "2025-10-19T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "16",
+        "abbreviation": "MIN",
+        "score": 22
+      },
+      "away": {
+        "team_id": "21",
+        "abbreviation": "PHI",
+        "score": 28
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 2.5,
+        "total": 44.5,
+        "favorite_team_id": "21",
+        "underdog_team_id": "16"
+      }
+    },
+    {
+      "espn_event_id": "401772860",
+      "competition_id": "401772860",
+      "week": 7,
+      "kickoff": "2025-10-19T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "20",
+        "abbreviation": "NYJ",
+        "score": 6
+      },
+      "away": {
+        "team_id": "29",
+        "abbreviation": "CAR",
+        "score": 13
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -1.5,
+        "total": 39.5,
+        "favorite_team_id": "20",
+        "underdog_team_id": "29"
+      }
+    },
+    {
+      "espn_event_id": "401772757",
+      "competition_id": "401772757",
+      "week": 7,
+      "kickoff": "2025-10-19T20:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "7",
+        "abbreviation": "DEN",
+        "score": 33
+      },
+      "away": {
+        "team_id": "19",
+        "abbreviation": "NYG",
+        "score": 32
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -7.5,
+        "total": 40.5,
+        "favorite_team_id": "7",
+        "underdog_team_id": "19"
+      }
+    },
+    {
+      "espn_event_id": "401772756",
+      "competition_id": "401772756",
+      "week": 7,
+      "kickoff": "2025-10-19T20:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "24",
+        "abbreviation": "LAC",
+        "score": 24
+      },
+      "away": {
+        "team_id": "11",
+        "abbreviation": "IND",
+        "score": 38
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -2.5,
+        "total": 48.5,
+        "favorite_team_id": "24",
+        "underdog_team_id": "11"
+      }
+    },
+    {
+      "espn_event_id": "401772864",
+      "competition_id": "401772864",
+      "week": 7,
+      "kickoff": "2025-10-19T20:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "6",
+        "abbreviation": "DAL",
+        "score": 44
+      },
+      "away": {
+        "team_id": "28",
+        "abbreviation": "WSH",
+        "score": 22
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -2.5,
+        "total": 54.5,
+        "favorite_team_id": "6",
+        "underdog_team_id": "28"
+      }
+    },
+    {
+      "espn_event_id": "401772863",
+      "competition_id": "401772863",
+      "week": 7,
+      "kickoff": "2025-10-19T20:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "22",
+        "abbreviation": "ARI",
+        "score": 23
+      },
+      "away": {
+        "team_id": "9",
+        "abbreviation": "GB",
+        "score": 27
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 6.5,
+        "total": 44.5,
+        "favorite_team_id": "9",
+        "underdog_team_id": "22"
+      }
+    },
+    {
+      "espn_event_id": "401772924",
+      "competition_id": "401772924",
+      "week": 7,
+      "kickoff": "2025-10-20T00:20Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "25",
+        "abbreviation": "SF",
+        "score": 20
+      },
+      "away": {
+        "team_id": "1",
+        "abbreviation": "ATL",
+        "score": 10
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 1.5,
+        "total": 46.5,
+        "favorite_team_id": "1",
+        "underdog_team_id": "25"
+      }
+    },
+    {
+      "espn_event_id": "401772816",
+      "competition_id": "401772816",
+      "week": 7,
+      "kickoff": "2025-10-20T23:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "8",
+        "abbreviation": "DET",
+        "score": 24
+      },
+      "away": {
+        "team_id": "27",
+        "abbreviation": "TB",
+        "score": 9
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -6.5,
+        "total": 54.5,
+        "favorite_team_id": "8",
+        "underdog_team_id": "27"
+      }
+    },
+    {
+      "espn_event_id": "401772826",
+      "competition_id": "401772826",
+      "week": 7,
+      "kickoff": "2025-10-21T02:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "26",
+        "abbreviation": "SEA",
+        "score": 27
+      },
+      "away": {
+        "team_id": "34",
+        "abbreviation": "HOU",
+        "score": 19
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -3.5,
+        "total": 41.5,
+        "favorite_team_id": "26",
+        "underdog_team_id": "34"
+      }
+    },
+    {
+      "espn_event_id": "401772942",
+      "competition_id": "401772942",
+      "week": 8,
+      "kickoff": "2025-10-24T00:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "24",
+        "abbreviation": "LAC",
+        "score": 37
+      },
+      "away": {
+        "team_id": "16",
+        "abbreviation": "MIN",
+        "score": 10
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -3.5,
+        "total": 44.5,
+        "favorite_team_id": "24",
+        "underdog_team_id": "16"
+      }
+    },
+    {
+      "espn_event_id": "401772760",
+      "competition_id": "401772760",
+      "week": 8,
+      "kickoff": "2025-10-26T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "1",
+        "abbreviation": "ATL",
+        "score": 10
+      },
+      "away": {
+        "team_id": "15",
+        "abbreviation": "MIA",
+        "score": 34
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -6.5,
+        "total": 43.5,
+        "favorite_team_id": "1",
+        "underdog_team_id": "15"
+      }
+    },
+    {
+      "espn_event_id": "401772758",
+      "competition_id": "401772758",
+      "week": 8,
+      "kickoff": "2025-10-26T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "4",
+        "abbreviation": "CIN",
+        "score": 38
+      },
+      "away": {
+        "team_id": "20",
+        "abbreviation": "NYJ",
+        "score": 39
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -5.5,
+        "total": 43.5,
+        "favorite_team_id": "4",
+        "underdog_team_id": "20"
+      }
+    },
+    {
+      "espn_event_id": "401772868",
+      "competition_id": "401772868",
+      "week": 8,
+      "kickoff": "2025-10-26T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "17",
+        "abbreviation": "NE",
+        "score": 32
+      },
+      "away": {
+        "team_id": "5",
+        "abbreviation": "CLE",
+        "score": 13
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -6.5,
+        "total": 40.5,
+        "favorite_team_id": "17",
+        "underdog_team_id": "5"
+      }
+    },
+    {
+      "espn_event_id": "401772867",
+      "competition_id": "401772867",
+      "week": 8,
+      "kickoff": "2025-10-26T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "21",
+        "abbreviation": "PHI",
+        "score": 38
+      },
+      "away": {
+        "team_id": "19",
+        "abbreviation": "NYG",
+        "score": 20
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -7.5,
+        "total": 43.5,
+        "favorite_team_id": "21",
+        "underdog_team_id": "19"
+      }
+    },
+    {
+      "espn_event_id": "401772865",
+      "competition_id": "401772865",
+      "week": 8,
+      "kickoff": "2025-10-26T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "29",
+        "abbreviation": "CAR",
+        "score": 9
+      },
+      "away": {
+        "team_id": "2",
+        "abbreviation": "BUF",
+        "score": 40
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 7.5,
+        "total": 48.5,
+        "favorite_team_id": "2",
+        "underdog_team_id": "29"
+      }
+    },
+    {
+      "espn_event_id": "401772759",
+      "competition_id": "401772759",
+      "week": 8,
+      "kickoff": "2025-10-26T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "33",
+        "abbreviation": "BAL",
+        "score": 30
+      },
+      "away": {
+        "team_id": "3",
+        "abbreviation": "CHI",
+        "score": 16
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -2.5,
+        "total": 44.5,
+        "favorite_team_id": "33",
+        "underdog_team_id": "3"
+      }
+    },
+    {
+      "espn_event_id": "401772866",
+      "competition_id": "401772866",
+      "week": 8,
+      "kickoff": "2025-10-26T17:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "34",
+        "abbreviation": "HOU",
+        "score": 26
+      },
+      "away": {
+        "team_id": "25",
+        "abbreviation": "SF",
+        "score": 15
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -3.5,
+        "total": 41.5,
+        "favorite_team_id": "34",
+        "underdog_team_id": "25"
+      }
+    },
+    {
+      "espn_event_id": "401772869",
+      "competition_id": "401772869",
+      "week": 8,
+      "kickoff": "2025-10-26T20:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "18",
+        "abbreviation": "NO",
+        "score": 3
+      },
+      "away": {
+        "team_id": "27",
+        "abbreviation": "TB",
+        "score": 23
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 3.5,
+        "total": 45.5,
+        "favorite_team_id": "27",
+        "underdog_team_id": "18"
+      }
+    },
+    {
+      "espn_event_id": "401772762",
+      "competition_id": "401772762",
+      "week": 8,
+      "kickoff": "2025-10-26T20:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "7",
+        "abbreviation": "DEN",
+        "score": 44
+      },
+      "away": {
+        "team_id": "6",
+        "abbreviation": "DAL",
+        "score": 24
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -4.5,
+        "total": 51.5,
+        "favorite_team_id": "7",
+        "underdog_team_id": "6"
+      }
+    },
+    {
+      "espn_event_id": "401772761",
+      "competition_id": "401772761",
+      "week": 8,
+      "kickoff": "2025-10-26T20:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "11",
+        "abbreviation": "IND",
+        "score": 38
+      },
+      "away": {
+        "team_id": "10",
+        "abbreviation": "TEN",
+        "score": 14
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -14.5,
+        "total": 47.5,
+        "favorite_team_id": "11",
+        "underdog_team_id": "10"
+      }
+    },
+    {
+      "espn_event_id": "401772925",
+      "competition_id": "401772925",
+      "week": 8,
+      "kickoff": "2025-10-27T00:20Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "23",
+        "abbreviation": "PIT",
+        "score": 25
+      },
+      "away": {
+        "team_id": "9",
+        "abbreviation": "GB",
+        "score": 35
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 2.5,
+        "total": 45.5,
+        "favorite_team_id": "9",
+        "underdog_team_id": "23"
+      }
+    },
+    {
+      "espn_event_id": "401772817",
+      "competition_id": "401772817",
+      "week": 8,
+      "kickoff": "2025-10-28T00:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "12",
+        "abbreviation": "KC",
+        "score": 28
+      },
+      "away": {
+        "team_id": "28",
+        "abbreviation": "WSH",
+        "score": 7
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -11.5,
+        "total": 48.5,
+        "favorite_team_id": "12",
+        "underdog_team_id": "28"
+      }
+    },
+    {
+      "espn_event_id": "401772943",
+      "competition_id": "401772943",
+      "week": 9,
+      "kickoff": "2025-10-31T00:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "15",
+        "abbreviation": "MIA",
+        "score": 6
+      },
+      "away": {
+        "team_id": "33",
+        "abbreviation": "BAL",
+        "score": 28
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 7.5,
+        "total": 51.5,
+        "favorite_team_id": "33",
+        "underdog_team_id": "15"
+      }
+    },
+    {
+      "espn_event_id": "401772765",
+      "competition_id": "401772765",
+      "week": 9,
+      "kickoff": "2025-11-02T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "4",
+        "abbreviation": "CIN",
+        "score": 42
+      },
+      "away": {
+        "team_id": "3",
+        "abbreviation": "CHI",
+        "score": 47
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 2.5,
+        "total": 51.5,
+        "favorite_team_id": "3",
+        "underdog_team_id": "4"
+      }
+    },
+    {
+      "espn_event_id": "401772871",
+      "competition_id": "401772871",
+      "week": 9,
+      "kickoff": "2025-11-02T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "8",
+        "abbreviation": "DET",
+        "score": 24
+      },
+      "away": {
+        "team_id": "16",
+        "abbreviation": "MIN",
+        "score": 27
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -9.5,
+        "total": 47.5,
+        "favorite_team_id": "8",
+        "underdog_team_id": "16"
+      }
+    },
+    {
+      "espn_event_id": "401772872",
+      "competition_id": "401772872",
+      "week": 9,
+      "kickoff": "2025-11-02T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "9",
+        "abbreviation": "GB",
+        "score": 13
+      },
+      "away": {
+        "team_id": "29",
+        "abbreviation": "CAR",
+        "score": 16
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -13.5,
+        "total": 43.5,
+        "favorite_team_id": "9",
+        "underdog_team_id": "29"
+      }
+    },
+    {
+      "espn_event_id": "401772764",
+      "competition_id": "401772764",
+      "week": 9,
+      "kickoff": "2025-11-02T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "10",
+        "abbreviation": "TEN",
+        "score": 20
+      },
+      "away": {
+        "team_id": "24",
+        "abbreviation": "LAC",
+        "score": 27
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 9.5,
+        "total": 44.5,
+        "favorite_team_id": "24",
+        "underdog_team_id": "10"
+      }
+    },
+    {
+      "espn_event_id": "401772763",
+      "competition_id": "401772763",
+      "week": 9,
+      "kickoff": "2025-11-02T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "17",
+        "abbreviation": "NE",
+        "score": 24
+      },
+      "away": {
+        "team_id": "1",
+        "abbreviation": "ATL",
+        "score": 23
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -5.5,
+        "total": 45.5,
+        "favorite_team_id": "17",
+        "underdog_team_id": "1"
+      }
+    },
+    {
+      "espn_event_id": "401772767",
+      "competition_id": "401772767",
+      "week": 9,
+      "kickoff": "2025-11-02T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "19",
+        "abbreviation": "NYG",
+        "score": 24
+      },
+      "away": {
+        "team_id": "25",
+        "abbreviation": "SF",
+        "score": 34
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 2.5,
+        "total": 47.5,
+        "favorite_team_id": "25",
+        "underdog_team_id": "19"
+      }
+    },
+    {
+      "espn_event_id": "401772766",
+      "competition_id": "401772766",
+      "week": 9,
+      "kickoff": "2025-11-02T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "23",
+        "abbreviation": "PIT",
+        "score": 27
+      },
+      "away": {
+        "team_id": "11",
+        "abbreviation": "IND",
+        "score": 20
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 3.5,
+        "total": 51.5,
+        "favorite_team_id": "11",
+        "underdog_team_id": "23"
+      }
+    },
+    {
+      "espn_event_id": "401772870",
+      "competition_id": "401772870",
+      "week": 9,
+      "kickoff": "2025-11-02T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "34",
+        "abbreviation": "HOU",
+        "score": 15
+      },
+      "away": {
+        "team_id": "7",
+        "abbreviation": "DEN",
+        "score": 18
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -2.5,
+        "total": 41.5,
+        "favorite_team_id": "34",
+        "underdog_team_id": "7"
+      }
+    },
+    {
+      "espn_event_id": "401772873",
+      "competition_id": "401772873",
+      "week": 9,
+      "kickoff": "2025-11-02T21:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "13",
+        "abbreviation": "LV",
+        "score": 29
+      },
+      "away": {
+        "team_id": "30",
+        "abbreviation": "JAX",
+        "score": 30
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 1.5,
+        "total": 44.5,
+        "favorite_team_id": "30",
+        "underdog_team_id": "13"
+      }
+    },
+    {
+      "espn_event_id": "401772874",
+      "competition_id": "401772874",
+      "week": 9,
+      "kickoff": "2025-11-02T21:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "14",
+        "abbreviation": "LAR",
+        "score": 34
+      },
+      "away": {
+        "team_id": "18",
+        "abbreviation": "NO",
+        "score": 10
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -14.5,
+        "total": 45.5,
+        "favorite_team_id": "14",
+        "underdog_team_id": "18"
+      }
+    },
+    {
+      "espn_event_id": "401772768",
+      "competition_id": "401772768",
+      "week": 9,
+      "kickoff": "2025-11-02T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "2",
+        "abbreviation": "BUF",
+        "score": 28
+      },
+      "away": {
+        "team_id": "12",
+        "abbreviation": "KC",
+        "score": 21
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 2.5,
+        "total": 53.5,
+        "favorite_team_id": "12",
+        "underdog_team_id": "2"
+      }
+    },
+    {
+      "espn_event_id": "401772926",
+      "competition_id": "401772926",
+      "week": 9,
+      "kickoff": "2025-11-03T01:20Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "28",
+        "abbreviation": "WSH",
+        "score": 14
+      },
+      "away": {
+        "team_id": "26",
+        "abbreviation": "SEA",
+        "score": 38
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 2.5,
+        "total": 47.5,
+        "favorite_team_id": "26",
+        "underdog_team_id": "28"
+      }
+    },
+    {
+      "espn_event_id": "401772818",
+      "competition_id": "401772818",
+      "week": 9,
+      "kickoff": "2025-11-04T01:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "6",
+        "abbreviation": "DAL",
+        "score": 17
+      },
+      "away": {
+        "team_id": "22",
+        "abbreviation": "ARI",
+        "score": 27
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -3.5,
+        "total": 53.5,
+        "favorite_team_id": "6",
+        "underdog_team_id": "22"
+      }
+    },
+    {
+      "espn_event_id": "401772944",
+      "competition_id": "401772944",
+      "week": 10,
+      "kickoff": "2025-11-07T01:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "7",
+        "abbreviation": "DEN",
+        "score": 10
+      },
+      "away": {
+        "team_id": "13",
+        "abbreviation": "LV",
+        "score": 7
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -9.5,
+        "total": 41.5,
+        "favorite_team_id": "7",
+        "underdog_team_id": "13"
+      }
+    },
+    {
+      "espn_event_id": "401772636",
+      "competition_id": "401772636",
+      "week": 10,
+      "kickoff": "2025-11-09T14:30Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "11",
+        "abbreviation": "IND",
+        "score": 31
+      },
+      "away": {
+        "team_id": "1",
+        "abbreviation": "ATL",
+        "score": 25
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -5.5,
+        "total": 48.5,
+        "favorite_team_id": "11",
+        "underdog_team_id": "1"
+      }
+    },
+    {
+      "espn_event_id": "401772875",
+      "competition_id": "401772875",
+      "week": 10,
+      "kickoff": "2025-11-09T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "3",
+        "abbreviation": "CHI",
+        "score": 24
+      },
+      "away": {
+        "team_id": "19",
+        "abbreviation": "NYG",
+        "score": 20
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -4.5,
+        "total": 44.5,
+        "favorite_team_id": "3",
+        "underdog_team_id": "19"
+      }
+    },
+    {
+      "espn_event_id": "401772771",
+      "competition_id": "401772771",
+      "week": 10,
+      "kickoff": "2025-11-09T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "15",
+        "abbreviation": "MIA",
+        "score": 30
+      },
+      "away": {
+        "team_id": "2",
+        "abbreviation": "BUF",
+        "score": 13
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 8.5,
+        "total": 50.5,
+        "favorite_team_id": "2",
+        "underdog_team_id": "15"
+      }
+    },
+    {
+      "espn_event_id": "401772876",
+      "competition_id": "401772876",
+      "week": 10,
+      "kickoff": "2025-11-09T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "16",
+        "abbreviation": "MIN",
+        "score": 19
+      },
+      "away": {
+        "team_id": "33",
+        "abbreviation": "BAL",
+        "score": 27
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 4.5,
+        "total": 49.5,
+        "favorite_team_id": "33",
+        "underdog_team_id": "16"
+      }
+    },
+    {
+      "espn_event_id": "401772769",
+      "competition_id": "401772769",
+      "week": 10,
+      "kickoff": "2025-11-09T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "20",
+        "abbreviation": "NYJ",
+        "score": 27
+      },
+      "away": {
+        "team_id": "5",
+        "abbreviation": "CLE",
+        "score": 20
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 2.5,
+        "total": 37.5,
+        "favorite_team_id": "5",
+        "underdog_team_id": "20"
+      }
+    },
+    {
+      "espn_event_id": "401772772",
+      "competition_id": "401772772",
+      "week": 10,
+      "kickoff": "2025-11-09T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "27",
+        "abbreviation": "TB",
+        "score": 23
+      },
+      "away": {
+        "team_id": "17",
+        "abbreviation": "NE",
+        "score": 28
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -2.5,
+        "total": 48.5,
+        "favorite_team_id": "27",
+        "underdog_team_id": "17"
+      }
+    },
+    {
+      "espn_event_id": "401772877",
+      "competition_id": "401772877",
+      "week": 10,
+      "kickoff": "2025-11-09T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "29",
+        "abbreviation": "CAR",
+        "score": 7
+      },
+      "away": {
+        "team_id": "18",
+        "abbreviation": "NO",
+        "score": 17
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -5.5,
+        "total": 38.5,
+        "favorite_team_id": "29",
+        "underdog_team_id": "18"
+      }
+    },
+    {
+      "espn_event_id": "401772770",
+      "competition_id": "401772770",
+      "week": 10,
+      "kickoff": "2025-11-09T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "34",
+        "abbreviation": "HOU",
+        "score": 36
+      },
+      "away": {
+        "team_id": "30",
+        "abbreviation": "JAX",
+        "score": 29
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -2.5,
+        "total": 38.5,
+        "favorite_team_id": "34",
+        "underdog_team_id": "30"
+      }
+    },
+    {
+      "espn_event_id": "401772773",
+      "competition_id": "401772773",
+      "week": 10,
+      "kickoff": "2025-11-09T21:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "26",
+        "abbreviation": "SEA",
+        "score": 44
+      },
+      "away": {
+        "team_id": "22",
+        "abbreviation": "ARI",
+        "score": 22
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -7.5,
+        "total": 44.5,
+        "favorite_team_id": "26",
+        "underdog_team_id": "22"
+      }
+    },
+    {
+      "espn_event_id": "401772879",
+      "competition_id": "401772879",
+      "week": 10,
+      "kickoff": "2025-11-09T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "25",
+        "abbreviation": "SF",
+        "score": 26
+      },
+      "away": {
+        "team_id": "14",
+        "abbreviation": "LAR",
+        "score": 42
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 6.5,
+        "total": 49.5,
+        "favorite_team_id": "14",
+        "underdog_team_id": "25"
+      }
+    },
+    {
+      "espn_event_id": "401772878",
+      "competition_id": "401772878",
+      "week": 10,
+      "kickoff": "2025-11-09T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "28",
+        "abbreviation": "WSH",
+        "score": 22
+      },
+      "away": {
+        "team_id": "8",
+        "abbreviation": "DET",
+        "score": 44
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 7.5,
+        "total": 48.5,
+        "favorite_team_id": "8",
+        "underdog_team_id": "28"
+      }
+    },
+    {
+      "espn_event_id": "401772927",
+      "competition_id": "401772927",
+      "week": 10,
+      "kickoff": "2025-11-10T01:20Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "24",
+        "abbreviation": "LAC",
+        "score": 25
+      },
+      "away": {
+        "team_id": "23",
+        "abbreviation": "PIT",
+        "score": 10
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -3.5,
+        "total": 45.5,
+        "favorite_team_id": "24",
+        "underdog_team_id": "23"
+      }
+    },
+    {
+      "espn_event_id": "401772630",
+      "competition_id": "401772630",
+      "week": 10,
+      "kickoff": "2025-11-11T01:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "9",
+        "abbreviation": "GB",
+        "score": 7
+      },
+      "away": {
+        "team_id": "21",
+        "abbreviation": "PHI",
+        "score": 10
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -1.5,
+        "total": 44.5,
+        "favorite_team_id": "9",
+        "underdog_team_id": "21"
+      }
+    },
+    {
+      "espn_event_id": "401772945",
+      "competition_id": "401772945",
+      "week": 11,
+      "kickoff": "2025-11-14T01:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "17",
+        "abbreviation": "NE",
+        "score": 27
+      },
+      "away": {
+        "team_id": "20",
+        "abbreviation": "NYJ",
+        "score": 14
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -12.5,
+        "total": 42.5,
+        "favorite_team_id": "17",
+        "underdog_team_id": "20"
+      }
+    },
+    {
+      "espn_event_id": "401772631",
+      "competition_id": "401772631",
+      "week": 11,
+      "kickoff": "2025-11-16T14:30Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "15",
+        "abbreviation": "MIA",
+        "score": 16
+      },
+      "away": {
+        "team_id": "28",
+        "abbreviation": "WSH",
+        "score": 13
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -2.5,
+        "total": 46.5,
+        "favorite_team_id": "15",
+        "underdog_team_id": "28"
+      }
+    },
+    {
+      "espn_event_id": "401772882",
+      "competition_id": "401772882",
+      "week": 11,
+      "kickoff": "2025-11-16T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "1",
+        "abbreviation": "ATL",
+        "score": 27
+      },
+      "away": {
+        "team_id": "29",
+        "abbreviation": "CAR",
+        "score": 30
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -4.5,
+        "total": 41.5,
+        "favorite_team_id": "1",
+        "underdog_team_id": "29"
+      }
+    },
+    {
+      "espn_event_id": "401772776",
+      "competition_id": "401772776",
+      "week": 11,
+      "kickoff": "2025-11-16T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "2",
+        "abbreviation": "BUF",
+        "score": 44
+      },
+      "away": {
+        "team_id": "27",
+        "abbreviation": "TB",
+        "score": 32
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -6.5,
+        "total": 44.5,
+        "favorite_team_id": "2",
+        "underdog_team_id": "27"
+      }
+    },
+    {
+      "espn_event_id": "401772881",
+      "competition_id": "401772881",
+      "week": 11,
+      "kickoff": "2025-11-16T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "10",
+        "abbreviation": "TEN",
+        "score": 13
+      },
+      "away": {
+        "team_id": "34",
+        "abbreviation": "HOU",
+        "score": 16
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 5.5,
+        "total": 37.5,
+        "favorite_team_id": "34",
+        "underdog_team_id": "10"
+      }
+    },
+    {
+      "espn_event_id": "401772880",
+      "competition_id": "401772880",
+      "week": 11,
+      "kickoff": "2025-11-16T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "16",
+        "abbreviation": "MIN",
+        "score": 17
+      },
+      "away": {
+        "team_id": "3",
+        "abbreviation": "CHI",
+        "score": 19
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -3.0,
+        "total": 47.5,
+        "favorite_team_id": "16",
+        "underdog_team_id": "3"
+      }
+    },
+    {
+      "espn_event_id": "401772883",
+      "competition_id": "401772883",
+      "week": 11,
+      "kickoff": "2025-11-16T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "19",
+        "abbreviation": "NYG",
+        "score": 20
+      },
+      "away": {
+        "team_id": "9",
+        "abbreviation": "GB",
+        "score": 27
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 7.5,
+        "total": 42.5,
+        "favorite_team_id": "9",
+        "underdog_team_id": "19"
+      }
+    },
+    {
+      "espn_event_id": "401772774",
+      "competition_id": "401772774",
+      "week": 11,
+      "kickoff": "2025-11-16T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "23",
+        "abbreviation": "PIT",
+        "score": 34
+      },
+      "away": {
+        "team_id": "4",
+        "abbreviation": "CIN",
+        "score": 12
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -5.5,
+        "total": 47.5,
+        "favorite_team_id": "23",
+        "underdog_team_id": "4"
+      }
+    },
+    {
+      "espn_event_id": "401772775",
+      "competition_id": "401772775",
+      "week": 11,
+      "kickoff": "2025-11-16T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "30",
+        "abbreviation": "JAX",
+        "score": 35
+      },
+      "away": {
+        "team_id": "24",
+        "abbreviation": "LAC",
+        "score": 6
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 2.5,
+        "total": 42.5,
+        "favorite_team_id": "24",
+        "underdog_team_id": "30"
+      }
+    },
+    {
+      "espn_event_id": "401772884",
+      "competition_id": "401772884",
+      "week": 11,
+      "kickoff": "2025-11-16T21:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "14",
+        "abbreviation": "LAR",
+        "score": 21
+      },
+      "away": {
+        "team_id": "26",
+        "abbreviation": "SEA",
+        "score": 19
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -3.5,
+        "total": 49.5,
+        "favorite_team_id": "14",
+        "underdog_team_id": "26"
+      }
+    },
+    {
+      "espn_event_id": "401772885",
+      "competition_id": "401772885",
+      "week": 11,
+      "kickoff": "2025-11-16T21:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "22",
+        "abbreviation": "ARI",
+        "score": 22
+      },
+      "away": {
+        "team_id": "25",
+        "abbreviation": "SF",
+        "score": 41
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 3.5,
+        "total": 48.5,
+        "favorite_team_id": "25",
+        "underdog_team_id": "22"
+      }
+    },
+    {
+      "espn_event_id": "401772777",
+      "competition_id": "401772777",
+      "week": 11,
+      "kickoff": "2025-11-16T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "5",
+        "abbreviation": "CLE",
+        "score": 16
+      },
+      "away": {
+        "team_id": "33",
+        "abbreviation": "BAL",
+        "score": 23
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 7.5,
+        "total": 37.5,
+        "favorite_team_id": "33",
+        "underdog_team_id": "5"
+      }
+    },
+    {
+      "espn_event_id": "401772778",
+      "competition_id": "401772778",
+      "week": 11,
+      "kickoff": "2025-11-16T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "7",
+        "abbreviation": "DEN",
+        "score": 22
+      },
+      "away": {
+        "team_id": "12",
+        "abbreviation": "KC",
+        "score": 19
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 4.5,
+        "total": 45.5,
+        "favorite_team_id": "12",
+        "underdog_team_id": "7"
+      }
+    },
+    {
+      "espn_event_id": "401772928",
+      "competition_id": "401772928",
+      "week": 11,
+      "kickoff": "2025-11-17T01:20Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "21",
+        "abbreviation": "PHI",
+        "score": 16
+      },
+      "away": {
+        "team_id": "8",
+        "abbreviation": "DET",
+        "score": 9
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -2.5,
+        "total": 45.5,
+        "favorite_team_id": "21",
+        "underdog_team_id": "8"
+      }
+    },
+    {
+      "espn_event_id": "401772819",
+      "competition_id": "401772819",
+      "week": 11,
+      "kickoff": "2025-11-18T01:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "13",
+        "abbreviation": "LV",
+        "score": 16
+      },
+      "away": {
+        "team_id": "6",
+        "abbreviation": "DAL",
+        "score": 33
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 3.5,
+        "total": 48.5,
+        "favorite_team_id": "6",
+        "underdog_team_id": "13"
+      }
+    },
+    {
+      "espn_event_id": "401772946",
+      "competition_id": "401772946",
+      "week": 12,
+      "kickoff": "2025-11-21T01:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "34",
+        "abbreviation": "HOU",
+        "score": 23
+      },
+      "away": {
+        "team_id": "2",
+        "abbreviation": "BUF",
+        "score": 19
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 4.5,
+        "total": 44.5,
+        "favorite_team_id": "2",
+        "underdog_team_id": "34"
+      }
+    },
+    {
+      "espn_event_id": "401772780",
+      "competition_id": "401772780",
+      "week": 12,
+      "kickoff": "2025-11-23T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "3",
+        "abbreviation": "CHI",
+        "score": 31
+      },
+      "away": {
+        "team_id": "23",
+        "abbreviation": "PIT",
+        "score": 28
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -2.5,
+        "total": 47.5,
+        "favorite_team_id": "3",
+        "underdog_team_id": "23"
+      }
+    },
+    {
+      "espn_event_id": "401772781",
+      "competition_id": "401772781",
+      "week": 12,
+      "kickoff": "2025-11-23T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "4",
+        "abbreviation": "CIN",
+        "score": 20
+      },
+      "away": {
+        "team_id": "17",
+        "abbreviation": "NE",
+        "score": 26
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 7.5,
+        "total": 50.5,
+        "favorite_team_id": "17",
+        "underdog_team_id": "4"
+      }
+    },
+    {
+      "espn_event_id": "401772888",
+      "competition_id": "401772888",
+      "week": 12,
+      "kickoff": "2025-11-23T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "8",
+        "abbreviation": "DET",
+        "score": 34
+      },
+      "away": {
+        "team_id": "19",
+        "abbreviation": "NYG",
+        "score": 27
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -14.5,
+        "total": 50.5,
+        "favorite_team_id": "8",
+        "underdog_team_id": "19"
+      }
+    },
+    {
+      "espn_event_id": "401772887",
+      "competition_id": "401772887",
+      "week": 12,
+      "kickoff": "2025-11-23T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "9",
+        "abbreviation": "GB",
+        "score": 23
+      },
+      "away": {
+        "team_id": "16",
+        "abbreviation": "MIN",
+        "score": 6
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -6.5,
+        "total": 41.5,
+        "favorite_team_id": "9",
+        "underdog_team_id": "16"
+      }
+    },
+    {
+      "espn_event_id": "401772886",
+      "competition_id": "401772886",
+      "week": 12,
+      "kickoff": "2025-11-23T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "10",
+        "abbreviation": "TEN",
+        "score": 24
+      },
+      "away": {
+        "team_id": "26",
+        "abbreviation": "SEA",
+        "score": 30
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 11.5,
+        "total": 41.5,
+        "favorite_team_id": "26",
+        "underdog_team_id": "10"
+      }
+    },
+    {
+      "espn_event_id": "401772779",
+      "competition_id": "401772779",
+      "week": 12,
+      "kickoff": "2025-11-23T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "12",
+        "abbreviation": "KC",
+        "score": 23
+      },
+      "away": {
+        "team_id": "11",
+        "abbreviation": "IND",
+        "score": 20
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -4.5,
+        "total": 49.5,
+        "favorite_team_id": "12",
+        "underdog_team_id": "11"
+      }
+    },
+    {
+      "espn_event_id": "401772782",
+      "competition_id": "401772782",
+      "week": 12,
+      "kickoff": "2025-11-23T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "33",
+        "abbreviation": "BAL",
+        "score": 23
+      },
+      "away": {
+        "team_id": "20",
+        "abbreviation": "NYJ",
+        "score": 10
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -14.5,
+        "total": 44.5,
+        "favorite_team_id": "33",
+        "underdog_team_id": "20"
+      }
+    },
+    {
+      "espn_event_id": "401772784",
+      "competition_id": "401772784",
+      "week": 12,
+      "kickoff": "2025-11-23T21:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "13",
+        "abbreviation": "LV",
+        "score": 10
+      },
+      "away": {
+        "team_id": "5",
+        "abbreviation": "CLE",
+        "score": 24
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -3.5,
+        "total": 36.5,
+        "favorite_team_id": "13",
+        "underdog_team_id": "5"
+      }
+    },
+    {
+      "espn_event_id": "401772783",
+      "competition_id": "401772783",
+      "week": 12,
+      "kickoff": "2025-11-23T21:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "22",
+        "abbreviation": "ARI",
+        "score": 24
+      },
+      "away": {
+        "team_id": "30",
+        "abbreviation": "JAX",
+        "score": 27
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 1.5,
+        "total": 46.5,
+        "favorite_team_id": "30",
+        "underdog_team_id": "22"
+      }
+    },
+    {
+      "espn_event_id": "401772890",
+      "competition_id": "401772890",
+      "week": 12,
+      "kickoff": "2025-11-23T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "6",
+        "abbreviation": "DAL",
+        "score": 24
+      },
+      "away": {
+        "team_id": "21",
+        "abbreviation": "PHI",
+        "score": 21
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 2.5,
+        "total": 48.5,
+        "favorite_team_id": "21",
+        "underdog_team_id": "6"
+      }
+    },
+    {
+      "espn_event_id": "401772889",
+      "competition_id": "401772889",
+      "week": 12,
+      "kickoff": "2025-11-23T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "18",
+        "abbreviation": "NO",
+        "score": 10
+      },
+      "away": {
+        "team_id": "1",
+        "abbreviation": "ATL",
+        "score": 24
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -1.5,
+        "total": 40.5,
+        "favorite_team_id": "18",
+        "underdog_team_id": "1"
+      }
+    },
+    {
+      "espn_event_id": "401772929",
+      "competition_id": "401772929",
+      "week": 12,
+      "kickoff": "2025-11-24T01:20Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "14",
+        "abbreviation": "LAR",
+        "score": 34
+      },
+      "away": {
+        "team_id": "27",
+        "abbreviation": "TB",
+        "score": 7
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -7.5,
+        "total": 50.5,
+        "favorite_team_id": "14",
+        "underdog_team_id": "27"
+      }
+    },
+    {
+      "espn_event_id": "401772820",
+      "competition_id": "401772820",
+      "week": 12,
+      "kickoff": "2025-11-25T01:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "25",
+        "abbreviation": "SF",
+        "score": 20
+      },
+      "away": {
+        "team_id": "29",
+        "abbreviation": "CAR",
+        "score": 9
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -7.5,
+        "total": 49.5,
+        "favorite_team_id": "25",
+        "underdog_team_id": "29"
+      }
+    },
+    {
+      "espn_event_id": "401772891",
+      "competition_id": "401772891",
+      "week": 13,
+      "kickoff": "2025-11-27T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "8",
+        "abbreviation": "DET",
+        "score": 24
+      },
+      "away": {
+        "team_id": "9",
+        "abbreviation": "GB",
+        "score": 31
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -3.0,
+        "total": 47.5,
+        "favorite_team_id": "8",
+        "underdog_team_id": "9"
+      }
+    },
+    {
+      "espn_event_id": "401772694",
+      "competition_id": "401772694",
+      "week": 13,
+      "kickoff": "2025-11-27T21:30Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "6",
+        "abbreviation": "DAL",
+        "score": 31
+      },
+      "away": {
+        "team_id": "12",
+        "abbreviation": "KC",
+        "score": 28
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 3.5,
+        "total": 52.5,
+        "favorite_team_id": "12",
+        "underdog_team_id": "6"
+      }
+    },
+    {
+      "espn_event_id": "401772930",
+      "competition_id": "401772930",
+      "week": 13,
+      "kickoff": "2025-11-28T01:20Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "33",
+        "abbreviation": "BAL",
+        "score": 14
+      },
+      "away": {
+        "team_id": "4",
+        "abbreviation": "CIN",
+        "score": 32
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -7.5,
+        "total": 52.5,
+        "favorite_team_id": "33",
+        "underdog_team_id": "4"
+      }
+    },
+    {
+      "espn_event_id": "401772621",
+      "competition_id": "401772621",
+      "week": 13,
+      "kickoff": "2025-11-28T20:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "21",
+        "abbreviation": "PHI",
+        "score": 15
+      },
+      "away": {
+        "team_id": "3",
+        "abbreviation": "CHI",
+        "score": 24
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -7.0,
+        "total": 42.5,
+        "favorite_team_id": "21",
+        "underdog_team_id": "3"
+      }
+    },
+    {
+      "espn_event_id": "401772785",
+      "competition_id": "401772785",
+      "week": 13,
+      "kickoff": "2025-11-30T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "5",
+        "abbreviation": "CLE",
+        "score": 8
+      },
+      "away": {
+        "team_id": "25",
+        "abbreviation": "SF",
+        "score": 26
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 5.5,
+        "total": 35.5,
+        "favorite_team_id": "25",
+        "underdog_team_id": "5"
+      }
+    },
+    {
+      "espn_event_id": "401772786",
+      "competition_id": "401772786",
+      "week": 13,
+      "kickoff": "2025-11-30T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "10",
+        "abbreviation": "TEN",
+        "score": 3
+      },
+      "away": {
+        "team_id": "30",
+        "abbreviation": "JAX",
+        "score": 25
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 5.5,
+        "total": 42.5,
+        "favorite_team_id": "30",
+        "underdog_team_id": "10"
+      }
+    },
+    {
+      "espn_event_id": "401772787",
+      "competition_id": "401772787",
+      "week": 13,
+      "kickoff": "2025-11-30T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "11",
+        "abbreviation": "IND",
+        "score": 16
+      },
+      "away": {
+        "team_id": "34",
+        "abbreviation": "HOU",
+        "score": 20
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -3.5,
+        "total": 43.5,
+        "favorite_team_id": "11",
+        "underdog_team_id": "34"
+      }
+    },
+    {
+      "espn_event_id": "401772892",
+      "competition_id": "401772892",
+      "week": 13,
+      "kickoff": "2025-11-30T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "15",
+        "abbreviation": "MIA",
+        "score": 21
+      },
+      "away": {
+        "team_id": "18",
+        "abbreviation": "NO",
+        "score": 17
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -5.5,
+        "total": 41.5,
+        "favorite_team_id": "15",
+        "underdog_team_id": "18"
+      }
+    },
+    {
+      "espn_event_id": "401772893",
+      "competition_id": "401772893",
+      "week": 13,
+      "kickoff": "2025-11-30T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "20",
+        "abbreviation": "NYJ",
+        "score": 27
+      },
+      "away": {
+        "team_id": "1",
+        "abbreviation": "ATL",
+        "score": 24
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 2.5,
+        "total": 38.5,
+        "favorite_team_id": "1",
+        "underdog_team_id": "20"
+      }
+    },
+    {
+      "espn_event_id": "401772895",
+      "competition_id": "401772895",
+      "week": 13,
+      "kickoff": "2025-11-30T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "27",
+        "abbreviation": "TB",
+        "score": 20
+      },
+      "away": {
+        "team_id": "22",
+        "abbreviation": "ARI",
+        "score": 17
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -4.5,
+        "total": 45.5,
+        "favorite_team_id": "27",
+        "underdog_team_id": "22"
+      }
+    },
+    {
+      "espn_event_id": "401772894",
+      "competition_id": "401772894",
+      "week": 13,
+      "kickoff": "2025-11-30T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "29",
+        "abbreviation": "CAR",
+        "score": 31
+      },
+      "away": {
+        "team_id": "14",
+        "abbreviation": "LAR",
+        "score": 28
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 9.5,
+        "total": 44.5,
+        "favorite_team_id": "14",
+        "underdog_team_id": "29"
+      }
+    },
+    {
+      "espn_event_id": "401772896",
+      "competition_id": "401772896",
+      "week": 13,
+      "kickoff": "2025-11-30T21:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "26",
+        "abbreviation": "SEA",
+        "score": 26
+      },
+      "away": {
+        "team_id": "16",
+        "abbreviation": "MIN",
+        "score": 0
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -12.5,
+        "total": 42.5,
+        "favorite_team_id": "26",
+        "underdog_team_id": "16"
+      }
+    },
+    {
+      "espn_event_id": "401772789",
+      "competition_id": "401772789",
+      "week": 13,
+      "kickoff": "2025-11-30T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "23",
+        "abbreviation": "PIT",
+        "score": 7
+      },
+      "away": {
+        "team_id": "2",
+        "abbreviation": "BUF",
+        "score": 26
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 3.0,
+        "total": 44.5,
+        "favorite_team_id": "2",
+        "underdog_team_id": "23"
+      }
+    },
+    {
+      "espn_event_id": "401772788",
+      "competition_id": "401772788",
+      "week": 13,
+      "kickoff": "2025-11-30T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "24",
+        "abbreviation": "LAC",
+        "score": 31
+      },
+      "away": {
+        "team_id": "13",
+        "abbreviation": "LV",
+        "score": 14
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": -9.5,
+        "total": 40.5,
+        "favorite_team_id": "24",
+        "underdog_team_id": "13"
+      }
+    },
+    {
+      "espn_event_id": "401772931",
+      "competition_id": "401772931",
+      "week": 13,
+      "kickoff": "2025-12-01T01:20Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "28",
+        "abbreviation": "WSH",
+        "score": 26
+      },
+      "away": {
+        "team_id": "7",
+        "abbreviation": "DEN",
+        "score": 27
+      },
+      "odds": {
+        "provider": "ESPN BET",
+        "spread": 6.5,
+        "total": 43.5,
+        "favorite_team_id": "7",
+        "underdog_team_id": "28"
+      }
+    },
+    {
+      "espn_event_id": "401772821",
+      "competition_id": "401772821",
+      "week": 13,
+      "kickoff": "2025-12-02T01:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "17",
+        "abbreviation": "NE",
+        "score": 33
+      },
+      "away": {
+        "team_id": "19",
+        "abbreviation": "NYG",
+        "score": 15
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772947",
+      "competition_id": "401772947",
+      "week": 14,
+      "kickoff": "2025-12-05T01:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "8",
+        "abbreviation": "DET",
+        "score": 44
+      },
+      "away": {
+        "team_id": "6",
+        "abbreviation": "DAL",
+        "score": 30
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772900",
+      "competition_id": "401772900",
+      "week": 14,
+      "kickoff": "2025-12-07T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "1",
+        "abbreviation": "ATL",
+        "score": 9
+      },
+      "away": {
+        "team_id": "26",
+        "abbreviation": "SEA",
+        "score": 37
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772902",
+      "competition_id": "401772902",
+      "week": 14,
+      "kickoff": "2025-12-07T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "2",
+        "abbreviation": "BUF",
+        "score": 39
+      },
+      "away": {
+        "team_id": "4",
+        "abbreviation": "CIN",
+        "score": 34
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772898",
+      "competition_id": "401772898",
+      "week": 14,
+      "kickoff": "2025-12-07T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "5",
+        "abbreviation": "CLE",
+        "score": 29
+      },
+      "away": {
+        "team_id": "10",
+        "abbreviation": "TEN",
+        "score": 31
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772899",
+      "competition_id": "401772899",
+      "week": 14,
+      "kickoff": "2025-12-07T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "16",
+        "abbreviation": "MIN",
+        "score": 31
+      },
+      "away": {
+        "team_id": "28",
+        "abbreviation": "WSH",
+        "score": 0
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772790",
+      "competition_id": "401772790",
+      "week": 14,
+      "kickoff": "2025-12-07T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "20",
+        "abbreviation": "NYJ",
+        "score": 10
+      },
+      "away": {
+        "team_id": "15",
+        "abbreviation": "MIA",
+        "score": 34
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772792",
+      "competition_id": "401772792",
+      "week": 14,
+      "kickoff": "2025-12-07T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "27",
+        "abbreviation": "TB",
+        "score": 20
+      },
+      "away": {
+        "team_id": "18",
+        "abbreviation": "NO",
+        "score": 24
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772793",
+      "competition_id": "401772793",
+      "week": 14,
+      "kickoff": "2025-12-07T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "30",
+        "abbreviation": "JAX",
+        "score": 36
+      },
+      "away": {
+        "team_id": "11",
+        "abbreviation": "IND",
+        "score": 19
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772791",
+      "competition_id": "401772791",
+      "week": 14,
+      "kickoff": "2025-12-07T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "33",
+        "abbreviation": "BAL",
+        "score": 22
+      },
+      "away": {
+        "team_id": "23",
+        "abbreviation": "PIT",
+        "score": 27
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772794",
+      "competition_id": "401772794",
+      "week": 14,
+      "kickoff": "2025-12-07T21:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "13",
+        "abbreviation": "LV",
+        "score": 17
+      },
+      "away": {
+        "team_id": "7",
+        "abbreviation": "DEN",
+        "score": 24
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772897",
+      "competition_id": "401772897",
+      "week": 14,
+      "kickoff": "2025-12-07T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "9",
+        "abbreviation": "GB",
+        "score": 28
+      },
+      "away": {
+        "team_id": "3",
+        "abbreviation": "CHI",
+        "score": 21
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772901",
+      "competition_id": "401772901",
+      "week": 14,
+      "kickoff": "2025-12-07T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "22",
+        "abbreviation": "ARI",
+        "score": 17
+      },
+      "away": {
+        "team_id": "14",
+        "abbreviation": "LAR",
+        "score": 45
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772932",
+      "competition_id": "401772932",
+      "week": 14,
+      "kickoff": "2025-12-08T01:20Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "12",
+        "abbreviation": "KC",
+        "score": 10
+      },
+      "away": {
+        "team_id": "34",
+        "abbreviation": "HOU",
+        "score": 20
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772822",
+      "competition_id": "401772822",
+      "week": 14,
+      "kickoff": "2025-12-09T01:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "24",
+        "abbreviation": "LAC",
+        "score": 22
+      },
+      "away": {
+        "team_id": "21",
+        "abbreviation": "PHI",
+        "score": 19
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772948",
+      "competition_id": "401772948",
+      "week": 15,
+      "kickoff": "2025-12-12T01:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "27",
+        "abbreviation": "TB",
+        "score": 28
+      },
+      "away": {
+        "team_id": "1",
+        "abbreviation": "ATL",
+        "score": 29
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772904",
+      "competition_id": "401772904",
+      "week": 15,
+      "kickoff": "2025-12-14T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "3",
+        "abbreviation": "CHI",
+        "score": 31
+      },
+      "away": {
+        "team_id": "5",
+        "abbreviation": "CLE",
+        "score": 3
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772796",
+      "competition_id": "401772796",
+      "week": 15,
+      "kickoff": "2025-12-14T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "4",
+        "abbreviation": "CIN",
+        "score": 0
+      },
+      "away": {
+        "team_id": "33",
+        "abbreviation": "BAL",
+        "score": 24
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772798",
+      "competition_id": "401772798",
+      "week": 15,
+      "kickoff": "2025-12-14T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "12",
+        "abbreviation": "KC",
+        "score": 13
+      },
+      "away": {
+        "team_id": "24",
+        "abbreviation": "LAC",
+        "score": 16
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772795",
+      "competition_id": "401772795",
+      "week": 15,
+      "kickoff": "2025-12-14T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "17",
+        "abbreviation": "NE",
+        "score": 31
+      },
+      "away": {
+        "team_id": "2",
+        "abbreviation": "BUF",
+        "score": 35
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772905",
+      "competition_id": "401772905",
+      "week": 15,
+      "kickoff": "2025-12-14T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "19",
+        "abbreviation": "NYG",
+        "score": 21
+      },
+      "away": {
+        "team_id": "28",
+        "abbreviation": "WSH",
+        "score": 29
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772906",
+      "competition_id": "401772906",
+      "week": 15,
+      "kickoff": "2025-12-14T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "21",
+        "abbreviation": "PHI",
+        "score": 31
+      },
+      "away": {
+        "team_id": "13",
+        "abbreviation": "LV",
+        "score": 0
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772797",
+      "competition_id": "401772797",
+      "week": 15,
+      "kickoff": "2025-12-14T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "30",
+        "abbreviation": "JAX",
+        "score": 48
+      },
+      "away": {
+        "team_id": "20",
+        "abbreviation": "NYJ",
+        "score": 20
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772903",
+      "competition_id": "401772903",
+      "week": 15,
+      "kickoff": "2025-12-14T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "34",
+        "abbreviation": "HOU",
+        "score": 40
+      },
+      "away": {
+        "team_id": "22",
+        "abbreviation": "ARI",
+        "score": 20
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772800",
+      "competition_id": "401772800",
+      "week": 15,
+      "kickoff": "2025-12-14T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "7",
+        "abbreviation": "DEN",
+        "score": 34
+      },
+      "away": {
+        "team_id": "9",
+        "abbreviation": "GB",
+        "score": 26
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772909",
+      "competition_id": "401772909",
+      "week": 15,
+      "kickoff": "2025-12-14T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "14",
+        "abbreviation": "LAR",
+        "score": 41
+      },
+      "away": {
+        "team_id": "8",
+        "abbreviation": "DET",
+        "score": 34
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772908",
+      "competition_id": "401772908",
+      "week": 15,
+      "kickoff": "2025-12-14T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "18",
+        "abbreviation": "NO",
+        "score": 20
+      },
+      "away": {
+        "team_id": "29",
+        "abbreviation": "CAR",
+        "score": 17
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772907",
+      "competition_id": "401772907",
+      "week": 15,
+      "kickoff": "2025-12-14T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "25",
+        "abbreviation": "SF",
+        "score": 37
+      },
+      "away": {
+        "team_id": "10",
+        "abbreviation": "TEN",
+        "score": 24
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772799",
+      "competition_id": "401772799",
+      "week": 15,
+      "kickoff": "2025-12-14T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "26",
+        "abbreviation": "SEA",
+        "score": 18
+      },
+      "away": {
+        "team_id": "11",
+        "abbreviation": "IND",
+        "score": 16
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772933",
+      "competition_id": "401772933",
+      "week": 15,
+      "kickoff": "2025-12-15T01:20Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "6",
+        "abbreviation": "DAL",
+        "score": 26
+      },
+      "away": {
+        "team_id": "16",
+        "abbreviation": "MIN",
+        "score": 34
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772823",
+      "competition_id": "401772823",
+      "week": 15,
+      "kickoff": "2025-12-16T01:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "23",
+        "abbreviation": "PIT",
+        "score": 28
+      },
+      "away": {
+        "team_id": "15",
+        "abbreviation": "MIA",
+        "score": 15
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772949",
+      "competition_id": "401772949",
+      "week": 16,
+      "kickoff": "2025-12-19T01:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "26",
+        "abbreviation": "SEA",
+        "score": 38
+      },
+      "away": {
+        "team_id": "14",
+        "abbreviation": "LAR",
+        "score": 37
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772612",
+      "competition_id": "401772612",
+      "week": 16,
+      "kickoff": "2025-12-20T22:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "28",
+        "abbreviation": "WSH",
+        "score": 18
+      },
+      "away": {
+        "team_id": "21",
+        "abbreviation": "PHI",
+        "score": 29
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772613",
+      "competition_id": "401772613",
+      "week": 16,
+      "kickoff": "2025-12-21T01:20Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "3",
+        "abbreviation": "CHI",
+        "score": 22
+      },
+      "away": {
+        "team_id": "9",
+        "abbreviation": "GB",
+        "score": 16
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772802",
+      "competition_id": "401772802",
+      "week": 16,
+      "kickoff": "2025-12-21T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "5",
+        "abbreviation": "CLE",
+        "score": 20
+      },
+      "away": {
+        "team_id": "2",
+        "abbreviation": "BUF",
+        "score": 23
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772910",
+      "competition_id": "401772910",
+      "week": 16,
+      "kickoff": "2025-12-21T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "6",
+        "abbreviation": "DAL",
+        "score": 17
+      },
+      "away": {
+        "team_id": "24",
+        "abbreviation": "LAC",
+        "score": 34
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772803",
+      "competition_id": "401772803",
+      "week": 16,
+      "kickoff": "2025-12-21T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "10",
+        "abbreviation": "TEN",
+        "score": 26
+      },
+      "away": {
+        "team_id": "12",
+        "abbreviation": "KC",
+        "score": 9
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772934",
+      "competition_id": "401772934",
+      "week": 16,
+      "kickoff": "2025-12-21T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "15",
+        "abbreviation": "MIA",
+        "score": 21
+      },
+      "away": {
+        "team_id": "4",
+        "abbreviation": "CIN",
+        "score": 45
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772801",
+      "competition_id": "401772801",
+      "week": 16,
+      "kickoff": "2025-12-21T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "18",
+        "abbreviation": "NO",
+        "score": 29
+      },
+      "away": {
+        "team_id": "20",
+        "abbreviation": "NYJ",
+        "score": 6
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772911",
+      "competition_id": "401772911",
+      "week": 16,
+      "kickoff": "2025-12-21T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "19",
+        "abbreviation": "NYG",
+        "score": 13
+      },
+      "away": {
+        "team_id": "16",
+        "abbreviation": "MIN",
+        "score": 16
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772912",
+      "competition_id": "401772912",
+      "week": 16,
+      "kickoff": "2025-12-21T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "29",
+        "abbreviation": "CAR",
+        "score": 23
+      },
+      "away": {
+        "team_id": "27",
+        "abbreviation": "TB",
+        "score": 20
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772913",
+      "competition_id": "401772913",
+      "week": 16,
+      "kickoff": "2025-12-21T21:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "7",
+        "abbreviation": "DEN",
+        "score": 20
+      },
+      "away": {
+        "team_id": "30",
+        "abbreviation": "JAX",
+        "score": 34
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772914",
+      "competition_id": "401772914",
+      "week": 16,
+      "kickoff": "2025-12-21T21:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "22",
+        "abbreviation": "ARI",
+        "score": 19
+      },
+      "away": {
+        "team_id": "1",
+        "abbreviation": "ATL",
+        "score": 26
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772806",
+      "competition_id": "401772806",
+      "week": 16,
+      "kickoff": "2025-12-21T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "8",
+        "abbreviation": "DET",
+        "score": 24
+      },
+      "away": {
+        "team_id": "23",
+        "abbreviation": "PIT",
+        "score": 29
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772805",
+      "competition_id": "401772805",
+      "week": 16,
+      "kickoff": "2025-12-21T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "34",
+        "abbreviation": "HOU",
+        "score": 23
+      },
+      "away": {
+        "team_id": "13",
+        "abbreviation": "LV",
+        "score": 21
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772804",
+      "competition_id": "401772804",
+      "week": 16,
+      "kickoff": "2025-12-22T01:20Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "33",
+        "abbreviation": "BAL",
+        "score": 24
+      },
+      "away": {
+        "team_id": "17",
+        "abbreviation": "NE",
+        "score": 28
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772824",
+      "competition_id": "401772824",
+      "week": 16,
+      "kickoff": "2025-12-23T01:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "11",
+        "abbreviation": "IND",
+        "score": 27
+      },
+      "away": {
+        "team_id": "25",
+        "abbreviation": "SF",
+        "score": 48
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772710",
+      "competition_id": "401772710",
+      "week": 17,
+      "kickoff": "2025-12-25T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "28",
+        "abbreviation": "WSH",
+        "score": 23
+      },
+      "away": {
+        "team_id": "6",
+        "abbreviation": "DAL",
+        "score": 30
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772711",
+      "competition_id": "401772711",
+      "week": 17,
+      "kickoff": "2025-12-25T21:30Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "16",
+        "abbreviation": "MIN",
+        "score": 23
+      },
+      "away": {
+        "team_id": "8",
+        "abbreviation": "DET",
+        "score": 10
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772622",
+      "competition_id": "401772622",
+      "week": 17,
+      "kickoff": "2025-12-26T01:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "12",
+        "abbreviation": "KC",
+        "score": 13
+      },
+      "away": {
+        "team_id": "7",
+        "abbreviation": "DEN",
+        "score": 20
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772951",
+      "competition_id": "401772951",
+      "week": 17,
+      "kickoff": "2025-12-27T21:30Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "24",
+        "abbreviation": "LAC",
+        "score": 16
+      },
+      "away": {
+        "team_id": "34",
+        "abbreviation": "HOU",
+        "score": 20
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772953",
+      "competition_id": "401772953",
+      "week": 17,
+      "kickoff": "2025-12-28T01:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "9",
+        "abbreviation": "GB",
+        "score": 24
+      },
+      "away": {
+        "team_id": "33",
+        "abbreviation": "BAL",
+        "score": 41
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772954",
+      "competition_id": "401772954",
+      "week": 17,
+      "kickoff": "2025-12-28T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "4",
+        "abbreviation": "CIN",
+        "score": 37
+      },
+      "away": {
+        "team_id": "22",
+        "abbreviation": "ARI",
+        "score": 14
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772807",
+      "competition_id": "401772807",
+      "week": 17,
+      "kickoff": "2025-12-28T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "5",
+        "abbreviation": "CLE",
+        "score": 13
+      },
+      "away": {
+        "team_id": "23",
+        "abbreviation": "PIT",
+        "score": 6
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772809",
+      "competition_id": "401772809",
+      "week": 17,
+      "kickoff": "2025-12-28T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "10",
+        "abbreviation": "TEN",
+        "score": 26
+      },
+      "away": {
+        "team_id": "18",
+        "abbreviation": "NO",
+        "score": 34
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772915",
+      "competition_id": "401772915",
+      "week": 17,
+      "kickoff": "2025-12-28T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "11",
+        "abbreviation": "IND",
+        "score": 17
+      },
+      "away": {
+        "team_id": "30",
+        "abbreviation": "JAX",
+        "score": 23
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772916",
+      "competition_id": "401772916",
+      "week": 17,
+      "kickoff": "2025-12-28T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "15",
+        "abbreviation": "MIA",
+        "score": 20
+      },
+      "away": {
+        "team_id": "27",
+        "abbreviation": "TB",
+        "score": 17
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772808",
+      "competition_id": "401772808",
+      "week": 17,
+      "kickoff": "2025-12-28T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "20",
+        "abbreviation": "NYJ",
+        "score": 10
+      },
+      "away": {
+        "team_id": "17",
+        "abbreviation": "NE",
+        "score": 42
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772952",
+      "competition_id": "401772952",
+      "week": 17,
+      "kickoff": "2025-12-28T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "29",
+        "abbreviation": "CAR",
+        "score": 10
+      },
+      "away": {
+        "team_id": "26",
+        "abbreviation": "SEA",
+        "score": 27
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772950",
+      "competition_id": "401772950",
+      "week": 17,
+      "kickoff": "2025-12-28T21:05Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "13",
+        "abbreviation": "LV",
+        "score": 10
+      },
+      "away": {
+        "team_id": "19",
+        "abbreviation": "NYG",
+        "score": 34
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772917",
+      "competition_id": "401772917",
+      "week": 17,
+      "kickoff": "2025-12-28T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "2",
+        "abbreviation": "BUF",
+        "score": 12
+      },
+      "away": {
+        "team_id": "21",
+        "abbreviation": "PHI",
+        "score": 13
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772935",
+      "competition_id": "401772935",
+      "week": 17,
+      "kickoff": "2025-12-29T01:20Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "25",
+        "abbreviation": "SF",
+        "score": 42
+      },
+      "away": {
+        "team_id": "3",
+        "abbreviation": "CHI",
+        "score": 38
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772825",
+      "competition_id": "401772825",
+      "week": 17,
+      "kickoff": "2025-12-30T01:15Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "1",
+        "abbreviation": "ATL",
+        "score": 27
+      },
+      "away": {
+        "team_id": "14",
+        "abbreviation": "LAR",
+        "score": 24
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772969",
+      "competition_id": "401772969",
+      "week": 18,
+      "kickoff": "2026-01-03T21:30Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "27",
+        "abbreviation": "TB",
+        "score": 16
+      },
+      "away": {
+        "team_id": "29",
+        "abbreviation": "CAR",
+        "score": 14
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772961",
+      "competition_id": "401772961",
+      "week": 18,
+      "kickoff": "2026-01-04T01:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "25",
+        "abbreviation": "SF",
+        "score": 3
+      },
+      "away": {
+        "team_id": "26",
+        "abbreviation": "SEA",
+        "score": 13
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772966",
+      "competition_id": "401772966",
+      "week": 18,
+      "kickoff": "2026-01-04T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "1",
+        "abbreviation": "ATL",
+        "score": 19
+      },
+      "away": {
+        "team_id": "18",
+        "abbreviation": "NO",
+        "score": 17
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772964",
+      "competition_id": "401772964",
+      "week": 18,
+      "kickoff": "2026-01-04T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "4",
+        "abbreviation": "CIN",
+        "score": 18
+      },
+      "away": {
+        "team_id": "5",
+        "abbreviation": "CLE",
+        "score": 20
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772968",
+      "competition_id": "401772968",
+      "week": 18,
+      "kickoff": "2026-01-04T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "16",
+        "abbreviation": "MIN",
+        "score": 16
+      },
+      "away": {
+        "team_id": "9",
+        "abbreviation": "GB",
+        "score": 3
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772963",
+      "competition_id": "401772963",
+      "week": 18,
+      "kickoff": "2026-01-04T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "19",
+        "abbreviation": "NYG",
+        "score": 34
+      },
+      "away": {
+        "team_id": "6",
+        "abbreviation": "DAL",
+        "score": 17
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772970",
+      "competition_id": "401772970",
+      "week": 18,
+      "kickoff": "2026-01-04T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "30",
+        "abbreviation": "JAX",
+        "score": 41
+      },
+      "away": {
+        "team_id": "10",
+        "abbreviation": "TEN",
+        "score": 7
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772962",
+      "competition_id": "401772962",
+      "week": 18,
+      "kickoff": "2026-01-04T18:00Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "34",
+        "abbreviation": "HOU",
+        "score": 38
+      },
+      "away": {
+        "team_id": "11",
+        "abbreviation": "IND",
+        "score": 30
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772967",
+      "competition_id": "401772967",
+      "week": 18,
+      "kickoff": "2026-01-04T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "2",
+        "abbreviation": "BUF",
+        "score": 35
+      },
+      "away": {
+        "team_id": "20",
+        "abbreviation": "NYJ",
+        "score": 8
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772965",
+      "competition_id": "401772965",
+      "week": 18,
+      "kickoff": "2026-01-04T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "3",
+        "abbreviation": "CHI",
+        "score": 16
+      },
+      "away": {
+        "team_id": "8",
+        "abbreviation": "DET",
+        "score": 19
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772956",
+      "competition_id": "401772956",
+      "week": 18,
+      "kickoff": "2026-01-04T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "7",
+        "abbreviation": "DEN",
+        "score": 19
+      },
+      "away": {
+        "team_id": "24",
+        "abbreviation": "LAC",
+        "score": 3
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772957",
+      "competition_id": "401772957",
+      "week": 18,
+      "kickoff": "2026-01-04T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "13",
+        "abbreviation": "LV",
+        "score": 14
+      },
+      "away": {
+        "team_id": "12",
+        "abbreviation": "KC",
+        "score": 12
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772955",
+      "competition_id": "401772955",
+      "week": 18,
+      "kickoff": "2026-01-04T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "14",
+        "abbreviation": "LAR",
+        "score": 37
+      },
+      "away": {
+        "team_id": "22",
+        "abbreviation": "ARI",
+        "score": 20
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772958",
+      "competition_id": "401772958",
+      "week": 18,
+      "kickoff": "2026-01-04T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "17",
+        "abbreviation": "NE",
+        "score": 38
+      },
+      "away": {
+        "team_id": "15",
+        "abbreviation": "MIA",
+        "score": 10
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772959",
+      "competition_id": "401772959",
+      "week": 18,
+      "kickoff": "2026-01-04T21:25Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "21",
+        "abbreviation": "PHI",
+        "score": 17
+      },
+      "away": {
+        "team_id": "28",
+        "abbreviation": "WSH",
+        "score": 24
+      },
+      "odds": null
+    },
+    {
+      "espn_event_id": "401772960",
+      "competition_id": "401772960",
+      "week": 18,
+      "kickoff": "2026-01-05T01:20Z",
+      "status": {
+        "state": "post",
+        "completed": true,
+        "name": "STATUS_FINAL"
+      },
+      "home": {
+        "team_id": "23",
+        "abbreviation": "PIT",
+        "score": 26
+      },
+      "away": {
+        "team_id": "33",
+        "abbreviation": "BAL",
+        "score": 24
+      },
+      "odds": null
+    }
+  ]
+}
