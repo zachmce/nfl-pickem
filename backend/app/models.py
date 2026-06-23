@@ -174,6 +174,7 @@ class Pick(SQLModel, table=True):
             "pick_type",
             unique=True,
             postgresql_where=sa.text("is_mortal_lock = false"),
+            sqlite_where=sa.text("is_mortal_lock = false"),
         ),
         sa.Index(
             "uq_pick_user_week_mortal_lock",
@@ -181,6 +182,7 @@ class Pick(SQLModel, table=True):
             "week_id",
             unique=True,
             postgresql_where=sa.text("is_mortal_lock = true"),
+            sqlite_where=sa.text("is_mortal_lock = true"),
         ),
     )
 
