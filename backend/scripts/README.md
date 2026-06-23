@@ -5,6 +5,11 @@ ingest path** in `backend/app/`. Nothing here runs as part of the application,
 Celery workers, or any automatic schedule. Scripts are run manually by a
 developer.
 
+> **Production seeder lives elsewhere.** The 32-team NFL reference seeder is
+> production reference data (`Game` rows FK to `team.id`), so it lives under
+> `backend/app/seeds/`, **not** here. See
+> [Production team seeder](#production-team-seeder--appseedsteams) below.
+
 ---
 
 ## `gen_2025_fixture.py` — one-time 2025 NFL test-data fixture generator
@@ -78,4 +83,44 @@ The pure normalization logic is covered by offline unit tests (no network):
 ```bash
 cd backend
 python -m unittest tests.test_gen_2025_fixture -v
+```
+
+---
+
+## Production team seeder — `app.seeds.teams`
+
+> Not in `scripts/`. Documented here for discoverability; the seeder itself lives
+> at `backend/app/seeds/teams.py` because it writes **production** reference data.
+
+### What it is
+
+An **idempotent** seeder that populates the `team` table with all 32 NFL teams
+(canonical ESPN ids, abbreviations, and full display names). Unlike the dev-only
+generators in this directory, it is production reference data: every `Game` row
+FKs to `team.id`, so the team table **must be seeded before any game ingest**.
+
+The seeder upserts each team keyed on the unique `espn_team_id` column (never on
+the surrogate PK), so it is **safe to re-run**: a second run leaves exactly 32
+rows (no duplicates) and corrects any drifted abbreviation/display_name back to
+the canonical value.
+
+### Run command
+
+```bash
+cd backend
+python -m app.seeds.teams
+```
+
+> Note: on this machine the interpreter is `python3` (there is no bare `python`
+> on `PATH`); use `python3 -m app.seeds.teams` or the venv interpreter
+> `.venv/bin/python -m app.seeds.teams` if `python` is not found.
+
+### Tests
+
+The canonical table and idempotent-upsert behavior are covered by offline unit
+tests (no network, no Postgres — in-memory SQLite):
+
+```bash
+cd backend
+python -m unittest tests.test_seed_teams -v
 ```
