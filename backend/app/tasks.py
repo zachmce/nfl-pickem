@@ -27,12 +27,14 @@ def refresh_games_task() -> dict:
 
     Thin wrapper around the source-agnostic
     :func:`app.services.refresh.refresh_games` service: open a non-HTTP
-    ``task_session()``, resolve the production default scoreboard source (the
-    real ESPN adapter) via :func:`app.config.default_scoreboard_source`, run the
-    reconciliation, commit, and return a JSON-serializable summary so Celery's
-    json result serializer accepts it.
+    ``task_session()``, resolve the gated default scoreboard source (the real
+    ESPN adapter in prod, the time-shifted Demo2025Source under IS_DEMO_DATA) via
+    :func:`app.config.default_scoreboard_source`, run the reconciliation, commit,
+    and return a JSON-serializable summary so Celery's json result serializer
+    accepts it.
 
-    Beat schedule wiring (the cadence trigger) is intentionally OUT OF SCOPE.
+    Cadence trigger: registered in ``app.celery_app``'s ``beat_schedule`` (every
+    ``REFRESH_GAMES_INTERVAL_SECONDS``) so beat drives this poller on a timer.
     """
     with task_session() as session:
         # Pass the open session so the demo branch reuses it (reading the shared

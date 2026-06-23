@@ -11,6 +11,22 @@ from app.exception_handlers import add_exception_handlers
 from app.models import TaskRun
 from app.tasks import ping
 
+# Loud demo-mode banner (belt-and-suspenders for "never on silently",
+# T-sf0-02). Logged at import/startup so EVERY API process surfaces the demo
+# state, not just the seed CLI. A no-op when the flag is OFF (the prod path),
+# so prod startup is unchanged.
+if settings.is_demo_data:
+    import logging
+
+    _demo_line = "=" * 72
+    logging.getLogger("uvicorn.error").warning(
+        "\n%s\n  WARNING: IS_DEMO_DATA ON — this API is serving the FAKE "
+        "time-shifted 2025 DEMO season.\n  This is NOT production. Disable "
+        "IS_DEMO_DATA before go-live.\n%s",
+        _demo_line,
+        _demo_line,
+    )
+
 app = FastAPI(title="NFL Pick'em API")
 
 # Middleware order: the LAST add_middleware is outermost. CORS must be outermost
