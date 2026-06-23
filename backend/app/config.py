@@ -70,3 +70,17 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
+
+
+def default_scoreboard_source():
+    """Resolve the production default scoreboard source (the real ESPN adapter).
+
+    This is the single place the production default source is constructed. It is
+    a plain factory (not a Settings field) so the network-touching adapter is
+    only imported/instantiated by callers that actually need it (the Celery task
+    wrapper) — keeping the reconciliation service and the offline test suite free
+    of any ESPN/network dependency.
+    """
+    from app.scoreboard.espn import EspnScoreboardSource
+
+    return EspnScoreboardSource()
