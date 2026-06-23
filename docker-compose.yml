@@ -84,13 +84,20 @@ services:
     # cadence and the (shifted demo) season unspools on its own. For a multi-worker
     # prod deploy, split this into a dedicated `celery beat` service so only one
     # scheduler runs.
+    #
+    # `watchmedo auto-restart` restores edit-time reloads (Celery dropped its own
+    # --autoreload in v4): it watches the bind-mounted app package and restarts the
+    # worker on *.py changes. Watching /app/app (not /app) deliberately skips the
+    # mounted .venv. The prod overlay overrides this back to a plain celery command.
+    #
     # --schedule points beat's persistent schedule DB at the named volume (below),
     # NOT its cwd (/app = the bind-mounted ./backend). Otherwise beat writes
     # celerybeat-schedule{,-shm,-wal} into the repo, owned root:root (the container
     # runs as root). The named volume keeps that state off the host tree and
     # persists it across restarts so beat doesn't re-fire everything on restart.
     command:
-      ["celery", "-A", "app.celery_app.celery_app", "worker", "--beat", "--loglevel=info", "--schedule=/var/lib/celerybeat/celerybeat-schedule"]
+      ["watchmedo", "auto-restart", "--directory=/app/app", "--pattern=*.py", "--recursive", "--signal=SIGTERM", "--",
+       "celery", "-A", "app.celery_app.celery_app", "worker", "--beat", "--loglevel=info", "--schedule=/var/lib/celerybeat/celerybeat-schedule"]
     env_file: .env
     volumes:
       - ./backend:/app

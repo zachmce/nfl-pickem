@@ -12,6 +12,10 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "celery[redis]>=5.4",
     "redis>=5.2",
+    # Provides the `watchmedo` CLI that wraps the dev worker for auto-restart on
+    # code changes (Celery dropped its own --autoreload in v4). Shipped in the
+    # shared image; the prod worker command runs celery directly and never uses it.
+    "watchdog[watchmedo]>=4",
     "pydantic-settings>=2.7",
     # Discord bot + auth service layer (ported from the standalone bot)
     "discord.py>=2.5",

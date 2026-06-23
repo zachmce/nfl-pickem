@@ -9,6 +9,12 @@ services:
     volumes: []
 
   worker:
+    # Plain celery — no watchmedo auto-restart (that's a dev-only convenience).
+    # No named volume here (volumes cleared), so beat writes its schedule into the
+    # image's /var/lib/celerybeat (created in the Dockerfile) — container-internal,
+    # never the host.
+    command:
+      ["celery", "-A", "app.celery_app.celery_app", "worker", "--beat", "--loglevel=info", "--schedule=/var/lib/celerybeat/celerybeat-schedule"]
     volumes: []
 
   frontend:

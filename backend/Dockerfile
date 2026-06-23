@@ -20,6 +20,11 @@ RUN mkdir -p app && touch app/__init__.py \
 # Application source (overwrites the placeholder package).
 COPY . .
 
+# Home for Celery beat's persistent schedule DB. In dev a named volume is mounted
+# here (keeping the file off the host bind-mount); in prod no volume is mounted,
+# so the dir must already exist for `--schedule=/var/lib/celerybeat/...` to work.
+RUN mkdir -p /var/lib/celerybeat
+
 EXPOSE 8000
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
