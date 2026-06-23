@@ -256,6 +256,14 @@ class GroundTruthRealSeasonTests(unittest.TestCase):
             self.assertTrue(week1, "no week-1 games imported")
             self.assertTrue(week2, "no week-2 games imported")
 
+            # SQLite has no tz-aware column type, so DateTime(timezone=True)
+            # round-trips kickoffs back as naive datetimes (Postgres preserves
+            # the tz). The fixture's source times are UTC, so re-attach UTC here
+            # to mirror what production hands the (correctly tz-strict) service.
+            for g in (*week1, *week2):
+                if g.kickoff_at is not None and g.kickoff_at.tzinfo is None:
+                    g.kickoff_at = g.kickoff_at.replace(tzinfo=timezone.utc)
+
             window = compute_window(week2, week1)
 
             week1_kickoffs = [g.kickoff_at for g in week1 if g.kickoff_at is not None]
