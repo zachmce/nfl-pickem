@@ -17,7 +17,8 @@ future pick-submission endpoint) can reject contradictory picks deterministicall
 Scope is **conflict + eligibility validation only**:
 
 * :func:`validate_roster` checks a whole set of picks for duplicates,
-  contradictions, more than one mortal lock, and spread picks on a true pick'em.
+  contradictions, more than one base pick of the same type (the *slot* rule),
+  more than one mortal lock, and spread picks on a true pick'em.
 * :func:`check_new_pick` enforces *first-pick precedence*: it validates a single
   incoming pick against an already-accepted set; if the new pick conflicts, it is
   rejected and the existing pick wins.
@@ -28,6 +29,17 @@ Rules (single source of truth):
 * **Contradiction** — two mutually-exclusive types on the same game:
   ``UNDERDOG_COVER`` vs ``FAVORITE_COVER``, or ``OVER`` vs ``UNDER``. A spread
   pick and a total pick on the same game are *independent* and allowed.
+* **Duplicate base type (the slot model)** — more than one *base*
+  (non-mortal-lock) pick of the same ``pick_type`` in the week, even across
+  DIFFERENT games. The league is "one of each of four bet types" (PROJECT.md):
+  each base ``pick_type`` is a single weekly SLOT, so a roster may hold at most
+  one base pick of each type. The mortal lock is the *only* allowed same-type
+  duplicate (it occupies its own slot alongside the four base ones). This is the
+  whole-roster mirror of the DB partial unique index
+  ``uq_pick_user_week_type_base`` and of ``pick_submission``'s base-slot upsert:
+  submitting a second base pick of a type that already exists is a slot
+  *replacement* at submission time, but a single roster that *literally
+  contains* two base picks of one type is malformed and rejected here.
 * **Multiple mortal locks** — more than one pick flagged ``is_mortal_lock``. The
   mortal-lock flag never exempts a pick from duplicate / contradiction checks.
 * **Pick'em spread ineligibility** — a ``FAVORITE_COVER`` / ``UNDERDOG_COVER``
@@ -55,6 +67,7 @@ class ViolationCode(str, Enum):
 
     DUPLICATE_PICK = "DUPLICATE_PICK"
     CONTRADICTORY_PICK = "CONTRADICTORY_PICK"
+    DUPLICATE_BASE_TYPE = "DUPLICATE_BASE_TYPE"
     MULTIPLE_MORTAL_LOCKS = "MULTIPLE_MORTAL_LOCKS"
     PICKEM_SPREAD_INELIGIBLE = "PICKEM_SPREAD_INELIGIBLE"
 
@@ -142,13 +155,18 @@ def validate_roster(
     * **DUPLICATE_PICK** — two picks sharing ``pick_type`` on the same game.
     * **CONTRADICTORY_PICK** — a pair of mutually-exclusive types on the same
       game (favorite/underdog or over/under).
+    * **DUPLICATE_BASE_TYPE** — more than one *base* (non-mortal-lock) pick of the
+      same ``pick_type`` in the roster, even on DIFFERENT games (the slot model:
+      one base pick per type per week). The mortal lock is the only same-type
+      duplicate the slot model permits.
     * **MULTIPLE_MORTAL_LOCKS** — more than one ``is_mortal_lock`` pick (a single
       violation listing the offending picks).
     * **PICKEM_SPREAD_INELIGIBLE** — a spread pick on a true pick'em game.
 
     The mortal-lock flag never exempts a pick from duplicate / contradiction
     checks. A spread pick and a total pick on the same game are allowed. Picks on
-    different games never produce a cross-game violation.
+    different games never produce a per-game (duplicate/contradiction) violation,
+    but two BASE picks of one type DO violate the slot model regardless of game.
 
     A pick referencing a ``game_id`` absent from ``games_by_id`` is a programmer
     error (not a validation violation): the ``games_by_id[...]`` lookup raises
@@ -206,7 +224,31 @@ def validate_roster(
                         )
                     )
 
-    # (c) At most one mortal lock across the whole roster.
+    # (c) The slot model: at most one BASE (non-mortal-lock) pick per pick_type
+    # across the whole roster, even on different games. The mortal lock is the
+    # only allowed same-type duplicate — it occupies its own slot. This mirrors
+    # the DB partial unique index uq_pick_user_week_type_base.
+    base_by_type: dict[PickType, list[Pick]] = {}
+    for pick in pick_list:
+        if pick.is_mortal_lock:
+            continue
+        base_by_type.setdefault(pick.pick_type, []).append(pick)
+    for pick_type, base_picks in base_by_type.items():
+        if len(base_picks) > 1:
+            violations.append(
+                Violation(
+                    code=ViolationCode.DUPLICATE_BASE_TYPE,
+                    message=(
+                        f"A roster may have at most one base {pick_type.value} "
+                        f"pick per week (the slot model); found "
+                        f"{len(base_picks)}. Only the mortal lock may repeat a "
+                        "type."
+                    ),
+                    picks=tuple(base_picks),
+                )
+            )
+
+    # (d) At most one mortal lock across the whole roster.
     mortal_locks = [p for p in pick_list if p.is_mortal_lock]
     if len(mortal_locks) > 1:
         violations.append(

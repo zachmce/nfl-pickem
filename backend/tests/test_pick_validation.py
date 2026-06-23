@@ -218,6 +218,89 @@ class ConflictTests(unittest.TestCase):
         self.assertIn(p2, contradiction.picks)
 
 
+class SlotModelTests(unittest.TestCase):
+    """The slot model: at most one BASE pick per pick_type per week.
+
+    PROJECT.md is "one of each of four bet types" plus one mortal lock. Each base
+    ``pick_type`` is a single weekly slot, so two base picks of the same type —
+    even on different games — are a malformed roster. The mortal lock is the only
+    same-type duplicate the slot model allows. This mirrors the DB partial unique
+    index ``uq_pick_user_week_type_base``.
+    """
+
+    def test_two_base_same_type_different_games_rejected(self) -> None:
+        # Two base OVER picks on DIFFERENT games — the malformed-batch case.
+        g1 = _game(game_id=1)
+        g2 = _game(game_id=2)
+        picks = [
+            _pick(PickType.OVER, game_id=1),
+            _pick(PickType.OVER, game_id=2),
+        ]
+        result = validate_roster(picks, _games_by_id(g1, g2))
+        self.assertFalse(result.ok)
+        self.assertIn(ViolationCode.DUPLICATE_BASE_TYPE, _codes(result))
+
+    def test_base_plus_mortal_lock_same_type_allowed(self) -> None:
+        # A base OVER + a mortal-lock OVER on different games is allowed: the
+        # mortal lock occupies its own slot alongside the four base slots.
+        g1 = _game(game_id=1)
+        g2 = _game(game_id=2)
+        picks = [
+            _pick(PickType.OVER, game_id=1),
+            _pick(PickType.OVER, is_mortal_lock=True, game_id=2),
+        ]
+        result = validate_roster(picks, _games_by_id(g1, g2))
+        self.assertTrue(result.ok)
+        self.assertEqual(result.violations, ())
+
+    def test_one_of_each_base_type_allowed(self) -> None:
+        # The canonical full roster: one of each of the four base types on four
+        # distinct games + a mortal lock that repeats one type.
+        g1 = _game(game_id=1)
+        g2 = _game(game_id=2)
+        g3 = _game(game_id=3)
+        g4 = _game(game_id=4)
+        g5 = _game(game_id=5)
+        picks = [
+            _pick(PickType.FAVORITE_COVER, game_id=1),
+            _pick(PickType.UNDERDOG_COVER, game_id=2),
+            _pick(PickType.OVER, game_id=3),
+            _pick(PickType.UNDER, game_id=4),
+            _pick(PickType.FAVORITE_COVER, is_mortal_lock=True, game_id=5),
+        ]
+        result = validate_roster(picks, _games_by_id(g1, g2, g3, g4, g5))
+        self.assertTrue(result.ok)
+        self.assertEqual(result.violations, ())
+
+    def test_duplicate_base_type_violation_carries_both_picks(self) -> None:
+        g1 = _game(game_id=1)
+        g2 = _game(game_id=2)
+        p1 = _pick(PickType.UNDER, game_id=1)
+        p2 = _pick(PickType.UNDER, game_id=2)
+        result = validate_roster([p1, p2], _games_by_id(g1, g2))
+        dup = next(
+            v
+            for v in result.violations
+            if v.code is ViolationCode.DUPLICATE_BASE_TYPE
+        )
+        self.assertIn(p1, dup.picks)
+        self.assertIn(p2, dup.picks)
+
+    def test_two_mortal_locks_same_type_is_mortal_lock_violation(self) -> None:
+        # Two mortal locks of the same type are caught by the mortal-lock rule,
+        # NOT the base-type rule (mortal locks are excluded from the slot count).
+        g1 = _game(game_id=1)
+        g2 = _game(game_id=2)
+        picks = [
+            _pick(PickType.OVER, is_mortal_lock=True, game_id=1),
+            _pick(PickType.OVER, is_mortal_lock=True, game_id=2),
+        ]
+        result = validate_roster(picks, _games_by_id(g1, g2))
+        self.assertFalse(result.ok)
+        self.assertIn(ViolationCode.MULTIPLE_MORTAL_LOCKS, _codes(result))
+        self.assertNotIn(ViolationCode.DUPLICATE_BASE_TYPE, _codes(result))
+
+
 class MortalLockTests(unittest.TestCase):
     """At most one mortal lock per roster; the flag never exempts a pick."""
 
@@ -348,6 +431,19 @@ class FirstPickPrecedenceTests(unittest.TestCase):
         existing = [_pick(PickType.FAVORITE_COVER, game_id=1)]
         new_pick = _pick(PickType.OVER, game_id=1)
         result = check_new_pick(new_pick, existing, _games_by_id(g))
+        self.assertTrue(result.ok)
+        self.assertEqual(result.violations, ())
+
+    def test_new_same_base_type_different_game_accepted(self) -> None:
+        # An incoming base OVER on game B while a base OVER on game A exists is a
+        # legitimate SLOT REPLACEMENT at submission time (the upsert path in
+        # pick_submission), NOT a conflict. The slot-model rejection lives only in
+        # the whole-roster validate_roster; check_new_pick stays per-game.
+        g1 = _game(game_id=1)
+        g2 = _game(game_id=2)
+        existing = [_pick(PickType.OVER, game_id=1)]
+        new_pick = _pick(PickType.OVER, game_id=2)
+        result = check_new_pick(new_pick, existing, _games_by_id(g1, g2))
         self.assertTrue(result.ok)
         self.assertEqual(result.violations, ())
 
