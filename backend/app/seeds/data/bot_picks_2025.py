@@ -17,13 +17,17 @@ Authoring guarantees
   ``tests/test_bot_picks_dataset.py`` re-asserts both facts (real game in the
   right week) so the dataset can never silently drift from the fixture.
 * Every bot/week roster obeys the conflict rules in
-  :mod:`app.services.pick_validation`: no duplicate ``pick_type`` on a game, no
-  ``OVER``+``UNDER`` or ``FAVORITE_COVER``+``UNDERDOG_COVER`` on the same game,
-  at most one mortal lock, and no spread pick on an odds-less game. The dataset
-  test asserts ``validate_roster(...).ok is True`` for **every** roster.
-* A **full** roster is the four base types on four distinct games plus one mortal
-  lock on a fifth distinct game (5 records). At least one roster is intentionally
-  **partial** (fewer than 5 picks) to exercise partial scoring downstream.
+  :mod:`app.services.pick_validation`, including the **slot model**: at most one
+  *base* (non-mortal-lock) pick per ``pick_type`` per week — one of each of the
+  four bet types (PROJECT.md), even across different games. The mortal lock is
+  the only allowed same-type duplicate. Plus: no duplicate ``pick_type`` on a
+  game, no ``OVER``+``UNDER`` or ``FAVORITE_COVER``+``UNDERDOG_COVER`` on the same
+  game, at most one mortal lock, and no spread pick on an odds-less game. The
+  dataset test asserts ``validate_roster(...).ok is True`` for **every** roster.
+* A **full** roster is the four base types (one each) on four distinct games plus
+  one mortal lock on a fifth distinct game (5 records). At least one roster is
+  intentionally **partial** (fewer than 5 picks) to exercise partial scoring
+  downstream.
 
 Shape
 -----
@@ -112,7 +116,7 @@ BOT_PICKS: dict[str, dict[int, list[BotPick]]] = {
             BotPick(401772936, _OVER, False),
             BotPick(401772725, _FAV, False),
             BotPick(401772834, _DOG, False),
-            BotPick(401772835, _OVER, False),
+            BotPick(401772835, _UNDER, False),  # one-of-each base type
             BotPick(401772724, _UNDER, True),  # mortal lock
         ],
         3: [
@@ -182,13 +186,13 @@ BOT_PICKS: dict[str, dict[int, list[BotPick]]] = {
             BotPick(401772936, _DOG, False),
             BotPick(401772725, _UNDER, False),
             BotPick(401772834, _FAV, False),
-            BotPick(401772835, _UNDER, False),
+            BotPick(401772835, _OVER, False),  # one-of-each base type
             BotPick(401772724, _OVER, True),  # mortal lock
         ],
         3: [
             BotPick(401772937, _FAV, False),
             BotPick(401772733, _UNDER, False),
-            BotPick(401772731, _FAV, False),  # distinct game from the line above
+            BotPick(401772731, _OVER, False),  # one-of-each base type
             BotPick(401772732, _DOG, False),
             BotPick(401772839, _OVER, True),  # mortal lock
         ],

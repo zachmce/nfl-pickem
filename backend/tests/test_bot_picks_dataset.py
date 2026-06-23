@@ -93,6 +93,24 @@ class BotPicksDatasetTests(unittest.TestCase):
                         f"{[v.code.value for v in result.violations]}",
                     )
 
+    def test_every_roster_is_one_base_pick_per_type(self) -> None:
+        # The slot model: at most one BASE (non-mortal-lock) pick per pick_type in
+        # any bot/week roster — one of each of the four bet types. Only the mortal
+        # lock may repeat a type. Guards the dataset against re-introducing the
+        # duplicate-base-type rosters the capstone caught (bot_bob wk2, bot_erin
+        # wk2 + wk3).
+        for display_name, weeks in BOT_PICKS.items():
+            for week_number, bot_picks in weeks.items():
+                base_types = [
+                    bp.pick_type for bp in bot_picks if not bp.is_mortal_lock
+                ]
+                self.assertEqual(
+                    len(base_types),
+                    len(set(base_types)),
+                    f"{display_name} wk{week_number} repeats a base pick_type: "
+                    f"{[t.value for t in base_types]}",
+                )
+
     def test_at_least_one_partial_roster_exists(self) -> None:
         # A full roster is 5 picks; a partial roster has fewer.
         partials = [
