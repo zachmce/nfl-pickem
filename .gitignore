@@ -1,6 +1,11 @@
 # Python
 __pycache__/
 *.pyc
+
+# Celery beat local schedule DB (runtime output)
+celerybeat-schedule
+celerybeat-schedule-*
+celerybeat.pid
 .venv/
 .ruff_cache/
 .pytest_cache/
