@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.api import auth, proof
+from app.api import auth, picks, proof
 from app.config import settings
 from app.csrf import csrf_dispatch
 from app.db import get_session
@@ -31,6 +31,7 @@ app.add_middleware(
 add_exception_handlers(app)
 app.include_router(auth.router)
 app.include_router(proof.router)
+app.include_router(picks.router)
 
 
 @app.get("/api/health")
