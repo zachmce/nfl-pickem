@@ -56,6 +56,26 @@ class User(SQLModel, table=True):
     created_at: datetime = Field(sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False), default_factory=sa.func.now)
 
 
+class DemoState(SQLModel, table=True):
+    """The single demo anchor instant — the determinism crux of the demo mode.
+
+    Persists ONE absolute real-clock instant (``demo_started_at``), captured at
+    seed time, that BOTH the seed process and the worker/beat process read to
+    rebuild the SAME ``Demo2025Source(offset)``. Persisting an absolute instant
+    (not a recomputed "now+24h" and not a timedelta) is what keeps the two
+    processes in sync — neither process recomputes its own positioning clock.
+
+    Single-row table (upserted), mirroring ``TaskRun``'s minimalism.
+    """
+
+    __tablename__ = "demo_state"
+
+    id: int | None = Field(default=None, primary_key=True)
+    demo_started_at: datetime = Field(
+        sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False)
+    )
+
+
 class TaskRun(SQLModel, table=True):
     """A trivial record written by the Celery worker to prove the DB wiring.
 

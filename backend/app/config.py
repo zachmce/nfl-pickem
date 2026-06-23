@@ -43,6 +43,16 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
 
+    # Demo-mode gate (DEMO-GATE / PROD-LEAK-GUARD). Read from env IS_DEMO_DATA.
+    #   OFF (default) -> the PRODUCTION path: default_scoreboard_source() returns
+    #     the real ESPN adapter and NO demo code (seed, anchor, Demo2025Source) is
+    #     ever imported or constructed. The prod path is byte-for-byte unchanged.
+    #   ON -> the DEMO path: the app logs a loud startup banner (so it can never be
+    #     on silently), the env-gated demo seed runs, and default_scoreboard_source()
+    #     returns the time-shifted Demo2025Source built from the shared persisted
+    #     anchor. This is the ONLY source flag — do not add a second one anywhere.
+    is_demo_data: bool = False
+
     @field_validator("discord_bot_token", "discord_guild_id", mode="before")
     @classmethod
     def _empty_str_to_none(cls, v: object) -> object:
@@ -72,15 +82,51 @@ def get_settings() -> Settings:
 settings = get_settings()
 
 
-def default_scoreboard_source():
-    """Resolve the production default scoreboard source (the real ESPN adapter).
+def default_scoreboard_source(session=None):
+    """Resolve the default scoreboard source — the single source seam (D-03).
 
-    This is the single place the production default source is constructed. It is
-    a plain factory (not a Settings field) so the network-touching adapter is
-    only imported/instantiated by callers that actually need it (the Celery task
+    This is the ONE place the scoreboard source is constructed. It is a plain
+    factory (not a Settings field) so the network-touching ESPN adapter is only
+    imported/instantiated by callers that actually need it (the Celery task
     wrapper) — keeping the reconciliation service and the offline test suite free
     of any ESPN/network dependency.
+
+    Gating (PROD-LEAK-GUARD, belt-and-suspenders):
+
+    * ``settings.is_demo_data`` FALSE (default, the prod path): behaves EXACTLY as
+      before — imports and returns the real :class:`EspnScoreboardSource`. NO demo
+      module is imported, no DemoState row is read. Byte-for-byte the prod path.
+    * ``settings.is_demo_data`` TRUE (the demo path): lazily imports the demo
+      machinery (so it is never importable/constructed when the flag is off),
+      reads the SINGLE shared persisted anchor, rebuilds the SAME
+      ``Demo2025Source(offset_from_anchor(anchor))`` the seed used, and returns it.
+      A missing anchor raises a clear ``RuntimeError`` (run the demo seed first).
+
+    ``session`` is honored only on the demo branch (the Celery task passes its own
+    open session so the demo branch reuses it instead of opening a second one). The
+    ESPN branch ignores it entirely.
     """
+    if settings.is_demo_data:
+        # Lazy imports kept INSIDE the True branch so the demo source is never
+        # imported/constructed in the prod path (PROD-LEAK-GUARD T-sf0-01).
+        from app.demo.anchor import load_demo_anchor, offset_from_anchor
+        from app.scoreboard.demo import Demo2025Source
+
+        if session is not None:
+            anchor = load_demo_anchor(session)
+        else:
+            from app.db import task_session
+
+            with task_session() as own_session:
+                anchor = load_demo_anchor(own_session)
+
+        if anchor is None:
+            raise RuntimeError(
+                "IS_DEMO_DATA is on but no demo anchor is persisted. Run the demo "
+                "seed first: `python -m app.seeds.demo`."
+            )
+        return Demo2025Source(offset_from_anchor(anchor))
+
     from app.scoreboard.espn import EspnScoreboardSource
 
     return EspnScoreboardSource()

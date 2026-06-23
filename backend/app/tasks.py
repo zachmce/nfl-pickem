@@ -35,7 +35,10 @@ def refresh_games_task() -> dict:
     Beat schedule wiring (the cadence trigger) is intentionally OUT OF SCOPE.
     """
     with task_session() as session:
-        source = default_scoreboard_source()
+        # Pass the open session so the demo branch reuses it (reading the shared
+        # anchor on this same session) instead of opening a second one; the ESPN
+        # (prod) branch ignores the arg, keeping prod behavior identical.
+        source = default_scoreboard_source(session)
         result = refresh_games(session, source)
         session.commit()
         return {
