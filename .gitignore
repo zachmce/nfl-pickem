@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# Node
+node_modules/
+frontend/dist/
+.vite/
+
+# Env / secrets
+.env
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# GSD planning (local-only)
+.planning/

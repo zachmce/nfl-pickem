@@ -1,0 +1,19 @@
+# Production-style override: replaces the Vite dev server with an nginx
+# container serving the compiled SPA, and drops backend hot-reload + mounts.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
+
+services:
+  backend:
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    volumes: []
+
+  worker:
+    volumes: []
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
