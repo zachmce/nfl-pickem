@@ -271,6 +271,110 @@ class RefreshGamesTests(unittest.TestCase):
             self.assertEqual(row.home_score, 21)
             self.assertEqual(row.away_score, 17)
 
+    def test_kickoff_reconciled_when_source_differs(self) -> None:
+        """The positioned source kickoff is reconciled onto the row (flex move).
+
+        NFL flex scheduling moves kickoffs; the persisted kickoff drives the
+        pick window/lock, so refresh must reconcile it from the source. The
+        Demo2025Source positions every kickoff by its offset, so after a refresh
+        each row's kickoff_at must equal the SOURCE's positioned kickoff, not the
+        original fixture kickoff. A second identical run is a no-op (idempotent).
+        """
+        source = Demo2025Source(offset=FINAL_OFFSET)
+        with Session(self.engine) as session:
+            # Capture the source's positioned week-1 kickoffs (by event id).
+            positioned = {
+                sg.espn_event_id: sg.kickoff_at
+                for sg in source.fetch_week(self.season, 1)
+            }
+            self.assertTrue(positioned)
+
+            # Pre-refresh: the persisted kickoff is the ORIGINAL fixture kickoff
+            # (no offset), so it differs from the positioned source kickoff.
+            before = self._games_for_week(session, 1)
+            for g in before:
+                src_ko = positioned[str(g.espn_event_id)]
+                self.assertNotEqual(
+                    self._aware(g.kickoff_at),
+                    src_ko,
+                    "precondition: persisted kickoff should differ pre-refresh",
+                )
+
+            refresh_games(session, source)
+            session.commit()
+
+            # Post-refresh: each row's kickoff equals the SOURCE's positioned one.
+            after = self._games_for_week(session, 1)
+            for g in after:
+                src_ko = positioned[str(g.espn_event_id)]
+                self.assertEqual(
+                    self._aware(g.kickoff_at),
+                    src_ko,
+                    f"game {g.espn_event_id} kickoff not reconciled to source",
+                )
+
+            # Idempotent: a second identical run dirties nothing.
+            second = refresh_games(session, source)
+            self.assertEqual(second.games_updated, 0)
+            self.assertFalse(session.dirty, session.dirty)
+
+    def test_kickoff_unchanged_is_a_noop(self) -> None:
+        """A source kickoff equal to the persisted value never dirties the row."""
+        from app.scoreboard.types import ScoreboardTeam
+
+        with Session(self.engine) as session:
+            target = self._games_for_week(session, 1)[0]
+            target_id = target.id
+            event_id = target.espn_event_id
+            # Pin the row to a known tz-aware kickoff and FINAL state.
+            fixed_kickoff = datetime(2025, 9, 7, 17, 0, tzinfo=timezone.utc)
+            target.kickoff_at = fixed_kickoff
+            target.status = GameStatus.FINAL
+            target.home_score = 21
+            target.away_score = 17
+            session.add(target)
+            session.commit()
+
+        class _SameKickoffSource:
+            """Reports week 1's target game with the SAME kickoff, FINAL, scores."""
+
+            def fetch_week(self, season: int, week: int) -> list[ScoreboardGame]:
+                if week != 1:
+                    return []
+                return [
+                    ScoreboardGame(
+                        espn_event_id=str(event_id),
+                        season=season,
+                        week=week,
+                        kickoff_at=fixed_kickoff,
+                        status=GameStatus.FINAL,
+                        home=ScoreboardTeam(None, None, score=21),
+                        away=ScoreboardTeam(None, None, score=17),
+                    )
+                ]
+
+        with Session(self.engine) as session:
+            # Make week 1 the only needy week by finalizing every other row up
+            # front is unnecessary — needy weeks are those with a non-FINAL row;
+            # the source above returns [] for them so they simply do not update.
+            row = session.get(Game, target_id)
+            assert row is not None
+            row.status = GameStatus.SCHEDULED  # make week 1 needy so it's polled
+            session.add(row)
+            session.commit()
+
+            result = refresh_games(session, _SameKickoffSource())
+            # Only the status flips back to FINAL; kickoff is an unchanged no-op.
+            session.commit()
+            refreshed = session.get(Game, target_id)
+            assert refreshed is not None
+            self.assertEqual(self._aware(refreshed.kickoff_at), fixed_kickoff)
+
+            # A second run with everything already matching dirties nothing.
+            second = refresh_games(session, _SameKickoffSource())
+            self.assertEqual(second.games_updated, 0)
+            self.assertFalse(session.dirty, session.dirty)
+
     def test_fetch_error_one_week_does_not_abort_others(self) -> None:
         """A ScoreboardFetchError on one week is recorded; others still update."""
         failing = _FailingWeekSource(

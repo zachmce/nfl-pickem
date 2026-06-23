@@ -33,6 +33,14 @@ Reconciliation rules (idempotent, match by ``espn_event_id``):
   never nulls a present score, but its status transition is still applied. Source
   home/away scores map onto the row's existing home/away sides (the row's
   assignment is authoritative; the poller does not re-match teams).
+* ``kickoff_at`` is reconciled from the source's positioned kickoff (the port's
+  :class:`~app.scoreboard.types.ScoreboardGame.kickoff_at`). NFL flex scheduling
+  moves kickoffs after the schedule is first ingested, and the persisted kickoff
+  drives the pick window / lock boundaries — a stale kickoff would leave the
+  window or lock on a rescheduled game wrong. The reconcile is idempotent and
+  tz-aware: the stored value (read back NAIVE on SQLite) is normalized before the
+  compare, so a kickoff that has not actually moved never dirties the row; a
+  source that omits ``kickoff_at`` (``None``) never nulls a present kickoff.
 
 Window stamping (reuses :func:`app.services.pick_window.compute_window`):
 
@@ -132,16 +140,26 @@ def _scores_by_event_id(games: list[ScoreboardGame]) -> dict[int, ScoreboardGame
 
 
 def _reconcile_game(row: Game, src: ScoreboardGame) -> bool:
-    """Apply the source's status/scores onto ``row``, writing only what changed.
+    """Apply the source's status/scores/kickoff onto ``row``, writing only what changed.
 
     Returns ``True`` iff any field was actually written. A source side whose
     score is ``None`` (a live game withholding its score) never overwrites a
-    present score, but the status transition is still applied.
+    present score, but the status transition is still applied. ``kickoff_at`` is
+    reconciled from the source's positioned kickoff (honoring the port contract
+    so a rescheduled NFL game's pick window / lock boundary stays correct): the
+    stored value is tz-normalized before the compare so an unchanged kickoff is a
+    no-op, and a source that omits a kickoff (``None``) never nulls the row's.
     """
     changed = False
 
     if row.status != src.status:
         row.status = src.status
+        changed = True
+
+    if src.kickoff_at is not None and _as_aware(row.kickoff_at) != _as_aware(
+        src.kickoff_at
+    ):
+        row.kickoff_at = src.kickoff_at
         changed = True
 
     if src.home.score is not None and row.home_score != src.home.score:
