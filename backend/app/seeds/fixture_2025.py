@@ -1,12 +1,12 @@
-"""Offline, idempotent importer for the 2025 NFL test/dev fixture.
+"""Offline, idempotent seed that imports the packaged 2025 NFL season data.
 
-This loads ``backend/tests/fixtures/nfl_2025_regular_season.json`` into the
+This loads ``backend/app/seeds/data/nfl_2025_regular_season.json`` into the
 database as :class:`~app.models.Week` and :class:`~app.models.Game` rows,
-including the embedded ESPN BET odds snapshot. It exists to give the scoring
-engine real 2025 ground-truth data (final scores + ESPN BET stand-in lines) to
-test against **without any ESPN HTTP**.
+including the embedded ESPN BET odds snapshot. It gives the scoring engine real
+2025 ground-truth data (final scores + ESPN BET stand-in lines) to run against
+**without any ESPN HTTP**.
 
-This is deliberately a dev/test seeder, separate from the future production
+This is the offline season-data seed, distinct from the future production
 live-ingest worker:
 
 * It performs **no network I/O of any kind** — it only reads a local JSON file.
@@ -54,16 +54,12 @@ from sqlmodel import Session, select
 
 from app.models import Game, GameStatus, Team, Week
 
-# Resolve the fixture relative to this module so the importer works regardless of
-# the current working directory. This file lives at
-# ``backend/app/seeds/fixture_2025.py``; the fixture lives at
-# ``backend/tests/fixtures/nfl_2025_regular_season.json``.
-#   parents[0] = app/seeds, parents[1] = app, parents[2] = backend
+# Resolve the season-data file relative to this module so the seed works
+# regardless of the current working directory. This file lives at
+# ``backend/app/seeds/fixture_2025.py`` and the data ships alongside it at
+# ``backend/app/seeds/data/nfl_2025_regular_season.json``.
 FIXTURE_PATH: Path = (
-    Path(__file__).resolve().parents[2]
-    / "tests"
-    / "fixtures"
-    / "nfl_2025_regular_season.json"
+    Path(__file__).parent / "data" / "nfl_2025_regular_season.json"
 )
 
 ODDS_PROVIDER = "ESPN BET"
@@ -154,7 +150,7 @@ def import_fixture_2025(
 ) -> ImportResult:
     """Idempotently import the 2025 NFL fixture into Week + Game rows.
 
-    Reads the local fixture JSON (offline — no network), upserts one ``Week`` per
+    Reads the packaged season-data JSON (offline — no network), upserts one ``Week`` per
     distinct ``(season, week)`` and one ``Game`` per ``espn_event_id``, resolving
     home/away (and favorite/underdog) FKs by ``espn_team_id``. Games carrying an
     ``odds`` object get the ESPN BET snapshot frozen (positive-magnitude spread,
@@ -163,8 +159,8 @@ def import_fixture_2025(
     ``odds_frozen=False``. Commits once at the end.
 
     :param session: an open SQLModel session.
-    :param path: optional override for the fixture path (defaults to
-        :data:`FIXTURE_PATH`); used by tests to point at the same real file.
+    :param path: optional override for the data file path (defaults to
+        :data:`FIXTURE_PATH`); used by tests to point at the same packaged file.
     :raises TeamsNotSeededError: if any referenced team is not seeded.
     :returns: an :class:`ImportResult` summarizing rows present after the run.
     """
