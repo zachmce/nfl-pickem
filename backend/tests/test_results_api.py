@@ -1,0 +1,449 @@
+"""Offline tests for the results / season-scoreboard read surface.
+
+Covers both the user-agnostic standings service (:mod:`app.services.standings`)
+at the function level and the thin authenticated HTTP router
+(:mod:`app.api.results`) via an in-memory ``TestClient`` — mirroring the
+conventions established by :mod:`tests.test_picks_api`:
+
+* a single shared in-memory SQLite connection (``StaticPool``) so every
+  ``Session`` — including the one ``get_current_user`` opens — sees the SAME db,
+* ``app.dependency_overrides[get_session]`` routed at that engine so importing
+  :mod:`app.main` never opens a real Postgres connection,
+* no network of any kind,
+* bearer auth for reads (CSRF-exempt) via ``_bearer_headers``; ``_clear_auth``
+  for the unauthenticated 401 cases; ``_assert_envelope`` for the error shape.
+
+The scoreboard is a SHARED read: any authenticated user reads ALL users' data
+(unlike /api/picks which is strictly self-scoped). FINAL games are seeded with
+real scores/odds so ``grade_pick`` produces non-UNGRADEABLE outcomes, and picks
+are seeded directly (reads need no open window).
+
+> Note: on this machine there is no bare ``python`` on ``PATH``; run with
+> ``backend/.venv/bin/python -m unittest``.
+"""
+
+from __future__ import annotations
+
+import unittest
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+
+from fastapi.testclient import TestClient
+from sqlalchemy.pool import StaticPool
+from sqlmodel import Session, SQLModel, create_engine
+
+from app.db import get_session
+from app.main import app
+from app.models import (
+    Game,
+    GameStatus,
+    Pick,
+    PickType,
+    Team,
+    User,
+    Week,
+)
+from app.services.auth import create_session_cookie, hash_password
+from app.services.scoring import GradeOutcome, score_week
+from app.services.standings import season_standings, week_results
+
+SEASON = 2025
+WEEK = 1
+
+# Kickoffs relative to the real clock. The scored week is in the PAST and FINAL
+# (reads do not gate on the window), so grade_pick produces real outcomes.
+_PAST = timedelta(days=2)
+
+
+def _aware(dt: datetime | None) -> datetime | None:
+    """Re-attach UTC to a naive datetime read back from SQLite."""
+    if dt is not None and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+class ResultsTests(unittest.TestCase):
+    """Service-level + HTTP coverage for the results read surface."""
+
+    week_id: int
+    user_a_id: int
+    user_b_id: int
+    user_c_id: int
+    game_fav_id: int
+    game_total_id: int
+
+    def setUp(self) -> None:
+        self.engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        SQLModel.metadata.create_all(self.engine)
+
+        now = datetime.now(timezone.utc)
+        with Session(self.engine) as session:
+            # --- Teams (FK targets) ------------------------------------------
+            teams = [
+                Team(espn_team_id=i, abbreviation=f"T{i}", display_name=f"Team {i}")
+                for i in range(1, 5)
+            ]
+            session.add_all(teams)
+            session.commit()
+            for t in teams:
+                session.refresh(t)
+            tid = [t.id for t in teams]
+
+            # --- Week --------------------------------------------------------
+            week = Week(season=SEASON, week=WEEK)
+            session.add(week)
+            session.commit()
+            session.refresh(week)
+            assert week.id is not None
+            self.week_id = week.id
+
+            # --- FINAL games with real scores + odds ------------------------
+            # Favorite (home, tid[0]) is favored by 3.5 and wins by 7 -> the
+            # favorite COVERS; underdog does NOT.
+            game_fav = Game(
+                espn_event_id=1001,
+                week_id=week.id,
+                season=SEASON,
+                week=WEEK,
+                home_team_id=tid[0],
+                away_team_id=tid[1],
+                kickoff_at=now - _PAST,
+                status=GameStatus.FINAL,
+                home_score=24,
+                away_score=17,
+                spread=Decimal("3.5"),
+                total=Decimal("44.5"),
+                favorite_team_id=tid[0],
+                underdog_team_id=tid[1],
+            )
+            # Combined 24+17 = 41 < total 44.5 -> UNDER wins, OVER loses.
+            game_total = Game(
+                espn_event_id=1002,
+                week_id=week.id,
+                season=SEASON,
+                week=WEEK,
+                home_team_id=tid[2],
+                away_team_id=tid[3],
+                kickoff_at=now - _PAST + timedelta(hours=3),
+                status=GameStatus.FINAL,
+                home_score=20,
+                away_score=14,
+                spread=Decimal("6.5"),
+                total=Decimal("41.0"),
+                favorite_team_id=tid[2],
+                underdog_team_id=tid[3],
+            )
+            session.add_all([game_fav, game_total])
+            session.commit()
+            session.refresh(game_fav)
+            session.refresh(game_total)
+            assert game_fav.id is not None and game_total.id is not None
+            self.game_fav_id = game_fav.id
+            self.game_total_id = game_total.id
+
+            # --- Users -------------------------------------------------------
+            pw = hash_password("correct horse battery staple")
+            user_a = User(display_name="alice", password_hash=pw, is_active=True)
+            user_b = User(display_name="bob", password_hash=pw, is_active=True)
+            user_c = User(display_name="carol", password_hash=pw, is_active=True)
+            session.add_all([user_a, user_b, user_c])
+            session.commit()
+            session.refresh(user_a)
+            session.refresh(user_b)
+            session.refresh(user_c)
+            assert (
+                user_a.id is not None
+                and user_b.id is not None
+                and user_c.id is not None
+            )
+            self.user_a_id = user_a.id
+            self.user_b_id = user_b.id
+            self.user_c_id = user_c.id
+
+        def _override_get_session():
+            with Session(self.engine) as session:
+                yield session
+
+        app.dependency_overrides[get_session] = _override_get_session
+        self.client = TestClient(app)
+
+    def tearDown(self) -> None:
+        app.dependency_overrides.pop(get_session, None)
+        self.client.close()
+        self.engine.dispose()
+
+    # -- helpers -----------------------------------------------------------
+
+    def _session(self) -> Session:
+        return Session(self.engine)
+
+    def _seed_pick(
+        self,
+        *,
+        user_id: int,
+        game_id: int,
+        pick_type: PickType,
+        is_mortal_lock: bool = False,
+    ) -> int:
+        with self._session() as session:
+            pick = Pick(
+                user_id=user_id,
+                game_id=game_id,
+                week_id=self.week_id,
+                pick_type=pick_type,
+                is_mortal_lock=is_mortal_lock,
+            )
+            session.add(pick)
+            session.commit()
+            session.refresh(pick)
+            assert pick.id is not None
+            return pick.id
+
+    def _bearer_headers(self, user_id: int) -> dict[str, str]:
+        """Bearer auth for reads (CSRF-exempt)."""
+        return {"Authorization": f"Bearer {create_session_cookie(user_id)}"}
+
+    def _clear_auth(self) -> None:
+        self.client.cookies.clear()
+
+    @staticmethod
+    def _assert_envelope(body: dict) -> dict:
+        assert "error" in body, f"expected an error envelope, got: {body}"
+        err = body["error"]
+        assert "code" in err, f"envelope missing 'code': {err}"
+        return err
+
+    # -- service-level (Task 1) -------------------------------------------
+
+    def test_season_standings_ordered_by_total_then_name(self) -> None:
+        """season_standings ranks ALL picking users by (-season_total, name).
+
+        alice: FAVORITE_COVER (win, +1) + UNDER mortal lock (win, +2) = 3.
+        carol: FAVORITE_COVER (win, +1)                                = 1.
+        bob:   FAVORITE_COVER (win, +1)                                = 1 (tie
+               with carol -> broken by display_name 'bob' < 'carol').
+        """
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_fav_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_total_id,
+            pick_type=PickType.UNDER,
+            is_mortal_lock=True,
+        )
+        self._seed_pick(
+            user_id=self.user_b_id,
+            game_id=self.game_fav_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+        self._seed_pick(
+            user_id=self.user_c_id,
+            game_id=self.game_fav_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+
+        with self._session() as session:
+            standings = season_standings(session, season=SEASON)
+
+        names = [r.display_name for r in standings.results]
+        totals = [r.season_total for r in standings.results]
+        self.assertEqual(names, ["alice", "bob", "carol"])
+        self.assertEqual(totals, [3, 1, 1])
+        # alice's per-week score is the FINAL week-1 total.
+        alice = standings.results[0]
+        self.assertEqual(alice.weekly_scores, {WEEK: 3})
+
+    def test_season_standings_excludes_users_with_no_picks(self) -> None:
+        """A user with zero picks in the season does not appear at all."""
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_fav_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+        with self._session() as session:
+            standings = season_standings(session, season=SEASON)
+        self.assertEqual([r.display_name for r in standings.results], ["alice"])
+
+    def test_week_results_shape_and_scores(self) -> None:
+        """week_results carries each user's graded picks + weekly_score.
+
+        Each user's weekly_score equals score_week over the same picks and
+        equals the sum of its graded picks' points; graded picks carry a real
+        (non-UNGRADEABLE) outcome + points.
+        """
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_fav_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_total_id,
+            pick_type=PickType.UNDER,
+            is_mortal_lock=True,
+        )
+        self._seed_pick(
+            user_id=self.user_b_id,
+            game_id=self.game_total_id,
+            pick_type=PickType.OVER,
+        )
+
+        with self._session() as session:
+            results = week_results(session, season=SEASON, week=WEEK)
+            # Build the same games index score_week would use, for a cross-check.
+            from app.services.standings import _season_games_by_pk
+
+            games_by_pk = _season_games_by_pk(session, season=SEASON)
+            from app.models import Pick as _Pick
+            from sqlmodel import select as _select
+
+            picks_a = list(
+                session.exec(
+                    _select(_Pick).where(
+                        _Pick.user_id == self.user_a_id,
+                        _Pick.week_id == self.week_id,
+                    )
+                ).all()
+            )
+            expected_a = score_week(games_by_pk, picks_a)
+
+        # Ordered (-weekly_score, name): alice (1+2=3) then bob (OVER loses, 0).
+        self.assertEqual([r.display_name for r in results], ["alice", "bob"])
+        alice = results[0]
+        self.assertEqual(alice.weekly_score, 3)
+        self.assertEqual(alice.weekly_score, expected_a)
+        self.assertEqual(alice.weekly_score, sum(p.points for p in alice.picks))
+        # alice's UNDER mortal lock won (+2); the FAVORITE_COVER won (+1).
+        outcomes = {p.pick_type: (p.outcome, p.points) for p in alice.picks}
+        self.assertEqual(outcomes[PickType.UNDER], (GradeOutcome.WIN.value, 2))
+        self.assertEqual(
+            outcomes[PickType.FAVORITE_COVER], (GradeOutcome.WIN.value, 1)
+        )
+        # bob's OVER lost on a FINAL game -> LOSS, 0 points.
+        bob = results[1]
+        self.assertEqual(bob.weekly_score, 0)
+        self.assertEqual(bob.picks[0].outcome, GradeOutcome.LOSS.value)
+
+    def test_week_results_empty_for_unknown_week(self) -> None:
+        """A week with no Week row / no picks yields an empty list (pure read)."""
+        with self._session() as session:
+            self.assertEqual(week_results(session, season=SEASON, week=99), [])
+            self.assertEqual(week_results(session, season=SEASON, week=WEEK), [])
+
+    # -- HTTP (Task 3) -----------------------------------------------------
+
+    def test_unauthenticated_week_and_standings_rejected_401(self) -> None:
+        """Unauthenticated GETs to both endpoints -> 401 envelope."""
+        self._clear_auth()
+        wk = self.client.get(
+            "/api/results/week", params={"season": SEASON, "week": WEEK}
+        )
+        self.assertEqual(wk.status_code, 401, wk.text)
+        self._assert_envelope(wk.json())
+
+        self._clear_auth()
+        st = self.client.get("/api/results/standings", params={"season": SEASON})
+        self.assertEqual(st.status_code, 401, st.text)
+        self._assert_envelope(st.json())
+
+    def test_week_results_http_shape_for_authenticated_user(self) -> None:
+        """GET /api/results/week returns each user's graded picks + score.
+
+        A FINAL week is seeded for multiple users; the response shape carries
+        per-user weekly_score (== score_week) and graded picks with outcome +
+        points. Any authenticated user may read it (shared scoreboard).
+        """
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_fav_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_total_id,
+            pick_type=PickType.UNDER,
+            is_mortal_lock=True,
+        )
+        self._seed_pick(
+            user_id=self.user_b_id,
+            game_id=self.game_total_id,
+            pick_type=PickType.OVER,
+        )
+
+        # carol (who did not pick) can still read the shared scoreboard.
+        resp = self.client.get(
+            "/api/results/week",
+            params={"season": SEASON, "week": WEEK},
+            headers=self._bearer_headers(self.user_c_id),
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["season"], SEASON)
+        self.assertEqual(body["week"], WEEK)
+        results = body["results"]
+        # Ordered (-weekly_score, name): alice (3) then bob (0).
+        self.assertEqual([r["display_name"] for r in results], ["alice", "bob"])
+        self.assertNotIn("user_id", results[0])
+        alice = results[0]
+        self.assertEqual(alice["weekly_score"], 3)
+        self.assertEqual(
+            alice["weekly_score"], sum(p["points"] for p in alice["picks"])
+        )
+        for p in alice["picks"]:
+            self.assertIn(p["outcome"], {o.value for o in GradeOutcome})
+            self.assertNotEqual(p["outcome"], GradeOutcome.UNGRADEABLE.value)
+
+    def test_standings_http_ordering_with_tiebreak(self) -> None:
+        """GET /api/results/standings ranks all users by (-total, name).
+
+        alice 3, then a bob/carol tie at 1 broken by display_name.
+        """
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_fav_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_total_id,
+            pick_type=PickType.UNDER,
+            is_mortal_lock=True,
+        )
+        self._seed_pick(
+            user_id=self.user_b_id,
+            game_id=self.game_fav_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+        self._seed_pick(
+            user_id=self.user_c_id,
+            game_id=self.game_fav_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+
+        resp = self.client.get(
+            "/api/results/standings",
+            params={"season": SEASON},
+            headers=self._bearer_headers(self.user_b_id),
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["season"], SEASON)
+        rows = body["standings"]
+        self.assertEqual(
+            [r["display_name"] for r in rows], ["alice", "bob", "carol"]
+        )
+        self.assertEqual([r["season_total"] for r in rows], [3, 1, 1])
+        self.assertNotIn("user_id", rows[0])
+        # weekly_scores is keyed by week number (JSON stringifies int keys).
+        self.assertEqual(rows[0]["weekly_scores"], {str(WEEK): 3})
+
+
+if __name__ == "__main__":
+    unittest.main()
