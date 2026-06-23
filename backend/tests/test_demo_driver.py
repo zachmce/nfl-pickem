@@ -31,6 +31,7 @@ from app.demo.driver import (
     setup,
 )
 from app.demo.oracle import compute_standings
+from app.demo.run import require_demo_db
 from app.models import Game, Pick, User, Week
 from app.scoreboard.demo import Demo2025Source
 from app.seeds.bots import BOT_ACCOUNTS
@@ -159,6 +160,38 @@ class DemoDriverTests(unittest.TestCase):
                 assert_oracle=True,
             )
             self.assertTrue(result.passed)
+
+
+class DemoCliGateTests(unittest.TestCase):
+    """The non-prod gate (T-qqm-01): require an explicit demo DB, reject prod.
+
+    Offline — these assert on the raised :class:`SystemExit` without opening any
+    database connection. A sentinel ``prod_url`` is injected so the test never
+    imports real Settings or touches Postgres.
+    """
+
+    _PROD = "postgresql+psycopg://pickem:pickem@db:5432/pickem"
+
+    def test_missing_demo_db_raises(self) -> None:
+        with self.assertRaises(SystemExit):
+            require_demo_db(None, prod_url=self._PROD)
+
+    def test_blank_demo_db_raises(self) -> None:
+        with self.assertRaises(SystemExit):
+            require_demo_db("   ", prod_url=self._PROD)
+
+    def test_prod_url_rejected(self) -> None:
+        with self.assertRaises(SystemExit):
+            require_demo_db(self._PROD, prod_url=self._PROD)
+
+    def test_distinct_demo_url_passes(self) -> None:
+        url = "sqlite:///./demo_walkthrough.db"
+        self.assertEqual(require_demo_db(url, prod_url=self._PROD), url)
+
+    def test_demo_url_is_stripped(self) -> None:
+        self.assertEqual(
+            require_demo_db("  sqlite://  ", prod_url=self._PROD), "sqlite://"
+        )
 
 
 if __name__ == "__main__":
