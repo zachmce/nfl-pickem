@@ -1,0 +1,44 @@
+[project]
+name = "nfl-pickem-backend"
+version = "0.1.0"
+description = "FastAPI + Celery backend for NFL Pick'em"
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi>=0.115",
+    "python-multipart>=0.0.18",
+    "uvicorn[standard]>=0.34",
+    "sqlmodel>=0.0.22",
+    "alembic>=1.14",
+    "psycopg[binary]>=3.2",
+    "celery[redis]>=5.4",
+    "redis>=5.2",
+    "pydantic-settings>=2.7",
+    # Discord bot + auth service layer (ported from the standalone bot)
+    "discord.py>=2.5",
+    "structlog>=25.5",
+    "argon2-cffi>=25.1",
+    "itsdangerous>=2.2",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.9",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.setuptools.package-data]
+"app" = ["seeds/data/*.json"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

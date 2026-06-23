@@ -1,8 +1,10 @@
-"""Offline end-to-end tests for the 2025 NFL fixture importer.
+"""Offline end-to-end tests for the 2025 NFL season-data seed.
 
-These tests exercise :mod:`app.seeds.fixture_2025` against the REAL fixture file
-(``backend/tests/fixtures/nfl_2025_regular_season.json``) — the same file the
-production importer targets. No synthetic mini-fixture is used.
+These tests exercise :mod:`app.seeds.fixture_2025` against the packaged 2025
+season data (``backend/app/seeds/data/nfl_2025_regular_season.json``) — the same
+file the seed loads in production. They import the seed's ``FIXTURE_PATH``
+constant rather than re-hardcoding the path, so the two never drift. No synthetic
+mini-fixture is used.
 
 Everything runs offline:
 
