@@ -9,12 +9,11 @@
  *   - per-pick autosave with the 3 guardrails (enforced in useMyPicks),
  *   - window/per-game-locked read-only states, and inline 4xx errors.
  *
- * v1 is SET/CHANGE ONLY. The backend exposes only POST /api/picks (submit/
- * replace) and GET /api/picks (read) — there is NO un-pick / DELETE route, so a
- * base slot cannot be emptied and the mortal lock can be CHANGED but not
- * REMOVED once set.
- * TODO(deferred): "clear a pick / remove the mortal lock" needs a backend
- * un-pick endpoint (DELETE /api/picks). Out of scope for this frontend task.
+ * Picks can be SET, CHANGED, AND CLEARED (un-picked): each control exposes a
+ * "Clear" affordance — wired to clear() — shown only when that slot is filled on
+ * this game AND the slot is editable (window open + game not locked). The mortal
+ * lock can now be removed, not just changed. Clearing is pessimistic (the slot
+ * empties only after the server confirms via DELETE /api/picks).
  */
 import { errorKey, slotKey, type PickType, type SlateGame } from "../lib/picks";
 import type { WindowState } from "../lib/currentWeek";
@@ -100,6 +99,7 @@ export default function MyPicksPage() {
     saving,
     slotError,
     select,
+    clear,
   } = useMyPicks();
 
   if (status === "loading") {
@@ -154,6 +154,7 @@ export default function MyPicksPage() {
               saving={saving}
               slotError={slotError}
               onSelect={select}
+              onClear={clear}
             />
           ))}
         </div>
@@ -250,6 +251,7 @@ function GameCard({
   saving,
   slotError,
   onSelect,
+  onClear,
 }: {
   game: SlateGame;
   picks: PicksBySlot;
@@ -257,6 +259,11 @@ function GameCard({
   saving: Record<string, boolean>;
   slotError: Record<string, string>;
   onSelect: (item: {
+    game_id: number;
+    pick_type: PickType;
+    is_mortal_lock: boolean;
+  }) => void;
+  onClear: (item: {
     game_id: number;
     pick_type: PickType;
     is_mortal_lock: boolean;
@@ -301,14 +308,11 @@ function GameCard({
               saving={saving}
               slotError={slotError}
               onSelect={onSelect}
+              onClear={onClear}
             />
           ))}
         </div>
       )}
-
-      <p className="mt-3 text-[11px] leading-snug text-gray-400">
-        Mortal lock can be changed but not removed in v1.
-      </p>
     </div>
   );
 }
@@ -322,6 +326,7 @@ function BetOption({
   saving,
   slotError,
   onSelect,
+  onClear,
 }: {
   game: SlateGame;
   pickType: PickType;
@@ -330,6 +335,11 @@ function BetOption({
   saving: Record<string, boolean>;
   slotError: Record<string, string>;
   onSelect: (item: {
+    game_id: number;
+    pick_type: PickType;
+    is_mortal_lock: boolean;
+  }) => void;
+  onClear: (item: {
     game_id: number;
     pick_type: PickType;
     is_mortal_lock: boolean;
@@ -379,6 +389,28 @@ function BetOption({
           {PICK_TYPE_LABEL[pickType]}
         </button>
 
+        {baseSelected && !frozen && (
+          <button
+            type="button"
+            disabled={baseDisabled}
+            onClick={() =>
+              onClear({
+                game_id: game.game_id,
+                pick_type: pickType,
+                is_mortal_lock: false,
+              })
+            }
+            title="Clear this pick"
+            className={[
+              "rounded-md border px-2 py-1 text-xs font-medium transition-colors",
+              "border-red-300 bg-white text-red-600 hover:border-red-500",
+              baseDisabled ? "cursor-not-allowed opacity-50" : "",
+            ].join(" ")}
+          >
+            Clear
+          </button>
+        )}
+
         <button
           type="button"
           disabled={lockDisabled}
@@ -400,6 +432,28 @@ function BetOption({
         >
           {lockSelected ? "★ Mortal lock" : "☆ Mortal lock"}
         </button>
+
+        {lockSelected && !frozen && (
+          <button
+            type="button"
+            disabled={lockDisabled}
+            onClick={() =>
+              onClear({
+                game_id: game.game_id,
+                pick_type: pickType,
+                is_mortal_lock: true,
+              })
+            }
+            title="Remove your mortal lock"
+            className={[
+              "rounded-md border px-2 py-1 text-xs font-medium transition-colors",
+              "border-red-300 bg-white text-red-600 hover:border-red-500",
+              lockDisabled ? "cursor-not-allowed opacity-50" : "",
+            ].join(" ")}
+          >
+            ✕ Remove lock
+          </button>
+        )}
 
         {(baseSaving || lockSaving) && (
           <span className="text-xs text-gray-400">Saving…</span>
