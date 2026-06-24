@@ -116,3 +116,21 @@ export function submitPick(
     body: JSON.stringify({ season, week, picks: [item] }),
   });
 }
+
+/**
+ * Clear (un-pick) a SINGLE slot via DELETE /api/picks. Unlike submitPick, the
+ * slot identifiers are QUERY PARAMS (not a body): season, week, pick_type, and
+ * is_mortal_lock (booleans serialized as the literal strings `true`/`false`).
+ * The endpoint returns 204 (no body) on success, so the result is void (api()
+ * returns undefined for 204). X-CSRF-Token is attached by api() on DELETE.
+ */
+export function clearPick(
+  season: number,
+  week: number,
+  slot: { pick_type: PickType; is_mortal_lock: boolean },
+): Promise<void> {
+  const query =
+    `season=${season}&week=${week}` +
+    `&pick_type=${slot.pick_type}&is_mortal_lock=${slot.is_mortal_lock}`;
+  return api<void>(`/api/picks?${query}`, { method: "DELETE" });
+}
