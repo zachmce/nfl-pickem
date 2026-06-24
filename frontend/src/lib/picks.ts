@@ -76,6 +76,20 @@ export function slotKey(pick_type: PickType, is_mortal_lock: boolean): string {
   return `${pick_type}|${is_mortal_lock}`;
 }
 
+/**
+ * Stable key for an inline pick *error*, scoped to the specific GAME + slot the
+ * user acted on — `(game_id, pick_type, is_mortal_lock)`. Unlike slotKey, this
+ * includes game_id so a rejection (e.g. a contradiction) renders only on the
+ * control that was clicked, not on every same-type button across cards.
+ */
+export function errorKey(
+  game_id: number,
+  pick_type: PickType,
+  is_mortal_lock: boolean,
+): string {
+  return `${game_id}|${slotKey(pick_type, is_mortal_lock)}`;
+}
+
 /** Fetch the pickable slate (the OPTIONS the page renders) for a week. */
 export function getSlate(season: number, week: number): Promise<Slate> {
   return api<Slate>(`/api/slate?season=${season}&week=${week}`);

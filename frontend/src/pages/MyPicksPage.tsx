@@ -16,7 +16,7 @@
  * TODO(deferred): "clear a pick / remove the mortal lock" needs a backend
  * un-pick endpoint (DELETE /api/picks). Out of scope for this frontend task.
  */
-import { slotKey, type PickType, type SlateGame } from "../lib/picks";
+import { errorKey, slotKey, type PickType, type SlateGame } from "../lib/picks";
 import type { WindowState } from "../lib/currentWeek";
 import { useMyPicks, type PicksBySlot } from "./useMyPicks";
 
@@ -347,8 +347,10 @@ function BetOption({
   const baseSaving = Boolean(saving[baseKey]);
   const lockSaving = Boolean(saving[lockKey]);
 
-  const baseError = slotError[baseKey];
-  const lockError = slotError[lockKey];
+  // Errors are game-scoped so a rejection shows only on THIS game's control,
+  // not on every same-type button across cards.
+  const baseError = slotError[errorKey(game.game_id, pickType, false)];
+  const lockError = slotError[errorKey(game.game_id, pickType, true)];
 
   const baseDisabled = frozen || baseSaving;
   const lockDisabled = frozen || lockSaving;

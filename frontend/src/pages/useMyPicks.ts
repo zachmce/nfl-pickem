@@ -25,6 +25,7 @@ import {
   type CurrentWeek,
 } from "../lib/currentWeek";
 import {
+  errorKey,
   getMyPicks,
   getSlate,
   slotKey,
@@ -49,7 +50,8 @@ export interface UseMyPicks {
   editable: boolean;
   /** In-flight save state, keyed by slotKey. */
   saving: Record<string, boolean>;
-  /** Inline error message for a slot, keyed by slotKey. */
+  /** Inline error message keyed by errorKey(game_id, pick_type, is_mortal_lock) —
+   * scoped to the specific control the user clicked, not the whole slot. */
   slotError: Record<string, string>;
   /** Autosave one pick item with the 3 guardrails. */
   select: (item: PickItem) => Promise<void>;
@@ -112,6 +114,9 @@ export function useMyPicks(): UseMyPicks {
     if (!week) return;
 
     const key = slotKey(item.pick_type, item.is_mortal_lock);
+    // Errors are scoped to the specific GAME + slot acted on, so a rejection
+    // renders only on the clicked control (not every same-type button).
+    const errKey = errorKey(item.game_id, item.pick_type, item.is_mortal_lock);
 
     // Guardrail 2: ignore a re-fire while this slot's save is already in flight.
     if (inFlightRef.current.has(key)) return;
@@ -119,9 +124,9 @@ export function useMyPicks(): UseMyPicks {
 
     setSaving((prev) => ({ ...prev, [key]: true }));
     setSlotError((prev) => {
-      if (!(key in prev)) return prev;
+      if (!(errKey in prev)) return prev;
       const next = { ...prev };
-      delete next[key];
+      delete next[errKey];
       return next;
     });
 
@@ -136,6 +141,9 @@ export function useMyPicks(): UseMyPicks {
         }
         return next;
       });
+      // A successful save changes the roster, so any prior inline errors are now
+      // stale feedback — clear them all rather than letting them linger.
+      setSlotError((prev) => (Object.keys(prev).length ? {} : prev));
     } catch (err) {
       // Guardrail 3: inline error, do NOT select, then resync from server truth.
       const message =
@@ -144,7 +152,7 @@ export function useMyPicks(): UseMyPicks {
           : err instanceof Error
             ? err.message
             : "Could not save your pick.";
-      setSlotError((prev) => ({ ...prev, [key]: message }));
+      setSlotError((prev) => ({ ...prev, [errKey]: message }));
       try {
         const fresh = await getMyPicks(week.season, week.week);
         setPicks(indexPicks(fresh));
