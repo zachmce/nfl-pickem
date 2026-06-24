@@ -92,6 +92,37 @@ class RefreshResult:
     failed_weeks: tuple[tuple[int, int], ...] = field(default_factory=tuple)
 
 
+def group_games_by_week(games: list[Game]) -> dict[tuple[int, int], list[Game]]:
+    """Group ``Game`` rows by their ``(season, week)`` key.
+
+    Shared by the reconcile core and the scheduler seam so both reason about the
+    same grouped shape (and feed the same ``needy_weeks`` predicate) without
+    re-implementing the grouping.
+    """
+    by_week: dict[tuple[int, int], list[Game]] = {}
+    for g in games:
+        by_week.setdefault((g.season, g.week), []).append(g)
+    return by_week
+
+
+def needy_weeks(
+    by_week: dict[tuple[int, int], list[Game]],
+) -> list[tuple[int, int]]:
+    """Return the sorted ``(season, week)`` keys that need polling.
+
+    A week is "needy" iff at least one of its rows is non-FINAL; a fully-FINAL
+    week is skipped entirely (no fetch). This is THE single home of the
+    non-FINAL-week selection: both :func:`refresh_games` and the scheduler's
+    scores :class:`~app.services.scheduler.PollingJob` route their needy
+    computation through here so they can never drift.
+    """
+    return sorted(
+        key
+        for key, rows in by_week.items()
+        if any(r.status != GameStatus.FINAL for r in rows)
+    )
+
+
 def _as_aware(dt: datetime | None) -> datetime | None:
     """Re-attach UTC to a naive datetime read back from the store.
 
@@ -199,17 +230,13 @@ def refresh_games(
         return RefreshResult()
 
     # Group rows by (season, week) once.
-    by_week: dict[tuple[int, int], list[Game]] = {}
-    for g in all_games:
-        by_week.setdefault((g.season, g.week), []).append(g)
+    by_week = group_games_by_week(all_games)
 
     # Weeks that need polling: at least one non-FINAL row. Fully-FINAL weeks are
     # skipped entirely (no fetch) — the idempotency + don't-refetch guarantee.
-    needy = sorted(
-        key
-        for key, rows in by_week.items()
-        if any(r.status != GameStatus.FINAL for r in rows)
-    )
+    # Routed through the shared predicate so the scheduler's scores job and this
+    # core can never disagree on what "needy" means.
+    needy = needy_weeks(by_week)
 
     games_updated = 0
     weeks_polled = 0
