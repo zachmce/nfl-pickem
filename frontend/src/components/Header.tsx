@@ -83,7 +83,7 @@ export default function Header() {
 
   return (
     <header className="border-b border-gray-200 bg-white">
-      <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
+      <div className="mx-auto flex w-full max-w-5xl xl:max-w-7xl 2xl:max-w-[1700px] items-center justify-between px-4 sm:px-6 lg:px-8 py-3">
         {/* Brand */}
         <NavLink to="/" end className="text-lg font-bold text-gray-900">
           🏈 NFL Pick'em
