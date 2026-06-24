@@ -168,6 +168,93 @@ def read_picks(
     )
 
 
+def clear_pick(
+    session: Session,
+    *,
+    user_id: int,
+    season: int,
+    week: int,
+    pick_type: PickType,
+    is_mortal_lock: bool,
+    now: datetime | None = None,
+) -> None:
+    """Delete ``user_id``'s pick for ONE ``{season, week, pick_type, lock}`` slot.
+
+    The un-pick counterpart to :func:`submit_picks`. Enforces the SAME gates, in
+    the SAME order and BEFORE any delete, reusing the pure
+    :mod:`app.services.pick_window` service (no re-implemented window math):
+
+      1. **Week resolution** — :func:`_resolve_week` raises
+         :class:`NotFoundError` (``reason="week_not_found"``) for an unknown week.
+      2. **Window** — the week window must be OPEN
+         (:func:`pick_window.is_pick_open`); a closed window raises
+         :class:`ConflictError` (``reason="window_closed"``) and deletes nothing.
+      3. **Existence** — the caller must actually own a pick in that exact slot
+         (``user_id, week_id, pick_type, is_mortal_lock``); a missing slot raises
+         :class:`NotFoundError` (``reason="pick_not_found"``). Checked AFTER the
+         window gate so a closed window is reported as the window conflict,
+         consistent with :func:`submit_picks` rejecting on the window first.
+      4. **Per-game lock** — the matched pick's game must NOT have kicked off
+         (:func:`pick_window.is_game_locked`); a locked game raises
+         :class:`ConflictError` (``reason="game_locked"``) and deletes nothing.
+
+    User-scoping guarantee: ``user_id`` comes from the caller (the router derives
+    it from the verified session, NEVER from untrusted input) and the lookup
+    filters ``Pick.user_id == user_id``, so a user can only ever delete their OWN
+    row — another user's pick is never matched (IDOR-safe). On success the matched
+    row is ``session.delete(...)``'d but NOT committed; the caller (router/test)
+    owns the commit, matching this module's caller-commits contract.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    week_row = _resolve_week(session, season, week)
+    assert week_row.id is not None  # a persisted week always has an id
+
+    week_games = _load_week_games(session, season, week)
+    norm_by_id = {g.id: _normalized_game(g) for g in week_games}
+
+    # Previous week's games (if any) for the window-open boundary.
+    prev_games = _load_week_games(session, season, week - 1) if week > 1 else []
+    prev_norm = [_normalized_game(g) for g in prev_games] or None
+
+    # 1) Window — a closed week rejects the clear (nothing deleted).
+    window = compute_window(list(norm_by_id.values()), prev_norm)
+    if not is_pick_open(window, now):
+        raise ConflictError(
+            f"The pick window for season {season} week {week} is closed.",
+            reason="window_closed",
+        )
+
+    # 2) Existence — the caller must own a pick in this exact slot.
+    matched_pick = session.exec(
+        select(Pick).where(
+            Pick.user_id == user_id,
+            Pick.week_id == week_row.id,
+            Pick.pick_type == pick_type,
+            Pick.is_mortal_lock == is_mortal_lock,
+        )
+    ).first()
+    if matched_pick is None:
+        lock_label = " (mortal lock)" if is_mortal_lock else ""
+        raise NotFoundError(
+            f"No {pick_type.value}{lock_label} pick to clear for season "
+            f"{season} week {week}.",
+            reason="pick_not_found",
+        )
+
+    # 3) Per-game lock — a pick whose game has kicked off cannot be cleared.
+    norm_game = norm_by_id.get(matched_pick.game_id)
+    if norm_game is not None and is_game_locked(norm_game, now):
+        raise ConflictError(
+            f"Game {matched_pick.game_id} has kicked off; picks on it are locked.",
+            reason="game_locked",
+        )
+
+    session.delete(matched_pick)
+    return None
+
+
 def submit_picks(
     session: Session,
     *,
