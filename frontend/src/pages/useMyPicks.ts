@@ -15,6 +15,11 @@
  *      /api/picks to resync the authoritative roster. saving[key] cleared in
  *      a finally.
  *
+ * clear() (un-pick) shares the SAME guardrails: it reuses the inFlightRef/saving
+ * slotKey guard, removes the slot from the picks map pessimistically only after a
+ * 204, treats a 404 as already-empty (silent resync, no error), and surfaces any
+ * other failure inline + resyncs — exactly mirroring select()'s error branch.
+ *
  * No JSX, no state library — plain useState/useEffect/useCallback.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -25,6 +30,7 @@ import {
   type CurrentWeek,
 } from "../lib/currentWeek";
 import {
+  clearPick,
   errorKey,
   getMyPicks,
   getSlate,
@@ -55,6 +61,9 @@ export interface UseMyPicks {
   slotError: Record<string, string>;
   /** Autosave one pick item with the 3 guardrails. */
   select: (item: PickItem) => Promise<void>;
+  /** Clear (un-pick) one slot, sharing select()'s guardrails. game_id is used
+   * only to scope the inline error; the DELETE call ignores it. */
+  clear: (slot: PickItem) => Promise<void>;
 }
 
 /** Build the slotKey-indexed picks map from a flat PickRead list (last-write-wins). */
@@ -169,6 +178,67 @@ export function useMyPicks(): UseMyPicks {
     }
   }, []);
 
+  const clear = useCallback(async (slot: PickItem): Promise<void> => {
+    const week = weekRef.current;
+    if (!week) return;
+
+    const key = slotKey(slot.pick_type, slot.is_mortal_lock);
+    // Error is scoped to the specific GAME + slot acted on (game_id is ignored
+    // by the DELETE call itself).
+    const errKey = errorKey(slot.game_id, slot.pick_type, slot.is_mortal_lock);
+
+    // Guardrail 2: share the in-flight guard with select() (same slotKey space),
+    // so a slot mid-save or mid-clear is ignored by both actions.
+    if (inFlightRef.current.has(key)) return;
+    inFlightRef.current.add(key);
+
+    setSaving((prev) => ({ ...prev, [key]: true }));
+    setSlotError((prev) => {
+      if (!(errKey in prev)) return prev;
+      const next = { ...prev };
+      delete next[errKey];
+      return next;
+    });
+
+    try {
+      // 204: slot cleared server-side — remove it from the map pessimistically
+      // (only after the server confirms), then clear stale inline errors.
+      await clearPick(week.season, week.week, slot);
+      setPicks((prev) => {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      setSlotError((prev) => (Object.keys(prev).length ? {} : prev));
+    } catch (err) {
+      // D-01: a 404 means the slot is already empty server-side — not an error.
+      // Any other failure surfaces inline. BOTH paths resync from server truth.
+      if (!(err instanceof ApiError && err.status === 404)) {
+        const message =
+          err instanceof ApiError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : "Could not clear your pick.";
+        setSlotError((prev) => ({ ...prev, [errKey]: message }));
+      }
+      try {
+        const fresh = await getMyPicks(week.season, week.week);
+        setPicks(indexPicks(fresh));
+      } catch {
+        // Resync failed too — leave the existing map; any inline error stands.
+      }
+    } finally {
+      inFlightRef.current.delete(key);
+      setSaving((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+  }, []);
+
   const editable = currentWeek?.window_state === "open";
 
   return {
@@ -180,5 +250,6 @@ export function useMyPicks(): UseMyPicks {
     saving,
     slotError,
     select,
+    clear,
   };
 }
