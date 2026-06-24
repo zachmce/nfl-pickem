@@ -1,0 +1,292 @@
+"""Offline tests for the current-week context-bar read endpoint.
+
+Covers the thin authenticated HTTP router (:mod:`app.api.current_week`) via an
+in-memory ``TestClient`` — mirroring the conventions established by
+:mod:`tests.test_results_api`:
+
+* a single shared in-memory SQLite connection (``StaticPool``) so every
+  ``Session`` — including the one ``get_current_user`` opens — sees the SAME db,
+* ``app.dependency_overrides[get_session]`` routed at that engine so importing
+  :mod:`app.main` never opens a real Postgres connection,
+* no network of any kind,
+* bearer auth for reads (CSRF-exempt) via ``_bearer_headers``; ``_clear_auth``
+  for the unauthenticated 401 case; ``_assert_envelope`` for the error shape.
+
+Each window state is driven by seeding ``Game.kickoff_at`` relative to the real
+clock (future = now + days, past = now - days) plus explicit ``GameStatus``, so
+the four states + the earliest-open selection + the all-closed fallback + the
+demo-shift case are deterministic and not clock-flaky. No picks are seeded — this
+endpoint does not read picks.
+
+> Note: on this machine there is no bare ``python`` on ``PATH``; run with
+> ``backend/.venv/bin/python -m unittest``.
+"""
+
+from __future__ import annotations
+
+import unittest
+from datetime import datetime, timedelta, timezone
+
+from fastapi.testclient import TestClient
+from sqlalchemy.pool import StaticPool
+from sqlmodel import Session, SQLModel, create_engine
+
+from app.db import get_session
+from app.main import app
+from app.models import Game, GameStatus, Team, User, Week
+from app.services.auth import create_session_cookie, hash_password
+
+SEASON = 2025
+
+
+def _aware(dt: datetime | None) -> datetime | None:
+    """Re-attach UTC to a naive datetime read back from SQLite."""
+    if dt is not None and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+class CurrentWeekTests(unittest.TestCase):
+    """HTTP coverage for the current-week read surface."""
+
+    user_id: int
+
+    def setUp(self) -> None:
+        self.engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        SQLModel.metadata.create_all(self.engine)
+
+        with Session(self.engine) as session:
+            # Teams (FK targets for the games each test seeds).
+            teams = [
+                Team(espn_team_id=i, abbreviation=f"T{i}", display_name=f"Team {i}")
+                for i in range(1, 5)
+            ]
+            session.add_all(teams)
+            session.commit()
+            for t in teams:
+                session.refresh(t)
+            self.tid = [t.id for t in teams]
+
+            # One active user to authenticate the shared read.
+            user = User(
+                display_name="alice",
+                password_hash=hash_password("correct horse battery staple"),
+                is_active=True,
+            )
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+            assert user.id is not None
+            self.user_id = user.id
+
+        def _override_get_session():
+            with Session(self.engine) as session:
+                yield session
+
+        app.dependency_overrides[get_session] = _override_get_session
+        self.client = TestClient(app)
+
+    def tearDown(self) -> None:
+        app.dependency_overrides.pop(get_session, None)
+        self.client.close()
+        self.engine.dispose()
+
+    # -- helpers -----------------------------------------------------------
+
+    def _session(self) -> Session:
+        return Session(self.engine)
+
+    def _seed_week(
+        self,
+        *,
+        week: int,
+        kickoffs: list[datetime],
+        status: GameStatus = GameStatus.SCHEDULED,
+    ) -> None:
+        """Seed a Week row + its games with the given kickoffs and status.
+
+        Home/away teams cycle through the four seeded teams; ``espn_event_id`` is
+        kept unique across weeks. Games default to SCHEDULED; pass FINAL/IN_PROGRESS
+        to drive the locked/closed split.
+        """
+        with self._session() as session:
+            week_row = Week(season=SEASON, week=week)
+            session.add(week_row)
+            session.commit()
+            session.refresh(week_row)
+            assert week_row.id is not None
+
+            for i, ko in enumerate(kickoffs):
+                session.add(
+                    Game(
+                        espn_event_id=week * 1000 + i,
+                        week_id=week_row.id,
+                        season=SEASON,
+                        week=week,
+                        home_team_id=self.tid[i % 2 * 2],
+                        away_team_id=self.tid[i % 2 * 2 + 1],
+                        kickoff_at=ko,
+                        status=status,
+                    )
+                )
+            session.commit()
+
+    def _bearer_headers(self, user_id: int) -> dict[str, str]:
+        """Bearer auth for reads (CSRF-exempt)."""
+        return {"Authorization": f"Bearer {create_session_cookie(user_id)}"}
+
+    def _clear_auth(self) -> None:
+        self.client.cookies.clear()
+
+    @staticmethod
+    def _assert_envelope(body: dict) -> dict:
+        assert "error" in body, f"expected an error envelope, got: {body}"
+        err = body["error"]
+        assert "code" in err, f"envelope missing 'code': {err}"
+        return err
+
+    def _get(self) -> object:
+        return self.client.get(
+            "/api/current-week", headers=self._bearer_headers(self.user_id)
+        )
+
+    # -- auth --------------------------------------------------------------
+
+    def test_unauthenticated_rejected_401(self) -> None:
+        """GET /api/current-week with no auth -> 401 + error envelope."""
+        self._clear_auth()
+        resp = self.client.get("/api/current-week")
+        self.assertEqual(resp.status_code, 401, resp.text)
+        self._assert_envelope(resp.json())
+
+    # -- states ------------------------------------------------------------
+
+    def test_state_open(self) -> None:
+        """Week 1 (open_at None) with a FUTURE first kickoff -> open."""
+        now = datetime.now(timezone.utc)
+        first = now + timedelta(days=2)
+        self._seed_week(week=1, kickoffs=[first, first + timedelta(hours=3)])
+
+        resp = self._get()
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["season"], SEASON)
+        self.assertEqual(body["week"], 1)
+        self.assertEqual(body["window_state"], "open")
+        self.assertEqual(_aware(datetime.fromisoformat(body["window_closes_at"])), first)
+
+    def test_state_not_yet_open(self) -> None:
+        """Chosen week's open boundary (prev week's last kickoff + duration) is
+        still in the FUTURE -> not_yet_open.
+
+        Week 1 is fully past+FINAL so it is closed; week 2 is the chosen week.
+        Week 1's latest kickoff is in the future (+5 days), so week 2's open_at
+        (that + ~3.5h) has not been reached, while week 2's close (its first
+        kickoff, +6 days) is further out.
+        """
+        now = datetime.now(timezone.utc)
+        # Week 1: closed (first kickoff in the past) but with a FUTURE latest
+        # kickoff so it drives week 2's open boundary into the future. Mark FINAL
+        # is irrelevant for selection here — week 1's window is already closed.
+        self._seed_week(
+            week=1,
+            kickoffs=[now - timedelta(days=1), now + timedelta(days=5)],
+            status=GameStatus.FINAL,
+        )
+        # Week 2: first kickoff +6 days (window still future-open -> chosen).
+        self._seed_week(
+            week=2,
+            kickoffs=[now + timedelta(days=6), now + timedelta(days=6, hours=3)],
+        )
+
+        resp = self._get()
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["week"], 2)
+        self.assertEqual(body["window_state"], "not_yet_open")
+
+    def test_state_locked(self) -> None:
+        """Chosen week's first kickoff is PAST (closed) but a game is non-FINAL
+        -> locked."""
+        now = datetime.now(timezone.utc)
+        self._seed_week(
+            week=1,
+            kickoffs=[now - timedelta(hours=2), now + timedelta(hours=1)],
+            status=GameStatus.IN_PROGRESS,
+        )
+
+        resp = self._get()
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["week"], 1)
+        self.assertEqual(body["window_state"], "locked")
+
+    def test_state_closed(self) -> None:
+        """The only week's window is closed AND every game FINAL -> closed,
+        chosen via the all-closed fallback to the latest week."""
+        now = datetime.now(timezone.utc)
+        self._seed_week(
+            week=1,
+            kickoffs=[now - timedelta(days=2), now - timedelta(days=2, hours=-3)],
+            status=GameStatus.FINAL,
+        )
+
+        resp = self._get()
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["week"], 1)
+        self.assertEqual(body["window_state"], "closed")
+
+    def test_current_week_selection_picks_earliest_open(self) -> None:
+        """Week 1 fully closed/past, week 2 still future-open -> week 2 chosen."""
+        now = datetime.now(timezone.utc)
+        self._seed_week(
+            week=1,
+            kickoffs=[now - timedelta(days=3), now - timedelta(days=3, hours=-3)],
+            status=GameStatus.FINAL,
+        )
+        wk2_first = now + timedelta(days=2)
+        self._seed_week(week=2, kickoffs=[wk2_first, wk2_first + timedelta(hours=3)])
+
+        resp = self._get()
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["week"], 2)
+        self.assertEqual(body["window_state"], "open")
+        self.assertEqual(
+            _aware(datetime.fromisoformat(body["window_closes_at"])), wk2_first
+        )
+
+    def test_demo_like_shift(self) -> None:
+        """Kickoffs shifted into the FUTURE (simulating the demo time-shift),
+        computed against real now -> earliest week reports a future open window.
+
+        Proves no IS_DEMO_DATA branch is needed: the state falls out of
+        real-now-vs-persisted-(shifted)-kickoffs.
+        """
+        now = datetime.now(timezone.utc)
+        wk1_first = now + timedelta(days=1)  # season "starts" ~24h out
+        self._seed_week(week=1, kickoffs=[wk1_first, wk1_first + timedelta(hours=3)])
+        self._seed_week(
+            week=2,
+            kickoffs=[now + timedelta(days=8), now + timedelta(days=8, hours=3)],
+        )
+
+        resp = self._get()
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        # The earliest (week 1) is chosen and is open (open_at None) with a
+        # future close.
+        self.assertEqual(body["week"], 1)
+        self.assertEqual(body["window_state"], "open")
+        closes = _aware(datetime.fromisoformat(body["window_closes_at"]))
+        self.assertEqual(closes, wk1_first)
+        self.assertGreater(closes, now)
+
+
+if __name__ == "__main__":
+    unittest.main()
