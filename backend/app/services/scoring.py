@@ -64,6 +64,12 @@ class GradeOutcome(str, Enum):
     WIN = "WIN"
     LOSS = "LOSS"
     PUSH = "PUSH"
+    # INELIGIBLE is load-bearing for the odds "line-at-lock" policy: a pick whose
+    # type is ineligible at the game's FROZEN line (a true pick'em has no spread
+    # side; an absent total has no O/U) voids to 0 — never a loss, even as a
+    # mortal lock. Odds can drift until freeze, so a pick made while its type was
+    # eligible can land on a frozen line where it no longer is; that case must
+    # score 0, not -1. See .planning/notes/scheduled-tasks-and-odds-freeze.md.
     INELIGIBLE = "INELIGIBLE"
     UNGRADEABLE = "UNGRADEABLE"
 

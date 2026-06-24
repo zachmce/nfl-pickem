@@ -257,6 +257,36 @@ class PickemAndTotalIneligibilityTests(unittest.TestCase):
             grade_pick(game, _pick(PickType.OVER)).outcome, GradeOutcome.LOSS
         )
 
+    def test_total_none_makes_over_under_ineligible(self) -> None:
+        # No total posted at the frozen line -> OVER/UNDER void to 0 (the
+        # _total_outcome None branch). Load-bearing for the odds line-at-lock
+        # policy: a total that never posted (or vanished before freeze) must not
+        # grade as a loss. See .planning/notes/scheduled-tasks-and-odds-freeze.md.
+        game = _game(home_score=24, away_score=20, total=None,
+                     spread=Decimal("3.5"), favorite_team_id=HOME,
+                     underdog_team_id=AWAY)
+        self.assertEqual(
+            grade_pick(game, _pick(PickType.OVER)),
+            GradeResult(GradeOutcome.INELIGIBLE, 0),
+        )
+        self.assertEqual(
+            grade_pick(game, _pick(PickType.UNDER)),
+            GradeResult(GradeOutcome.INELIGIBLE, 0),
+        )
+
+    def test_ineligible_zero_even_for_mortal_lock(self) -> None:
+        # An ineligible pick voids to 0 even as a mortal lock -- never -1. This
+        # is the line-at-lock guarantee: if a pick's type is ineligible at the
+        # frozen line (here a pick'em spread), it is a no-action void, not a
+        # loss. See .planning/notes/scheduled-tasks-and-odds-freeze.md.
+        game = _game(home_score=24, away_score=20, spread=Decimal("0"),
+                     favorite_team_id=None, underdog_team_id=None,
+                     total=Decimal("44.5"))
+        self.assertEqual(
+            grade_pick(game, _pick(PickType.FAVORITE_COVER, is_mortal_lock=True)),
+            GradeResult(GradeOutcome.INELIGIBLE, 0),
+        )
+
 
 class UngradeableTests(unittest.TestCase):
     """Non-final or missing-score games are ungradeable, never wrong."""
