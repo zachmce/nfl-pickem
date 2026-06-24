@@ -45,6 +45,15 @@ Rules (single source of truth):
 * **Pick'em spread ineligibility** — a ``FAVORITE_COVER`` / ``UNDERDOG_COVER``
   pick on a true pick'em game (no gradeable spread side). Over/Under is unaffected.
 
+The per-type eligibility rule ("is this pick type even pickable on this game") is
+exported as the single pure predicate :func:`is_pick_type_eligible`
+(``(game, PickType) -> bool``): spread types are eligible iff the game is not a
+true pick'em, OVER/UNDER iff the game has a total. ``validate_roster`` /
+``check_new_pick`` route their spread-eligibility decision through it (behind the
+``_SPREAD_PICK_TYPES`` membership filter), and the slate read endpoint
+(:mod:`app.api.slate`) reuses the SAME predicate — so the rule lives in exactly
+one place.
+
 > Note: on this machine the interpreter is ``python3`` (there is no bare
 > ``python`` on ``PATH``); use the venv interpreter ``.venv/bin/python`` for any
 > commands.
@@ -140,6 +149,32 @@ def _is_true_pickem(game: Game) -> bool:
     )
 
 
+def is_pick_type_eligible(game: Game, pick_type: PickType) -> bool:
+    """Whether ``pick_type`` is a legal *choice* on ``game`` (the OPTIONS rule).
+
+    The single shared ``(game, PickType) -> bool`` eligibility predicate — the one
+    source of truth for "is this pick type even pickable on this game", reused by
+    both this module's pre-persistence guards (``validate_roster`` /
+    ``check_new_pick``) AND the slate read endpoint (``app.api.slate``) so the rule
+    is never duplicated.
+
+    Precise per-type contract:
+
+    * **FAVORITE_COVER / UNDERDOG_COVER** (the two ``_SPREAD_PICK_TYPES``) are
+      eligible iff the game is **not** a true pick'em — i.e. ``not
+      _is_true_pickem(game)`` (False when the spread is absent/zero or either
+      favorite/underdog side is unknown; True for a normal spread+sides game).
+    * **OVER / UNDER** are eligible iff the game has a total — i.e.
+      ``game.total is not None``.
+
+    Pure: performs no I/O and mutates nothing (consistent with the module
+    contract).
+    """
+    if pick_type in _SPREAD_PICK_TYPES:
+        return not _is_true_pickem(game)
+    return game.total is not None
+
+
 def _contradict(type_a: PickType, type_b: PickType) -> bool:
     """True when two pick types on the same game are mutually exclusive."""
     return frozenset({type_a, type_b}) in _CONTRADICTORY_PAIRS
@@ -178,8 +213,8 @@ def validate_roster(
 
     # (d) Pick'em spread ineligibility — per spread pick.
     for pick in pick_list:
-        if pick.pick_type in _SPREAD_PICK_TYPES and _is_true_pickem(
-            games_by_id[pick.game_id]
+        if pick.pick_type in _SPREAD_PICK_TYPES and not is_pick_type_eligible(
+            games_by_id[pick.game_id], pick.pick_type
         ):
             violations.append(
                 Violation(
@@ -290,8 +325,8 @@ def check_new_pick(
     violations: list[Violation] = []
 
     # Spread pick on a true pick'em — independent of the existing set.
-    if new_pick.pick_type in _SPREAD_PICK_TYPES and _is_true_pickem(
-        games_by_id[new_pick.game_id]
+    if new_pick.pick_type in _SPREAD_PICK_TYPES and not is_pick_type_eligible(
+        games_by_id[new_pick.game_id], new_pick.pick_type
     ):
         violations.append(
             Violation(
