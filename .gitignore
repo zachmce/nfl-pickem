@@ -29,3 +29,6 @@ frontend/dist/
 
 # GSD planning (local-only)
 .planning/
+
+# Playwright MCP run artifacts (screenshots, snapshots, console logs)
+.playwright-mcp/
