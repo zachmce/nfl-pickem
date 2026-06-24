@@ -678,6 +678,229 @@ class PicksApiTests(unittest.TestCase):
         self.assertLess(resp2.status_code, 500, resp2.text)
         self._assert_envelope(resp2.json())
 
+    # -- DELETE /api/picks (clear a single slot) ---------------------------
+
+    def test_clear_happy_path_removes_only_callers_pick(self) -> None:
+        """DELETE an existing base slot in an OPEN window -> 204; userB untouched."""
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_spread_id,
+            week_id=self.week_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+        # userB owns a pick in a DIFFERENT slot — it must survive userA's clear.
+        self._seed_pick(
+            user_id=self.user_b_id,
+            game_id=self.game_total_id,
+            week_id=self.week_id,
+            pick_type=PickType.OVER,
+        )
+        headers = self._cookie_auth_headers(self.user_a_id)
+        resp = self.client.delete(
+            "/api/picks",
+            params={
+                "season": SEASON,
+                "week": WEEK,
+                "pick_type": "FAVORITE_COVER",
+                "is_mortal_lock": False,
+            },
+            headers=headers,
+        )
+        self.assertEqual(resp.status_code, 204, resp.text)
+        self.assertIn(resp.content, (b"", b"null"))
+        # userA's slot is gone; userB's pick is untouched.
+        self.assertEqual(self._picks_for(self.user_a_id, self.week_id), [])
+        rows_b = self._picks_for(self.user_b_id, self.week_id)
+        self.assertEqual(len(rows_b), 1)
+        self.assertEqual(rows_b[0].pick_type, PickType.OVER)
+
+    def test_clear_mortal_lock_slot(self) -> None:
+        """DELETE the optional mortal-lock slot -> 204; row gone (the kx2 case)."""
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_spread_id,
+            week_id=self.week_id,
+            pick_type=PickType.FAVORITE_COVER,
+            is_mortal_lock=True,
+        )
+        headers = self._cookie_auth_headers(self.user_a_id)
+        resp = self.client.delete(
+            "/api/picks",
+            params={
+                "season": SEASON,
+                "week": WEEK,
+                "pick_type": "FAVORITE_COVER",
+                "is_mortal_lock": True,
+            },
+            headers=headers,
+        )
+        self.assertEqual(resp.status_code, 204, resp.text)
+        self.assertEqual(self._picks_for(self.user_a_id, self.week_id), [])
+
+    def test_clear_no_such_pick_404(self) -> None:
+        """DELETE a slot with no seeded pick -> 404 (pick_not_found)."""
+        headers = self._cookie_auth_headers(self.user_a_id)
+        resp = self.client.delete(
+            "/api/picks",
+            params={
+                "season": SEASON,
+                "week": WEEK,
+                "pick_type": "FAVORITE_COVER",
+                "is_mortal_lock": False,
+            },
+            headers=headers,
+        )
+        self.assertEqual(resp.status_code, 404, resp.text)
+        err = self._assert_envelope(resp.json())
+        self.assertEqual(err.get("reason"), "pick_not_found")
+
+    def test_clear_window_closed_rejected_no_delete(self) -> None:
+        """DELETE in a closed-window week -> 409 (window_closed); nothing deleted."""
+        # The locked week's only game kicked off in the past -> window closed.
+        # Seed directly (bypasses the window gate) so there IS a row to attempt.
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_locked_id,
+            week_id=self.locked_week_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+        headers = self._cookie_auth_headers(self.user_a_id)
+        resp = self.client.delete(
+            "/api/picks",
+            params={
+                "season": SEASON,
+                "week": WEEK + 1,
+                "pick_type": "FAVORITE_COVER",
+                "is_mortal_lock": False,
+            },
+            headers=headers,
+        )
+        self.assertEqual(resp.status_code, 409, resp.text)
+        err = self._assert_envelope(resp.json())
+        self.assertEqual(err.get("reason"), "window_closed")
+        # The seeded pick still exists — nothing was deleted.
+        self.assertEqual(len(self._picks_for(self.user_a_id, self.locked_week_id)), 1)
+
+    def test_clear_game_locked_rejected_no_delete(self) -> None:
+        """DELETE a pick whose game has kicked off -> 409; nothing deleted.
+
+        Mirror of ``test_per_game_locked_is_rejected_4xx_no_writes``: a week whose
+        EARLIEST kickoff is in the past makes the week window closed, so
+        ``window_closed`` fires before the per-game lock — both are a 409 conflict
+        envelope and neither deletes the row. We seed a pick on the locked game and
+        assert the clear is rejected with the row intact.
+        """
+        now = datetime.now(timezone.utc)
+        with self._session() as session:
+            wk = Week(season=SEASON, week=99)
+            session.add(wk)
+            session.commit()
+            session.refresh(wk)
+            assert wk.id is not None
+            wk_id = wk.id
+            open_anchor = Game(
+                espn_event_id=9901,
+                week_id=wk.id,
+                season=SEASON,
+                week=99,
+                home_team_id=1,
+                away_team_id=2,
+                kickoff_at=now + _FUTURE,
+                status=GameStatus.SCHEDULED,
+                spread=Decimal("3.0"),
+                total=Decimal("40.0"),
+                favorite_team_id=1,
+                underdog_team_id=2,
+            )
+            locked_game = Game(
+                espn_event_id=9902,
+                week_id=wk.id,
+                season=SEASON,
+                week=99,
+                home_team_id=3,
+                away_team_id=4,
+                kickoff_at=now - _PAST,
+                status=GameStatus.IN_PROGRESS,
+                spread=Decimal("3.0"),
+                total=Decimal("40.0"),
+                favorite_team_id=3,
+                underdog_team_id=4,
+            )
+            session.add_all([open_anchor, locked_game])
+            session.commit()
+            session.refresh(locked_game)
+            locked_id = locked_game.id
+
+        # Seed a pick on the locked game so there IS a row to attempt to clear.
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=locked_id,
+            week_id=wk_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+        headers = self._cookie_auth_headers(self.user_a_id)
+        resp = self.client.delete(
+            "/api/picks",
+            params={
+                "season": SEASON,
+                "week": 99,
+                "pick_type": "FAVORITE_COVER",
+                "is_mortal_lock": False,
+            },
+            headers=headers,
+        )
+        self.assertEqual(resp.status_code, 409, resp.text)
+        err = self._assert_envelope(resp.json())
+        self.assertIn(err.get("reason"), {"game_locked", "window_closed"})
+        # The seeded pick still exists — nothing was deleted.
+        self.assertEqual(len(self._picks_for(self.user_a_id, wk_id)), 1)
+
+    def test_clear_unauthenticated_401(self) -> None:
+        """An unauthenticated DELETE -> 401 envelope."""
+        self._clear_auth()
+        resp = self.client.delete(
+            "/api/picks",
+            params={
+                "season": SEASON,
+                "week": WEEK,
+                "pick_type": "FAVORITE_COVER",
+                "is_mortal_lock": False,
+            },
+        )
+        self.assertEqual(resp.status_code, 401, resp.text)
+        self._assert_envelope(resp.json())
+
+    def test_clear_cannot_delete_anothers_pick(self) -> None:
+        """userA clearing userB's slot -> 404; userB's pick is unchanged.
+
+        Proves user-scoping: the lookup filters by the session user, so userA can
+        never reach userB's row — it reads as ``pick_not_found`` for userA.
+        """
+        self._seed_pick(
+            user_id=self.user_b_id,
+            game_id=self.game_spread_id,
+            week_id=self.week_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+        headers = self._cookie_auth_headers(self.user_a_id)
+        resp = self.client.delete(
+            "/api/picks",
+            params={
+                "season": SEASON,
+                "week": WEEK,
+                "pick_type": "FAVORITE_COVER",
+                "is_mortal_lock": False,
+            },
+            headers=headers,
+        )
+        self.assertEqual(resp.status_code, 404, resp.text)
+        err = self._assert_envelope(resp.json())
+        self.assertEqual(err.get("reason"), "pick_not_found")
+        # userB's pick is untouched.
+        rows_b = self._picks_for(self.user_b_id, self.week_id)
+        self.assertEqual(len(rows_b), 1)
+        self.assertEqual(rows_b[0].pick_type, PickType.FAVORITE_COVER)
+
 
 if __name__ == "__main__":
     unittest.main()
