@@ -394,5 +394,24 @@ class RefreshGamesTests(unittest.TestCase):
             self.assertTrue(all(g.status == GameStatus.FINAL for g in wk1))
 
 
+class BeatWiringRegressionTests(unittest.TestCase):
+    """The scores beat is preserved byte-for-byte after the scheduler refactor.
+
+    The beat_schedule is now DERIVED from the polling-job registry
+    (:data:`app.services.scheduler.POLLING_JOBS`) rather than a hard-coded literal.
+    This regression test pins the observable result for the scores poller: the
+    registry must still produce the exact historical entry.
+    """
+
+    def test_refresh_games_beat_entry_is_unchanged(self) -> None:
+        from app.celery_app import celery_app
+
+        entry = celery_app.conf.beat_schedule["refresh-games-poller"]
+        self.assertEqual(
+            entry,
+            {"task": "app.tasks.refresh_games", "schedule": 60.0},
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
