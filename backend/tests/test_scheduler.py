@@ -87,12 +87,22 @@ def _scores_job() -> scheduler.PollingJob:
     return jobs[0]
 
 
-class SchedulerRegistryTests(unittest.TestCase):
-    """The registry holds the scores job with the exact beat wiring."""
+def _odds_job() -> scheduler.PollingJob:
+    """The single registered odds job (fail loud if the registry shape drifts)."""
+    jobs = [
+        j
+        for j in scheduler.POLLING_JOBS
+        if j.beat_name == "refresh-odds-poller"
+    ]
+    assert len(jobs) == 1, f"expected exactly one odds job, got {jobs}"
+    return jobs[0]
 
-    def test_registry_holds_only_the_scores_job_with_expected_wiring(self) -> None:
-        # In THIS task the registry holds exactly one job: the scores job.
-        self.assertEqual(len(scheduler.POLLING_JOBS), 1)
+
+class SchedulerRegistryTests(unittest.TestCase):
+    """The registry holds the scores job + the sibling odds job."""
+
+    def test_registry_holds_scores_job_with_expected_wiring(self) -> None:
+        # The scores job stays FIRST and unchanged (scores untouched).
         job = scheduler.POLLING_JOBS[0]
         self.assertIsInstance(job, scheduler.PollingJob)
         self.assertEqual(job.beat_name, "refresh-games-poller")
@@ -100,6 +110,54 @@ class SchedulerRegistryTests(unittest.TestCase):
         self.assertEqual(job.schedule_seconds, 60.0)
         # The cadence is a float (Celery beat schedule contract).
         self.assertIsInstance(job.schedule_seconds, float)
+
+    def test_registry_holds_two_jobs_with_odds_as_the_sibling(self) -> None:
+        # The registry now holds TWO jobs: scores then odds.
+        self.assertEqual(len(scheduler.POLLING_JOBS), 2)
+        odds = _odds_job()
+        self.assertIsInstance(odds, scheduler.PollingJob)
+        self.assertEqual(odds.beat_name, "refresh-odds-poller")
+        self.assertEqual(odds.task_name, "app.tasks.refresh_odds")
+        # The odds cadence is a float and SLOWER than the 60s scores cadence.
+        self.assertIsInstance(odds.schedule_seconds, float)
+        self.assertGreater(odds.schedule_seconds, 60.0)
+
+    def test_odds_cadence_has_one_home_in_celery_app(self) -> None:
+        # The odds cadence cannot drift: the job carries the same value as the
+        # ONE home in celery_app (mirrors the scores single-home invariant).
+        from app.celery_app import REFRESH_ODDS_INTERVAL_SECONDS
+
+        self.assertEqual(
+            _odds_job().schedule_seconds, REFRESH_ODDS_INTERVAL_SECONDS
+        )
+
+    def test_scores_cadence_still_has_one_home_in_celery_app(self) -> None:
+        from app.celery_app import REFRESH_GAMES_INTERVAL_SECONDS
+
+        self.assertEqual(
+            _scores_job().schedule_seconds, REFRESH_GAMES_INTERVAL_SECONDS
+        )
+
+    def test_beat_schedule_has_both_entries_scores_unchanged(self) -> None:
+        from app.celery_app import (
+            REFRESH_ODDS_INTERVAL_SECONDS,
+            celery_app,
+        )
+
+        beat = celery_app.conf.beat_schedule
+        # Scores entry is byte-for-byte unchanged.
+        self.assertEqual(
+            beat["refresh-games-poller"],
+            {"task": "app.tasks.refresh_games", "schedule": 60.0},
+        )
+        # Odds entry is auto-built from the registry on its own cadence.
+        self.assertEqual(
+            beat["refresh-odds-poller"],
+            {
+                "task": "app.tasks.refresh_odds",
+                "schedule": REFRESH_ODDS_INTERVAL_SECONDS,
+            },
+        )
 
 
 class SchedulerNeedyPredicateTests(unittest.TestCase):

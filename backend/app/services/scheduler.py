@@ -40,13 +40,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Callable
+from typing import Any, Callable
 
 from sqlmodel import Session
 
 from app.models import Game
 from app.scoreboard.port import ScoreboardFetchError, ScoreboardSource
 from app.scoreboard.types import ScoreboardGame
+from app.services.odds import OddsResult, odds_needy_weeks, reconcile_odds_games
 from app.services.refresh import (
     RefreshResult,
     group_games_by_week,
@@ -69,11 +70,18 @@ class PollingJob:
     * ``beat_name`` — the Celery ``beat_schedule`` key (the beat entry name).
     * ``schedule_seconds`` — the beat cadence, in seconds (float).
     * ``task_name`` — the registered Celery task string the beat dispatches.
-    * ``needy`` — predicate ``(grouped_rows) -> list[(season, week)]`` selecting
-      which weeks to poll (the job's "when to poll").
-    * ``reconcile`` — callable ``(session, source, *, now) -> RefreshResult`` that
+    * ``needy`` — predicate selecting which weeks to poll (the job's "when to
+      poll"). The scores job's needy is ``(grouped_rows) -> list[(season,
+      week)]``; the odds job's needy additionally consults the persisted ``Week``
+      rows + ``now`` for its freeze stop condition, so the field is typed loosely
+      (``Callable[..., list[WeekKey]]``) to admit both shapes rather than forcing
+      one job's signature on the other.
+    * ``reconcile`` — callable ``(session, source, *, now) -> <result>`` that
       applies the fetched data and returns a summary (the job's "what a tick
-      does"). The scores job delegates this to ``refresh_games``.
+      does"). The scores job delegates this to ``refresh_games`` (a
+      ``RefreshResult``); the odds job delegates to the odds service (its own
+      ``OddsResult``). The return type is loose (``Any``) so a sibling job's
+      result value object need not subclass ``RefreshResult``.
 
     A sibling odds job slots into :data:`POLLING_JOBS` by supplying its OWN
     ``needy``/``reconcile``/cadence — without disturbing this one.
@@ -83,8 +91,8 @@ class PollingJob:
     beat_name: str
     schedule_seconds: float
     task_name: str
-    needy: Callable[[GroupedRows], list[WeekKey]] = field(compare=False)
-    reconcile: Callable[..., RefreshResult] = field(compare=False)
+    needy: Callable[..., list[WeekKey]] = field(compare=False)
+    reconcile: Callable[..., Any] = field(compare=False)
 
 
 def fetch_needy_weeks(
@@ -157,15 +165,60 @@ SCORES_JOB = PollingJob(
     reconcile=_scores_reconcile,
 )
 
-# The ordered registry of scheduled polling jobs. A sibling odds job is appended
-# here next (its own cadence/needy/stop) without modifying the scores job above.
-POLLING_JOBS: tuple[PollingJob, ...] = (SCORES_JOB,)
+def _odds_needy(by_week: GroupedRows, **kwargs: Any) -> list[WeekKey]:
+    """The odds job's needy predicate: not-yet-frozen weeks with games.
+
+    Delegates to :func:`app.services.odds.odds_needy_weeks` (an ``app.services.*``
+    import the source-agnostic guard allows). The odds stop condition is FREEZE
+    (not FINAL), so this consults the persisted ``Week`` rows + ``now`` passed
+    through ``kwargs`` (``week_rows_by_key=`` and ``now=``). The odds reconcile
+    entry computes the same predicate internally, so this is the registry-facing
+    view for callers that pre-group rows.
+    """
+    return odds_needy_weeks(by_week, kwargs["week_rows_by_key"], now=kwargs["now"])
+
+
+def _odds_reconcile(
+    session: Session,
+    source: ScoreboardSource,
+    *,
+    now: datetime | None = None,
+) -> OddsResult:
+    """The odds job's reconcile: delegate to the odds service's poll entry.
+
+    Mirrors ``_scores_reconcile`` (which delegates to ``refresh_games``): this
+    delegates to :func:`app.services.odds.reconcile_odds_games`, which selects all
+    games, computes the odds-active weeks (not-yet-frozen), fetches each needy
+    week once (reusing the shared per-week fetch seam), and reconciles the line.
+    Returns its own :class:`~app.services.odds.OddsResult`.
+    """
+    return reconcile_odds_games(session, source, now=now)
+
+
+# The odds cadence has ONE home: app.celery_app.REFRESH_ODDS_INTERVAL_SECONDS;
+# the celery beat is built FROM this registry there, so the 300.0s below is the
+# same value that beat entry emits (a test asserts the two stay equal, mirroring
+# the scores-cadence single-home invariant). It is deliberately SLOWER than the
+# scores 60.0s: lines crawl on minutes-to-hours and provider quotas are finite.
+ODDS_JOB = PollingJob(
+    name="odds",
+    beat_name="refresh-odds-poller",
+    schedule_seconds=300.0,
+    task_name="app.tasks.refresh_odds",
+    needy=_odds_needy,
+    reconcile=_odds_reconcile,
+)
+
+# The ordered registry of scheduled polling jobs. The scores job stays FIRST and
+# unchanged; the odds job is the sibling 2nd entry (its own cadence/needy/stop).
+POLLING_JOBS: tuple[PollingJob, ...] = (SCORES_JOB, ODDS_JOB)
 
 
 __all__ = [
     "PollingJob",
     "POLLING_JOBS",
     "SCORES_JOB",
+    "ODDS_JOB",
     "fetch_needy_weeks",
     "group_games_by_week",
 ]

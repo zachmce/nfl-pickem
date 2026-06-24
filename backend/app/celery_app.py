@@ -20,6 +20,16 @@ celery_app = Celery(
 # is built FROM the registry so the two cannot drift.
 REFRESH_GAMES_INTERVAL_SECONDS: float = 60.0
 
+# Beat cadence for the odds-reconciliation poller. Deliberately SLOWER than the
+# scores cadence: betting lines crawl on minutes-to-hours (not seconds) and a
+# 60s odds poll would burn provider quota for nothing, so 5 minutes is a sensible
+# default that respects provider rate limits while still tracking line movement
+# before the freeze. This is the ONE home of the odds cadence: the scheduler's
+# odds PollingJob carries the same 300.0s value (asserted by a test) and the beat
+# below is built FROM the registry so the two cannot drift. A float per the
+# Celery beat-schedule contract.
+REFRESH_ODDS_INTERVAL_SECONDS: float = 300.0
+
 
 def _beat_schedule_from_registry() -> dict[str, dict[str, object]]:
     """Derive the Celery ``beat_schedule`` from the polling-job registry.
