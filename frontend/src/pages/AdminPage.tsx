@@ -3,7 +3,7 @@
  *
  * Renders as CONTENT ONLY inside AppShell behind RequireAdmin (no shell, header,
  * nav, or auth guard here — mirrors MyPicksPage.tsx). The seeded web admin lands
- * here (/il) and sees one row per user with their identity, origin, state, and
+ * here (/admin) and sees one row per user with their identity, origin, state, and
  * pick count, plus per-row controls to deactivate/reactivate, grant/revoke admin,
  * and delete any OTHER user.
  *
