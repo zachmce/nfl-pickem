@@ -25,11 +25,39 @@ import {
   listUsers,
   reactivateUser,
   revokeAdmin,
+  type AdminPickSet,
   type AdminUser,
 } from "../lib/admin";
+import { getCurrentWeek } from "../lib/currentWeek";
+import { errorKey, slotKey, type PickType, type SlateGame } from "../lib/picks";
 import { useAuth } from "../auth/useAuth";
+import { useAdminPickEditor } from "./useAdminPickEditor";
+import type { PicksBySlot } from "./useMyPicks";
 
 type LoadStatus = "loading" | "ok" | "error";
+
+const PICK_TYPE_LABEL: Record<PickType, string> = {
+  UNDERDOG_COVER: "Underdog",
+  FAVORITE_COVER: "Favorite",
+  OVER: "Over",
+  UNDER: "Under",
+};
+
+/** Order the base slots appear in the roster tracker / game cards. */
+const BASE_SLOTS: PickType[] = [
+  "UNDERDOG_COVER",
+  "FAVORITE_COVER",
+  "OVER",
+  "UNDER",
+];
+
+/** The user currently targeted by the pick-override editor panel. */
+interface EditorTarget {
+  id: number;
+  display_name: string;
+  season: number;
+  week: number;
+}
 
 /** Format an ISO created_at; tolerate null/invalid like MyPicksPage's friendlyKickoff. */
 function friendlyDate(iso: string): string {
@@ -55,6 +83,11 @@ export default function AdminPage() {
   const [pageError, setPageError] = useState<string | null>(null);
   const [pending, setPending] = useState<Record<number, boolean>>({});
   const [rowError, setRowError] = useState<Record<number, string>>({});
+  // The user whose picks the override editor is currently editing (null = closed).
+  const [editorTarget, setEditorTarget] = useState<EditorTarget | null>(null);
+  // Sensible season/week to seed the editor on first open — getCurrentWeek's
+  // values, which the admin can then change to any past/future week.
+  const [seed, setSeed] = useState<{ season: number; week: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,6 +108,39 @@ export default function AdminPage() {
       cancelled = true;
     };
   }, []);
+
+  // Seed the editor's default season/week from the current week (best-effort —
+  // the editor falls back to season 0 / week 1 if this never resolves, and the
+  // admin can always type the week they want).
+  useEffect(() => {
+    let cancelled = false;
+    getCurrentWeek()
+      .then((cw) => {
+        if (cancelled) return;
+        setSeed({ season: cw.season, week: cw.week });
+      })
+      .catch(() => {
+        /* non-fatal: the editor still opens with a typed/default week. */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** Open the pick-override editor for a user (allowed for ANY user incl. self). */
+  const openEditor = useCallback(
+    (row: AdminUser) => {
+      setEditorTarget({
+        id: row.id,
+        display_name: row.display_name,
+        season: seed?.season ?? new Date().getFullYear(),
+        week: seed?.week ?? 1,
+      });
+    },
+    [seed],
+  );
+
+  const closeEditor = useCallback(() => setEditorTarget(null), []);
 
   /** Replace a row in the table by id with the server-returned truth. */
   const mergeUser = useCallback((updated: AdminUser) => {
@@ -215,11 +281,20 @@ export default function AdminPage() {
                   onToggleActive={onToggleActive}
                   onToggleAdmin={onToggleAdmin}
                   onDelete={onDelete}
+                  onEditPicks={openEditor}
                 />
               ))}
             </tbody>
           </table>
         </div>
+      )}
+
+      {editorTarget && (
+        <PickOverrideEditor
+          key={editorTarget.id}
+          target={editorTarget}
+          onClose={closeEditor}
+        />
       )}
     </div>
   );
@@ -290,6 +365,7 @@ function UserRow({
   onToggleActive,
   onToggleAdmin,
   onDelete,
+  onEditPicks,
 }: {
   row: AdminUser;
   isSelf: boolean;
@@ -298,6 +374,7 @@ function UserRow({
   onToggleActive: (row: AdminUser) => void;
   onToggleAdmin: (row: AdminUser) => void;
   onDelete: (row: AdminUser) => void;
+  onEditPicks: (row: AdminUser) => void;
 }) {
   // Self-guards mirror the server: the current admin's own active-toggle,
   // admin-toggle, and delete are all disabled (cannot_act_on_self / last_admin).
@@ -333,6 +410,15 @@ function UserRow({
         <td className="px-4 py-3">
           <div className="flex flex-wrap items-center justify-end gap-2">
             {busy && <span className="text-xs text-gray-400">Saving…</span>}
+            {/* Editing picks is allowed for ANY user INCLUDING self (admin may
+               fix own picks off-window), so this is NOT gated by isSelf —
+               only by the row's in-flight guard. */}
+            <RowButton
+              label="Edit picks"
+              tone="neutral"
+              disabled={busy}
+              onClick={() => onEditPicks(row)}
+            />
             <RowButton
               label={row.is_active ? "Deactivate" : "Reactivate"}
               tone="neutral"
@@ -362,5 +448,443 @@ function UserRow({
         </tr>
       )}
     </>
+  );
+}
+
+// --------------------------------------------------------------------------- //
+// Pick-override editor (QT-2)
+//
+// An admin-only, off-window per-user pick editor. Mirrors MyPicksPage's
+// RosterTracker / GameCard / BetOption visual language but is driven by
+// useAdminPickEditor (target user_id + admin-chosen season/week) and — crucially
+// — does NOT freeze controls by game.locked: the whole point is the override
+// bypasses the pick lock. Controls disable ONLY while a slot is saving. Roster
+// integrity is enforced server-side and surfaces as inline 4xx.
+// --------------------------------------------------------------------------- //
+
+/** Format an ISO kickoff (mirrors MyPicksPage.friendlyKickoff); tolerate null/invalid. */
+function friendlyKickoff(iso: string | null): string {
+  if (!iso) return "Time TBD";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "Time TBD";
+  return d.toLocaleString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/** Resolve a team_id on a game to its abbreviation (or "—" if unknown). */
+function abbrevFor(game: SlateGame, teamId: number | null): string {
+  if (teamId === null) return "—";
+  if (game.home_team.team_id === teamId) return game.home_team.abbreviation;
+  if (game.away_team.team_id === teamId) return game.away_team.abbreviation;
+  return "—";
+}
+
+/** A short human description of the persisted line for a game card header. */
+function lineSummary(game: SlateGame): string {
+  const parts: string[] = [];
+  if (game.spread !== null && game.favorite_team_id !== null) {
+    const fav = abbrevFor(game, game.favorite_team_id);
+    const dog = abbrevFor(game, game.underdog_team_id);
+    parts.push(`${fav} ${game.spread} over ${dog}`);
+  }
+  if (game.total !== null) {
+    parts.push(`O/U ${game.total}`);
+  }
+  return parts.length ? parts.join(" · ") : "Line unavailable";
+}
+
+/** Which game (abbrevs) a filled slot is on, for the roster tracker. */
+function slotGameLabel(
+  picks: PicksBySlot,
+  slate: SlateGame[],
+  key: string,
+): string | null {
+  const pick = picks[key];
+  if (!pick) return null;
+  const game = slate.find((g) => g.game_id === pick.game_id);
+  if (!game) return PICK_TYPE_LABEL[pick.pick_type];
+  return `${game.away_team.abbreviation} @ ${game.home_team.abbreviation}`;
+}
+
+/** The off-window editor panel for one target user + season/week. */
+function PickOverrideEditor({
+  target,
+  onClose,
+}: {
+  target: EditorTarget;
+  onClose: () => void;
+}) {
+  // Local season/week so the admin can re-point the editor at any past/future
+  // week (seeded from the target's initial season/week).
+  const [season, setSeason] = useState<number>(target.season);
+  const [week, setWeek] = useState<number>(target.week);
+
+  const { status, slate, picks, saving, slotError, set, clear } =
+    useAdminPickEditor(target.id, season, week);
+
+  return (
+    <section
+      data-testid="pick-override-editor"
+      className="space-y-4 rounded-lg border border-blue-300 bg-white p-4"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold">
+            Pick override · {target.display_name}
+          </h2>
+          <p className="mt-0.5 text-sm text-gray-500">
+            Edit this player's roster for any week.
+          </p>
+        </div>
+        <RowButton
+          label="Close"
+          tone="neutral"
+          disabled={false}
+          onClick={onClose}
+        />
+      </div>
+
+      {/* REQUIRED off-window-override affordance: make it OBVIOUS this bypasses
+         the normal pick lock while roster rules still apply. */}
+      <div
+        className="rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800"
+        role="alert"
+      >
+        <span className="font-semibold">Admin override.</span> This editor
+        bypasses the normal pick window/lock — you can add or change picks on
+        locked or past games. Roster rules (one pick per base type, a single
+        mortal lock, eligibility) are still enforced.
+      </div>
+
+      <div className="flex flex-wrap items-end gap-4">
+        <label className="text-sm">
+          <span className="block text-xs font-medium text-gray-600">Season</span>
+          <input
+            type="number"
+            value={season}
+            onChange={(e) => setSeason(Number(e.target.value))}
+            className="mt-1 w-28 rounded-md border border-gray-300 px-2 py-1 text-sm"
+          />
+        </label>
+        <label className="text-sm">
+          <span className="block text-xs font-medium text-gray-600">Week</span>
+          <input
+            type="number"
+            value={week}
+            onChange={(e) => setWeek(Number(e.target.value))}
+            className="mt-1 w-24 rounded-md border border-gray-300 px-2 py-1 text-sm"
+          />
+        </label>
+      </div>
+
+      {status === "loading" ? (
+        <p className="text-gray-500">Loading roster…</p>
+      ) : status === "error" ? (
+        <p className="text-gray-600">
+          Couldn't load this week for {target.display_name}. Check the season/week
+          and try again.
+        </p>
+      ) : (
+        <div className="space-y-4">
+          <OverrideRosterTracker picks={picks} slate={slate} />
+
+          {slate.length === 0 ? (
+            <p className="text-gray-500">No games are scheduled for this week.</p>
+          ) : (
+            <div className="space-y-4">
+              {slate.map((game) => (
+                <OverrideGameCard
+                  key={game.game_id}
+                  game={game}
+                  picks={picks}
+                  saving={saving}
+                  slotError={slotError}
+                  onSet={set}
+                  onClear={clear}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Compact at-a-glance summary of the 5 slots (4 base + the mortal lock). */
+function OverrideRosterTracker({
+  picks,
+  slate,
+}: {
+  picks: PicksBySlot;
+  slate: SlateGame[];
+}) {
+  const mortalKey = (() => {
+    for (const pt of BASE_SLOTS) {
+      const k = slotKey(pt, true);
+      if (picks[k]) return k;
+    }
+    return null;
+  })();
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-4">
+      <h3 className="text-sm font-semibold text-gray-700">Player roster</h3>
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+        {BASE_SLOTS.map((pt) => {
+          const key = slotKey(pt, false);
+          return (
+            <OverrideSlotChip
+              key={key}
+              label={PICK_TYPE_LABEL[pt]}
+              filled={Boolean(picks[key])}
+              detail={slotGameLabel(picks, slate, key)}
+            />
+          );
+        })}
+        <OverrideSlotChip
+          label="Mortal Lock"
+          filled={Boolean(mortalKey)}
+          detail={mortalKey ? slotGameLabel(picks, slate, mortalKey) : null}
+          accent
+        />
+      </div>
+    </div>
+  );
+}
+
+function OverrideSlotChip({
+  label,
+  filled,
+  detail,
+  accent,
+}: {
+  label: string;
+  filled: boolean;
+  detail: string | null;
+  accent?: boolean;
+}) {
+  return (
+    <div
+      className={[
+        "rounded-md border px-2.5 py-2 text-center",
+        filled
+          ? accent
+            ? "border-blue-300 bg-blue-50"
+            : "border-green-300 bg-green-50"
+          : "border-dashed border-gray-300 bg-gray-50",
+      ].join(" ")}
+    >
+      <div className="text-xs font-medium text-gray-700">{label}</div>
+      <div
+        className={[
+          "mt-0.5 text-xs",
+          filled ? "text-gray-600" : "text-gray-400",
+        ].join(" ")}
+      >
+        {filled ? (detail ?? "filled") : "empty"}
+      </div>
+    </div>
+  );
+}
+
+/** One slate game in the override editor: matchup/line + eligible bet options.
+ * Shows a "locked (override)" badge on locked games but does NOT freeze them. */
+function OverrideGameCard({
+  game,
+  picks,
+  saving,
+  slotError,
+  onSet,
+  onClear,
+}: {
+  game: SlateGame;
+  picks: PicksBySlot;
+  saving: Record<string, boolean>;
+  slotError: Record<string, string>;
+  onSet: (item: AdminPickSet) => void;
+  onClear: (item: AdminPickSet) => void;
+}) {
+  const eligibleTypes = BASE_SLOTS.filter((pt) => game.eligibility[pt]);
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <div className="text-base font-semibold">
+            {game.away_team.display_name} @ {game.home_team.display_name}
+          </div>
+          <div className="mt-0.5 text-xs text-gray-500">
+            {friendlyKickoff(game.kickoff_at)} · {lineSummary(game)}
+          </div>
+        </div>
+        {game.locked && (
+          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+            locked (override)
+          </span>
+        )}
+      </div>
+
+      {eligibleTypes.length === 0 ? (
+        <p className="mt-3 text-sm text-gray-400">
+          No bet options are eligible for this game.
+        </p>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {eligibleTypes.map((pt) => (
+            <OverrideBetOption
+              key={pt}
+              game={game}
+              pickType={pt}
+              picks={picks}
+              saving={saving}
+              slotError={slotError}
+              onSet={onSet}
+              onClear={onClear}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A single eligible pick type on a game: base-pick + mortal-lock toggle + clear.
+ * Controls disable ONLY while that slot is saving (NO window/lock gating). */
+function OverrideBetOption({
+  game,
+  pickType,
+  picks,
+  saving,
+  slotError,
+  onSet,
+  onClear,
+}: {
+  game: SlateGame;
+  pickType: PickType;
+  picks: PicksBySlot;
+  saving: Record<string, boolean>;
+  slotError: Record<string, string>;
+  onSet: (item: AdminPickSet) => void;
+  onClear: (item: AdminPickSet) => void;
+}) {
+  const baseKey = slotKey(pickType, false);
+  const lockKey = slotKey(pickType, true);
+
+  const baseSelected = picks[baseKey]?.game_id === game.game_id;
+  const lockSelected = picks[lockKey]?.game_id === game.game_id;
+
+  const baseSaving = Boolean(saving[baseKey]);
+  const lockSaving = Boolean(saving[lockKey]);
+
+  // Errors are game-scoped so a rejection shows only on THIS game's control.
+  const baseError = slotError[errorKey(game.game_id, pickType, false)];
+  const lockError = slotError[errorKey(game.game_id, pickType, true)];
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={baseSaving}
+          onClick={() =>
+            onSet({
+              game_id: game.game_id,
+              pick_type: pickType,
+              is_mortal_lock: false,
+            })
+          }
+          className={[
+            "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+            baseSelected
+              ? "border-blue-600 bg-blue-600 text-white"
+              : "border-gray-300 bg-white text-gray-700 hover:border-blue-400",
+            baseSaving ? "cursor-not-allowed opacity-50" : "",
+          ].join(" ")}
+        >
+          {PICK_TYPE_LABEL[pickType]}
+        </button>
+
+        {baseSelected && (
+          <button
+            type="button"
+            disabled={baseSaving}
+            onClick={() =>
+              onClear({
+                game_id: game.game_id,
+                pick_type: pickType,
+                is_mortal_lock: false,
+              })
+            }
+            title="Clear this pick"
+            className={[
+              "rounded-md border px-2 py-1 text-xs font-medium transition-colors",
+              "border-red-300 bg-white text-red-600 hover:border-red-500",
+              baseSaving ? "cursor-not-allowed opacity-50" : "",
+            ].join(" ")}
+          >
+            Clear
+          </button>
+        )}
+
+        <button
+          type="button"
+          disabled={lockSaving}
+          onClick={() =>
+            onSet({
+              game_id: game.game_id,
+              pick_type: pickType,
+              is_mortal_lock: true,
+            })
+          }
+          title="Designate this as the mortal lock"
+          className={[
+            "rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors",
+            lockSelected
+              ? "border-blue-600 bg-blue-50 text-blue-700"
+              : "border-gray-300 bg-white text-gray-500 hover:border-blue-400",
+            lockSaving ? "cursor-not-allowed opacity-50" : "",
+          ].join(" ")}
+        >
+          {lockSelected ? "★ Mortal lock" : "☆ Mortal lock"}
+        </button>
+
+        {lockSelected && (
+          <button
+            type="button"
+            disabled={lockSaving}
+            onClick={() =>
+              onClear({
+                game_id: game.game_id,
+                pick_type: pickType,
+                is_mortal_lock: true,
+              })
+            }
+            title="Remove the mortal lock"
+            className={[
+              "rounded-md border px-2 py-1 text-xs font-medium transition-colors",
+              "border-red-300 bg-white text-red-600 hover:border-red-500",
+              lockSaving ? "cursor-not-allowed opacity-50" : "",
+            ].join(" ")}
+          >
+            ✕ Remove lock
+          </button>
+        )}
+
+        {(baseSaving || lockSaving) && (
+          <span className="text-xs text-gray-400">Saving…</span>
+        )}
+      </div>
+
+      {baseError && <p className="mt-1 text-xs text-red-600">{baseError}</p>}
+      {lockError && lockError !== baseError && (
+        <p className="mt-1 text-xs text-red-600">{lockError}</p>
+      )}
+    </div>
   );
 }
