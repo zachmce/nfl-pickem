@@ -37,8 +37,10 @@ from sqlmodel import Session
 from app.api.deps import require_admin
 from app.db import get_session
 from app.exceptions import ConflictError, NotFoundError
-from app.models import User
+from app.models import PickType, User
 from app.schemas.admin import AdminUserListResponse, AdminUserRead
+from app.schemas.admin_picks import AdminPickSetRequest
+from app.schemas.picks import PickRead
 from app.services.admin import (
     AdminUserRow,
     deactivate_user,
@@ -48,6 +50,8 @@ from app.services.admin import (
     reactivate_user,
     revoke_admin,
 )
+from app.services.admin_picks import admin_clear_pick, admin_set_pick
+from app.services.pick_submission import read_picks
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -149,4 +153,86 @@ def delete(
         delete_user(session, caller_id=admin.id, user_id=user_id)
     except ValueError as exc:
         _raise_for_service_error(exc)
+    return None
+
+
+# --------------------------------------------------------------------------- #
+# Admin pick-override (QT-1)
+#
+# GET/PUT/DELETE /api/admin/users/{user_id}/picks let an admin read/set/clear ANY
+# user's pick for a week — past or upcoming — bypassing the window/lock but KEEPING
+# roster integrity, recording every override in PickEditAudit. Acting on ANOTHER
+# user is the whole point (admin convenience for a small group of friends): the
+# caller is the session admin (``admin.id``), the target is the path ``{user_id}``
+# — NOT IDOR, but it MUST stay require_admin-gated (T-m66-01/T-m66-02).
+#
+# Unlike the user-management routes above (whose service raises ``ValueError`` with
+# a leading stable code), :mod:`app.services.admin_picks` raises typed
+# ``ApiException`` subclasses directly (NotFoundError/ConflictError/ValidationError),
+# each already carrying status + reason — so they propagate straight to the global
+# handler with no per-route mapping.
+# --------------------------------------------------------------------------- #
+
+
+@router.get("/users/{user_id}/picks", response_model=list[PickRead])
+def get_user_picks(
+    user_id: int,
+    season: int,
+    week: int,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> list[PickRead]:
+    """List the PATH user's picks for ``{season, week}`` (admin only)."""
+    picks = read_picks(session, user_id=user_id, season=season, week=week)
+    return [PickRead.from_orm_pick(p) for p in picks]
+
+
+@router.put("/users/{user_id}/picks", response_model=PickRead)
+def set_user_pick(
+    user_id: int,
+    season: int,
+    week: int,
+    payload: AdminPickSetRequest,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> PickRead:
+    """Set/add/change the PATH user's slot (window/lock bypassed, roster kept)."""
+    assert admin.id is not None
+    pick = admin_set_pick(
+        session,
+        caller_id=admin.id,
+        target_user_id=user_id,
+        season=season,
+        week=week,
+        game_id=payload.game_id,
+        pick_type=payload.pick_type,
+        is_mortal_lock=payload.is_mortal_lock,
+    )
+    session.commit()
+    session.refresh(pick)
+    return PickRead.from_orm_pick(pick)
+
+
+@router.delete("/users/{user_id}/picks", status_code=204)
+def clear_user_pick(
+    user_id: int,
+    season: int,
+    week: int,
+    pick_type: PickType,
+    is_mortal_lock: bool = False,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> None:
+    """Clear the PATH user's ``{pick_type, lock}`` slot (window/lock bypassed)."""
+    assert admin.id is not None
+    admin_clear_pick(
+        session,
+        caller_id=admin.id,
+        target_user_id=user_id,
+        season=season,
+        week=week,
+        pick_type=pick_type,
+        is_mortal_lock=is_mortal_lock,
+    )
+    session.commit()
     return None
