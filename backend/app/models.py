@@ -227,3 +227,52 @@ class Pick(SQLModel, table=True):
         sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False),
         default_factory=_utcnow,
     )
+
+
+class PickEditAudit(SQLModel, table=True):
+    """One permanent record of a single admin pick override.
+
+    The admin override path (:mod:`app.services.admin_picks`) writes one of these
+    rows for every set/clear it performs, recording WHO (the acting admin) edited
+    WHOSE (the target user) pick on which game/week, the before->after slot state,
+    and whether the game was already FINAL at edit time. It is a Repudiation
+    mitigation (T-m66-04): the audit answers "who changed whose pick".
+
+    CRITICAL (locked decision 6 — audit is a PERMANENT record): the two user FKs
+    deliberately carry NO ``ondelete`` cascade — this is the OPPOSITE of
+    :attr:`Pick.user_id` (which is ``ondelete="CASCADE"``). Deleting a user must
+    NOT delete the audit rows that reference them; the audit survives the user.
+
+    Reuses the EXISTING ``picktype`` Postgres enum for the before/after pick-type
+    columns (no new enum type is introduced). Does NOT model the deferred
+    standings-shift surface — only the ``game_was_final`` bool is recorded
+    (scoring is recompute-on-read, so editing a past pick needs no backfill).
+    """
+
+    __tablename__: ClassVar[str] = "pick_edit_audit"
+
+    id: int | None = Field(default=None, primary_key=True)
+    # NO ondelete on either user FK — the audit must survive a user delete.
+    admin_user_id: int = Field(foreign_key="users.id", nullable=False)
+    target_user_id: int = Field(foreign_key="users.id", nullable=False)
+    game_id: int = Field(foreign_key="game.id", nullable=False)
+    week_id: int = Field(foreign_key="week.id", nullable=False)
+    # "set" | "clear" — the override action that produced this row.
+    action: str = Field(max_length=10, nullable=False)
+    before_existed: bool = Field(nullable=False)
+    # Reuse the EXISTING picktype enum (do NOT create a new enum type).
+    before_pick_type: PickType | None = Field(
+        default=None,
+        sa_column=sa.Column(sa.Enum(PickType, name="picktype"), nullable=True),
+    )
+    before_is_mortal_lock: bool | None = Field(default=None, nullable=True)
+    after_pick_type: PickType | None = Field(
+        default=None,
+        sa_column=sa.Column(sa.Enum(PickType, name="picktype"), nullable=True),
+    )
+    after_is_mortal_lock: bool | None = Field(default=None, nullable=True)
+    game_was_final: bool = Field(nullable=False)
+    created_at: datetime = Field(
+        sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False),
+        default_factory=_utcnow,
+    )
