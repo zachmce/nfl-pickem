@@ -89,11 +89,39 @@ function slotGameLabel(
   return `${game.away_team.abbreviation} @ ${game.home_team.abbreviation}`;
 }
 
+/**
+ * The user's held picks whose `pick_type` is now INELIGIBLE on its game.
+ *
+ * INELIGIBLE-ONLY (side-flip / favorite-flip is deferred — there is no model
+ * field for the picked side): a held pick is flagged iff its game is present on
+ * the slate AND `game.eligibility[pick.pick_type] === false`. A pick whose game
+ * is missing from the slate is NOT flagged. Returns one entry per affected pick
+ * with the matchup label + human pick-type label for the notice copy.
+ */
+function ineligibleHeldPicks(
+  picks: PicksBySlot,
+  slate: SlateGame[],
+): { matchup: string; typeLabel: string }[] {
+  const out: { matchup: string; typeLabel: string }[] = [];
+  for (const pick of Object.values(picks)) {
+    const game = slate.find((g) => g.game_id === pick.game_id);
+    if (!game) continue;
+    if (game.eligibility[pick.pick_type] === false) {
+      out.push({
+        matchup: `${game.away_team.abbreviation} @ ${game.home_team.abbreviation}`,
+        typeLabel: PICK_TYPE_LABEL[pick.pick_type],
+      });
+    }
+  }
+  return out;
+}
+
 export default function MyPicksPage() {
   const {
     status,
     currentWeek,
     slate,
+    oddsFrozen,
     picks,
     editable,
     saving,
@@ -124,6 +152,11 @@ export default function MyPicksPage() {
 
   const windowState = currentWeek.window_state;
 
+  // After the odds freeze, surface any held pick whose type is now ineligible on
+  // its game so the user can re-pick before lock (INELIGIBLE-ONLY; gated on the
+  // week-level freeze flag — no notice when the week isn't frozen).
+  const rePickFlags = oddsFrozen ? ineligibleHeldPicks(picks, slate) : [];
+
   return (
     <div className="space-y-6">
       <header>
@@ -136,6 +169,22 @@ export default function MyPicksPage() {
       {!editable && windowState !== "open" && (
         <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800">
           {WINDOW_BANNER[windowState]}
+        </div>
+      )}
+
+      {rePickFlags.length > 0 && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+          <p className="font-medium">
+            The odds for this week have frozen and one or more of your picks is
+            no longer eligible. You can re-pick before the week locks.
+          </p>
+          <ul className="mt-1 list-disc pl-5">
+            {rePickFlags.map((f, i) => (
+              <li key={`${f.matchup}-${f.typeLabel}-${i}`}>
+                {f.typeLabel} on {f.matchup} is no longer eligible.
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

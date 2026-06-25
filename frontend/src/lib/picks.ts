@@ -46,6 +46,12 @@ export interface Slate {
   season: number;
   week: number;
   games: SlateGame[];
+  /**
+   * The COMPUTED week-level odds-freeze flag (mirrors backend
+   * SlateResponse.odds_frozen) — true once this week's lines are frozen. Used to
+   * gate the My Picks re-pick notice for now-ineligible held picks.
+   */
+  odds_frozen: boolean;
 }
 
 /** A persisted pick as returned to its owner (never exposes user_id). */

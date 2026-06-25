@@ -50,6 +50,8 @@ export interface UseMyPicks {
   status: Status;
   currentWeek: CurrentWeek | null;
   slate: SlateGame[];
+  /** Computed week-level odds-freeze flag from the slate (gates the re-pick notice). */
+  oddsFrozen: boolean;
   /** Authoritative roster keyed by slotKey. */
   picks: PicksBySlot;
   /** True only when the pick window is open (page also freezes per-game locks). */
@@ -79,6 +81,7 @@ export function useMyPicks(): UseMyPicks {
   const [status, setStatus] = useState<Status>("loading");
   const [currentWeek, setCurrentWeek] = useState<CurrentWeek | null>(null);
   const [slate, setSlate] = useState<SlateGame[]>([]);
+  const [oddsFrozen, setOddsFrozen] = useState<boolean>(false);
   const [picks, setPicks] = useState<PicksBySlot>({});
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [slotError, setSlotError] = useState<Record<string, string>>({});
@@ -105,6 +108,7 @@ export function useMyPicks(): UseMyPicks {
         ]);
         if (cancelled) return;
         setSlate(slateData.games);
+        setOddsFrozen(slateData.odds_frozen);
         setPicks(indexPicks(myPicks));
         setStatus("ok");
       })
@@ -245,6 +249,7 @@ export function useMyPicks(): UseMyPicks {
     status,
     currentWeek,
     slate,
+    oddsFrozen,
     picks,
     editable,
     saving,
