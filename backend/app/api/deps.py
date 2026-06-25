@@ -55,3 +55,10 @@ def get_current_admin(user: User = Depends(get_current_user)) -> User:
     if not user.is_admin:
         raise AuthorizationError()
     return user
+
+
+# Spec name for the admin router (QT-C). A thin alias over the canonical
+# get_current_admin so the dependency logic lives in exactly one place — the
+# bot/discord path keeps importing get_current_admin, the web admin routes use
+# require_admin. Both resolve to the same 403-on-non-admin check.
+require_admin = get_current_admin
