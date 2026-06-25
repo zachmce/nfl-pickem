@@ -26,13 +26,15 @@ reference data.
 Demo correctness — no ``IS_DEMO_DATA`` branch
 ---------------------------------------------
 
-The per-game ``locked`` bool is computed from the REAL clock
-(``datetime.now(timezone.utc)``) against the PERSISTED kickoffs. In demo mode the
-seed rigidly time-shifts those kickoffs forward (via the shared anchor/offset), so
-the same real-now-vs-persisted comparison is automatically demo-correct — the
-pattern ``refresh_games`` / ``current_week`` already use. This module therefore
-does NOT import :mod:`app.config`, ``settings.is_demo_data``, or any
-:mod:`app.demo` module.
+The per-game ``locked`` bool AND the week-level ``odds_frozen`` bool are both
+computed from the REAL clock (``datetime.now(timezone.utc)``) against the
+PERSISTED kickoffs (``odds_frozen`` via the shared
+:func:`app.services.odds.is_odds_frozen` predicate — no freeze math is
+re-implemented here). In demo mode the seed rigidly time-shifts those kickoffs
+forward (via the shared anchor/offset), so the same real-now-vs-persisted
+comparison is automatically demo-correct — the pattern ``refresh_games`` /
+``current_week`` already use. This module therefore does NOT import
+:mod:`app.config`, ``settings.is_demo_data``, or any :mod:`app.demo` module.
 """
 
 from __future__ import annotations
@@ -44,8 +46,9 @@ from sqlmodel import Session, select
 
 from app.api.deps import get_current_user
 from app.db import get_session
-from app.models import Game, PickType, Team, User
+from app.models import Game, PickType, Team, User, Week
 from app.schemas.slate import SlateGame, SlateResponse, SlateTeam
+from app.services.odds import is_odds_frozen
 from app.services.pick_validation import is_pick_type_eligible
 from app.services.pick_window import is_game_locked
 
@@ -88,6 +91,24 @@ def read_slate(
             select(Game).where(Game.season == season, Game.week == week)
         ).all()
     )
+
+    # Week-level computed freeze predicate. REUSE app.services.odds.is_odds_frozen
+    # against the SAME real-clock now (no freeze math re-implemented; same posture
+    # as ``locked`` — real now vs persisted kickoffs, no IS_DEMO_DATA branch).
+    # An unknown/kickoff-less week must stay a clean 200 (the slate is a pure read
+    # that returns empty games for unknown weeks), so default to False and never
+    # let it raise to the caller:
+    #   * no Week row for {season, week}  -> False
+    #   * is_odds_frozen raises ValueError (e.g. no kickoff to reason about) -> False
+    week_row = session.exec(
+        select(Week).where(Week.season == season, Week.week == week)
+    ).one_or_none()
+    odds_frozen = False
+    if week_row is not None:
+        try:
+            odds_frozen = is_odds_frozen(week_row, games, now=now)
+        except ValueError:
+            odds_frozen = False
 
     # Resolve referenced teams in one query (no N+1), keyed by id.
     team_ids = {g.home_team_id for g in games} | {g.away_team_id for g in games}
@@ -139,4 +160,6 @@ def read_slate(
             )
         )
 
-    return SlateResponse.from_games(season=season, week=week, games=slate_games)
+    return SlateResponse.from_games(
+        season=season, week=week, games=slate_games, odds_frozen=odds_frozen
+    )

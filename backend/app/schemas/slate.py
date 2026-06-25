@@ -63,6 +63,13 @@ class SlateResponse(BaseModel):
 
     ``user_id`` is deliberately absent — the slate is OPTIONS only, shared among
     all members (see :mod:`app.api.slate`).
+
+    ``odds_frozen`` is the COMPUTED week-level freeze predicate result — the
+    output of :func:`app.services.odds.is_odds_frozen` against the real clock. It
+    is distinct from the ``Week.lines_frozen`` admin-override INPUT column (one of
+    the predicate's inputs) and from the per-game ``Game.odds_frozen`` flag; it is
+    week-level, not per game, so it lives on the response rather than
+    :class:`SlateGame`.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -70,16 +77,20 @@ class SlateResponse(BaseModel):
     season: int
     week: int
     games: list[SlateGame]
+    odds_frozen: bool
 
     @classmethod
     def from_games(
-        cls, *, season: int, week: int, games: list[SlateGame]
+        cls, *, season: int, week: int, games: list[SlateGame], odds_frozen: bool
     ) -> "SlateResponse":
         """Shape the router's already-built per-game rows into the response.
 
         The router resolves team identity, the per-game ``locked`` bool and the
-        per-``PickType`` eligibility, then passes the finished :class:`SlateGame`
-        rows here — keeping the schema decoupled from ORM rows (mirrors
+        per-``PickType`` eligibility, computes the week-level ``odds_frozen``
+        predicate, then passes the finished :class:`SlateGame` rows here — keeping
+        the schema decoupled from ORM rows (mirrors
         :meth:`app.schemas.results.WeekResultsResponse.from_results`).
         """
-        return cls(season=season, week=week, games=list(games))
+        return cls(
+            season=season, week=week, games=list(games), odds_frozen=odds_frozen
+        )
