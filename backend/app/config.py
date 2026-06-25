@@ -53,7 +53,18 @@ class Settings(BaseSettings):
     #     anchor. This is the ONLY source flag — do not add a second one anywhere.
     is_demo_data: bool = False
 
-    @field_validator("discord_bot_token", "discord_guild_id", mode="before")
+    # QT-B admin-bootstrap credentials (consumed by app.seeds.admins). Both must
+    # be set for the seed to mint the deterministic admin; either blank => no-op.
+    default_admin_username: str | None = None
+    default_admin_password: str | None = None
+
+    @field_validator(
+        "discord_bot_token",
+        "discord_guild_id",
+        "default_admin_username",
+        "default_admin_password",
+        mode="before",
+    )
     @classmethod
     def _empty_str_to_none(cls, v: object) -> object:
         """Treat an empty/whitespace env value (e.g. ``DISCORD_GUILD_ID=``) as unset.
