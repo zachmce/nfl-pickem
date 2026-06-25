@@ -108,9 +108,9 @@ class SlateTests(unittest.TestCase):
     def _session(self) -> Session:
         return Session(self.engine)
 
-    def _seed_week_row(self, week: int) -> int:
+    def _seed_week_row(self, week: int, *, lines_frozen: bool = False) -> int:
         with self._session() as session:
-            week_row = Week(season=SEASON, week=week)
+            week_row = Week(season=SEASON, week=week, lines_frozen=lines_frozen)
             session.add(week_row)
             session.commit()
             session.refresh(week_row)
@@ -357,7 +357,51 @@ class SlateTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 401, resp.text)
         self._assert_envelope(resp.json())
 
-    # -- case 9: pure-service refactor regression --------------------------
+    # -- case 9: odds_frozen false (future kickoff, not frozen) ------------
+
+    def test_slate_reports_odds_frozen_false_before_freeze(self) -> None:
+        """A week whose earliest kickoff is FAR in the future -> freeze_at is in
+        the future relative to real now -> top-level odds_frozen is False."""
+        now = datetime.now(timezone.utc)
+        wk_id = self._seed_week_row(1)  # lines_frozen defaults False
+        # Kickoff far in the future so freeze_at (min noon-ET-Wed, earliest
+        # kickoff) is still ahead of real now -> not yet frozen.
+        self._add_game(
+            week_id=wk_id, week=1, espn_event_id=1001,
+            kickoff_at=now + timedelta(days=14),
+            home_team_id=self.tid[0], away_team_id=self.tid[1],
+            spread=Decimal("3.5"), total=Decimal("44.5"),
+            favorite_team_id=self.tid[0], underdog_team_id=self.tid[1],
+        )
+
+        resp = self._get(1)
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertFalse(resp.json()["odds_frozen"])
+
+    # -- case 10: odds_frozen true (lines_frozen override) -----------------
+
+    def test_slate_reports_odds_frozen_true_after_freeze(self) -> None:
+        """A week with lines_frozen=True hits the explicit override branch of
+        is_odds_frozen (clock-independent) -> top-level odds_frozen is True.
+
+        Uses a FUTURE kickoff so the game itself is not locked — proving the
+        week-level freeze flag is independent of per-game lock.
+        """
+        now = datetime.now(timezone.utc)
+        wk_id = self._seed_week_row(1, lines_frozen=True)
+        self._add_game(
+            week_id=wk_id, week=1, espn_event_id=1001,
+            kickoff_at=now + timedelta(days=14),
+            home_team_id=self.tid[0], away_team_id=self.tid[1],
+            spread=Decimal("3.5"), total=Decimal("44.5"),
+            favorite_team_id=self.tid[0], underdog_team_id=self.tid[1],
+        )
+
+        resp = self._get(1)
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertTrue(resp.json()["odds_frozen"])
+
+    # -- case 11: pure-service refactor regression -------------------------
 
     def test_totals_pick_on_totalless_game_not_spread_ineligible(self) -> None:
         """REGRESSION: an OVER/UNDER pick on a game with NO total must NOT raise
