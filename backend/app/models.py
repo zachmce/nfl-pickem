@@ -207,7 +207,7 @@ class Pick(SQLModel, table=True):
     )
 
     id: int | None = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="users.id", nullable=False)
+    user_id: int = Field(foreign_key="users.id", ondelete="CASCADE", nullable=False)
     game_id: int = Field(foreign_key="game.id", nullable=False)
     week_id: int = Field(foreign_key="week.id", nullable=False)
     pick_type: PickType = Field(
