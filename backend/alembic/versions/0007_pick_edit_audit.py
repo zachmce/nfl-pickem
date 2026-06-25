@@ -20,6 +20,7 @@ from collections.abc import Sequence
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 import sqlmodel  # noqa: F401  (kept for parity with 0004/0005/0006)
 
 from app.models import PickType
@@ -45,16 +46,20 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("before_existed", sa.Boolean(), nullable=False),
-        # Reuse the EXISTING picktype enum (create_type=False) — 0004 created it.
+        # Reuse the EXISTING picktype enum — 0004 created it. NOTE: ``create_type``
+        # is a PostgreSQL-dialect parameter; the generic ``sa.Enum`` silently
+        # ignores it and would re-emit ``CREATE TYPE picktype`` (DuplicateObject
+        # against 0004's type). Use ``postgresql.ENUM`` so create_type=False is
+        # honored and the existing type is referenced, not recreated.
         sa.Column(
             "before_pick_type",
-            sa.Enum(PickType, name="picktype", create_type=False),
+            postgresql.ENUM(PickType, name="picktype", create_type=False),
             nullable=True,
         ),
         sa.Column("before_is_mortal_lock", sa.Boolean(), nullable=True),
         sa.Column(
             "after_pick_type",
-            sa.Enum(PickType, name="picktype", create_type=False),
+            postgresql.ENUM(PickType, name="picktype", create_type=False),
             nullable=True,
         ),
         sa.Column("after_is_mortal_lock", sa.Boolean(), nullable=True),
