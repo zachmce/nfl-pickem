@@ -19,6 +19,7 @@
  * `err.message`. Do NOT modify lib/api.ts and do NOT add a new dependency.
  */
 import { api } from "./api";
+import type { PickRead, PickType } from "./picks";
 
 /**
  * One user as seen by an admin (mirrors backend AdminUserRead field-for-field).
@@ -63,4 +64,90 @@ export function revokeAdmin(id: number): Promise<AdminUser> {
 /** Delete another user (their picks cascade). Backend returns 204 -> void. */
 export function deleteUser(id: number): Promise<void> {
   return api<void>(`/api/admin/users/${id}`, { method: "DELETE" });
+}
+
+// --------------------------------------------------------------------------- //
+// Admin pick-override API (QT-1, backend/app/api/admin.py routes 177-238)
+//
+// Lets an admin read/set/clear ANY user's pick for a {season, week} — past or
+// upcoming — bypassing the pick window/lock but KEEPING roster integrity (the
+// backend still rejects duplicate base types / contradictions / >1 mortal lock /
+// ineligible types). Acting on another user is the whole point (off-window
+// convenience for a small group): the caller is the SESSION admin and the target
+// is the path {user_id} — there is NO caller/actor field on the wire, so this
+// introduces no IDOR surface; the routes are require_admin-gated server-side.
+//
+// season/week are QUERY params on every call (never body), mirroring the
+// user-facing picks DELETE shape in lib/picks.ts. The 4xx envelope (409
+// roster-conflict / 422 eligibility / 404 not-found) is already unwrapped into
+// ApiError.message by api(), so callers just surface `err.message` inline.
+//
+// Wire types (PickType, PickRead) are reused from lib/picks.ts — PickRead is
+// field-identical to backend schemas/picks.py PickRead — so the read contract
+// lives in exactly one place. Do NOT redefine PickRead here.
+// --------------------------------------------------------------------------- //
+
+/**
+ * Body for an admin set/add/change of one slot (mirrors backend
+ * AdminPickSetRequest; ConfigDict extra="forbid" — send ONLY these three keys).
+ * The slot's {season, week} are query params, not body fields.
+ */
+export interface AdminPickSet {
+  game_id: number;
+  pick_type: PickType;
+  is_mortal_lock: boolean;
+}
+
+/**
+ * List the TARGET user's roster for a {season, week} (admin only).
+ * GET /api/admin/users/{userId}/picks?season&week — the response is a BARE
+ * PickRead[] (response_model=list[PickRead]), NOT an envelope unlike listUsers().
+ */
+export function getUserPicks(
+  userId: number,
+  season: number,
+  week: number,
+): Promise<PickRead[]> {
+  return api<PickRead[]>(
+    `/api/admin/users/${userId}/picks?season=${season}&week=${week}`,
+  );
+}
+
+/**
+ * Set/add/change the TARGET user's slot (window/lock bypassed, roster kept).
+ * PUT /api/admin/users/{userId}/picks?season&week with a JSON body of ONLY
+ * {game_id, pick_type, is_mortal_lock}. Returns the single updated PickRead.
+ * X-CSRF-Token + Content-Type are attached by api() on the unsafe method.
+ */
+export function setUserPick(
+  userId: number,
+  season: number,
+  week: number,
+  body: AdminPickSet,
+): Promise<PickRead> {
+  return api<PickRead>(
+    `/api/admin/users/${userId}/picks?season=${season}&week=${week}`,
+    { method: "PUT", body: JSON.stringify(body) },
+  );
+}
+
+/**
+ * Clear the TARGET user's {pick_type, lock} slot (window/lock bypassed).
+ * DELETE /api/admin/users/{userId}/picks with season, week, pick_type, and
+ * is_mortal_lock ALL as query params (mirrors clearPick in lib/picks.ts;
+ * is_mortal_lock serializes as the literal true/false). Backend returns 204 ->
+ * api() yields undefined -> void.
+ */
+export function clearUserPick(
+  userId: number,
+  season: number,
+  week: number,
+  slot: { pick_type: PickType; is_mortal_lock: boolean },
+): Promise<void> {
+  const query =
+    `season=${season}&week=${week}` +
+    `&pick_type=${slot.pick_type}&is_mortal_lock=${slot.is_mortal_lock}`;
+  return api<void>(`/api/admin/users/${userId}/picks?${query}`, {
+    method: "DELETE",
+  });
 }
