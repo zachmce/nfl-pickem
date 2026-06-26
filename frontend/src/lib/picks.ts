@@ -11,8 +11,21 @@
  */
 import { api } from "./api";
 
-/** The four base pick types (literal union mirroring backend PickType). */
-export type PickType = "UNDERDOG_COVER" | "FAVORITE_COVER" | "OVER" | "UNDER";
+/**
+ * Pick types (literal union mirroring backend PickType). The first four are the
+ * BASE bet types (spread/total, each with a slate eligibility + a favorite/
+ * underdog or over/under side). MISC is a fifth, NON-base type: a weekly
+ * free-text prediction tied to any game — it has NO slate eligibility (the slate
+ * still ships an `eligibility["MISC"]` key, but it is meaningless and must never
+ * be indexed) and NO favorite/underdog/over-under side. MISC is never a mortal
+ * lock and is never rendered as a per-game base button.
+ */
+export type PickType =
+  | "UNDERDOG_COVER"
+  | "FAVORITE_COVER"
+  | "OVER"
+  | "UNDER"
+  | "MISC";
 
 /** Grading state of a persisted pick (mirrors backend PickResult). */
 export type PickResult = "PENDING" | "WIN" | "LOSS";
@@ -63,6 +76,12 @@ export interface PickRead {
   is_mortal_lock: boolean;
   result: PickResult;
   points: number;
+  /**
+   * The free-text prediction for a MISC pick (mirrors backend PickRead.misc_text).
+   * The owner ALWAYS sees their own misc_text; it is NULL/absent for every
+   * non-MISC pick type.
+   */
+  misc_text?: string | null;
 }
 
 /** A single autosave item (one pick on one game). */
@@ -70,6 +89,13 @@ export interface PickItem {
   game_id: number;
   pick_type: PickType;
   is_mortal_lock: boolean;
+  /**
+   * The free-text prediction (mirrors backend PickItem.misc_text). Sent ONLY on
+   * a MISC pick (required, non-blank server-side via `misc_text_required`);
+   * omitted for base picks (the backend rejects `misc_text` on a non-MISC pick
+   * via `misc_text_not_allowed`, so the UI never sends it for base types).
+   */
+  misc_text?: string | null;
 }
 
 /**

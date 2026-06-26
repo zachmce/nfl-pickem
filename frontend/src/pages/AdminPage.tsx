@@ -41,9 +41,14 @@ const PICK_TYPE_LABEL: Record<PickType, string> = {
   FAVORITE_COVER: "Favorite",
   OVER: "Over",
   UNDER: "Under",
+  // MISC is its own non-base type (the MISC sub-panel renders it); it never
+  // appears as a per-game base button (the base-button loops use BASE_SLOTS,
+  // which excludes MISC). The label exists only to satisfy the widened Record.
+  MISC: "Misc",
 };
 
-/** Order the base slots appear in the roster tracker / game cards. */
+/** Order the base slots appear in the roster tracker / game cards. MISC is
+ * intentionally EXCLUDED — it is not a base bet (rendered by its own sub-panel). */
 const BASE_SLOTS: PickType[] = [
   "UNDERDOG_COVER",
   "FAVORITE_COVER",

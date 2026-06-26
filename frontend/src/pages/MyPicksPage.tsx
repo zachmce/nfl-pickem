@@ -15,7 +15,9 @@
  * lock can now be removed, not just changed. Clearing is pessimistic (the slot
  * empties only after the server confirms via DELETE /api/picks).
  */
-import { errorKey, slotKey, type PickType, type SlateGame } from "../lib/picks";
+import { useState } from "react";
+
+import { errorKey, slotKey, type PickItem, type PickType, type SlateGame } from "../lib/picks";
 import type { WindowState } from "../lib/currentWeek";
 import { useMyPicks, type PicksBySlot } from "./useMyPicks";
 
@@ -24,9 +26,15 @@ const PICK_TYPE_LABEL: Record<PickType, string> = {
   FAVORITE_COVER: "Favorite",
   OVER: "Over",
   UNDER: "Under",
+  // MISC is its own non-base type (see the dedicated MISC card) — it never
+  // appears as a per-game base button. The label exists only because the Record
+  // is keyed by the widened PickType; no base-button loop reads it (those iterate
+  // the explicit BASE_SLOTS array, which excludes MISC).
+  MISC: "Misc",
 };
 
-/** Order the base slots appear in the roster tracker. */
+/** Order the base slots appear in the roster tracker. MISC is intentionally
+ * EXCLUDED — it is not a base bet and is rendered by its own MiscPickCard. */
 const BASE_SLOTS: PickType[] = [
   "UNDERDOG_COVER",
   "FAVORITE_COVER",
@@ -190,6 +198,16 @@ export default function MyPicksPage() {
 
       <RosterTracker picks={picks} slate={slate} />
 
+      <MiscPickCard
+        slate={slate}
+        picks={picks}
+        editable={editable}
+        saving={saving}
+        slotError={slotError}
+        onSelect={select}
+        onClear={clear}
+      />
+
       {slate.length === 0 ? (
         <p className="text-gray-500">No games are scheduled for this week.</p>
       ) : (
@@ -289,6 +307,206 @@ function SlotChip({
         {filled ? (detail ?? "filled") : "empty"}
       </div>
     </div>
+  );
+}
+
+/**
+ * The dedicated MISC prediction card (DECISION A + B): its OWN card, parallel to
+ * the base bets, holding a game-selector `<select>` + a free-text input + Save/
+ * Clear. The MISC slot key is `slotKey("MISC", false)` (MISC is never a mortal
+ * lock — the backend rejects it via `misc_cannot_mortal_lock`, so there is no
+ * mortal-lock toggle here). Autosaves through the same guardrailed select()/
+ * clear() path as the base picks; surfaces the owner's saved text + Pending/
+ * Correct/Incorrect state; read-only when the window isn't open.
+ */
+function MiscPickCard({
+  slate,
+  picks,
+  editable,
+  saving,
+  slotError,
+  onSelect,
+  onClear,
+}: {
+  slate: SlateGame[];
+  picks: PicksBySlot;
+  editable: boolean;
+  saving: Record<string, boolean>;
+  slotError: Record<string, string>;
+  onSelect: (item: PickItem) => void;
+  onClear: (item: PickItem) => void;
+}) {
+  const miscPick = picks[slotKey("MISC", false)];
+
+  // Default the game selector to the existing MISC pick's game (if one is saved),
+  // else the first slate game. Local state holds the in-progress text + game.
+  const [text, setText] = useState<string>(miscPick?.misc_text ?? "");
+  const [gameId, setGameId] = useState<number | null>(
+    miscPick?.game_id ?? slate[0]?.game_id ?? null,
+  );
+
+  const savingMisc = Boolean(saving[slotKey("MISC", false)]);
+  // The submit/clear errorKey is scoped to the SELECTED game (errorKey includes
+  // game_id) so a 422 lands on this control for the game the user submitted.
+  const errKeyGame = gameId ?? miscPick?.game_id ?? slate[0]?.game_id ?? 0;
+  const miscError = slotError[errorKey(errKeyGame, "MISC", false)];
+
+  const trimmed = text.trim();
+  const saveDisabled =
+    !editable || trimmed.length === 0 || gameId === null || savingMisc;
+
+  // Read-only (window not open): show the saved prediction + state with no inputs.
+  if (!editable) {
+    return (
+      <div className="rounded-lg border border-gray-200 bg-white p-4">
+        <h2 className="text-sm font-semibold text-gray-700">Misc prediction</h2>
+        {miscPick ? (
+          <div className="mt-2 space-y-1">
+            <p className="text-sm text-gray-800">{miscPick.misc_text}</p>
+            <MiscStateBadge pick={miscPick} />
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-gray-400">
+            No misc prediction for this week.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-semibold text-gray-700">Misc prediction</h2>
+        {miscPick && <MiscStateBadge pick={miscPick} />}
+      </div>
+      <p className="mt-0.5 text-xs text-gray-500">
+        One free-text prediction per week, tied to a game. An admin grades it after
+        the game.
+      </p>
+
+      {slate.length === 0 ? (
+        <p className="mt-3 text-sm text-gray-400">
+          No games are scheduled for this week.
+        </p>
+      ) : (
+        <div className="mt-3 space-y-2">
+          <label className="block text-xs font-medium text-gray-600">
+            Game
+            <select
+              value={gameId ?? ""}
+              disabled={savingMisc}
+              onChange={(e) => setGameId(Number(e.target.value))}
+              className={[
+                "mt-1 block w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm",
+                savingMisc ? "cursor-not-allowed opacity-50" : "",
+              ].join(" ")}
+            >
+              {slate.map((g) => (
+                <option key={g.game_id} value={g.game_id}>
+                  {g.away_team.abbreviation} @ {g.home_team.abbreviation}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block text-xs font-medium text-gray-600">
+            Prediction
+            <textarea
+              value={text}
+              disabled={savingMisc}
+              onChange={(e) => setText(e.target.value)}
+              rows={2}
+              placeholder="e.g. Mahomes passes for 400+ yards"
+              className={[
+                "mt-1 block w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm",
+                savingMisc ? "cursor-not-allowed opacity-50" : "",
+              ].join(" ")}
+            />
+          </label>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={saveDisabled}
+              onClick={() =>
+                gameId !== null &&
+                onSelect({
+                  game_id: gameId,
+                  pick_type: "MISC",
+                  is_mortal_lock: false,
+                  misc_text: trimmed,
+                })
+              }
+              className={[
+                "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+                "border-blue-600 bg-blue-600 text-white hover:bg-blue-700",
+                saveDisabled ? "cursor-not-allowed opacity-50" : "",
+              ].join(" ")}
+            >
+              {miscPick ? "Update prediction" : "Save prediction"}
+            </button>
+
+            {miscPick && (
+              <button
+                type="button"
+                disabled={savingMisc}
+                onClick={() =>
+                  onClear({
+                    game_id: miscPick.game_id,
+                    pick_type: "MISC",
+                    is_mortal_lock: false,
+                  })
+                }
+                title="Clear this prediction"
+                className={[
+                  "rounded-md border px-2 py-1 text-xs font-medium transition-colors",
+                  "border-red-300 bg-white text-red-600 hover:border-red-500",
+                  savingMisc ? "cursor-not-allowed opacity-50" : "",
+                ].join(" ")}
+              >
+                Clear
+              </button>
+            )}
+
+            {savingMisc && (
+              <span className="text-xs text-gray-400">Saving…</span>
+            )}
+          </div>
+
+          {miscError && <p className="mt-1 text-xs text-red-600">{miscError}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Inline badge for a saved MISC pick's state: Pending / Correct / Incorrect,
+ * reusing the page's green/red/gray pill vocabulary. */
+function MiscStateBadge({ pick }: { pick: PicksBySlot[string] }) {
+  const { result, points } = pick;
+  const { label, tone } =
+    result === "WIN"
+      ? { label: `Correct · ${points} pts`, tone: "green" as const }
+      : result === "LOSS"
+        ? { label: `Incorrect · ${points} pts`, tone: "red" as const }
+        : { label: "Pending", tone: "gray" as const };
+
+  const tones: Record<typeof tone, string> = {
+    green: "bg-green-50 text-green-700 ring-green-200",
+    red: "bg-red-50 text-red-700 ring-red-200",
+    gray: "bg-gray-50 text-gray-500 ring-gray-200",
+  };
+
+  return (
+    <span
+      className={[
+        "rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset",
+        tones[tone],
+      ].join(" ")}
+    >
+      {label}
+    </span>
   );
 }
 
