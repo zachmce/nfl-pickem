@@ -30,7 +30,7 @@ from decimal import Decimal
 
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.db import get_session
 from app.main import app
@@ -203,6 +203,40 @@ class ResultsTests(unittest.TestCase):
             assert pick.id is not None
             return pick.id
 
+    def _seed_future_game(self) -> int:
+        """Insert a NOT-yet-locked (future-kickoff) game in the scored week.
+
+        The setUp games are FINAL with PAST kickoffs (always
+        ``is_game_locked True``); to exercise the privacy gate we need a game
+        whose kickoff is in the FUTURE so ``is_game_locked`` is ``False``. It
+        reuses the existing teams (tid 1 & 2) and carries spread/total/
+        favorite/underdog like the FINAL games so a pick on it is well-formed.
+        It is SCHEDULED (the actual non-FINAL ``GameStatus`` member).
+        """
+        future = datetime.now(timezone.utc) + timedelta(days=2)
+        with self._session() as session:
+            teams = list(session.exec(select(Team)).all())
+            tid = [t.id for t in sorted(teams, key=lambda t: t.id or 0)]
+            game = Game(
+                espn_event_id=1003,
+                week_id=self.week_id,
+                season=SEASON,
+                week=WEEK,
+                home_team_id=tid[0],
+                away_team_id=tid[1],
+                kickoff_at=future,
+                status=GameStatus.SCHEDULED,
+                spread=Decimal("3.5"),
+                total=Decimal("44.5"),
+                favorite_team_id=tid[0],
+                underdog_team_id=tid[1],
+            )
+            session.add(game)
+            session.commit()
+            session.refresh(game)
+            assert game.id is not None
+            return game.id
+
     def _bearer_headers(self, user_id: int) -> dict[str, str]:
         """Bearer auth for reads (CSRF-exempt)."""
         return {"Authorization": f"Bearer {create_session_cookie(user_id)}"}
@@ -336,6 +370,142 @@ class ResultsTests(unittest.TestCase):
         with self._session() as session:
             self.assertEqual(week_results(session, season=SEASON, week=99), [])
             self.assertEqual(week_results(session, season=SEASON, week=WEEK), [])
+
+    # -- privacy gate (leak-gate) -----------------------------------------
+
+    def _picks_for(self, results, display_name):
+        """The graded picks of the named user in a week_results list."""
+        for r in results:
+            if r.display_name == display_name:
+                return r
+        self.fail(f"{display_name} not present in results")
+
+    def test_gate_hides_other_users_unlocked_pick(self) -> None:
+        """Another user's pick on a NOT-yet-locked game is omitted for the caller."""
+        future_game_id = self._seed_future_game()
+        # bob picks the future (unlocked) game; alice picks a FINAL (locked) one.
+        self._seed_pick(
+            user_id=self.user_b_id,
+            game_id=future_game_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_fav_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+
+        with self._session() as session:
+            results = week_results(
+                session, season=SEASON, week=WEEK, caller_user_id=self.user_a_id
+            )
+
+        bob = self._picks_for(results, "bob")
+        self.assertNotIn(
+            future_game_id, {p.game_id for p in bob.picks}
+        )  # other user's unlocked pick hidden
+        alice = self._picks_for(results, "alice")
+        self.assertIn(self.game_fav_id, {p.game_id for p in alice.picks})
+
+    def test_gate_shows_other_users_locked_pick(self) -> None:
+        """Another user's pick on a LOCKED (past) game is visible to the caller."""
+        self._seed_pick(
+            user_id=self.user_b_id,
+            game_id=self.game_fav_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+
+        with self._session() as session:
+            results = week_results(
+                session, season=SEASON, week=WEEK, caller_user_id=self.user_a_id
+            )
+
+        bob = self._picks_for(results, "bob")
+        self.assertIn(self.game_fav_id, {p.game_id for p in bob.picks})
+
+    def test_gate_caller_always_sees_own_unlocked_pick(self) -> None:
+        """The caller sees their OWN pick on a not-yet-locked game (bypass)."""
+        future_game_id = self._seed_future_game()
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=future_game_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+
+        with self._session() as session:
+            results = week_results(
+                session, season=SEASON, week=WEEK, caller_user_id=self.user_a_id
+            )
+
+        alice = self._picks_for(results, "alice")
+        self.assertIn(future_game_id, {p.game_id for p in alice.picks})
+
+    def test_gate_preserves_weekly_score_under_redaction(self) -> None:
+        """A redacted future-game pick does not change the user's weekly_score."""
+        future_game_id = self._seed_future_game()
+        # bob picks a FINAL (locked, scores points) game AND the future one.
+        self._seed_pick(
+            user_id=self.user_b_id,
+            game_id=self.game_fav_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+        # Distinct base pick type on the future game (one of each base type per
+        # user/week is the DB constraint). UNDER grades UNGRADEABLE/0 anyway.
+        self._seed_pick(
+            user_id=self.user_b_id,
+            game_id=future_game_id,
+            pick_type=PickType.UNDER,
+        )
+
+        with self._session() as session:
+            results = week_results(
+                session, season=SEASON, week=WEEK, caller_user_id=self.user_a_id
+            )
+            from app.services.standings import _season_games_by_pk
+
+            games_by_pk = _season_games_by_pk(session, season=SEASON)
+            picks_b = list(
+                session.exec(
+                    select(Pick).where(
+                        Pick.user_id == self.user_b_id,
+                        Pick.week_id == self.week_id,
+                    )
+                ).all()
+            )
+            expected_b = score_week(games_by_pk, picks_b)
+
+        bob = self._picks_for(results, "bob")
+        # The future-game entry is redacted from picks for the caller (alice)…
+        self.assertNotIn(future_game_id, {p.game_id for p in bob.picks})
+        # …but the score is computed over bob's FULL pick set (unchanged).
+        self.assertEqual(bob.weekly_score, expected_b)
+
+    def test_gate_http_redacts_other_users_unlocked_pick(self) -> None:
+        """Over the wire: alice does not see bob's not-yet-locked pick."""
+        future_game_id = self._seed_future_game()
+        self._seed_pick(
+            user_id=self.user_b_id,
+            game_id=future_game_id,
+            pick_type=PickType.UNDER,
+        )
+        self._seed_pick(
+            user_id=self.user_b_id,
+            game_id=self.game_fav_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+
+        resp = self.client.get(
+            "/api/results/week",
+            params={"season": SEASON, "week": WEEK},
+            headers=self._bearer_headers(self.user_a_id),
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        rows = resp.json()["results"]
+        bob = next(r for r in rows if r["display_name"] == "bob")
+        self.assertNotIn("user_id", bob)
+        game_ids = {p["game_id"] for p in bob["picks"]}
+        self.assertNotIn(future_game_id, game_ids)  # unlocked pick redacted
+        self.assertIn(self.game_fav_id, game_ids)  # locked pick still shown
 
     # -- HTTP (Task 3) -----------------------------------------------------
 
