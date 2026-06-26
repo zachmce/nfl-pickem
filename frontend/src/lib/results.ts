@@ -26,6 +26,14 @@ export interface WeekResultPickRead {
   is_mortal_lock: boolean;
   outcome: string;
   points: number;
+  /**
+   * The free-text prediction for a MISC pick (mirrors backend
+   * WeekResultPickRead.misc_text). Present ONLY on a REVEALED entry — the server
+   * already redacts other users' MISC text until the tied game locks, so an
+   * unrevealed/other-user MISC simply arrives with this null/absent (or the whole
+   * entry omitted). Null/absent for every non-MISC pick.
+   */
+  misc_text?: string | null;
 }
 
 /**

@@ -93,20 +93,32 @@ function PickRow({
 }) {
   const game = slateByGameId[pick.game_id];
   const matchup = game ? matchupLabel(game) : `Game #${pick.game_id}`;
-  const side = game ? sideLabel(pick.pick_type, game) : pick.pick_type;
+
+  // MISC is a non-base type with NO resolved side and NO mortal lock: the primary
+  // label is its free-text prediction (NOT routed through the spread/total side
+  // resolution), the matchup subline is prefixed "Misc ·", and no mortal-lock
+  // badge is ever shown. A revealed MISC always carries misc_text; if it's
+  // absent (server-redacted/omitted edge), fall back to a neutral label.
+  const isMisc = pick.pick_type === "MISC";
+  const primary = isMisc
+    ? (pick.misc_text ?? "Misc prediction")
+    : game
+      ? sideLabel(pick.pick_type, game)
+      : pick.pick_type;
+  const subline = isMisc ? `Misc · ${matchup}` : matchup;
 
   return (
     <li className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
-          <span className="font-medium text-gray-800">{side}</span>
-          {pick.is_mortal_lock && (
+          <span className="font-medium text-gray-800">{primary}</span>
+          {!isMisc && pick.is_mortal_lock && (
             <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
               Mortal Lock
             </span>
           )}
         </div>
-        <div className="text-xs text-gray-500">{matchup}</div>
+        <div className="text-xs text-gray-500">{subline}</div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
         <span className="tabular-nums text-gray-600">{pick.points} pts</span>
