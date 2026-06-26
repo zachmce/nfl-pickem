@@ -13,6 +13,16 @@ picking and scoring must still work*. It is therefore deliberately **pure**:
   those is the caller's responsibility. The engine only computes and returns a
   decision.
 
+For every pick type EXCEPT :attr:`~app.models.PickType.MISC` the stored
+``Pick.result`` / ``Pick.points`` columns are *vestigial*: the engine re-derives
+the outcome from the game's final score on every read. :attr:`PickType.MISC` is
+the ONE exception — a free-text prediction whose outcome cannot be derived from
+the game. For a MISC pick the engine passes the admin-set stored
+``Pick.result`` / ``Pick.points`` THROUGH verbatim (it still reads only ``Pick``
+fields and mutates nothing — the game is irrelevant). Because scoring recomputes
+on every read, that passthrough is what makes an admin's MISC grade survive — and
+never be silently overwritten by — every standings / week recompute.
+
 Scope is **grade + weekly total only**:
 
 * :func:`grade_pick` decides the outcome (win / loss / push / ineligible /
@@ -34,8 +44,13 @@ INELIGIBLE    ``0``        ``0``
 UNGRADEABLE   ``0``        ``0``
 ============  ===========  ================
 
-A well-formed single-user week is at most four distinct base picks plus one
-mortal lock, so the weekly total is bounded in ``[-1, 6]``.
+A well-formed single-user week of the four auto-graded base types plus one
+mortal lock is bounded in ``[-1, 6]``. A graded :attr:`PickType.MISC` pick can
+carry ANY admin-set integer (including a value outside that band, or a negative
+penalty the admin set explicitly), so a week that includes a MISC pick can push
+the weekly total past ``[-1, 6]``. That band describes only the four auto-graded
+types; it is documentation, not a clamp — MISC is intentionally not bounded by
+it.
 
 > Note: on this machine the interpreter is ``python3`` (there is no bare
 > ``python`` on ``PATH``); use the venv interpreter ``.venv/bin/python`` for any
@@ -49,7 +64,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import Iterable
 
-from app.models import Game, GameStatus, Pick, PickType
+from app.models import Game, GameStatus, Pick, PickResult, PickType
 
 
 class GradeOutcome(str, Enum):
@@ -173,13 +188,44 @@ def grade_pick(game: Game, pick: Pick) -> GradeResult:
 
     Resolution order:
 
-    * **UNGRADEABLE** first — game not :attr:`GameStatus.FINAL`, or either score
+    * **MISC** first — the ONE manually-graded type. Its outcome is NOT derived
+      from the game; instead the admin-set stored ``pick.result`` / ``pick.points``
+      are passed THROUGH verbatim (see below). The game is irrelevant to a MISC
+      grade, so MISC never reaches the FINAL/score guard or the spread/total
+      routing.
+    * **UNGRADEABLE** next — game not :attr:`GameStatus.FINAL`, or either score
       is ``None``.
     * Spread picks: **INELIGIBLE** on a true pick'em, else compare the favorite's
       margin to the spread (equality is **PUSH**).
     * Total picks: compare the combined score to the total (equality is
       **PUSH**); no total posted is **INELIGIBLE**.
+
+    MISC passthrough (the load-bearing exception)
+    ---------------------------------------------
+
+    :attr:`PickType.MISC` is the single pick type whose stored ``result`` /
+    ``points`` are AUTHORITATIVE rather than vestigial. For a MISC pick the engine
+    maps the stored :class:`~app.models.PickResult` to a :class:`GradeOutcome` and
+    returns the admin-set ``pick.points`` UNCHANGED:
+
+    * ``PickResult.WIN``  -> ``GradeResult(GradeOutcome.WIN,  pick.points)``
+    * ``PickResult.LOSS`` -> ``GradeResult(GradeOutcome.LOSS, pick.points)``
+    * ``PickResult.PENDING`` (ungraded) -> ``GradeResult(GradeOutcome.UNGRADEABLE, 0)``
+
+    ``pick.points`` flows through verbatim (it may be any int — including a value
+    outside the historical ``[-1, 6]`` weekly band, or a negative penalty the
+    admin set explicitly). MISC is never routed into ``_spread_outcome`` /
+    ``_total_outcome`` and its points are never recomputed via ``_points_for`` —
+    so an admin's grade survives every recompute-on-read and is never overwritten.
     """
+    if pick.pick_type is PickType.MISC:
+        if pick.result is PickResult.WIN:
+            return GradeResult(GradeOutcome.WIN, pick.points)
+        if pick.result is PickResult.LOSS:
+            return GradeResult(GradeOutcome.LOSS, pick.points)
+        # PENDING / ungraded MISC: scores nothing until an admin decides it.
+        return GradeResult(GradeOutcome.UNGRADEABLE, 0)
+
     if (
         game.status is not GameStatus.FINAL
         or game.home_score is None

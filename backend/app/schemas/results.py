@@ -31,6 +31,9 @@ class WeekResultPickRead(BaseModel):
     is_mortal_lock: bool
     outcome: str  # the GradeOutcome string value
     points: int
+    # MISC free-text prediction; only ever present on a revealed entry (the
+    # service privacy gate hides an other-user pick on a not-yet-locked game).
+    misc_text: str | None = None
 
     @classmethod
     def from_service(cls, pick: WeekResultPick) -> "WeekResultPickRead":
@@ -41,6 +44,7 @@ class WeekResultPickRead(BaseModel):
             is_mortal_lock=pick.is_mortal_lock,
             outcome=pick.outcome,
             points=pick.points,
+            misc_text=pick.misc_text,
         )
 
 

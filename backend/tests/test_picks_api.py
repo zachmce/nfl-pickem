@@ -870,6 +870,141 @@ class PicksApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 401, resp.text)
         self._assert_envelope(resp.json())
 
+    # -- MISC pick type ----------------------------------------------------
+
+    def test_submit_misc_pick_round_trips_text(self) -> None:
+        """A MISC item with misc_text + game_id -> 200; persisted/read carries it."""
+        headers = self._cookie_auth_headers(self.user_a_id)
+        resp = self.client.post(
+            "/api/picks",
+            json={
+                "season": SEASON,
+                "week": WEEK,
+                "picks": [
+                    {
+                        "game_id": self.game_total_id,
+                        "pick_type": "MISC",
+                        "misc_text": "Mahomes throws for 400 yards",
+                    }
+                ],
+            },
+            headers=headers,
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        out = resp.json()
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["pick_type"], "MISC")
+        self.assertEqual(out[0]["misc_text"], "Mahomes throws for 400 yards")
+        # Persisted with the text.
+        rows = self._picks_for(self.user_a_id, self.week_id)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].misc_text, "Mahomes throws for 400 yards")
+        # And a read of the owner's picks returns the text.
+        read = self.client.get(
+            "/api/picks",
+            params={"season": SEASON, "week": WEEK},
+            headers=self._bearer_headers(self.user_a_id),
+        )
+        self.assertEqual(read.status_code, 200, read.text)
+        self.assertEqual(read.json()[0]["misc_text"], "Mahomes throws for 400 yards")
+
+    def test_submit_misc_without_text_rejected_422(self) -> None:
+        """A MISC pick with no/blank misc_text -> 422 (misc_text_required); no write."""
+        headers = self._cookie_auth_headers(self.user_a_id)
+        resp = self.client.post(
+            "/api/picks",
+            json={
+                "season": SEASON,
+                "week": WEEK,
+                "picks": [{"game_id": self.game_total_id, "pick_type": "MISC",
+                           "misc_text": "   "}],
+            },
+            headers=headers,
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+        err = self._assert_envelope(resp.json())
+        self.assertEqual(err.get("reason"), "misc_text_required")
+        self.assertEqual(self._picks_for(self.user_a_id, self.week_id), [])
+
+    def test_submit_non_misc_with_text_rejected_422(self) -> None:
+        """A non-MISC pick carrying misc_text -> 422 (misc_text_not_allowed)."""
+        headers = self._cookie_auth_headers(self.user_a_id)
+        resp = self.client.post(
+            "/api/picks",
+            json={
+                "season": SEASON,
+                "week": WEEK,
+                "picks": [{"game_id": self.game_total_id, "pick_type": "OVER",
+                           "misc_text": "should not be here"}],
+            },
+            headers=headers,
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+        err = self._assert_envelope(resp.json())
+        self.assertEqual(err.get("reason"), "misc_text_not_allowed")
+        self.assertEqual(self._picks_for(self.user_a_id, self.week_id), [])
+
+    def test_submit_misc_mortal_lock_rejected_422(self) -> None:
+        """A MISC pick flagged is_mortal_lock -> 422 (misc_cannot_mortal_lock)."""
+        headers = self._cookie_auth_headers(self.user_a_id)
+        resp = self.client.post(
+            "/api/picks",
+            json={
+                "season": SEASON,
+                "week": WEEK,
+                "picks": [{"game_id": self.game_total_id, "pick_type": "MISC",
+                           "misc_text": "a prediction", "is_mortal_lock": True}],
+            },
+            headers=headers,
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+        err = self._assert_envelope(resp.json())
+        self.assertEqual(err.get("reason"), "misc_cannot_mortal_lock")
+        self.assertEqual(self._picks_for(self.user_a_id, self.week_id), [])
+
+    def test_second_misc_base_pick_rejected_one_per_week(self) -> None:
+        """A second MISC base pick in the same week is rejected (one-per-week).
+
+        The first MISC pick occupies the single base MISC slot; a second one on a
+        different game collides with the existing slot rule (DUPLICATE_BASE_TYPE
+        on the whole-roster mirror / the partial unique index).
+        """
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_spread_id,
+            week_id=self.week_id,
+            pick_type=PickType.MISC,
+        )
+        # Give the seeded MISC its text directly (seed helper omits it).
+        with self._session() as session:
+            row = session.exec(
+                select(Pick).where(
+                    Pick.user_id == self.user_a_id, Pick.pick_type == PickType.MISC
+                )
+            ).first()
+            row.misc_text = "first prediction"
+            session.add(row)
+            session.commit()
+
+        headers = self._cookie_auth_headers(self.user_a_id)
+        resp = self.client.post(
+            "/api/picks",
+            json={
+                "season": SEASON,
+                "week": WEEK,
+                "picks": [{"game_id": self.game_spread_id, "pick_type": "MISC",
+                           "misc_text": "second prediction"}],
+            },
+            headers=headers,
+        )
+        # Same game + same type is a duplicate (409); the existing MISC wins.
+        self.assertEqual(resp.status_code, 409, resp.text)
+        err = self._assert_envelope(resp.json())
+        self.assertEqual(err.get("reason"), "DUPLICATE_PICK")
+        rows = self._picks_for(self.user_a_id, self.week_id)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].misc_text, "first prediction")
+
     def test_clear_cannot_delete_anothers_pick(self) -> None:
         """userA clearing userB's slot -> 404; userB's pick is unchanged.
 

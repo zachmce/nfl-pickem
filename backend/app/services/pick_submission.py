@@ -309,6 +309,30 @@ def submit_picks(
                 reason="game_not_in_week",
             )
 
+    # MISC-type rules (checked in the same pre-write validation pass, before any
+    # write): MISC requires non-empty text and is never a mortal lock; any OTHER
+    # type must NOT carry misc_text. The game-in-week check above already covers
+    # the "tied to a game in the week" requirement for MISC.
+    for item in items:
+        text = item.misc_text.strip() if item.misc_text is not None else ""
+        if item.pick_type is PickType.MISC:
+            if not text:
+                raise ValidationError(
+                    "A MISC pick requires non-empty misc_text.",
+                    reason="misc_text_required",
+                )
+            if item.is_mortal_lock:
+                raise ValidationError(
+                    "A MISC pick cannot be a mortal lock.",
+                    reason="misc_cannot_mortal_lock",
+                )
+        elif text:
+            raise ValidationError(
+                f"misc_text is only allowed on a MISC pick, not "
+                f"{item.pick_type.value}.",
+                reason="misc_text_not_allowed",
+            )
+
     # 2) Per-game lock — reject a pick whose game has already kicked off.
     for item in items:
         if is_game_locked(norm_by_id[item.game_id], now):
@@ -337,6 +361,7 @@ def submit_picks(
             week_id=week_row.id,
             pick_type=item.pick_type,
             is_mortal_lock=item.is_mortal_lock,
+            misc_text=item.misc_text,
         )
         decision = check_new_pick(candidate, accepted, norm_by_id)
         if not decision.ok:
@@ -349,6 +374,8 @@ def submit_picks(
         replaced = _find_replaceable_base_slot(accepted, item)
         if replaced is not None:
             replaced.game_id = item.game_id
+            # Carry the (possibly updated) free-text prediction on a MISC replace.
+            replaced.misc_text = item.misc_text
             session.add(replaced)
             persisted.append(replaced)
         else:

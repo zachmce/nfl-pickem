@@ -67,6 +67,12 @@ class WeekResultPick:
     is_mortal_lock: bool
     outcome: str
     points: int
+    # The free-text MISC prediction. Carried ONLY on a REVEALED entry — the
+    # privacy gate below already omits an OTHER user's pick on a not-yet-locked
+    # game, so misc_text is only ever set on the caller's own pick or on a pick
+    # whose game has locked (revealed to everyone once it kicks off). NULL for
+    # every non-MISC pick.
+    misc_text: str | None = None
 
 
 @dataclass(frozen=True)
@@ -251,6 +257,10 @@ def week_results(
                     is_mortal_lock=pick.is_mortal_lock,
                     outcome=GradeOutcome(decision.outcome).value,
                     points=decision.points,
+                    # Only reached for a revealed entry (the gate above already
+                    # omitted an other-user pick on an unlocked game), so this is
+                    # safe to carry.
+                    misc_text=pick.misc_text,
                 )
             )
         results.append(

@@ -26,6 +26,9 @@ class PickItem(BaseModel):
     game_id: int
     pick_type: PickType
     is_mortal_lock: bool = False
+    # Free-text prediction — REQUIRED for a MISC pick, rejected for any other type
+    # (enforced in ``app.services.pick_submission.submit_picks``).
+    misc_text: str | None = None
 
 
 class PickSubmitRequest(BaseModel):
@@ -53,6 +56,8 @@ class PickRead(BaseModel):
     week_id: int
     pick_type: PickType
     is_mortal_lock: bool
+    # The owner always sees their OWN misc_text (NULL for non-MISC picks).
+    misc_text: str | None = None
     result: PickResult
     points: int
 
@@ -66,6 +71,7 @@ class PickRead(BaseModel):
             week_id=pick.week_id,
             pick_type=pick.pick_type,
             is_mortal_lock=pick.is_mortal_lock,
+            misc_text=pick.misc_text,
             result=pick.result,
             points=pick.points,
         )

@@ -32,7 +32,7 @@ from decimal import Decimal
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.models import Game, GameStatus, Pick, PickType
+from app.models import Game, GameStatus, Pick, PickResult, PickType
 from app.seeds.fixture_2025 import import_fixture_2025
 from app.seeds.teams import seed_teams
 from app.services.scoring import (
@@ -367,6 +367,106 @@ class ScoreWeekTests(unittest.TestCase):
 
     def test_empty_week_totals_zero(self) -> None:
         self.assertEqual(score_week({}, []), 0)
+
+
+def _misc_pick(
+    *,
+    result: PickResult,
+    points: int,
+    game_id: int = 100,
+    is_mortal_lock: bool = False,
+) -> Pick:
+    """Build a synthetic MISC ``Pick`` carrying an admin-set result/points."""
+    return Pick(
+        user_id=1,
+        game_id=game_id,
+        week_id=1,
+        pick_type=PickType.MISC,
+        is_mortal_lock=is_mortal_lock,
+        misc_text="Mahomes throws for 400 yards",
+        result=result,
+        points=points,
+    )
+
+
+class GradeMiscPassthroughTests(unittest.TestCase):
+    """MISC is the ONE type whose stored result/points pass through verbatim.
+
+    The game is irrelevant to a MISC grade: these tests deliberately hand the
+    engine a game that would make the OLD (spread/total) path return
+    INELIGIBLE/0 (a true pick'em with no total) to prove MISC never routes there.
+    """
+
+    def _ungradeable_misc_game(self) -> Game:
+        # A true pick'em with NO total: every auto-graded branch would void to 0
+        # here, so a non-zero MISC result proves the passthrough fired instead.
+        return _game(
+            home_score=21, away_score=20, status=GameStatus.FINAL,
+            spread=Decimal("0"), favorite_team_id=None, underdog_team_id=None,
+            total=None,
+        )
+
+    def test_misc_win_passes_stored_points_through(self) -> None:
+        game = self._ungradeable_misc_game()
+        res = grade_pick(game, _misc_pick(result=PickResult.WIN, points=3))
+        self.assertEqual(res, GradeResult(GradeOutcome.WIN, 3))
+
+    def test_misc_win_independent_of_game_score_and_status(self) -> None:
+        # Even on a SCHEDULED game (no score yet) the admin grade still flows.
+        game = _game(home_score=None, away_score=None,
+                     status=GameStatus.SCHEDULED, total=None,
+                     spread=Decimal("0"))
+        res = grade_pick(game, _misc_pick(result=PickResult.WIN, points=5))
+        self.assertEqual(res, GradeResult(GradeOutcome.WIN, 5))
+
+    def test_misc_loss_zero_points(self) -> None:
+        game = self._ungradeable_misc_game()
+        res = grade_pick(game, _misc_pick(result=PickResult.LOSS, points=0))
+        self.assertEqual(res, GradeResult(GradeOutcome.LOSS, 0))
+
+    def test_misc_loss_negative_penalty_passes_through(self) -> None:
+        # A negative admin-set penalty passes through verbatim (no implicit -1).
+        game = self._ungradeable_misc_game()
+        res = grade_pick(game, _misc_pick(result=PickResult.LOSS, points=-2))
+        self.assertEqual(res, GradeResult(GradeOutcome.LOSS, -2))
+
+    def test_misc_pending_is_ungradeable_zero(self) -> None:
+        game = self._ungradeable_misc_game()
+        res = grade_pick(game, _misc_pick(result=PickResult.PENDING, points=0))
+        self.assertEqual(res, GradeResult(GradeOutcome.UNGRADEABLE, 0))
+
+    def test_misc_points_can_exceed_weekly_band(self) -> None:
+        # MISC is intentionally not bounded by the [-1, 6] band of auto types.
+        game = self._ungradeable_misc_game()
+        res = grade_pick(game, _misc_pick(result=PickResult.WIN, points=10))
+        self.assertEqual(res, GradeResult(GradeOutcome.WIN, 10))
+
+    def test_score_week_sums_graded_misc_on_top_of_regular_picks(self) -> None:
+        # Two correct base picks (+1 each) plus a graded MISC (+3) = 5. A
+        # recompute over the graded MISC keeps the admin points (not 0): this is
+        # the "auto-grade never overwrites the stored MISC grade" guarantee.
+        g_fav = _game(game_id=1, home_score=30, away_score=20,
+                      spread=Decimal("3.5"), favorite_team_id=HOME,
+                      underdog_team_id=AWAY)
+        g_over = _game(game_id=3, home_score=30, away_score=21,
+                       total=Decimal("44.5"))
+        g_misc = self._ungradeable_misc_game()
+        g_misc.id = 7
+        games_by_id = {1: g_fav, 3: g_over, 7: g_misc}
+        picks = [
+            _pick(PickType.FAVORITE_COVER, game_id=1),
+            _pick(PickType.OVER, game_id=3),
+            _misc_pick(result=PickResult.WIN, points=3, game_id=7),
+        ]
+        self.assertEqual(score_week(games_by_id, picks), 5)
+
+    def test_score_week_recompute_keeps_graded_misc_not_zero(self) -> None:
+        # A lone graded MISC scored on its own: the recompute yields the admin's
+        # points, proving the stored grade is authoritative for MISC.
+        g_misc = self._ungradeable_misc_game()
+        g_misc.id = 7
+        picks = [_misc_pick(result=PickResult.WIN, points=4, game_id=7)]
+        self.assertEqual(score_week({7: g_misc}, picks), 4)
 
 
 class GroundTruthRealSeasonTests(unittest.TestCase):
