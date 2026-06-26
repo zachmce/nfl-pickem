@@ -363,15 +363,20 @@ def submit_picks(
             is_mortal_lock=item.is_mortal_lock,
             misc_text=item.misc_text,
         )
-        decision = check_new_pick(candidate, accepted, norm_by_id)
+        # An incoming item that targets an existing OWN slot is an UPDATE, not a
+        # new pick: a base type re-pointed at a DIFFERENT game (a move), or a MISC
+        # re-submitted into its single weekly slot (same OR different game — the
+        # "Update prediction" path). Resolve that slot FIRST and exclude it from
+        # the conflict check, so it is not judged against itself as a same-game
+        # DUPLICATE_PICK; then upsert it in place. (Mirrors admin_set_pick, which
+        # likewise excludes the slot row it is replacing.)
+        replaced = _find_replaceable_base_slot(accepted, item)
+        others = [p for p in accepted if p is not replaced]
+        decision = check_new_pick(candidate, others, norm_by_id)
         if not decision.ok:
             v = decision.violations[0]
             raise violation_to_exception(v.code, v.message)
 
-        # Non-conflicting own-slot replace: same base slot (week, type, non-lock)
-        # but a DIFFERENT game -> upsert the existing row's game_id instead of
-        # inserting a duplicate (DB partial unique index enforces one base type).
-        replaced = _find_replaceable_base_slot(accepted, item)
         if replaced is not None:
             replaced.game_id = item.game_id
             # Carry the (possibly updated) free-text prediction on a MISC replace.
@@ -389,21 +394,27 @@ def submit_picks(
 def _find_replaceable_base_slot(
     accepted: list[Pick], item: PickItem
 ) -> Pick | None:
-    """Find an existing OWN base pick this item should replace (upsert), if any.
+    """Find an existing OWN non-lock pick this item should replace (upsert), if any.
 
-    A replace applies only to a BASE (non-mortal-lock) slot: same ``pick_type``
-    and ``is_mortal_lock=False`` as the incoming item, on a DIFFERENT game. The
-    earlier ``check_new_pick`` pass guarantees the item does not conflict, so the
-    only reason it would otherwise collide is the per-(user, week, base-type)
-    unique index — which a replace satisfies by moving the existing row's game.
+    A replace applies to a non-mortal-lock slot of the same ``pick_type`` as the
+    incoming item:
+
+    * **MISC** is a single weekly slot — re-submitting it updates the existing
+      prediction (its text and/or its tied game), so it replaces regardless of
+      game. This is the "Update prediction" path; without it a same-game MISC
+      re-submit would be rejected as a DUPLICATE_PICK.
+    * A **base** type replaces only when the incoming pick moves to a DIFFERENT
+      game (a slot move). A same-game base re-submit is a genuine duplicate, left
+      for ``check_new_pick`` to reject.
+
+    Either way the per-(user, week, base-type) unique index is satisfied by
+    upserting the existing row rather than inserting a second one.
     """
     if item.is_mortal_lock:
         return None
     for pick in accepted:
-        if (
-            not pick.is_mortal_lock
-            and pick.pick_type == item.pick_type
-            and pick.game_id != item.game_id
-        ):
+        if pick.is_mortal_lock or pick.pick_type != item.pick_type:
+            continue
+        if item.pick_type is PickType.MISC or pick.game_id != item.game_id:
             return pick
     return None

@@ -962,12 +962,14 @@ class PicksApiTests(unittest.TestCase):
         self.assertEqual(err.get("reason"), "misc_cannot_mortal_lock")
         self.assertEqual(self._picks_for(self.user_a_id, self.week_id), [])
 
-    def test_second_misc_base_pick_rejected_one_per_week(self) -> None:
-        """A second MISC base pick in the same week is rejected (one-per-week).
+    def test_resubmit_misc_updates_single_weekly_slot(self) -> None:
+        """Re-submitting MISC UPDATES the single weekly slot (one-per-week upsert).
 
-        The first MISC pick occupies the single base MISC slot; a second one on a
-        different game collides with the existing slot rule (DUPLICATE_BASE_TYPE
-        on the whole-roster mirror / the partial unique index).
+        MISC has one weekly slot. Re-submitting it (the "Update prediction" path)
+        must update the existing prediction in place rather than be rejected as a
+        same-game DUPLICATE_PICK or create a second row — one-per-week is enforced
+        by upsert, exactly like a base pick moving slots. Covers both a same-game
+        text edit and a different-game move.
         """
         self._seed_pick(
             user_id=self.user_a_id,
@@ -987,6 +989,8 @@ class PicksApiTests(unittest.TestCase):
             session.commit()
 
         headers = self._cookie_auth_headers(self.user_a_id)
+
+        # (1) Same game, new text -> 200 update; still exactly one MISC row.
         resp = self.client.post(
             "/api/picks",
             json={
@@ -997,13 +1001,28 @@ class PicksApiTests(unittest.TestCase):
             },
             headers=headers,
         )
-        # Same game + same type is a duplicate (409); the existing MISC wins.
-        self.assertEqual(resp.status_code, 409, resp.text)
-        err = self._assert_envelope(resp.json())
-        self.assertEqual(err.get("reason"), "DUPLICATE_PICK")
+        self.assertEqual(resp.status_code, 200, resp.text)
         rows = self._picks_for(self.user_a_id, self.week_id)
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0].misc_text, "first prediction")
+        self.assertEqual(rows[0].pick_type, PickType.MISC)
+        self.assertEqual(rows[0].misc_text, "second prediction")
+
+        # (2) Different game, new text -> moves the single slot; still one row.
+        resp = self.client.post(
+            "/api/picks",
+            json={
+                "season": SEASON,
+                "week": WEEK,
+                "picks": [{"game_id": self.game_total_id, "pick_type": "MISC",
+                           "misc_text": "third prediction"}],
+            },
+            headers=headers,
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        rows = self._picks_for(self.user_a_id, self.week_id)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].game_id, self.game_total_id)
+        self.assertEqual(rows[0].misc_text, "third prediction")
 
     def test_clear_cannot_delete_anothers_pick(self) -> None:
         """userA clearing userB's slot -> 404; userB's pick is unchanged.
