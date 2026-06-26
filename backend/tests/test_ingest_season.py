@@ -407,5 +407,51 @@ class IngestSeasonTests(unittest.TestCase):
                 )
 
 
+class IngestSeasonWrapperSummaryTests(unittest.TestCase):
+    """The task wrapper's return summary must be JSON-serializable.
+
+    Asserts the wrapper's contract at the SERVICE + summary level (offline) —
+    WITHOUT importing app.db / app.config or constructing the ESPN adapter, and
+    without executing the Celery task against a real broker. We build the same
+    summary dict shape ``ingest_season_task`` returns from a real
+    :class:`IngestResult` and prove ``json.dumps`` accepts it (Celery's json
+    result serializer would).
+    """
+
+    def setUp(self) -> None:
+        self.engine = create_engine("sqlite://")
+        SQLModel.metadata.create_all(self.engine)
+
+    def tearDown(self) -> None:
+        self.engine.dispose()
+
+    def test_summary_is_json_serializable(self) -> None:
+        # Drive the SAME service entry the task uses, including a failed week so
+        # failed_weeks is non-empty (the tuple-of-tuples that must flatten).
+        source = _FakeSource(
+            {1: [_game(event_id="900070", season=2026, week=1, home="1", away="2")]},
+            fail_weeks={2},
+        )
+        with Session(self.engine) as session:
+            seed_teams(session)
+            result = ingest_season(
+                session, source, 2026, weeks=range(1, 3), now=FIXED_NOW
+            )
+
+        # Mirror ingest_season_task's summary construction exactly.
+        summary = {
+            "weeks_present": result.weeks_present,
+            "games_present": result.games_present,
+            "weeks_created": result.weeks_created,
+            "games_created": result.games_created,
+            "failed_weeks": [list(w) for w in result.failed_weeks],
+        }
+        # Must not raise — JSON-serializable for Celery's json serializer.
+        encoded = json.dumps(summary)
+        roundtrip = json.loads(encoded)
+        self.assertEqual(roundtrip["failed_weeks"], [[2026, 2]])
+        self.assertEqual(roundtrip["games_created"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
