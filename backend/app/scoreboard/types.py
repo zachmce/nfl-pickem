@@ -56,6 +56,12 @@ class ScoreboardOdds:
     """
 
     provider: str | None = None
+    # The chosen provider's id, captured for auditability ALONGSIDE ``provider``
+    # (the name). Provider ids drift across ESPN endpoints/time, so the importer
+    # persists this exact id from the SAME selected odds item rather than ever
+    # hardcoding one. Additive/optional: every existing constructor call (which
+    # passes no ``provider_id``) stays valid and yields ``None``.
+    provider_id: str | None = None
     spread: float | None = None
     total: float | None = None
     favorite_team_id: str | None = None

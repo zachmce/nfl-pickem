@@ -175,6 +175,8 @@ class NormalizeScoreboardTest(unittest.TestCase):
         # odds populated, DraftKings preferred over the other book
         self.assertIsNotNone(game.odds)
         self.assertEqual(game.odds.provider, "DraftKings")
+        # provider_id captured from the SAME selected item (DraftKings id "100").
+        self.assertEqual(game.odds.provider_id, "100")
         self.assertEqual(game.odds.spread, -3.5)
         self.assertEqual(game.odds.total, 44.5)
         self.assertEqual(game.odds.favorite_team_id, "26")
@@ -263,6 +265,23 @@ class NormalizeOddsDefensiveTest(unittest.TestCase):
     def test_non_dict_returns_none(self) -> None:
         self.assertIsNone(normalize_odds(None))
         self.assertIsNone(normalize_odds("garbage"))
+
+    def test_captures_provider_id_from_selected_item(self) -> None:
+        # The id is coerced to str and read from the SAME provider dict the
+        # name comes from (the item select_odds_item chose).
+        odds = normalize_odds(
+            {"provider": {"id": 100, "name": "DraftKings"}, "spread": -3.5}
+        )
+        self.assertIsNotNone(odds)
+        self.assertEqual(odds.provider, "DraftKings")
+        self.assertEqual(odds.provider_id, "100")
+
+    def test_missing_provider_id_degrades_to_none(self) -> None:
+        # No id present -> provider_id is None (defensive, mirrors name handling).
+        odds = normalize_odds({"provider": {"name": "DraftKings"}})
+        self.assertIsNotNone(odds)
+        self.assertEqual(odds.provider, "DraftKings")
+        self.assertIsNone(odds.provider_id)
 
     def test_raw_signed_spread_preserved(self) -> None:
         odds = normalize_odds(

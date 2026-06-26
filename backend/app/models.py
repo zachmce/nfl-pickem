@@ -178,6 +178,11 @@ class Game(SQLModel, table=True):
     favorite_team_id: int | None = Field(default=None, foreign_key="team.id")
     underdog_team_id: int | None = Field(default=None, foreign_key="team.id")
     odds_provider: str | None = Field(default=None, max_length=50, nullable=True)
+    # The persisted chosen-provider id — a drift-proof audit companion to
+    # ``odds_provider`` (the name). Both are captured from the SAME selected odds
+    # item at ingest time so a line can always be traced back to its exact source
+    # (provider ids drift across ESPN endpoints, so the name alone is ambiguous).
+    odds_provider_id: str | None = Field(default=None, max_length=50, nullable=True)
     odds_frozen: bool = Field(default=False, nullable=False)
     odds_captured_at: datetime | None = Field(
         default=None, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=True)

@@ -114,6 +114,9 @@ def _normalize_fixture_odds(odds: Any) -> ScoreboardOdds | None:
         return None
     return ScoreboardOdds(
         provider=odds.get("provider"),
+        # The fixture carries no provider id, so this resolves to None — the demo
+        # path stays behavior-identical (no provider id is ever synthesized).
+        provider_id=odds.get("provider_id"),
         spread=odds.get("spread"),
         total=odds.get("total"),
         favorite_team_id=odds.get("favorite_team_id"),

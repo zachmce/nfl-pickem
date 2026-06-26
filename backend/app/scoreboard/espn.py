@@ -226,6 +226,13 @@ def normalize_odds(odds_item: Any) -> ScoreboardOdds | None:
     provider = odds_item.get("provider")
     provider = provider if isinstance(provider, dict) else {}
     provider_name = provider.get("name")
+    # Capture the provider id from the SAME provider dict the name comes from
+    # (the item ``select_odds_item`` chose) — NEVER from a hardcoded/other source
+    # (provider ids drift; see espn-ingestion-strategy.md "Provider selection").
+    # Coerce to str when present (mirrors the ``str(team_id)`` pattern); a
+    # missing/None id degrades to None, just like the name.
+    provider_id_raw = provider.get("id")
+    provider_id = str(provider_id_raw) if provider_id_raw is not None else None
 
     spread = _to_float_or_none(odds_item.get("spread"))
     total = _to_float_or_none(odds_item.get("overUnder"))
@@ -244,6 +251,7 @@ def normalize_odds(odds_item: Any) -> ScoreboardOdds | None:
 
     return ScoreboardOdds(
         provider=provider_name,
+        provider_id=provider_id,
         spread=spread,
         total=total,
         favorite_team_id=favorite_team_id,
