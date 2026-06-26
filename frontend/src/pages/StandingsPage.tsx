@@ -8,35 +8,41 @@
  * from the single GET /api/results/standings response (no extra fetch).
  *
  * Behaviour:
- *   - Week COLUMNS are the sorted union of integer week keys across all rows, so
- *     only weeks that actually have scores produce columns (D1 graceful
- *     degradation — early-season demos show just W1).
+ *   - Week COLUMNS are ALWAYS the full regular season W1..W18 (extended only if
+ *     the data somehow carries a higher week). Weeks AFTER the current week
+ *     render as "N/A" (not yet playable); weeks <= the current week show their
+ *     score (0 included).
+ *   - Column order is Rank, Total, Player, then the weekly W1..W18 columns — the
+ *     summary reads left-to-right before the per-week detail.
  *   - Rank is 1-based standard COMPETITION ranking over the server order: tied
  *     season_total values share a rank, and the next distinct total resumes at
  *     index+1 (totals [50,31,31,30] -> ranks [1,2,2,4]).
  *   - The current user's row (display_name === useAuth().user?.display_name) is
  *     highlighted with the app's single blue accent. No match -> no highlight.
- *   - Loading / error / empty (zero rows OR zero week columns) each render a
- *     clean gray message; none of them throw.
+ *   - Loading / error / empty (zero rows) each render a clean gray message; none
+ *     of them throw.
  */
 import { useAuth } from "../auth/useAuth";
 import type { SeasonStandingRow } from "../lib/results";
 import { useStandings } from "./useStandings";
 
+/** NFL regular season length — the matrix always shows at least W1..W18. */
+const REGULAR_SEASON_WEEKS = 18;
+
 /**
- * The sorted, de-duplicated union of integer week numbers across every row's
- * weekly_scores. JSON object keys are strings, so each key is parsed to a number
- * (non-numeric keys, which the backend never emits, are skipped defensively).
+ * The week columns to render: always 1..REGULAR_SEASON_WEEKS, extended to cover
+ * any higher integer week present in the data (defensive — the backend never
+ * emits weeks beyond 18 for the regular season).
  */
 function weekColumns(rows: SeasonStandingRow[]): number[] {
-  const weeks = new Set<number>();
+  let last = REGULAR_SEASON_WEEKS;
   for (const row of rows) {
     for (const key of Object.keys(row.weekly_scores)) {
       const n = Number(key);
-      if (Number.isInteger(n)) weeks.add(n);
+      if (Number.isInteger(n) && n > last) last = n;
     }
   }
-  return Array.from(weeks).sort((a, b) => a - b);
+  return Array.from({ length: last }, (_, i) => i + 1);
 }
 
 /**
@@ -57,7 +63,7 @@ function competitionRanks(rows: SeasonStandingRow[]): number[] {
 }
 
 export default function StandingsPage() {
-  const { status, season, standings } = useStandings();
+  const { status, season, currentWeek, standings } = useStandings();
   const { user } = useAuth();
 
   const seasonLabel = season !== null ? `${season} season` : null;
@@ -83,9 +89,12 @@ export default function StandingsPage() {
   }
 
   const weeks = weekColumns(standings);
+  // Weeks after this are "future" -> N/A. Null (shouldn't happen in "ok"
+  // status) treated as 0 so every week reads N/A rather than a false 0.
+  const liveThroughWeek = currentWeek ?? 0;
 
-  // Zero-board: no players yet, or no week has any scores (early pre-season).
-  if (standings.length === 0 || weeks.length === 0) {
+  // Zero-board: no players yet.
+  if (standings.length === 0) {
     return (
       <div className="space-y-6">
         <header>
@@ -118,13 +127,13 @@ export default function StandingsPage() {
           <thead>
             <tr className="border-b border-gray-200 text-gray-600">
               <th className="px-3 py-2 text-right font-semibold">Rank</th>
+              <th className="px-3 py-2 text-right font-semibold">Total</th>
               <th className="px-3 py-2 text-left font-semibold">Player</th>
               {weeks.map((w) => (
                 <th key={w} className="px-3 py-2 text-right font-semibold">
                   W{w}
                 </th>
               ))}
-              <th className="px-3 py-2 text-right font-semibold">Total</th>
             </tr>
           </thead>
           <tbody>
@@ -143,6 +152,9 @@ export default function StandingsPage() {
                   <td className="px-3 py-2 text-right tabular-nums text-gray-500">
                     {ranks[i]}
                   </td>
+                  <td className="px-3 py-2 text-right font-semibold tabular-nums text-gray-900">
+                    {row.season_total}
+                  </td>
                   <td
                     className={[
                       "px-3 py-2 text-left",
@@ -151,17 +163,20 @@ export default function StandingsPage() {
                   >
                     {row.display_name}
                   </td>
-                  {weeks.map((w) => (
-                    <td
-                      key={w}
-                      className="px-3 py-2 text-right tabular-nums text-gray-700"
-                    >
-                      {row.weekly_scores[String(w)] ?? 0}
-                    </td>
-                  ))}
-                  <td className="px-3 py-2 text-right font-semibold tabular-nums text-gray-900">
-                    {row.season_total}
-                  </td>
+                  {weeks.map((w) => {
+                    const future = w > liveThroughWeek;
+                    return (
+                      <td
+                        key={w}
+                        className={[
+                          "px-3 py-2 text-right tabular-nums",
+                          future ? "text-gray-300" : "text-gray-700",
+                        ].join(" ")}
+                      >
+                        {future ? "N/A" : (row.weekly_scores[String(w)] ?? 0)}
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}

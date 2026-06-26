@@ -19,6 +19,11 @@ export interface UseStandings {
   status: Status;
   /** The resolved season once loaded, else null. */
   season: number | null;
+  /**
+   * The active week from /api/current-week, else null. Weeks AFTER this are
+   * "future" and render as N/A in the matrix (weeks <= it show their score).
+   */
+  currentWeek: number | null;
   /** Rows in the server-returned order (do NOT re-sort). */
   standings: SeasonStandingRow[];
 }
@@ -26,6 +31,7 @@ export interface UseStandings {
 export function useStandings(): UseStandings {
   const [status, setStatus] = useState<Status>("loading");
   const [season, setSeason] = useState<number | null>(null);
+  const [currentWeek, setCurrentWeek] = useState<number | null>(null);
   const [standings, setStandings] = useState<SeasonStandingRow[]>([]);
 
   useEffect(() => {
@@ -33,7 +39,10 @@ export function useStandings(): UseStandings {
     setStatus("loading");
 
     getCurrentWeek()
-      .then((cw) => getStandings(cw.season))
+      .then((cw) => {
+        if (!cancelled) setCurrentWeek(cw.week);
+        return getStandings(cw.season);
+      })
       .then((resp) => {
         if (cancelled) return;
         setSeason(resp.season);
@@ -50,5 +59,5 @@ export function useStandings(): UseStandings {
     };
   }, []);
 
-  return { status, season, standings };
+  return { status, season, currentWeek, standings };
 }
