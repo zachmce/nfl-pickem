@@ -1,8 +1,173 @@
+/**
+ * Standings page — the season SCOREBOARD (D1: the season matrix).
+ *
+ * Renders INSIDE AppShell (which is inside RequireAuth), so this is CONTENT
+ * ONLY: no shell, header, nav, or auth guard — exactly like MyPicksPage. A
+ * logged-in user sees one row per player in the server-returned order, with
+ * each player's per-week scores (W1, W2, …) and their season Total, all sourced
+ * from the single GET /api/results/standings response (no extra fetch).
+ *
+ * Behaviour:
+ *   - Week COLUMNS are the sorted union of integer week keys across all rows, so
+ *     only weeks that actually have scores produce columns (D1 graceful
+ *     degradation — early-season demos show just W1).
+ *   - Rank is 1-based standard COMPETITION ranking over the server order: tied
+ *     season_total values share a rank, and the next distinct total resumes at
+ *     index+1 (totals [50,31,31,30] -> ranks [1,2,2,4]).
+ *   - The current user's row (display_name === useAuth().user?.display_name) is
+ *     highlighted with the app's single blue accent. No match -> no highlight.
+ *   - Loading / error / empty (zero rows OR zero week columns) each render a
+ *     clean gray message; none of them throw.
+ */
+import { useAuth } from "../auth/useAuth";
+import type { SeasonStandingRow } from "../lib/results";
+import { useStandings } from "./useStandings";
+
+/**
+ * The sorted, de-duplicated union of integer week numbers across every row's
+ * weekly_scores. JSON object keys are strings, so each key is parsed to a number
+ * (non-numeric keys, which the backend never emits, are skipped defensively).
+ */
+function weekColumns(rows: SeasonStandingRow[]): number[] {
+  const weeks = new Set<number>();
+  for (const row of rows) {
+    for (const key of Object.keys(row.weekly_scores)) {
+      const n = Number(key);
+      if (Number.isInteger(n)) weeks.add(n);
+    }
+  }
+  return Array.from(weeks).sort((a, b) => a - b);
+}
+
+/**
+ * Standard competition ranks ("1, 2, 2, 4") for the ALREADY-ORDERED rows, keyed
+ * by season_total: row 0 is rank 1; each subsequent row keeps the previous rank
+ * when its total ties the row above, otherwise its rank is its 1-based position.
+ */
+function competitionRanks(rows: SeasonStandingRow[]): number[] {
+  const ranks: number[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    if (i > 0 && rows[i].season_total === rows[i - 1].season_total) {
+      ranks.push(ranks[i - 1]);
+    } else {
+      ranks.push(i + 1);
+    }
+  }
+  return ranks;
+}
+
 export default function StandingsPage() {
+  const { status, season, standings } = useStandings();
+  const { user } = useAuth();
+
+  const seasonLabel = season !== null ? `${season} season` : null;
+
+  if (status === "loading") {
+    return (
+      <div>
+        <h1 className="text-2xl font-bold">Standings</h1>
+        <p className="mt-2 text-gray-500">Loading the season scoreboard…</p>
+      </div>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <div>
+        <h1 className="text-2xl font-bold">Standings</h1>
+        <p className="mt-2 text-gray-600">
+          Couldn't load the standings. Please try again later.
+        </p>
+      </div>
+    );
+  }
+
+  const weeks = weekColumns(standings);
+
+  // Zero-board: no players yet, or no week has any scores (early pre-season).
+  if (standings.length === 0 || weeks.length === 0) {
+    return (
+      <div className="space-y-6">
+        <header>
+          <h1 className="text-2xl font-bold">Standings</h1>
+          {seasonLabel && (
+            <p className="mt-1 text-sm text-gray-500">{seasonLabel}</p>
+          )}
+        </header>
+        <p className="text-gray-500">
+          No scores have been posted yet — the scoreboard will fill in once the
+          season is underway.
+        </p>
+      </div>
+    );
+  }
+
+  const ranks = competitionRanks(standings);
+
   return (
-    <div>
-      <h1 className="text-2xl font-bold">Standings</h1>
-      <p className="mt-2 text-gray-500">Coming soon.</p>
+    <div className="space-y-6">
+      <header>
+        <h1 className="text-2xl font-bold">Standings</h1>
+        {seasonLabel && (
+          <p className="mt-1 text-sm text-gray-500">{seasonLabel}</p>
+        )}
+      </header>
+
+      <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+        <table className="min-w-full border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-gray-200 text-gray-600">
+              <th className="px-3 py-2 text-right font-semibold">Rank</th>
+              <th className="px-3 py-2 text-left font-semibold">Player</th>
+              {weeks.map((w) => (
+                <th key={w} className="px-3 py-2 text-right font-semibold">
+                  W{w}
+                </th>
+              ))}
+              <th className="px-3 py-2 text-right font-semibold">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {standings.map((row, i) => {
+              const isMe =
+                user?.display_name != null &&
+                row.display_name === user.display_name;
+              return (
+                <tr
+                  key={`${row.display_name}-${i}`}
+                  className={[
+                    "border-b border-gray-100 last:border-0",
+                    isMe ? "bg-blue-50" : "",
+                  ].join(" ")}
+                >
+                  <td className="px-3 py-2 text-right tabular-nums text-gray-500">
+                    {ranks[i]}
+                  </td>
+                  <td
+                    className={[
+                      "px-3 py-2 text-left",
+                      isMe ? "font-semibold text-blue-800" : "text-gray-800",
+                    ].join(" ")}
+                  >
+                    {row.display_name}
+                  </td>
+                  {weeks.map((w) => (
+                    <td
+                      key={w}
+                      className="px-3 py-2 text-right tabular-nums text-gray-700"
+                    >
+                      {row.weekly_scores[String(w)] ?? 0}
+                    </td>
+                  ))}
+                  <td className="px-3 py-2 text-right font-semibold tabular-nums text-gray-900">
+                    {row.season_total}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
