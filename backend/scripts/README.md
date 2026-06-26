@@ -87,6 +87,75 @@ python -m unittest tests.test_gen_2025_fixture -v
 
 ---
 
+## `backfill_fixture_odds.py` — one-shot REAL-odds backfill for the 2025 fixture
+
+### What it is
+
+A one-shot, **idempotent** backfill that fills in the **79 odds-less games** of
+`backend/app/seeds/data/nfl_2025_regular_season.json` (the wk13 NYG@NE gap game
+plus all of weeks 14–18) so the full 18-week 2025 demo season becomes
+**pickable and gradeable**.
+
+### Why it's needed
+
+`gen_2025_fixture.py` only accepts the **ESPN BET** provider (name `ESPN BET` /
+id `58`). For finaled weeks 14–18 (and one wk13 game) ESPN BET lines have
+disappeared — but the **same** core-API odds endpoint still returns **real
+DraftKings** lines (provider id `100`) in the exact shape
+`normalize_odds` already consumes. This script adds a **permissive selector**
+(`select_odds_item_permissive`: ESPN BET → id 58 → first item that yields a
+*usable* line) that unblocks those games. It **reuses** `normalize_odds` and
+`parse_team_id_from_ref` from `gen_2025_fixture` and does **not** modify the
+generator (its ESPN-BET-first behavior and tests stay untouched).
+
+A "usable line" requires **all four** of `spread`, `total`, `favorite_team_id`,
+`underdog_team_id` to be non-null. Partial/empty lines are **never written** —
+such a game is left `odds: null` and **reported**, so the importer never crashes
+on `abs(None)` / `int(None)`.
+
+### Run command
+
+```bash
+cd backend
+.venv/bin/python -m scripts.backfill_fixture_odds
+```
+
+> Performs outbound HTTP to ESPN's core API (one GET per still-null game, with a
+> polite `--delay` default 0.4s). `--path PATH` overrides the fixture file.
+
+### Idempotency & safety
+
+- Games that **already** have odds are skipped untouched — never re-fetched,
+  never reordered. Re-running after a successful backfill is a no-op for filled
+  games.
+- The merge edits each filled game's `odds` **in place**; game order, game count
+  (272), and weeks 1–13 data are preserved byte-for-byte. The diff is limited to
+  the previously-null games + the `metadata` block (recomputed
+  `games_with_odds` / `games_without_odds`, a refreshed `note`, and a new
+  `backfilled_at` timestamp; the original `generated_at` is left intact).
+- Each backfilled odds object is labeled by its **real** provider via
+  `provider_label` (e.g. `"DraftKings"`), not a hardcoded constant.
+
+### Accepted provider-label inconsistency (intentional)
+
+The fixture now labels wk1–13 odds `"ESPN BET"` and the backfilled games by their
+real provider (mostly `"DraftKings"`). However, **`app.seeds.fixture_2025.py`
+still hardcodes `game.odds_provider = "ESPN BET"`** in the DB regardless of the
+per-game provider. This is left **as-is intentionally**: `odds_provider` is not
+surfaced in the slate API, so it is cosmetic only. Reading the per-game provider
+in the importer is an **optional follow-up**, not part of this backfill.
+
+### Tests
+
+The pure selection/merge logic is covered by offline unit tests (no network):
+
+```bash
+cd backend
+.venv/bin/python -m unittest tests.test_backfill_fixture_odds -v
+```
+
+---
+
 ## Production team seeder — `app.seeds.teams`
 
 > Not in `scripts/`. Documented here for discoverability; the seeder itself lives

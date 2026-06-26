@@ -5,10 +5,11 @@
     "season_type": 2,
     "source": "ESPN site scoreboard (games/scores/status/teams) + ESPN core API (historical odds), pulled once for offline test data",
     "odds_provider": "ESPN BET",
-    "note": "Odds are ESPN BET stand-in lines, NOT real DraftKings lines. 2025 has no DraftKings odds available anywhere.",
+    "note": "Weeks 1-13 carry ESPN BET stand-in lines (labeled per game). Weeks 14-18 and the wk13 NYG@NE game were backfilled with REAL ESPN-core lines (predominantly DraftKings) pulled on backfill, each labeled by its actual provider — superseding the earlier claim that 2025 has no DraftKings odds anywhere. Any game still without a usable line is reported in games_without_odds.",
     "games_total": 272,
-    "games_with_odds": 193,
-    "games_without_odds": 79
+    "games_with_odds": 272,
+    "games_without_odds": 0,
+    "backfilled_at": "2026-06-26T14:24:10.493837+00:00"
   },
   "games": [
     {
@@ -5435,7 +5436,13 @@
         "abbreviation": "NYG",
         "score": 15
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -7.0,
+        "total": 46.5,
+        "favorite_team_id": "17",
+        "underdog_team_id": "19"
+      }
     },
     {
       "espn_event_id": "401772947",
@@ -5457,7 +5464,13 @@
         "abbreviation": "DAL",
         "score": 30
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -3.5,
+        "total": 55.5,
+        "favorite_team_id": "8",
+        "underdog_team_id": "6"
+      }
     },
     {
       "espn_event_id": "401772900",
@@ -5479,7 +5492,13 @@
         "abbreviation": "SEA",
         "score": 37
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 7.0,
+        "total": 44.5,
+        "favorite_team_id": "26",
+        "underdog_team_id": "1"
+      }
     },
     {
       "espn_event_id": "401772902",
@@ -5501,7 +5520,13 @@
         "abbreviation": "CIN",
         "score": 34
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -6.0,
+        "total": 54.5,
+        "favorite_team_id": "2",
+        "underdog_team_id": "4"
+      }
     },
     {
       "espn_event_id": "401772898",
@@ -5523,7 +5548,13 @@
         "abbreviation": "TEN",
         "score": 31
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -4.5,
+        "total": 33.5,
+        "favorite_team_id": "5",
+        "underdog_team_id": "10"
+      }
     },
     {
       "espn_event_id": "401772899",
@@ -5545,7 +5576,13 @@
         "abbreviation": "WSH",
         "score": 0
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -1.5,
+        "total": 43.5,
+        "favorite_team_id": "16",
+        "underdog_team_id": "28"
+      }
     },
     {
       "espn_event_id": "401772790",
@@ -5567,7 +5604,13 @@
         "abbreviation": "MIA",
         "score": 34
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 2.5,
+        "total": 41.5,
+        "favorite_team_id": "15",
+        "underdog_team_id": "20"
+      }
     },
     {
       "espn_event_id": "401772792",
@@ -5589,7 +5632,13 @@
         "abbreviation": "NO",
         "score": 24
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -7.5,
+        "total": 41.5,
+        "favorite_team_id": "27",
+        "underdog_team_id": "18"
+      }
     },
     {
       "espn_event_id": "401772793",
@@ -5611,7 +5660,13 @@
         "abbreviation": "IND",
         "score": 19
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 2.5,
+        "total": 44.5,
+        "favorite_team_id": "11",
+        "underdog_team_id": "30"
+      }
     },
     {
       "espn_event_id": "401772791",
@@ -5633,7 +5688,13 @@
         "abbreviation": "PIT",
         "score": 27
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -5.5,
+        "total": 43.5,
+        "favorite_team_id": "33",
+        "underdog_team_id": "23"
+      }
     },
     {
       "espn_event_id": "401772794",
@@ -5655,7 +5716,13 @@
         "abbreviation": "DEN",
         "score": 24
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 8.5,
+        "total": 40.5,
+        "favorite_team_id": "7",
+        "underdog_team_id": "13"
+      }
     },
     {
       "espn_event_id": "401772897",
@@ -5677,7 +5744,13 @@
         "abbreviation": "CHI",
         "score": 21
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -6.5,
+        "total": 44.5,
+        "favorite_team_id": "9",
+        "underdog_team_id": "3"
+      }
     },
     {
       "espn_event_id": "401772901",
@@ -5699,7 +5772,13 @@
         "abbreviation": "LAR",
         "score": 45
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 9.5,
+        "total": 49.5,
+        "favorite_team_id": "14",
+        "underdog_team_id": "22"
+      }
     },
     {
       "espn_event_id": "401772932",
@@ -5721,7 +5800,13 @@
         "abbreviation": "HOU",
         "score": 20
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -4.5,
+        "total": 41.5,
+        "favorite_team_id": "12",
+        "underdog_team_id": "34"
+      }
     },
     {
       "espn_event_id": "401772822",
@@ -5743,7 +5828,13 @@
         "abbreviation": "PHI",
         "score": 19
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 1.5,
+        "total": 41.5,
+        "favorite_team_id": "21",
+        "underdog_team_id": "24"
+      }
     },
     {
       "espn_event_id": "401772948",
@@ -5765,7 +5856,13 @@
         "abbreviation": "ATL",
         "score": 29
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -6.0,
+        "total": 43.5,
+        "favorite_team_id": "27",
+        "underdog_team_id": "1"
+      }
     },
     {
       "espn_event_id": "401772904",
@@ -5787,7 +5884,13 @@
         "abbreviation": "CLE",
         "score": 3
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -7.5,
+        "total": 38.5,
+        "favorite_team_id": "3",
+        "underdog_team_id": "5"
+      }
     },
     {
       "espn_event_id": "401772796",
@@ -5809,7 +5912,13 @@
         "abbreviation": "BAL",
         "score": 24
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 2.5,
+        "total": 51.5,
+        "favorite_team_id": "33",
+        "underdog_team_id": "4"
+      }
     },
     {
       "espn_event_id": "401772798",
@@ -5831,7 +5940,13 @@
         "abbreviation": "LAC",
         "score": 16
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -5.5,
+        "total": 41.5,
+        "favorite_team_id": "12",
+        "underdog_team_id": "24"
+      }
     },
     {
       "espn_event_id": "401772795",
@@ -5853,7 +5968,13 @@
         "abbreviation": "BUF",
         "score": 35
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 2.5,
+        "total": 49.5,
+        "favorite_team_id": "2",
+        "underdog_team_id": "17"
+      }
     },
     {
       "espn_event_id": "401772905",
@@ -5875,7 +5996,13 @@
         "abbreviation": "WSH",
         "score": 29
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -3.0,
+        "total": 45.5,
+        "favorite_team_id": "19",
+        "underdog_team_id": "28"
+      }
     },
     {
       "espn_event_id": "401772906",
@@ -5897,7 +6024,13 @@
         "abbreviation": "LV",
         "score": 0
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -12.5,
+        "total": 36.5,
+        "favorite_team_id": "21",
+        "underdog_team_id": "13"
+      }
     },
     {
       "espn_event_id": "401772797",
@@ -5919,7 +6052,13 @@
         "abbreviation": "NYJ",
         "score": 20
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -13.5,
+        "total": 40.5,
+        "favorite_team_id": "30",
+        "underdog_team_id": "20"
+      }
     },
     {
       "espn_event_id": "401772903",
@@ -5941,7 +6080,13 @@
         "abbreviation": "ARI",
         "score": 20
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -10.5,
+        "total": 42.5,
+        "favorite_team_id": "34",
+        "underdog_team_id": "22"
+      }
     },
     {
       "espn_event_id": "401772800",
@@ -5963,7 +6108,13 @@
         "abbreviation": "GB",
         "score": 26
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 1.5,
+        "total": 42.5,
+        "favorite_team_id": "9",
+        "underdog_team_id": "7"
+      }
     },
     {
       "espn_event_id": "401772909",
@@ -5985,7 +6136,13 @@
         "abbreviation": "DET",
         "score": 34
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -5.5,
+        "total": 54.5,
+        "favorite_team_id": "14",
+        "underdog_team_id": "8"
+      }
     },
     {
       "espn_event_id": "401772908",
@@ -6007,7 +6164,13 @@
         "abbreviation": "CAR",
         "score": 17
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 2.5,
+        "total": 41.5,
+        "favorite_team_id": "29",
+        "underdog_team_id": "18"
+      }
     },
     {
       "espn_event_id": "401772907",
@@ -6029,7 +6192,13 @@
         "abbreviation": "TEN",
         "score": 24
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -12.5,
+        "total": 44.5,
+        "favorite_team_id": "25",
+        "underdog_team_id": "10"
+      }
     },
     {
       "espn_event_id": "401772799",
@@ -6051,7 +6220,13 @@
         "abbreviation": "IND",
         "score": 16
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -12.5,
+        "total": 41.5,
+        "favorite_team_id": "26",
+        "underdog_team_id": "11"
+      }
     },
     {
       "espn_event_id": "401772933",
@@ -6073,7 +6248,13 @@
         "abbreviation": "MIN",
         "score": 34
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -5.5,
+        "total": 47.5,
+        "favorite_team_id": "6",
+        "underdog_team_id": "16"
+      }
     },
     {
       "espn_event_id": "401772823",
@@ -6095,7 +6276,13 @@
         "abbreviation": "MIA",
         "score": 15
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -3.0,
+        "total": 43.5,
+        "favorite_team_id": "23",
+        "underdog_team_id": "15"
+      }
     },
     {
       "espn_event_id": "401772949",
@@ -6117,7 +6304,13 @@
         "abbreviation": "LAR",
         "score": 37
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -1.5,
+        "total": 42.5,
+        "favorite_team_id": "26",
+        "underdog_team_id": "14"
+      }
     },
     {
       "espn_event_id": "401772612",
@@ -6139,7 +6332,13 @@
         "abbreviation": "PHI",
         "score": 29
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 7.0,
+        "total": 43.5,
+        "favorite_team_id": "21",
+        "underdog_team_id": "28"
+      }
     },
     {
       "espn_event_id": "401772613",
@@ -6161,7 +6360,13 @@
         "abbreviation": "GB",
         "score": 16
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -1.5,
+        "total": 44.5,
+        "favorite_team_id": "3",
+        "underdog_team_id": "9"
+      }
     },
     {
       "espn_event_id": "401772802",
@@ -6183,7 +6388,13 @@
         "abbreviation": "BUF",
         "score": 23
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 10.5,
+        "total": 41.5,
+        "favorite_team_id": "2",
+        "underdog_team_id": "5"
+      }
     },
     {
       "espn_event_id": "401772910",
@@ -6205,7 +6416,13 @@
         "abbreviation": "LAC",
         "score": 34
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -1.5,
+        "total": 50.5,
+        "favorite_team_id": "6",
+        "underdog_team_id": "24"
+      }
     },
     {
       "espn_event_id": "401772803",
@@ -6227,7 +6444,13 @@
         "abbreviation": "KC",
         "score": 9
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 3.5,
+        "total": 37.5,
+        "favorite_team_id": "12",
+        "underdog_team_id": "10"
+      }
     },
     {
       "espn_event_id": "401772934",
@@ -6249,7 +6472,13 @@
         "abbreviation": "CIN",
         "score": 45
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 3.5,
+        "total": 48.5,
+        "favorite_team_id": "4",
+        "underdog_team_id": "15"
+      }
     },
     {
       "espn_event_id": "401772801",
@@ -6271,7 +6500,13 @@
         "abbreviation": "NYJ",
         "score": 6
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -7.0,
+        "total": 39.5,
+        "favorite_team_id": "18",
+        "underdog_team_id": "20"
+      }
     },
     {
       "espn_event_id": "401772911",
@@ -6293,7 +6528,13 @@
         "abbreviation": "MIN",
         "score": 16
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 2.5,
+        "total": 41.5,
+        "favorite_team_id": "16",
+        "underdog_team_id": "19"
+      }
     },
     {
       "espn_event_id": "401772912",
@@ -6315,7 +6556,13 @@
         "abbreviation": "TB",
         "score": 20
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 3.0,
+        "total": 44.5,
+        "favorite_team_id": "27",
+        "underdog_team_id": "29"
+      }
     },
     {
       "espn_event_id": "401772913",
@@ -6337,7 +6584,13 @@
         "abbreviation": "JAX",
         "score": 34
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -3.5,
+        "total": 46.5,
+        "favorite_team_id": "7",
+        "underdog_team_id": "30"
+      }
     },
     {
       "espn_event_id": "401772914",
@@ -6359,7 +6612,13 @@
         "abbreviation": "ATL",
         "score": 26
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 2.5,
+        "total": 48.5,
+        "favorite_team_id": "1",
+        "underdog_team_id": "22"
+      }
     },
     {
       "espn_event_id": "401772806",
@@ -6381,7 +6640,13 @@
         "abbreviation": "PIT",
         "score": 29
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -7.5,
+        "total": 52.5,
+        "favorite_team_id": "8",
+        "underdog_team_id": "23"
+      }
     },
     {
       "espn_event_id": "401772805",
@@ -6403,7 +6668,13 @@
         "abbreviation": "LV",
         "score": 21
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -14.5,
+        "total": 39.5,
+        "favorite_team_id": "34",
+        "underdog_team_id": "13"
+      }
     },
     {
       "espn_event_id": "401772804",
@@ -6425,7 +6696,13 @@
         "abbreviation": "NE",
         "score": 28
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -3.5,
+        "total": 47.5,
+        "favorite_team_id": "33",
+        "underdog_team_id": "17"
+      }
     },
     {
       "espn_event_id": "401772824",
@@ -6447,7 +6724,13 @@
         "abbreviation": "SF",
         "score": 48
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 4.5,
+        "total": 46.5,
+        "favorite_team_id": "25",
+        "underdog_team_id": "11"
+      }
     },
     {
       "espn_event_id": "401772710",
@@ -6469,7 +6752,13 @@
         "abbreviation": "DAL",
         "score": 30
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 8.5,
+        "total": 50.5,
+        "favorite_team_id": "6",
+        "underdog_team_id": "28"
+      }
     },
     {
       "espn_event_id": "401772711",
@@ -6491,7 +6780,13 @@
         "abbreviation": "DET",
         "score": 10
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 7.5,
+        "total": 45.5,
+        "favorite_team_id": "8",
+        "underdog_team_id": "16"
+      }
     },
     {
       "espn_event_id": "401772622",
@@ -6513,7 +6808,13 @@
         "abbreviation": "DEN",
         "score": 20
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 13.5,
+        "total": 37.5,
+        "favorite_team_id": "7",
+        "underdog_team_id": "12"
+      }
     },
     {
       "espn_event_id": "401772951",
@@ -6535,7 +6836,13 @@
         "abbreviation": "HOU",
         "score": 20
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -1.5,
+        "total": 40.5,
+        "favorite_team_id": "24",
+        "underdog_team_id": "34"
+      }
     },
     {
       "espn_event_id": "401772953",
@@ -6557,7 +6864,13 @@
         "abbreviation": "BAL",
         "score": 41
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -2.5,
+        "total": 37.5,
+        "favorite_team_id": "9",
+        "underdog_team_id": "33"
+      }
     },
     {
       "espn_event_id": "401772954",
@@ -6579,7 +6892,13 @@
         "abbreviation": "ARI",
         "score": 14
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -7.0,
+        "total": 53.5,
+        "favorite_team_id": "4",
+        "underdog_team_id": "22"
+      }
     },
     {
       "espn_event_id": "401772807",
@@ -6601,7 +6920,13 @@
         "abbreviation": "PIT",
         "score": 6
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 3.5,
+        "total": 34.5,
+        "favorite_team_id": "23",
+        "underdog_team_id": "5"
+      }
     },
     {
       "espn_event_id": "401772809",
@@ -6623,7 +6948,13 @@
         "abbreviation": "NO",
         "score": 34
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 1.5,
+        "total": 38.5,
+        "favorite_team_id": "18",
+        "underdog_team_id": "10"
+      }
     },
     {
       "espn_event_id": "401772915",
@@ -6645,7 +6976,13 @@
         "abbreviation": "JAX",
         "score": 23
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 4.5,
+        "total": 48.5,
+        "favorite_team_id": "30",
+        "underdog_team_id": "11"
+      }
     },
     {
       "espn_event_id": "401772916",
@@ -6667,7 +7004,13 @@
         "abbreviation": "TB",
         "score": 17
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 5.5,
+        "total": 44.5,
+        "favorite_team_id": "27",
+        "underdog_team_id": "15"
+      }
     },
     {
       "espn_event_id": "401772808",
@@ -6689,7 +7032,13 @@
         "abbreviation": "NE",
         "score": 42
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 12.5,
+        "total": 42.5,
+        "favorite_team_id": "17",
+        "underdog_team_id": "20"
+      }
     },
     {
       "espn_event_id": "401772952",
@@ -6711,7 +7060,13 @@
         "abbreviation": "SEA",
         "score": 27
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 6.5,
+        "total": 42.5,
+        "favorite_team_id": "26",
+        "underdog_team_id": "29"
+      }
     },
     {
       "espn_event_id": "401772950",
@@ -6733,7 +7088,13 @@
         "abbreviation": "NYG",
         "score": 34
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 3.0,
+        "total": 40.5,
+        "favorite_team_id": "19",
+        "underdog_team_id": "13"
+      }
     },
     {
       "espn_event_id": "401772917",
@@ -6755,7 +7116,13 @@
         "abbreviation": "PHI",
         "score": 13
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -3.5,
+        "total": 45.5,
+        "favorite_team_id": "2",
+        "underdog_team_id": "21"
+      }
     },
     {
       "espn_event_id": "401772935",
@@ -6777,7 +7144,13 @@
         "abbreviation": "CHI",
         "score": 38
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -4.5,
+        "total": 51.5,
+        "favorite_team_id": "25",
+        "underdog_team_id": "3"
+      }
     },
     {
       "espn_event_id": "401772825",
@@ -6799,7 +7172,13 @@
         "abbreviation": "LAR",
         "score": 24
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 7.5,
+        "total": 48.5,
+        "favorite_team_id": "14",
+        "underdog_team_id": "1"
+      }
     },
     {
       "espn_event_id": "401772969",
@@ -6821,7 +7200,13 @@
         "abbreviation": "CAR",
         "score": 14
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -3.0,
+        "total": 42.5,
+        "favorite_team_id": "27",
+        "underdog_team_id": "29"
+      }
     },
     {
       "espn_event_id": "401772961",
@@ -6843,7 +7228,13 @@
         "abbreviation": "SEA",
         "score": 13
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 2.5,
+        "total": 48.5,
+        "favorite_team_id": "26",
+        "underdog_team_id": "25"
+      }
     },
     {
       "espn_event_id": "401772966",
@@ -6865,7 +7256,13 @@
         "abbreviation": "NO",
         "score": 17
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -3.5,
+        "total": 43.5,
+        "favorite_team_id": "1",
+        "underdog_team_id": "18"
+      }
     },
     {
       "espn_event_id": "401772964",
@@ -6887,7 +7284,13 @@
         "abbreviation": "CLE",
         "score": 20
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -8.5,
+        "total": 47.5,
+        "favorite_team_id": "4",
+        "underdog_team_id": "5"
+      }
     },
     {
       "espn_event_id": "401772968",
@@ -6909,7 +7312,13 @@
         "abbreviation": "GB",
         "score": 3
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -13.5,
+        "total": 37.5,
+        "favorite_team_id": "16",
+        "underdog_team_id": "9"
+      }
     },
     {
       "espn_event_id": "401772963",
@@ -6931,7 +7340,13 @@
         "abbreviation": "DAL",
         "score": 17
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 3.0,
+        "total": 50.5,
+        "favorite_team_id": "6",
+        "underdog_team_id": "19"
+      }
     },
     {
       "espn_event_id": "401772970",
@@ -6953,7 +7368,13 @@
         "abbreviation": "TEN",
         "score": 7
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -13.5,
+        "total": 46.5,
+        "favorite_team_id": "30",
+        "underdog_team_id": "10"
+      }
     },
     {
       "espn_event_id": "401772962",
@@ -6975,7 +7396,13 @@
         "abbreviation": "IND",
         "score": 30
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -9.5,
+        "total": 37.5,
+        "favorite_team_id": "34",
+        "underdog_team_id": "11"
+      }
     },
     {
       "espn_event_id": "401772967",
@@ -6997,7 +7424,13 @@
         "abbreviation": "NYJ",
         "score": 8
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -13.5,
+        "total": 39.5,
+        "favorite_team_id": "2",
+        "underdog_team_id": "20"
+      }
     },
     {
       "espn_event_id": "401772965",
@@ -7019,7 +7452,13 @@
         "abbreviation": "DET",
         "score": 19
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -3.0,
+        "total": 51.5,
+        "favorite_team_id": "3",
+        "underdog_team_id": "8"
+      }
     },
     {
       "espn_event_id": "401772956",
@@ -7041,7 +7480,13 @@
         "abbreviation": "LAC",
         "score": 3
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -15.5,
+        "total": 37.5,
+        "favorite_team_id": "7",
+        "underdog_team_id": "24"
+      }
     },
     {
       "espn_event_id": "401772957",
@@ -7063,7 +7508,13 @@
         "abbreviation": "KC",
         "score": 12
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 3.5,
+        "total": 35.5,
+        "favorite_team_id": "12",
+        "underdog_team_id": "13"
+      }
     },
     {
       "espn_event_id": "401772955",
@@ -7085,7 +7536,13 @@
         "abbreviation": "ARI",
         "score": 20
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -14.5,
+        "total": 49.5,
+        "favorite_team_id": "14",
+        "underdog_team_id": "22"
+      }
     },
     {
       "espn_event_id": "401772958",
@@ -7107,7 +7564,13 @@
         "abbreviation": "MIA",
         "score": 10
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -14.5,
+        "total": 43.5,
+        "favorite_team_id": "17",
+        "underdog_team_id": "15"
+      }
     },
     {
       "espn_event_id": "401772959",
@@ -7129,7 +7592,13 @@
         "abbreviation": "WSH",
         "score": 24
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": -3.0,
+        "total": 38.5,
+        "favorite_team_id": "21",
+        "underdog_team_id": "28"
+      }
     },
     {
       "espn_event_id": "401772960",
@@ -7151,7 +7620,13 @@
         "abbreviation": "BAL",
         "score": 24
       },
-      "odds": null
+      "odds": {
+        "provider": "DraftKings",
+        "spread": 4.5,
+        "total": 41.5,
+        "favorite_team_id": "33",
+        "underdog_team_id": "23"
+      }
     }
   ]
 }
