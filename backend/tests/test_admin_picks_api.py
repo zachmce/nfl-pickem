@@ -40,6 +40,7 @@ from app.models import (
     GameStatus,
     Pick,
     PickEditAudit,
+    PickResult,
     PickType,
     Team,
     User,
@@ -260,6 +261,15 @@ class AdminPicksApiTests(unittest.TestCase):
                 "season": season, "week": week,
                 "pick_type": pick_type, "is_mortal_lock": is_mortal_lock,
             },
+            headers=self._cookie_auth_headers(as_user),
+        )
+
+    def _grade(self, user_id: int, *, season: int, week: int, body: dict,
+               as_user: int):
+        return self.client.put(
+            f"/api/admin/users/{user_id}/picks/misc-grade",
+            params={"season": season, "week": week},
+            json=body,
             headers=self._cookie_auth_headers(as_user),
         )
 
@@ -588,6 +598,148 @@ class AdminPicksApiTests(unittest.TestCase):
         )
         self.assertEqual(delete.status_code, 401, delete.text)
         self._assert_envelope(delete.json())
+
+
+    # -- MISC retroactive create + grade -----------------------------------
+
+    def test_admin_retroactive_create_misc_writes_audit(self) -> None:
+        """Admin sets a MISC pick (with text) for a user via PUT .../picks.
+
+        200, pick persisted with misc_text, exactly one action='set' audit row
+        with the right admin/target and game_was_final.
+        """
+        resp = self._put(
+            self.target_id, season=SEASON, week=WEEK + 2,
+            body={"game_id": self.game_final_id, "pick_type": "MISC",
+                  "misc_text": "Mahomes throws for 400 yards"},
+            as_user=self.admin_id,
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["pick_type"], "MISC")
+        self.assertEqual(body["misc_text"], "Mahomes throws for 400 yards")
+
+        rows = self._picks_for(self.target_id, self.final_week_id)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].misc_text, "Mahomes throws for 400 yards")
+
+        audits = self._audits()
+        self.assertEqual(len(audits), 1)
+        a = audits[0]
+        self.assertEqual(a.admin_user_id, self.admin_id)
+        self.assertEqual(a.target_user_id, self.target_id)
+        self.assertEqual(a.action, "set")
+        self.assertEqual(a.after_pick_type, PickType.MISC)
+        self.assertTrue(a.game_was_final)
+
+    def test_admin_grade_misc_sets_result_points_and_audits(self) -> None:
+        """Grade a MISC pick via PUT .../picks/misc-grade -> 200, result/points set.
+
+        A SECOND audit row is written (the create wrote the first).
+        """
+        # Retroactive create first (writes audit #1).
+        self._put(
+            self.target_id, season=SEASON, week=WEEK + 2,
+            body={"game_id": self.game_final_id, "pick_type": "MISC",
+                  "misc_text": "a prediction"},
+            as_user=self.admin_id,
+        )
+        self.assertEqual(len(self._audits()), 1)
+
+        resp = self._grade(
+            self.target_id, season=SEASON, week=WEEK + 2,
+            body={"result": "WIN", "points": 3}, as_user=self.admin_id,
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["result"], "WIN")
+        self.assertEqual(body["points"], 3)
+
+        rows = self._picks_for(self.target_id, self.final_week_id)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].result, PickResult.WIN)
+        self.assertEqual(rows[0].points, 3)
+
+        # The grade wrote a SECOND audit row (who graded whose pick).
+        audits = self._audits()
+        self.assertEqual(len(audits), 2)
+        self.assertTrue(all(a.admin_user_id == self.admin_id for a in audits))
+
+    def test_graded_misc_survives_recompute(self) -> None:
+        """A live week_results recompute over a graded MISC keeps the admin points.
+
+        Proves the auto-grade path does NOT overwrite the stored MISC grade.
+        """
+        self._put(
+            self.target_id, season=SEASON, week=WEEK + 2,
+            body={"game_id": self.game_final_id, "pick_type": "MISC",
+                  "misc_text": "a prediction"},
+            as_user=self.admin_id,
+        )
+        self._grade(
+            self.target_id, season=SEASON, week=WEEK + 2,
+            body={"result": "WIN", "points": 3}, as_user=self.admin_id,
+        )
+
+        # Recompute the week server-side (the recompute-on-read path).
+        from app.services.standings import week_results
+
+        with self._session() as session:
+            results = week_results(session, season=SEASON, week=WEEK + 2)
+        target = next(r for r in results if r.display_name == "target")
+        self.assertEqual(target.weekly_score, 3)
+        misc_entries = [p for p in target.picks if p.pick_type == PickType.MISC]
+        self.assertEqual(len(misc_entries), 1)
+        self.assertEqual(misc_entries[0].points, 3)
+        self.assertEqual(misc_entries[0].outcome, "WIN")
+        # The MISC game is FINAL (locked), so the revealed entry carries the text.
+        self.assertEqual(misc_entries[0].misc_text, "a prediction")
+
+    def test_grade_pending_rejected_422(self) -> None:
+        """Grading with result=PENDING -> 422 (misc_grade_must_decide)."""
+        self._put(
+            self.target_id, season=SEASON, week=WEEK + 2,
+            body={"game_id": self.game_final_id, "pick_type": "MISC",
+                  "misc_text": "a prediction"},
+            as_user=self.admin_id,
+        )
+        resp = self._grade(
+            self.target_id, season=SEASON, week=WEEK + 2,
+            body={"result": "PENDING", "points": 0}, as_user=self.admin_id,
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+        err = self._assert_envelope(resp.json())
+        self.assertEqual(err.get("reason"), "misc_grade_must_decide")
+
+    def test_grade_missing_pick_404(self) -> None:
+        """Grading when the user has no MISC pick -> 404 (pick_not_found)."""
+        resp = self._grade(
+            self.target_id, season=SEASON, week=WEEK + 2,
+            body={"result": "WIN", "points": 3}, as_user=self.admin_id,
+        )
+        self.assertEqual(resp.status_code, 404, resp.text)
+        err = self._assert_envelope(resp.json())
+        self.assertEqual(err.get("reason"), "pick_not_found")
+
+    def test_grade_non_admin_forbidden_403(self) -> None:
+        """The grade endpoint rejects a non-admin member -> 403."""
+        resp = self._grade(
+            self.target_id, season=SEASON, week=WEEK + 2,
+            body={"result": "WIN", "points": 3}, as_user=self.member_id,
+        )
+        self.assertEqual(resp.status_code, 403, resp.text)
+        self._assert_envelope(resp.json())
+
+    def test_grade_unauthenticated_401(self) -> None:
+        """The grade endpoint rejects an unauthenticated request -> 401."""
+        self._clear_auth()
+        resp = self.client.put(
+            f"/api/admin/users/{self.target_id}/picks/misc-grade",
+            params={"season": SEASON, "week": WEEK + 2},
+            json={"result": "WIN", "points": 3},
+        )
+        self.assertEqual(resp.status_code, 401, resp.text)
+        self._assert_envelope(resp.json())
 
 
 if __name__ == "__main__":

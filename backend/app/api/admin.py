@@ -39,7 +39,7 @@ from app.db import get_session
 from app.exceptions import ConflictError, NotFoundError
 from app.models import PickType, User
 from app.schemas.admin import AdminUserListResponse, AdminUserRead
-from app.schemas.admin_picks import AdminPickSetRequest
+from app.schemas.admin_picks import AdminMiscGradeRequest, AdminPickSetRequest
 from app.schemas.picks import PickRead
 from app.services.admin import (
     AdminUserRow,
@@ -50,7 +50,11 @@ from app.services.admin import (
     reactivate_user,
     revoke_admin,
 )
-from app.services.admin_picks import admin_clear_pick, admin_set_pick
+from app.services.admin_picks import (
+    admin_clear_pick,
+    admin_grade_misc,
+    admin_set_pick,
+)
 from app.services.pick_submission import read_picks
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -207,6 +211,37 @@ def set_user_pick(
         game_id=payload.game_id,
         pick_type=payload.pick_type,
         is_mortal_lock=payload.is_mortal_lock,
+        misc_text=payload.misc_text,
+    )
+    session.commit()
+    session.refresh(pick)
+    return PickRead.from_orm_pick(pick)
+
+
+@router.put("/users/{user_id}/picks/misc-grade", response_model=PickRead)
+def grade_user_misc_pick(
+    user_id: int,
+    season: int,
+    week: int,
+    payload: AdminMiscGradeRequest,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> PickRead:
+    """Grade the PATH user's MISC pick (mark correct/incorrect + set points).
+
+    Writes ``Pick.result`` / ``Pick.points`` (authoritative for MISC) plus one
+    PickEditAudit row in the same txn. Window/lock are bypassed (grading is
+    post-hoc). The service's typed exceptions propagate to the global handler.
+    """
+    assert admin.id is not None
+    pick = admin_grade_misc(
+        session,
+        caller_id=admin.id,
+        target_user_id=user_id,
+        season=season,
+        week=week,
+        result=payload.result,
+        points=payload.points,
     )
     session.commit()
     session.refresh(pick)

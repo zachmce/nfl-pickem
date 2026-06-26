@@ -41,8 +41,15 @@ from datetime import datetime, timezone
 
 from sqlmodel import Session, select
 
-from app.exceptions import NotFoundError
-from app.models import Game, GameStatus, Pick, PickEditAudit, PickType
+from app.exceptions import NotFoundError, ValidationError
+from app.models import (
+    Game,
+    GameStatus,
+    Pick,
+    PickEditAudit,
+    PickResult,
+    PickType,
+)
 from app.services.pick_submission import (
     _load_week_games,
     _normalized_game,
@@ -62,6 +69,7 @@ def admin_set_pick(
     game_id: int,
     pick_type: PickType,
     is_mortal_lock: bool,
+    misc_text: str | None = None,
     now: datetime | None = None,
 ) -> Pick:
     """Upsert ``target_user_id``'s ``{week, pick_type, lock}`` slot to ``game_id``.
@@ -128,6 +136,7 @@ def admin_set_pick(
         week_id=week_row.id,
         pick_type=pick_type,
         is_mortal_lock=is_mortal_lock,
+        misc_text=misc_text,
     )
     decision = check_new_pick(candidate, existing, norm_by_id)
     if not decision.ok:
@@ -140,6 +149,8 @@ def admin_set_pick(
         before_pick_type: PickType | None = before_row.pick_type
         before_is_mortal_lock: bool | None = before_row.is_mortal_lock
         before_row.game_id = game_id
+        # Carry the (possibly updated) MISC text on a retroactive change.
+        before_row.misc_text = misc_text
         before_row.updated_at = now
         session.add(before_row)
         persisted = before_row
@@ -236,3 +247,88 @@ def admin_clear_pick(
 
     session.delete(matched)
     return None
+
+
+def admin_grade_misc(
+    session: Session,
+    *,
+    caller_id: int,
+    target_user_id: int,
+    season: int,
+    week: int,
+    result: PickResult,
+    points: int,
+    now: datetime | None = None,
+) -> Pick:
+    """Grade ``target_user_id``'s MISC pick for ``{season, week}`` — set result/points.
+
+    The admin grading path for the ONE manually-graded type: it locates the
+    user's MISC pick for the week and writes the admin-decided ``result`` /
+    ``points`` onto it, plus ONE :class:`PickEditAudit` row in the same txn.
+    Caller commits.
+
+    DELIBERATE EXCEPTION to this module's "never writes the vestigial
+    ``Pick.result`` / ``Pick.points`` columns" rule: for a MISC pick those columns
+    are AUTHORITATIVE (``app.services.scoring.grade_pick`` passes them through), so
+    this is the single place app code legitimately writes them. The audit row
+    records WHO graded WHOSE pick — it reuses the EXISTING PickEditAudit shape (no
+    new columns; the grade itself lives on the Pick).
+
+    Grading must DECIDE the pick, so ``result`` must be WIN or LOSS — ``PENDING``
+    is rejected with :class:`ValidationError` (``reason="misc_grade_must_decide"``).
+    Window/lock are NOT consulted (grading is post-hoc by design).
+
+    Raises :class:`NotFoundError` for an unknown week (``reason="week_not_found"``)
+    or an absent MISC pick (``reason="pick_not_found"``).
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    if result is PickResult.PENDING:
+        raise ValidationError(
+            "Grading a MISC pick must decide it (WIN or LOSS), not PENDING.",
+            reason="misc_grade_must_decide",
+        )
+
+    week_row = _resolve_week(session, season, week)
+    assert week_row.id is not None  # a persisted week always has an id
+
+    pick = session.exec(
+        select(Pick).where(
+            Pick.user_id == target_user_id,
+            Pick.week_id == week_row.id,
+            Pick.pick_type == PickType.MISC,
+        )
+    ).first()
+    if pick is None:
+        raise NotFoundError(
+            f"No MISC pick to grade for season {season} week {week}.",
+            reason="pick_not_found",
+        )
+
+    # The ONE place app code legitimately writes Pick.result / Pick.points: for
+    # MISC those columns are authoritative (grade_pick passes them through).
+    pick.result = result
+    pick.points = points
+    pick.updated_at = now
+    session.add(pick)
+
+    game = session.get(Game, pick.game_id)
+    game_was_final = game is not None and game.status == GameStatus.FINAL
+
+    audit = PickEditAudit(
+        admin_user_id=caller_id,
+        target_user_id=target_user_id,
+        game_id=pick.game_id,
+        week_id=week_row.id,
+        action="set",
+        before_existed=True,
+        before_pick_type=PickType.MISC,
+        before_is_mortal_lock=pick.is_mortal_lock,
+        after_pick_type=PickType.MISC,
+        after_is_mortal_lock=pick.is_mortal_lock,
+        game_was_final=game_was_final,
+    )
+    session.add(audit)
+
+    return pick
