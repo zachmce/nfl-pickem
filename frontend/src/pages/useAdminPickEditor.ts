@@ -33,7 +33,9 @@ import { ApiError } from "../lib/api";
 import {
   clearUserPick,
   getUserPicks,
+  gradeMisc,
   setUserPick,
+  type AdminMiscGrade,
   type AdminPickSet,
 } from "../lib/admin";
 import {
@@ -62,6 +64,13 @@ export interface UseAdminPickEditor {
   set: (item: AdminPickSet) => Promise<void>;
   /** Clear one slot for the target user; game_id only scopes the inline error. */
   clear: (slot: AdminPickSet) => Promise<void>;
+  /**
+   * Grade the target user's MISC pick (WIN/LOSS + points), keyed on the MISC slot
+   * `slotKey("MISC", false)`. No-op when no MISC pick exists (nothing to grade).
+   * Re-GETs the roster on success so the displayed result/points reflect server
+   * truth; surfaces 4xx inline via the MISC pick's game-scoped errorKey.
+   */
+  grade: (body: AdminMiscGrade) => Promise<void>;
 }
 
 /** Build the slotKey-indexed picks map from a flat PickRead list (last-write-wins). */
@@ -94,8 +103,14 @@ export function useAdminPickEditor(
   targetRef.current = { userId, season, week };
 
   // Synchronous in-flight guard so a double-fire within the same tick (before
-  // the saving state flushes) is reliably ignored — shared by set() and clear().
+  // the saving state flushes) is reliably ignored — shared by set()/clear()/grade().
   const inFlightRef = useRef<Set<string>>(new Set());
+
+  // Latest picks map for the stable grade() callback to read the MISC pick's
+  // game_id (only used to SCOPE the inline error — the grade endpoint identifies
+  // the target by user/season/week, not game).
+  const picksRef = useRef<PicksBySlot>({});
+  picksRef.current = picks;
 
   // Re-load whenever the target user OR the chosen season/week changes.
   useEffect(() => {
@@ -247,5 +262,68 @@ export function useAdminPickEditor(
     }
   }, []);
 
-  return { status, slate, picks, saving, slotError, set, clear };
+  const grade = useCallback(async (body: AdminMiscGrade): Promise<void> => {
+    const { userId, season, week } = targetRef.current;
+
+    // Grading targets the MISC slot. There must be an existing MISC pick to
+    // grade; read its game_id only to SCOPE the inline error.
+    const miscPick = picksRef.current[slotKey("MISC", false)];
+    if (!miscPick) return;
+
+    const key = slotKey("MISC", false);
+    const errKey = errorKey(miscPick.game_id, "MISC", false);
+
+    // Share the in-flight guard with set()/clear() (same slotKey space).
+    if (inFlightRef.current.has(key)) return;
+    inFlightRef.current.add(key);
+
+    setSaving((prev) => ({ ...prev, [key]: true }));
+    setSlotError((prev) => {
+      if (!(errKey in prev)) return prev;
+      const next = { ...prev };
+      delete next[errKey];
+      return next;
+    });
+
+    try {
+      // The grade returns the updated PickRead; re-GET the roster so the editor
+      // reflects full server truth (recompute is server-side).
+      const updated = await gradeMisc(userId, season, week, body);
+      setPicks((prev) => ({
+        ...prev,
+        [slotKey(updated.pick_type, updated.is_mortal_lock)]: updated,
+      }));
+      try {
+        const fresh = await getUserPicks(userId, season, week);
+        setPicks(indexPicks(fresh));
+      } catch {
+        // Resync failed — keep the merged row; no inline error on a successful grade.
+      }
+      setSlotError((prev) => (Object.keys(prev).length ? {} : prev));
+    } catch (err) {
+      // Inline error, do NOT mutate the roster, then resync from server truth.
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Could not grade this MISC pick.";
+      setSlotError((prev) => ({ ...prev, [errKey]: message }));
+      try {
+        const fresh = await getUserPicks(userId, season, week);
+        setPicks(indexPicks(fresh));
+      } catch {
+        // Resync failed too — leave the existing map; the inline error stands.
+      }
+    } finally {
+      inFlightRef.current.delete(key);
+      setSaving((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+  }, []);
+
+  return { status, slate, picks, saving, slotError, set, clear, grade };
 }

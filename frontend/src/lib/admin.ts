@@ -19,7 +19,7 @@
  * `err.message`. Do NOT modify lib/api.ts and do NOT add a new dependency.
  */
 import { api } from "./api";
-import type { PickRead, PickType } from "./picks";
+import type { PickRead, PickResult, PickType } from "./picks";
 
 /**
  * One user as seen by an admin (mirrors backend AdminUserRead field-for-field).
@@ -96,6 +96,13 @@ export interface AdminPickSet {
   game_id: number;
   pick_type: PickType;
   is_mortal_lock: boolean;
+  /**
+   * The free-text prediction on a RETROACTIVE admin create of a MISC pick
+   * (mirrors backend AdminPickSetRequest.misc_text). Send ONLY when creating a
+   * MISC pick; OMIT it otherwise (extra="forbid" tolerates an absent key, but a
+   * non-MISC pick must never carry text).
+   */
+  misc_text?: string | null;
 }
 
 /**
@@ -150,4 +157,36 @@ export function clearUserPick(
   return api<void>(`/api/admin/users/${userId}/picks?${query}`, {
     method: "DELETE",
   });
+}
+
+/**
+ * Body for an admin grade of a user's MISC pick (mirrors backend
+ * AdminMiscGradeRequest; ConfigDict extra="forbid"). `result` MUST be WIN or
+ * LOSS: grading must DECIDE the pick, so PENDING is rejected server-side
+ * (`misc_grade_must_decide`) — the UI must never submit PENDING. `points` is a
+ * plain admin-decided int and MAY be negative (no schema constraint).
+ */
+export interface AdminMiscGrade {
+  result: PickResult;
+  points: number;
+}
+
+/**
+ * Grade the TARGET user's MISC pick correct/incorrect + set points.
+ * PUT /api/admin/users/{userId}/picks/misc-grade?season&week with a JSON body of
+ * {result, points}. Returns the updated PickRead (the graded pick). The grade is
+ * authoritative for MISC (the recompute-on-read scoring engine passes the stored
+ * result/points through verbatim), so the points appear on Weekly/Standings on
+ * the next read. X-CSRF-Token + Content-Type are attached by api() on the PUT.
+ */
+export function gradeMisc(
+  userId: number,
+  season: number,
+  week: number,
+  body: AdminMiscGrade,
+): Promise<PickRead> {
+  return api<PickRead>(
+    `/api/admin/users/${userId}/picks/misc-grade?season=${season}&week=${week}`,
+    { method: "PUT", body: JSON.stringify(body) },
+  );
 }

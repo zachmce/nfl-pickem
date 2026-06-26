@@ -29,7 +29,14 @@ import {
   type AdminUser,
 } from "../lib/admin";
 import { getCurrentWeek } from "../lib/currentWeek";
-import { errorKey, slotKey, type PickType, type SlateGame } from "../lib/picks";
+import {
+  errorKey,
+  slotKey,
+  type PickResult,
+  type PickType,
+  type SlateGame,
+} from "../lib/picks";
+import type { AdminMiscGrade } from "../lib/admin";
 import { useAuth } from "../auth/useAuth";
 import { useAdminPickEditor } from "./useAdminPickEditor";
 import type { PicksBySlot } from "./useMyPicks";
@@ -529,7 +536,7 @@ function PickOverrideEditor({
   const [season, setSeason] = useState<number>(target.season);
   const [week, setWeek] = useState<number>(target.week);
 
-  const { status, slate, picks, saving, slotError, set, clear } =
+  const { status, slate, picks, saving, slotError, set, clear, grade } =
     useAdminPickEditor(target.id, season, week);
 
   return (
@@ -598,6 +605,15 @@ function PickOverrideEditor({
         <div className="space-y-4">
           <OverrideRosterTracker picks={picks} slate={slate} />
 
+          <MiscOverridePanel
+            slate={slate}
+            picks={picks}
+            saving={saving}
+            slotError={slotError}
+            onSet={set}
+            onGrade={grade}
+          />
+
           {slate.length === 0 ? (
             <p className="text-gray-500">No games are scheduled for this week.</p>
           ) : (
@@ -619,6 +635,256 @@ function PickOverrideEditor({
       )}
     </section>
   );
+}
+
+/**
+ * The MISC sub-panel of the override editor. Two mutually-exclusive modes,
+ * driven by whether the target has an existing MISC pick (slotKey("MISC",false)):
+ *   - NO MISC pick → retroactive CREATE: a game <select> + text input + "Add MISC
+ *     pick", calling onSet({pick_type:"MISC", misc_text}) (reuses the misc_text-
+ *     aware setUserPick → admin_set_pick, window/lock bypassed).
+ *   - HAS a MISC pick → GRADE: shows the text + state, then a Correct/Incorrect
+ *     choice (REQUIRED before submit — mirrors the server misc_grade_must_decide
+ *     so PENDING is never submittable) + a points int input + "Save grade",
+ *     calling onGrade({result, points}).
+ * No window/lock gating (consistent with the rest of the editor); the only
+ * disable is the per-slot saving guard. 4xx surfaces inline via the MISC slot's
+ * game-scoped errorKey.
+ */
+function MiscOverridePanel({
+  slate,
+  picks,
+  saving,
+  slotError,
+  onSet,
+  onGrade,
+}: {
+  slate: SlateGame[];
+  picks: PicksBySlot;
+  saving: Record<string, boolean>;
+  slotError: Record<string, string>;
+  onSet: (item: AdminPickSet) => void;
+  onGrade: (body: AdminMiscGrade) => void;
+}) {
+  const miscPick = picks[slotKey("MISC", false)];
+  const savingMisc = Boolean(saving[slotKey("MISC", false)]);
+
+  // Create-mode local state (game + text).
+  const [createGameId, setCreateGameId] = useState<number | null>(
+    slate[0]?.game_id ?? null,
+  );
+  const [createText, setCreateText] = useState<string>("");
+
+  // Grade-mode local state (decision + points). Result starts unset so the admin
+  // must explicitly choose WIN/LOSS before Save grade enables.
+  const [gradeResult, setGradeResult] = useState<"WIN" | "LOSS" | null>(null);
+  const [gradePoints, setGradePoints] = useState<string>("0");
+
+  // The inline error is scoped to the MISC slot's game (create uses the selected
+  // game; grade uses the existing pick's game).
+  const createErrKeyGame = createGameId ?? slate[0]?.game_id ?? 0;
+  const createError = slotError[errorKey(createErrKeyGame, "MISC", false)];
+  const gradeError = miscPick
+    ? slotError[errorKey(miscPick.game_id, "MISC", false)]
+    : undefined;
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-4">
+      <h3 className="text-sm font-semibold text-gray-700">Misc prediction</h3>
+
+      {!miscPick ? (
+        // -------- Retroactive create --------
+        <div className="mt-3 space-y-2">
+          <p className="text-xs text-gray-500">
+            This player has no misc prediction for this week. Create one
+            retroactively (window/lock bypassed), then grade it.
+          </p>
+          {slate.length === 0 ? (
+            <p className="text-sm text-gray-400">
+              No games are scheduled for this week.
+            </p>
+          ) : (
+            <>
+              <label className="block text-xs font-medium text-gray-600">
+                Game
+                <select
+                  value={createGameId ?? ""}
+                  disabled={savingMisc}
+                  onChange={(e) => setCreateGameId(Number(e.target.value))}
+                  className={[
+                    "mt-1 block w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm",
+                    savingMisc ? "cursor-not-allowed opacity-50" : "",
+                  ].join(" ")}
+                >
+                  {slate.map((g) => (
+                    <option key={g.game_id} value={g.game_id}>
+                      {g.away_team.abbreviation} @ {g.home_team.abbreviation}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-xs font-medium text-gray-600">
+                Prediction
+                <textarea
+                  value={createText}
+                  disabled={savingMisc}
+                  onChange={(e) => setCreateText(e.target.value)}
+                  rows={2}
+                  placeholder="e.g. Mahomes passes for 400+ yards"
+                  className={[
+                    "mt-1 block w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm",
+                    savingMisc ? "cursor-not-allowed opacity-50" : "",
+                  ].join(" ")}
+                />
+              </label>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={
+                    savingMisc ||
+                    createGameId === null ||
+                    createText.trim().length === 0
+                  }
+                  onClick={() =>
+                    createGameId !== null &&
+                    onSet({
+                      game_id: createGameId,
+                      pick_type: "MISC",
+                      is_mortal_lock: false,
+                      misc_text: createText.trim(),
+                    })
+                  }
+                  className={[
+                    "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+                    "border-blue-600 bg-blue-600 text-white hover:bg-blue-700",
+                    savingMisc ||
+                    createGameId === null ||
+                    createText.trim().length === 0
+                      ? "cursor-not-allowed opacity-50"
+                      : "",
+                  ].join(" ")}
+                >
+                  Add MISC pick
+                </button>
+                {savingMisc && (
+                  <span className="text-xs text-gray-400">Saving…</span>
+                )}
+              </div>
+              {createError && (
+                <p className="mt-1 text-xs text-red-600">{createError}</p>
+              )}
+            </>
+          )}
+        </div>
+      ) : (
+        // -------- Grade an existing MISC pick --------
+        <div className="mt-3 space-y-3">
+          <div>
+            <p className="text-sm text-gray-800">{miscPick.misc_text}</p>
+            <p className="mt-0.5 text-xs text-gray-500">
+              {slotGameLabel(picks, slate, slotKey("MISC", false)) ??
+                `Game #${miscPick.game_id}`}
+              {" · "}
+              <MiscResultText result={miscPick.result} points={miscPick.points} />
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-gray-600">Grade:</span>
+            <button
+              type="button"
+              disabled={savingMisc}
+              onClick={() => setGradeResult("WIN")}
+              className={[
+                "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
+                gradeResult === "WIN"
+                  ? "border-green-600 bg-green-600 text-white"
+                  : "border-gray-300 bg-white text-gray-700 hover:border-green-400",
+                savingMisc ? "cursor-not-allowed opacity-50" : "",
+              ].join(" ")}
+            >
+              Correct
+            </button>
+            <button
+              type="button"
+              disabled={savingMisc}
+              onClick={() => setGradeResult("LOSS")}
+              className={[
+                "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
+                gradeResult === "LOSS"
+                  ? "border-red-600 bg-red-600 text-white"
+                  : "border-gray-300 bg-white text-gray-700 hover:border-red-400",
+                savingMisc ? "cursor-not-allowed opacity-50" : "",
+              ].join(" ")}
+            >
+              Incorrect
+            </button>
+            <label className="text-xs font-medium text-gray-600">
+              Points
+              <input
+                type="number"
+                step={1}
+                value={gradePoints}
+                disabled={savingMisc}
+                onChange={(e) => setGradePoints(e.target.value)}
+                className={[
+                  "ml-1 w-20 rounded-md border border-gray-300 px-2 py-1 text-sm",
+                  savingMisc ? "cursor-not-allowed opacity-50" : "",
+                ].join(" ")}
+              />
+            </label>
+            <button
+              type="button"
+              disabled={savingMisc || gradeResult === null}
+              onClick={() =>
+                gradeResult !== null &&
+                onGrade({
+                  result: gradeResult,
+                  points: Math.trunc(Number(gradePoints) || 0),
+                })
+              }
+              className={[
+                "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+                "border-blue-600 bg-blue-600 text-white hover:bg-blue-700",
+                savingMisc || gradeResult === null
+                  ? "cursor-not-allowed opacity-50"
+                  : "",
+              ].join(" ")}
+            >
+              Save grade
+            </button>
+            {savingMisc && (
+              <span className="text-xs text-gray-400">Saving…</span>
+            )}
+          </div>
+          {gradeResult === null && (
+            <p className="text-xs text-gray-400">
+              Choose Correct or Incorrect to enable saving (a grade must decide
+              the pick).
+            </p>
+          )}
+          {gradeError && <p className="text-xs text-red-600">{gradeError}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Human description of a MISC pick's current grade state. */
+function MiscResultText({
+  result,
+  points,
+}: {
+  result: PickResult;
+  points: number;
+}) {
+  if (result === "WIN") {
+    return <span className="text-green-700">Correct · {points} pts</span>;
+  }
+  if (result === "LOSS") {
+    return <span className="text-red-700">Incorrect · {points} pts</span>;
+  }
+  return <span className="text-gray-500">Pending</span>;
 }
 
 /** Compact at-a-glance summary of the 5 slots (4 base + the mortal lock). */
