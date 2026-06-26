@@ -31,6 +31,13 @@ class PickType(str, Enum):
     FAVORITE_COVER = "FAVORITE_COVER"
     OVER = "OVER"
     UNDER = "UNDER"
+    # The one manually-graded type: a weekly free-text prediction tied to any
+    # real game. Its outcome cannot be auto-derived from the game, so an admin
+    # sets ``Pick.result`` / ``Pick.points`` and the scoring engine passes those
+    # stored values through (see ``app.services.scoring.grade_pick``). MISC is
+    # never a mortal lock, so the existing ``uq_pick_user_week_type_base`` partial
+    # unique index already enforces one MISC base pick per user/week.
+    MISC = "MISC"
 
 
 class PickResult(str, Enum):
@@ -214,6 +221,11 @@ class Pick(SQLModel, table=True):
         sa_column=sa.Column(sa.Enum(PickType, name="picktype"), nullable=False),
     )
     is_mortal_lock: bool = Field(default=False, nullable=False)
+    # Free-text prediction, populated ONLY for a MISC pick (NULL for every other
+    # type). Rendered as a nullable VARCHAR(280); no new index is needed — the
+    # existing partial unique index ``uq_pick_user_week_type_base`` already caps a
+    # user at one MISC base pick per week (MISC is never a mortal lock).
+    misc_text: str | None = Field(default=None, max_length=280, nullable=True)
     result: PickResult = Field(
         default=PickResult.PENDING,
         sa_column=sa.Column(sa.Enum(PickResult, name="pickresult"), nullable=False),
