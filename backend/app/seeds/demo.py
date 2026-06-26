@@ -94,9 +94,16 @@ def seed_demo(session: Session, *, now: datetime | None = None) -> dict:
     import_fixture_2025(session)
     seed_bots(session)
 
-    # (2) Shared anchor + the single shared offset.
-    store_demo_anchor(session, now)
-    offset = offset_from_anchor(now)
+    # (2) Shared anchor + the single shared offset. ANCHOR-IDEMPOTENT: if a
+    # demo_state row already exists (a populated DB re-seeded on a routine
+    # `docker compose up` — the migrate chain runs this seed every boot), REUSE
+    # that persisted anchor instead of re-stamping it to `now`. Otherwise every
+    # boot would shift the whole 2025 demo season forward to now+buffer. A fresh
+    # DB (no anchor yet) anchors once to `now`. The anchor is the single lever
+    # for the season's position in time — see notes/demo-time-anchor.md.
+    anchor = load_demo_anchor(session) or now
+    store_demo_anchor(session, anchor)
+    offset = offset_from_anchor(anchor)
 
     season = _season(session)
 
@@ -115,7 +122,7 @@ def seed_demo(session: Session, *, now: datetime | None = None) -> dict:
     weeks = len(session.exec(select(Week).where(Week.season == season)).all())
     games = len(session.exec(select(Game).where(Game.season == season)).all())
     bots = len(BOT_ACCOUNTS)
-    week1_first_kickoff = now + DEMO_KICKOFF_BUFFER
+    week1_first_kickoff = anchor + DEMO_KICKOFF_BUFFER
 
     return {
         "season": season,
@@ -123,7 +130,7 @@ def seed_demo(session: Session, *, now: datetime | None = None) -> dict:
         "games": games,
         "bots": bots,
         "bot_picks": bot_picks,
-        "anchor": now.isoformat(),
+        "anchor": anchor.isoformat(),
         "week1_first_kickoff": week1_first_kickoff.isoformat(),
     }
 

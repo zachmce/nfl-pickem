@@ -158,6 +158,39 @@ class DemoSeedTests(unittest.TestCase):
             # Exactly one DemoState row.
             self.assertEqual(second[3], 1)
 
+    def test_reseed_with_later_now_does_not_move_anchor(self) -> None:
+        """A re-seed (e.g. every `docker compose up`) must NOT re-anchor.
+
+        Before the anchor-idempotent fix, ``seed_demo`` re-stamped the anchor to
+        the new ``now`` on every run, shifting the whole season forward. Now an
+        existing ``demo_state`` anchor is REUSED, so re-seeding with a later clock
+        leaves both the stored anchor and the positioned week-1 kickoff put.
+        """
+        with Session(self.engine) as session:
+            seed_demo(session, now=PINNED_NOW)
+            self.assertEqual(load_demo_anchor(session), PINNED_NOW)
+
+            def week1_earliest() -> datetime:
+                games = session.exec(
+                    select(Game).where(Game.season == 2025, Game.week == 1)
+                ).all()
+                return min(
+                    g.kickoff_at.replace(tzinfo=timezone.utc)
+                    if g.kickoff_at.tzinfo is None
+                    else g.kickoff_at
+                    for g in games
+                )
+
+            before = week1_earliest()
+
+            # Re-seed two days later: the anchor (and thus every kickoff) must NOT move.
+            later = PINNED_NOW + timedelta(days=2)
+            seed_demo(session, now=later)
+
+            self.assertEqual(load_demo_anchor(session), PINNED_NOW)
+            self.assertEqual(len(session.exec(select(DemoState)).all()), 1)
+            self.assertLess(abs(week1_earliest() - before), timedelta(seconds=1))
+
     def test_purge_empties_demo_footprint(self) -> None:
         with Session(self.engine) as session:
             seed_demo(session, now=PINNED_NOW)
