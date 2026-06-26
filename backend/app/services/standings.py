@@ -49,6 +49,7 @@ from app.demo.oracle import (
     games_by_pk_index,
 )
 from app.models import Game, Pick, PickType, User, Week
+from app.services.pick_window import is_game_locked
 from app.services.scoring import GradeOutcome, grade_pick, score_week
 
 
@@ -175,7 +176,7 @@ def season_standings(session: Session, *, season: int) -> Standings:
 
 
 def week_results(
-    session: Session, *, season: int, week: int
+    session: Session, *, season: int, week: int, caller_user_id: int | None = None
 ) -> list[UserWeekResult]:
     """Per-user graded results for a single ``{season, week}`` over ALL users.
 
@@ -186,6 +187,36 @@ def week_results(
     never re-derived from the per-pick points). Users with no picks that week
     are omitted. Ordered by ``(-weekly_score, display_name)``.
 
+    Pick-privacy gate (information-disclosure mitigation)
+    -----------------------------------------------------
+
+    Mid-week, OTHER users' picks on games that have **not yet locked**
+    (``is_game_locked(game, now)`` is ``False``) would otherwise leak what
+    everyone picked before kickoff (a copy/counter leak). This gate omits each
+    such per-pick entry SERVER-SIDE (frontend hiding alone still ships the data
+    over the wire). The gate is applied per pick:
+
+    * the caller (``caller_user_id``) always sees ALL of their OWN picks,
+      locked or not;
+    * any user's pick on a LOCKED game (``now >= kickoff``) is included
+      (revealed to everyone once it kicks off);
+    * an OTHER user's pick on a not-yet-locked game is OMITTED.
+
+    ``now`` is read once from the real clock (``datetime.now(timezone.utc)``),
+    mirroring the real-clock-vs-persisted-kickoffs posture of
+    :func:`app.api.current_week.read_current_week` and
+    :mod:`app.services.pick_submission` — there is no IS_DEMO_DATA branch; the
+    demo time-shift lives in the persisted kickoffs. ``caller_user_id=None``
+    (the default) gates ALL users with no caller bypass — for callers that have
+    no identity.
+
+    Crucially, ``weekly_score`` is ALWAYS computed over the user's FULL
+    persisted picks (not the gated subset), so redaction never changes a score:
+    not-yet-locked games grade to ``UNGRADEABLE``/0 and reveal nothing. Users
+    whose every pick entry is redacted still appear (with their whole
+    ``weekly_score`` and an empty ``picks`` tuple), preserving the
+    ``(-weekly_score, display_name)`` ordering.
+
     An empty season/week simply yields an empty list — a 404-style miss is NOT
     raised here (this is a pure read).
     """
@@ -193,6 +224,7 @@ def week_results(
     if week_id is None:
         return []
 
+    now = datetime.now(timezone.utc)
     games_by_pk = _season_games_by_pk(session, season=season)
 
     picks_by_user: dict[int, list[Pick]] = {}
@@ -203,9 +235,15 @@ def week_results(
 
     results: list[UserWeekResult] = []
     for user_id, picks in picks_by_user.items():
+        is_caller = user_id == caller_user_id
         graded: list[WeekResultPick] = []
         for pick in picks:
-            decision = grade_pick(games_by_pk[pick.game_id], pick)
+            game = games_by_pk[pick.game_id]
+            # Privacy gate: omit OTHER users' picks on not-yet-locked games.
+            # The caller always sees their own; locked games are public.
+            if not is_caller and not is_game_locked(game, now):
+                continue
+            decision = grade_pick(game, pick)
             graded.append(
                 WeekResultPick(
                     game_id=pick.game_id,
@@ -218,8 +256,9 @@ def week_results(
         results.append(
             UserWeekResult(
                 display_name=display_names[user_id],
-                # Take the weekly score from the scorer directly (== sum of the
-                # graded points above, by construction) so nothing is re-derived.
+                # Score over the user's FULL persisted picks (NOT the gated
+                # subset) so redaction never changes the score — taken from the
+                # scorer directly so nothing is re-derived.
                 weekly_score=score_week(games_by_pk, picks),
                 picks=tuple(graded),
             )
