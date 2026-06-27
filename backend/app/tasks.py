@@ -85,7 +85,10 @@ def _active_refresh_season(session: Session) -> int | None:
     """
     from app.models import Game
 
-    seasons = {s for (s,) in session.exec(select(Game.season).distinct()).all()}
+    # session.exec(select(<single column>)) yields scalar values (ints) here, not
+    # Row tuples — so iterate scalars directly (do NOT `for (s,) in ...`, which
+    # raises "cannot unpack non-iterable int object").
+    seasons = set(session.exec(select(Game.season).distinct()).all())
     return next(iter(seasons)) if len(seasons) == 1 else None
 
 
