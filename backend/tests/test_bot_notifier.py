@@ -27,6 +27,7 @@ from app.services.notifications import (
     game_final_event,
     ingest_season_event,
     login_event,
+    misc_graded_event,
     pick_cleared_event,
     pick_event,
     player_registered_event,
@@ -177,6 +178,40 @@ class RenderChatTests(unittest.TestCase):
         self.assertIn("Carol", line)
         self.assertIn("Dave", line)
         self.assertIn("6", line)
+
+    def test_render_misc_graded_correct_signed_points(self) -> None:
+        line = render_chat(
+            misc_graded_event(
+                actor="Bob",
+                week=3,
+                prediction="Mahomes throws 4 TDs",
+                verdict="correct",
+                points=3,
+            )
+        )
+        self.assertIsNotNone(line)
+        self.assertIn("Bob", line)
+        self.assertIn("3", line)
+        self.assertIn("Mahomes throws 4 TDs", line)
+        self.assertIn("correct", line)
+        # Points are SIGNED — a positive shows a leading plus.
+        self.assertIn("+3", line)
+
+    def test_render_misc_graded_incorrect_negative_points(self) -> None:
+        line = render_chat(
+            misc_graded_event(
+                actor="Carol",
+                week=5,
+                prediction="a bold call",
+                verdict="incorrect",
+                points=-2,
+            )
+        )
+        self.assertIsNotNone(line)
+        self.assertIn("Carol", line)
+        self.assertIn("a bold call", line)
+        self.assertIn("incorrect", line)
+        self.assertIn("-2", line)
 
     def test_render_chat_unknown_type_returns_none(self) -> None:
         self.assertIsNone(render_chat({"v": 1, "type": "totally.unknown"}))

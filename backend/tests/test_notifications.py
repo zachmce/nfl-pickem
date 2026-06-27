@@ -29,6 +29,7 @@ from app.services.notifications import (
     game_final_event,
     ingest_season_event,
     login_event,
+    misc_graded_event,
     pick_cleared_event,
     pick_event,
     pick_log_detail,
@@ -345,6 +346,34 @@ class ChatEventBuilderTests(unittest.TestCase):
             },
         )
 
+    def test_misc_graded_shape(self) -> None:
+        event = misc_graded_event(
+            actor="bob",
+            week=3,
+            prediction="Mahomes throws 4 TDs",
+            verdict="correct",
+            points=3,
+        )
+        self.assertEqual(event["v"], 1)
+        self.assertEqual(event["type"], "misc.graded")
+        self.assertEqual(event["targets"], ["chat"])
+        self.assertEqual(event["actor"], "bob")
+        self.assertEqual(event["week"], 3)
+        self.assertEqual(event["prediction"], "Mahomes throws 4 TDs")
+        self.assertEqual(event["verdict"], "correct")
+        self.assertEqual(event["points"], 3)
+        self.assertEqual(
+            set(event.keys()),
+            {"v", "type", "targets", "actor", "week", "prediction", "verdict", "points"},
+        )
+
+    def test_misc_graded_carries_negative_points(self) -> None:
+        event = misc_graded_event(
+            actor="bob", week=4, prediction="a bold call", verdict="incorrect", points=-2
+        )
+        self.assertEqual(event["verdict"], "incorrect")
+        self.assertEqual(event["points"], -2)
+
     def test_every_chat_builder_targets_chat_only_and_leaks_nothing(self) -> None:
         events = [
             roster_complete_event(actor="a", week=1),
@@ -355,6 +384,9 @@ class ChatEventBuilderTests(unittest.TestCase):
             ),
             week_recap_event(
                 week=1, winner="a", winner_score=0, leader="b", leader_score=0
+            ),
+            misc_graded_event(
+                actor="a", week=1, prediction="p", verdict="correct", points=1
             ),
         ]
         for event in events:

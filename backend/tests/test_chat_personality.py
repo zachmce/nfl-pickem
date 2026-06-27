@@ -24,6 +24,7 @@ from app.bot import chat_personality
 from app.bot.notifier import render_chat
 from app.services.notifications import (
     game_final_event,
+    misc_graded_event,
     roster_complete_event,
     week_recap_event,
     window_closed_event,
@@ -123,6 +124,52 @@ class EmbellishChatHandledTypesTests(unittest.TestCase):
         with patcher:
             out = _run(chat_personality.embellish_chat(event))
         self.assertEqual(out, render_chat(event))
+
+    def test_misc_graded_returns_llm_line_when_configured(self) -> None:
+        event = misc_graded_event(
+            actor="Bob",
+            week=3,
+            prediction="Mahomes throws 4 TDs",
+            verdict="correct",
+            points=3,
+        )
+        patcher, calls = _phrase_returns("Bob nailed it 🎯")
+        with patcher:
+            out = _run(chat_personality.embellish_chat(event))
+        self.assertEqual(out, "Bob nailed it 🎯")
+        # The fact (event-fields only) STATES the prediction + verdict + points.
+        fact = calls[0]["fact"]
+        self.assertIn("Bob", fact)
+        self.assertIn("Mahomes throws 4 TDs", fact)
+        self.assertIn("correct", fact)
+        self.assertIn("+3", fact)
+
+    def test_misc_graded_falls_back_to_render_chat_on_none(self) -> None:
+        event = misc_graded_event(
+            actor="Bob",
+            week=3,
+            prediction="Mahomes throws 4 TDs",
+            verdict="incorrect",
+            points=-2,
+        )
+        patcher, _ = _phrase_returns(None)
+        with patcher:
+            out = _run(chat_personality.embellish_chat(event))
+        self.assertEqual(out, render_chat(event))
+        self.assertIsNotNone(out)
+
+    def test_misc_graded_never_raises_on_llm_error(self) -> None:
+        event = misc_graded_event(
+            actor="Bob", week=3, prediction="a call", verdict="correct", points=1
+        )
+
+        async def _boom(fact_text, *, system_prompt):
+            raise RuntimeError("llm down")
+
+        with mock.patch.object(chat_personality.llm_client, "phrase", _boom):
+            out = _run(chat_personality.embellish_chat(event))
+        self.assertEqual(out, render_chat(event))
+        self.assertIsNotNone(out)
 
 
 class EmbellishChatDescriptorTests(unittest.TestCase):
