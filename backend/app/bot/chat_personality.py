@@ -44,7 +44,9 @@ from app.bot import llm_client
 logger = structlog.get_logger(__name__)
 
 # Tier-1 event types this seam phrases. Everything else is the notifier's job.
-_HANDLED_TYPES = frozenset({"window.opened", "game.final", "roster.complete"})
+_HANDLED_TYPES = frozenset(
+    {"window.opened", "game.final", "roster.complete", "misc.graded"}
+)
 
 # Margin thresholds (points) for the COMPUTED game.final descriptor.
 _NAIL_BITER_MARGIN = 3  # margin <= 3 -> a nail-biter
@@ -78,6 +80,14 @@ _ROSTER_COMPLETE_PROMPT = (
     "of how many players still have not locked in — you do NOT know who they are or "
     "what anyone picked, so NEVER name another player and NEVER guess any pick. "
     + _FACTS_FIRST_GUARD
+)
+
+_MISC_GRADED_PROMPT = (
+    "You are the house bot for an NFL pick'em league reacting to an admin grading a "
+    "player's MISC prediction. State the player, their prediction, whether it was "
+    "correct or incorrect, and the points FIRST — then add a little personality. "
+    "The prediction text is the player's own words; quote it as given and do NOT "
+    "alter the verdict or the points. " + _FACTS_FIRST_GUARD
 )
 
 
@@ -167,6 +177,20 @@ def _basic_roster_complete_fact(event: dict) -> str:
 def _basic_window_opened_fact(event: dict) -> str:
     """A deterministic window.opened fact from the event fields ONLY (week)."""
     return f"Week {event.get('week')} pick window just opened."
+
+
+def _basic_misc_graded_fact(event: dict) -> str:
+    """A STATE-FACTS-FIRST misc.graded fact from the event fields ONLY (no db).
+
+    This event carries ALL its facts in the payload (unlike the enriched Tier-1
+    events), so there is NO db read / context seam: actor + week + the quoted
+    prediction + the verdict word + the SIGNED points, stated before any flavor.
+    """
+    return (
+        f"Week {event.get('week')}: {event.get('actor')}'s MISC prediction "
+        f"\"{event.get('prediction')}\" was graded {event.get('verdict')} "
+        f"for {event.get('points'):+d} points."
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -330,6 +354,11 @@ async def _enriched_fact_and_prompt(event: dict) -> tuple[str, str] | None:
             logger.warning("roster_complete_context_failed", exc_info=True)
             fact = None
         return (fact or _basic_roster_complete_fact(event)), _ROSTER_COMPLETE_PROMPT
+
+    if etype == "misc.graded":
+        # This event carries all its facts in the payload — no db read / context
+        # seam. Build the STATE-FACTS-FIRST fact directly from the event fields.
+        return _basic_misc_graded_fact(event), _MISC_GRADED_PROMPT
 
     return None
 

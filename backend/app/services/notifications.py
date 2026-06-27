@@ -38,9 +38,14 @@ QT-3 player-facing pickem-CHAT types (all target ``["chat"]`` only):
 * ``game.final``        — ``week``, ``away``, ``home``, ``away_score``, ``home_score``
 * ``week.recap``        — ``week``, ``winner``, ``winner_score``, ``leader``,
   ``leader_score`` (week winner + season leader display_name + scores)
+* ``misc.graded``       — ``actor``, ``week``, ``prediction``, ``verdict``,
+  ``points`` (an admin graded a player's MISC prediction; the player's OWN free
+  text + the verdict word + signed points — published ONLY once the week's pick
+  window is closed so the prediction is never revealed before lock)
 
-The five QT-3 types carry DISPLAY data only (display_name strings, integer
-scores, week number, team abbreviations) — never a user_id, password, or token.
+The QT-3 chat types carry DISPLAY data only (display_name strings, integer
+scores, week number, team abbreviations, the player's own prediction text) —
+never a user_id, password, or token.
 
 HARD RULE: only DISPLAY data is ever published — never passwords, tokens, emails,
 session cookies, or any secret. The event crosses a trust boundary into Discord,
@@ -336,6 +341,40 @@ def week_recap_event(
         "winner_score": winner_score,
         "leader": leader,
         "leader_score": leader_score,
+    }
+
+
+def misc_graded_event(
+    *,
+    actor: str,
+    week: int,
+    prediction: str,
+    verdict: str,
+    points: int,
+) -> dict:
+    """Build a ``misc.graded`` event — an admin graded ``actor``'s MISC prediction.
+
+    DISPLAY data ONLY: ``actor`` is the player's DISPLAY name, ``prediction`` is the
+    player's OWN free-text ``misc_text`` (bounded ≤280 by the model, same posture as
+    ``pick_log_detail``'s MISC branch), ``verdict`` is the plain word ``"correct"`` or
+    ``"incorrect"`` (the CALLER derives it from :class:`~app.models.PickResult`; the
+    builder just carries the string), and ``points`` is the graded integer (may be
+    negative). NO user_id, no secret — the key set is exactly
+    ``{v, type, targets, actor, week, prediction, verdict, points}``.
+
+    HARD RULE (T-w9w-01): ``misc_text`` is hidden-until-lock, so the CALLER must only
+    publish this event once the week's pick window is CLOSED — this pure builder does
+    not (and cannot) enforce that; it just shapes the display payload.
+    """
+    return {
+        "v": 1,
+        "type": "misc.graded",
+        "targets": ["chat"],
+        "actor": actor,
+        "week": week,
+        "prediction": prediction,
+        "verdict": verdict,
+        "points": points,
     }
 
 

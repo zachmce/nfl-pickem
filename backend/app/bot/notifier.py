@@ -151,6 +151,13 @@ def render_chat(event: dict) -> str | None:
             f"{event.get('winner')} takes the week with {event.get('winner_score')}; "
             f"{event.get('leader')} leads the season."
         )
+    if etype == "misc.graded":
+        # Signed points: a positive shows a leading plus, a negative its sign.
+        return (
+            f"Week {event.get('week')} MISC graded — {event.get('actor')}'s call "
+            f"\"{event.get('prediction')}\" was {event.get('verdict')} "
+            f"({event.get('points'):+d})."
+        )
     return None
 
 
@@ -221,6 +228,7 @@ async def run_notifier(client) -> None:
                             "window.opened",
                             "game.final",
                             "roster.complete",
+                            "misc.graded",
                         ):
                             from app.bot.chat_personality import embellish_chat
 
