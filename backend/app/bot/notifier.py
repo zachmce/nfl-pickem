@@ -212,6 +212,21 @@ async def run_notifier(client) -> None:
                     channel = resolve_channel(guild, channel_setting)
                     if channel is not None:
                         await channel.send(line)
+                        # ADDITIVE pickem-chat personality layer (260627-nef):
+                        # AFTER the existing deterministic lock line, on a
+                        # window.closed event ONLY, post one personality line per
+                        # flagged player to the SAME chat channel. Fired here —
+                        # inside the per-message try/except and only once the
+                        # channel resolved — so any LLM/db hiccup is caught by the
+                        # notifier_message_failed guard and the loop survives
+                        # (T-nef-03). build_lock_commentary is itself best-effort
+                        # and Discord-free; firing on window.closed (all picks
+                        # final) avoids leaking any open-window pick (T-nef-02).
+                        if event.get("type") == "window.closed":
+                            from app.bot.commentary import build_lock_commentary
+
+                            for extra in await build_lock_commentary(event.get("week")):
+                                await channel.send(extra)
                 except Exception:
                     logger.warning("notifier_message_failed", exc_info=True)
                     continue
