@@ -190,3 +190,69 @@ export function gradeMisc(
     { method: "PUT", body: JSON.stringify(body) },
   );
 }
+
+// --------------------------------------------------------------------------- //
+// Admin worker-trigger API (QT-3 — frontend half of the live-ingest-worker thread)
+//
+// Two admin-only POSTs that DISPATCH a Celery background task and return
+// immediately with HTTP 202 + a task_id. The 202 means the work was
+// *accepted/queued*, NOT that ingest/freeze has completed — there is no
+// status/progress endpoint, so callers must render the task_id as a
+// background-dispatch confirmation (never as a done state).
+//
+// Both route through the CSRF-aware api<T>() (X-CSRF-Token attached on the unsafe
+// POST) — never a raw fetch — and carry NO actor field (the admin is resolved
+// server-side from the session; routes are require_admin-gated: 401 anon /
+// 403 non-admin). The 4xx/403 envelope is already unwrapped into ApiError.message
+// by api(), so callers just surface `err.message`. Wire shapes mirror the frozen
+// backend 202 bodies (backend/app/api/admin.py ingest-season / freeze-week)
+// field-for-field. Do NOT modify lib/api.ts and do NOT add a new dependency.
+// --------------------------------------------------------------------------- //
+
+/**
+ * The 202 body of POST /api/admin/ingest-season (mirrors the backend return
+ * `{ task_id, season }` field-for-field). `task_id` is the dispatched Celery task
+ * id — accepted/queued, NOT a completion signal.
+ */
+export interface IngestSeasonDispatch {
+  task_id: string;
+  season: number;
+}
+
+/**
+ * The 202 body of POST /api/admin/freeze-week (mirrors the backend return
+ * `{ task_id, season, week }` field-for-field). `task_id` is the dispatched
+ * Celery task id — accepted/queued, NOT a completion signal.
+ */
+export interface FreezeWeekDispatch {
+  task_id: string;
+  season: number;
+  week: number;
+}
+
+/**
+ * Dispatch a season-ingest background task (admin only). POSTs JSON `{ season }`
+ * and resolves the 202 `{ task_id, season }` — the work is queued, not done.
+ * Rejects with ApiError (carrying .status + .message) on 4xx/403.
+ */
+export function ingestSeason(season: number): Promise<IngestSeasonDispatch> {
+  return api<IngestSeasonDispatch>("/api/admin/ingest-season", {
+    method: "POST",
+    body: JSON.stringify({ season }),
+  });
+}
+
+/**
+ * Dispatch a week-line-freeze background task (admin only). POSTs JSON
+ * `{ season, week }` and resolves the 202 `{ task_id, season, week }` — the work
+ * is queued, not done. Rejects with ApiError (.status + .message) on 4xx/403.
+ */
+export function freezeWeek(
+  season: number,
+  week: number,
+): Promise<FreezeWeekDispatch> {
+  return api<FreezeWeekDispatch>("/api/admin/freeze-week", {
+    method: "POST",
+    body: JSON.stringify({ season, week }),
+  });
+}
