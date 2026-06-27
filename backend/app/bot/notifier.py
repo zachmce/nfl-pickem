@@ -16,10 +16,16 @@ Resilience contract
   some other guild.
 * ``run_notifier`` wraps per-message handling in try/except + continue (T-kd8-04):
   one malformed/bad event is logged and skipped — it can never kill the loop.
+* ``run_notifier`` wraps the subscribe+listen in an OUTER reconnect loop with
+  capped backoff: a dropped Redis connection (restart, network blip) raises out of
+  ``pubsub.listen()`` — OUTSIDE the per-message guard — and is retried instead of
+  silently tearing down the subscriber until a bot restart. Shutdown
+  (``CancelledError``) still propagates promptly and is never retried.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import structlog
@@ -28,6 +34,20 @@ from app.config import get_settings
 from app.services.notifications import EVENTS_CHANNEL
 
 logger = structlog.get_logger(__name__)
+
+# Reconnect backoff bounds (seconds). Starting small keeps a brief blip nearly
+# seamless; the cap stops a long Redis outage from becoming a busy-loop.
+_RECONNECT_BACKOFF_START = 1.0
+_RECONNECT_BACKOFF_MAX = 30.0
+
+
+async def _close_quietly(*resources) -> None:
+    """Best-effort ``aclose`` of redis pubsub/client resources; never raises."""
+    for resource in resources:
+        try:
+            await resource.aclose()
+        except Exception:
+            pass
 
 
 def resolve_channel(guild, channel_setting: str | None):
@@ -104,30 +124,55 @@ async def run_notifier(client) -> None:
     Builds a ``redis.asyncio`` client from ``settings.redis_url``, SUBSCRIBEs to
     :data:`EVENTS_CHANNEL`, and loops over messages. For ``user.login`` it renders
     ``"<actor> logged in"`` and sends it to the ``discord_chat_log_channel`` within
-    ``DISCORD_GUILD_ID``. Per-message handling is wrapped in try/except + continue:
-    one bad event is logged and skipped, never killing the subscriber.
+    ``DISCORD_GUILD_ID``.
+
+    Two layers of resilience:
+
+    * **Per message** — handling is wrapped in try/except + continue: one bad event
+      is logged and skipped, never killing the loop.
+    * **Per connection** — the subscribe+listen is wrapped in an OUTER reconnect
+      loop with capped exponential backoff. A connection drop (Redis restart,
+      network blip) raises out of ``pubsub.listen()`` — OUTSIDE the per-message
+      guard — so it is caught here, logged, and the subscriber re-establishes once
+      Redis returns. Cancellation (bot shutdown) propagates and is not retried.
     """
     import redis.asyncio as aioredis
 
     settings = get_settings()
-    redis_client = aioredis.from_url(settings.redis_url)
-    pubsub = redis_client.pubsub()
-    await pubsub.subscribe(EVENTS_CHANNEL)
-    logger.info("notifier_subscribed", channel=EVENTS_CHANNEL)
+    backoff = _RECONNECT_BACKOFF_START
 
-    async for message in pubsub.listen():
+    while True:
+        redis_client = aioredis.from_url(settings.redis_url)
+        pubsub = redis_client.pubsub()
         try:
-            if message.get("type") != "message":
-                continue  # subscribe/confirmation frames, not payloads
-            event = json.loads(message["data"])
-            line = _render(event)
-            if line is None:
-                continue  # unknown event type — QT-2/QT-3 territory
+            await pubsub.subscribe(EVENTS_CHANNEL)
+            logger.info("notifier_subscribed", channel=EVENTS_CHANNEL)
+            backoff = _RECONNECT_BACKOFF_START  # reset after a clean (re)subscribe
 
-            guild = client.get_guild(settings.discord_guild_id)
-            channel = resolve_channel(guild, settings.discord_chat_log_channel)
-            if channel is not None:
-                await channel.send(line)
+            async for message in pubsub.listen():
+                try:
+                    if message.get("type") != "message":
+                        continue  # subscribe/confirmation frames, not payloads
+                    event = json.loads(message["data"])
+                    line = _render(event)
+                    if line is None:
+                        continue  # unknown event type — QT-2/QT-3 territory
+
+                    guild = client.get_guild(settings.discord_guild_id)
+                    channel = resolve_channel(guild, settings.discord_chat_log_channel)
+                    if channel is not None:
+                        await channel.send(line)
+                except Exception:
+                    logger.warning("notifier_message_failed", exc_info=True)
+                    continue
+        except asyncio.CancelledError:
+            raise  # bot shutdown — stop the subscriber, do not reconnect
         except Exception:
-            logger.warning("notifier_message_failed", exc_info=True)
-            continue
+            # Connection dropped / failed to subscribe. Log and reconnect after a
+            # backoff — never let a transient Redis outage permanently kill the pipe.
+            logger.warning("notifier_connection_lost", exc_info=True, retry_in_s=backoff)
+        finally:
+            await _close_quietly(pubsub, redis_client)
+
+        await asyncio.sleep(backoff)
+        backoff = min(backoff * 2, _RECONNECT_BACKOFF_MAX)

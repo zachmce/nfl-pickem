@@ -12,11 +12,15 @@ Run with: ``backend/.venv/bin/python -m unittest tests.test_bot_notifier -v``
 
 from __future__ import annotations
 
+import asyncio
+import json
 import unittest
 from dataclasses import dataclass
+from unittest import mock
 
-from app.bot.notifier import _render, resolve_channel
+from app.bot.notifier import _render, resolve_channel, run_notifier
 from app.services.notifications import (
+    EVENTS_CHANNEL,
     admin_pick_cleared_event,
     admin_pick_set_event,
     freeze_week_event,
@@ -125,6 +129,123 @@ class RenderTests(unittest.TestCase):
 
     def test_render_unknown_type_returns_none(self) -> None:
         self.assertIsNone(_render({"v": 1, "type": "totally.unknown"}))
+
+
+class _SendableChannel:
+    """A channel exposing the ``.id``/``.name`` the resolver reads plus an async
+    ``.send`` that records the lines posted — no real Discord object needed."""
+
+    def __init__(self, id: int, name: str) -> None:
+        self.id = id
+        self.name = name
+        self.sent: list[str] = []
+
+    async def send(self, line: str) -> None:
+        self.sent.append(line)
+
+
+class _SendableGuild:
+    def __init__(self, channels: list[_SendableChannel]) -> None:
+        self.channels = channels
+
+
+class _FakeClient:
+    def __init__(self, guild: _SendableGuild) -> None:
+        self._guild = guild
+
+    def get_guild(self, _guild_id):  # noqa: ANN001 - mirrors discord.Client
+        return self._guild
+
+
+class _FakeSettings:
+    redis_url = "redis://fake:6379/0"
+    discord_guild_id = 999
+    discord_chat_log_channel = "pickem-logger"
+
+
+class _FakePubSub:
+    """Async-generator-backed pubsub. ``script`` is either the string ``"drop"``
+    (subscribe succeeds, then ``listen`` raises a connection error mid-stream) or a
+    list of message frames to yield before raising ``CancelledError`` to end the
+    test cleanly (the real bot-shutdown signal)."""
+
+    def __init__(self, script) -> None:  # noqa: ANN001
+        self.script = script
+        self.subscribed: list[str] = []
+        self.closed = False
+
+    async def subscribe(self, channel: str) -> None:
+        self.subscribed.append(channel)
+
+    async def listen(self):
+        if self.script == "drop":
+            raise ConnectionError("redis connection lost")
+            yield  # pragma: no cover - unreachable; makes this an async generator
+        for message in self.script:
+            yield message
+        raise asyncio.CancelledError()
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+class _FakeRedis:
+    def __init__(self, pubsub: _FakePubSub) -> None:
+        self._pubsub = pubsub
+        self.closed = False
+
+    def pubsub(self) -> _FakePubSub:
+        return self._pubsub
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+class RunNotifierReconnectTests(unittest.IsolatedAsyncioTestCase):
+    """Prove the subscriber RECONNECTS after a Redis connection drop instead of
+    silently dying — the bug where one Redis restart killed all notifications
+    until the bot was manually restarted (0 subscribers on ``pickem:events``)."""
+
+    async def test_reconnects_after_connection_drop(self) -> None:
+        login_frame = {"type": "message", "data": json.dumps(login_event("ohai"))}
+        subscribe_frame = {"type": "subscribe", "data": 1}
+
+        channel = _SendableChannel(id=123, name="pickem-logger")
+        client = _FakeClient(_SendableGuild([channel]))
+
+        created: list[_FakeRedis] = []
+
+        def fake_from_url(_url):  # noqa: ANN001
+            attempt = len(created)
+            if attempt == 0:
+                pubsub = _FakePubSub("drop")  # 1st connection: drops mid-listen
+            elif attempt == 1:
+                # 2nd connection: re-subscribes and delivers the held-back event.
+                pubsub = _FakePubSub([subscribe_frame, login_frame])
+            else:  # pragma: no cover - guards against an unbounded reconnect loop
+                raise AssertionError("run_notifier reconnected more than once")
+            redis_client = _FakeRedis(pubsub)
+            created.append(redis_client)
+            return redis_client
+
+        with (
+            mock.patch("redis.asyncio.from_url", fake_from_url),
+            mock.patch("app.bot.notifier.get_settings", lambda: _FakeSettings()),
+            mock.patch("app.bot.notifier._RECONNECT_BACKOFF_START", 0),
+            mock.patch("app.bot.notifier._RECONNECT_BACKOFF_MAX", 0),
+        ):
+            with self.assertRaises(asyncio.CancelledError):
+                await run_notifier(client)
+
+        # Reconnected exactly once (drop -> reconnect), proving the outer loop.
+        self.assertEqual(len(created), 2)
+        # The event published while "reconnecting" was delivered after re-subscribe.
+        self.assertEqual(channel.sent, ["ohai logged in"])
+        # Both connections were re-subscribed and cleaned up.
+        self.assertEqual(created[0]._pubsub.subscribed, [EVENTS_CHANNEL])
+        self.assertEqual(created[1]._pubsub.subscribed, [EVENTS_CHANNEL])
+        self.assertTrue(created[0]._pubsub.closed)
+        self.assertTrue(created[0].closed)
 
 
 if __name__ == "__main__":
