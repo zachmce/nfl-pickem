@@ -49,7 +49,7 @@ from app.demo.oracle import (
     games_by_pk_index,
 )
 from app.models import Game, Pick, PickType, User, Week
-from app.services.pick_window import is_game_locked
+from app.services.pick_window import compute_window
 from app.services.scoring import GradeOutcome, grade_pick, score_week
 
 
@@ -68,9 +68,10 @@ class WeekResultPick:
     outcome: str
     points: int
     # The free-text MISC prediction. Carried ONLY on a REVEALED entry — the
-    # privacy gate below already omits an OTHER user's pick on a not-yet-locked
-    # game, so misc_text is only ever set on the caller's own pick or on a pick
-    # whose game has locked (revealed to everyone once it kicks off). NULL for
+    # week-level privacy gate below omits ALL of an OTHER user's picks while the
+    # week's pick window is OPEN, so misc_text is only ever set on the caller's
+    # own pick or on any pick once the week's window has CLOSED (the week's first
+    # kickoff, after which everyone's picks for the week are revealed). NULL for
     # every non-MISC pick.
     misc_text: str | None = None
 
@@ -196,17 +197,23 @@ def week_results(
     Pick-privacy gate (information-disclosure mitigation)
     -----------------------------------------------------
 
-    Mid-week, OTHER users' picks on games that have **not yet locked**
-    (``is_game_locked(game, now)`` is ``False``) would otherwise leak what
-    everyone picked before kickoff (a copy/counter leak). This gate omits each
-    such per-pick entry SERVER-SIDE (frontend hiding alone still ships the data
-    over the wire). The gate is applied per pick:
+    A single WEEK-LEVEL boundary decides visibility: the week's pick window
+    closes at the week's earliest kickoff
+    (``compute_window(week_games).close_at``). While the window is OPEN
+    (``now < close_at``), revealing OTHER users' picks would leak what everyone
+    picked before picking is frozen (a copy/counter leak); once it has CLOSED
+    (``now >= close_at``) all picking for the week is frozen for everyone, so
+    every user's picks for the week are revealed — including picks on games
+    later in the week that have NOT yet kicked off. This gate omits the redacted
+    entries SERVER-SIDE (frontend hiding alone still ships the data over the
+    wire). The single ``picks_locked`` boolean is computed once for the week,
+    not per game:
 
     * the caller (``caller_user_id``) always sees ALL of their OWN picks,
-      locked or not;
-    * any user's pick on a LOCKED game (``now >= kickoff``) is included
-      (revealed to everyone once it kicks off);
-    * an OTHER user's pick on a not-yet-locked game is OMITTED.
+      whether the window is open or closed;
+    * once the week's window has CLOSED, ALL users' picks for the week are
+      included (a later not-yet-kicked-off game is no exception);
+    * while the window is OPEN, ALL of every OTHER user's picks are OMITTED.
 
     ``now`` is read once from the real clock (``datetime.now(timezone.utc)``),
     mirroring the real-clock-vs-persisted-kickoffs posture of
@@ -233,6 +240,15 @@ def week_results(
     now = datetime.now(timezone.utc)
     games_by_pk = _season_games_by_pk(session, season=season)
 
+    # Single WEEK-LEVEL visibility boundary: the week's pick window closes at the
+    # week's earliest kickoff. Reuse compute_window (do NOT re-implement the
+    # min-kickoff math); only close_at matters for visibility, so no prev-week
+    # arg is passed (open_at is irrelevant here). week_games is derived from the
+    # already tz-normalized PK index so compute_window's tz-awareness guard is
+    # satisfied.
+    week_games = [g for g in games_by_pk.values() if g.week_id == week_id]
+    picks_locked = now >= compute_window(week_games).close_at
+
     picks_by_user: dict[int, list[Pick]] = {}
     for pick in session.exec(select(Pick).where(Pick.week_id == week_id)).all():
         picks_by_user.setdefault(pick.user_id, []).append(pick)
@@ -245,9 +261,10 @@ def week_results(
         graded: list[WeekResultPick] = []
         for pick in picks:
             game = games_by_pk[pick.game_id]
-            # Privacy gate: omit OTHER users' picks on not-yet-locked games.
-            # The caller always sees their own; locked games are public.
-            if not is_caller and not is_game_locked(game, now):
+            # Week-level privacy gate: while the week's window is OPEN, omit ALL
+            # of an OTHER user's picks; once it has CLOSED, NO entries are skipped
+            # for any user. The caller always sees their own.
+            if not is_caller and not picks_locked:
                 continue
             decision = grade_pick(game, pick)
             graded.append(
@@ -258,8 +275,8 @@ def week_results(
                     outcome=GradeOutcome(decision.outcome).value,
                     points=decision.points,
                     # Only reached for a revealed entry (the gate above already
-                    # omitted an other-user pick on an unlocked game), so this is
-                    # safe to carry.
+                    # omitted every other-user pick while the window was open),
+                    # so this is safe to carry.
                     misc_text=pick.misc_text,
                 )
             )
