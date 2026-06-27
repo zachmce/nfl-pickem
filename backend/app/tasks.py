@@ -1,4 +1,4 @@
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.celery_app import celery_app
 from app.config import default_scoreboard_source
@@ -8,10 +8,15 @@ from app.services.freeze import freeze_week
 from app.services.ingest import ingest_season
 from app.services.notifications import (
     freeze_week_event,
+    game_final_event,
     ingest_season_event,
     publish_event,
+    week_recap_event,
+    window_closed_event,
+    window_opened_event,
 )
 from app.services.scheduler import ODDS_JOB, SCORES_JOB
+from app.services.standings import season_standings, week_results
 
 
 @celery_app.task(name="app.tasks.ping")
@@ -53,12 +58,86 @@ def refresh_games_task() -> dict:
         source = default_scoreboard_source(session)
         result = SCORES_JOB.reconcile(session, source)
         session.commit()
+
+        # QT-3 pickem-CHAT: publish the in-cycle edges the reconcile collected,
+        # POST-COMMIT and best-effort (publish_event swallows Redis errors, so a
+        # chat hiccup can never break the poll). The edges are display-only data
+        # returned on the RefreshResult — refresh_games itself never publishes.
+        _publish_refresh_chat_edges(session, result)
+
         return {
             "weeks_polled": result.weeks_polled,
             "games_updated": result.games_updated,
             "windows_stamped": result.windows_stamped,
             "failed_weeks": [list(w) for w in result.failed_weeks],
         }
+
+
+def _active_refresh_season(session: Session) -> int | None:
+    """Resolve the single season the poller is reconciling, for recap standings.
+
+    The in-cycle edges carry a ``week`` number only; the standings services need
+    the ``season`` too. The poller reconciles one season's schedule at a time, so
+    we resolve it from the persisted ``Game`` rows: if exactly one season is
+    present, that is the active season; otherwise (an ambiguous multi-season db)
+    return ``None`` and the caller skips the season-scoped recap (a non-essential
+    social ping — lossy is acceptable per the QT-3 design decision).
+    """
+    from app.models import Game
+
+    seasons = {s for (s,) in session.exec(select(Game.season).distinct()).all()}
+    return next(iter(seasons)) if len(seasons) == 1 else None
+
+
+def _publish_refresh_chat_edges(session: Session, result) -> None:
+    """Publish the collected refresh edges to the pickem-CHAT feed, best-effort.
+
+    One ``game.final`` per finalized game; one ``window.opened`` / ``window.closed``
+    per crossing week; one ``week.recap`` per recap week (the recap payload — the
+    week winner + season leader display names and scores — is pulled from the
+    existing standings services, NO re-implemented scoring). Every publish is
+    post-commit + best-effort (publish_event swallows), so a chat outage never
+    breaks the poll cycle.
+    """
+    for week, away, home, away_score, home_score in result.finalized_games:
+        publish_event(
+            game_final_event(
+                week=week,
+                away_abbr=away,
+                home_abbr=home,
+                away_score=away_score,
+                home_score=home_score,
+            )
+        )
+
+    for week in result.windows_opened:
+        publish_event(window_opened_event(week))
+    for week in result.windows_closed:
+        publish_event(window_closed_event(week))
+
+    if not result.recap_weeks:
+        return
+
+    season = _active_refresh_season(session)
+    if season is None:
+        return  # ambiguous season — skip the season-scoped recap (lossy is fine)
+
+    season_leaders = season_standings(session, season=season)
+    leader = season_leaders.results[0] if season_leaders.results else None
+    for week in result.recap_weeks:
+        week_winners = week_results(session, season=season, week=week)
+        winner = week_winners[0] if week_winners else None
+        if winner is None or leader is None:
+            continue  # no graded picks yet — nothing to recap
+        publish_event(
+            week_recap_event(
+                week=week,
+                winner=winner.display_name,
+                winner_score=winner.weekly_score,
+                leader=leader.display_name,
+                leader_score=leader.season_total,
+            )
+        )
 
 
 @celery_app.task(name="app.tasks.refresh_odds")

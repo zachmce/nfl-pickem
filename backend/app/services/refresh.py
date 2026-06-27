@@ -65,7 +65,7 @@ from datetime import datetime, timezone
 
 from sqlmodel import Session, select
 
-from app.models import Game, GameStatus, Week
+from app.models import Game, GameStatus, Team, Week
 from app.scoreboard.port import ScoreboardFetchError, ScoreboardSource
 from app.scoreboard.types import ScoreboardGame
 from app.services.pick_window import compute_window
@@ -84,12 +84,34 @@ class RefreshResult:
     * ``windows_stamped`` — count of Week window field-writes (opens_at/closes_at).
     * ``failed_weeks`` — the ``(season, week)`` pairs whose fetch raised
       :class:`~app.scoreboard.port.ScoreboardFetchError`.
+
+    QT-3 in-cycle edge collections (all default-empty; an unchanged steady-state
+    re-run yields all-empty). These are pure DATA the task wrapper publishes
+    post-commit — ``refresh_games`` never publishes and never imports redis/config:
+
+    * ``finalized_games`` — one ``(week, away_abbr, home_abbr, away_score,
+      home_score)`` tuple per game that transitioned to FINAL THIS cycle (display
+      data only). A game already FINAL last cycle never reappears (its week is
+      not even re-fetched).
+    * ``windows_opened`` — week numbers whose pick window crossed closed->open
+      this cycle (filled by the window-edge step).
+    * ``windows_closed`` — week numbers whose pick window crossed open->closed
+      this cycle.
+    * ``recap_weeks`` — week numbers whose LAST non-final game went FINAL this
+      cycle (i.e. a game finalized this cycle AND every row in the week is now
+      FINAL) — the week.recap trigger.
     """
 
     weeks_polled: int = 0
     games_updated: int = 0
     windows_stamped: int = 0
     failed_weeks: tuple[tuple[int, int], ...] = field(default_factory=tuple)
+    finalized_games: tuple[tuple[int, str, str, int, int], ...] = field(
+        default_factory=tuple
+    )
+    windows_opened: tuple[int, ...] = field(default_factory=tuple)
+    windows_closed: tuple[int, ...] = field(default_factory=tuple)
+    recap_weeks: tuple[int, ...] = field(default_factory=tuple)
 
 
 def group_games_by_week(games: list[Game]) -> dict[tuple[int, int], list[Game]]:
@@ -158,6 +180,20 @@ def _normalized_games(games: list[Game]) -> list[Game]:
             )
         )
     return out
+
+
+def _team_abbr_map(session: Session) -> dict[int, str]:
+    """Build a ``team.id -> abbreviation`` map once per refresh call (display data).
+
+    Used to resolve the away/home team abbreviations for the ``game.final`` edge
+    payload — carrying display strings only, never team ids in the published
+    event.
+    """
+    return {
+        t.id: t.abbreviation
+        for t in session.exec(select(Team)).all()
+        if t.id is not None
+    }
 
 
 def _scores_by_event_id(games: list[ScoreboardGame]) -> dict[int, ScoreboardGame]:
@@ -241,6 +277,12 @@ def refresh_games(
     games_updated = 0
     weeks_polled = 0
     failed_weeks: list[tuple[int, int]] = []
+    # QT-3 in-cycle edge accumulators (local mutable lists; converted to tuples
+    # for the frozen RefreshResult at the end — RefreshResult is frozen, so we
+    # never mutate a field on it, exactly mirroring failed_weeks).
+    finalized_games: list[tuple[int, str, str, int, int]] = []
+    recap_weeks: list[int] = []
+    team_abbr = _team_abbr_map(session)
 
     for season, week in needy:
         try:
@@ -251,13 +293,38 @@ def refresh_games(
 
         weeks_polled += 1
         src_by_id = _scores_by_event_id(fetched)
+        finalized_this_week = False
         for row in by_week[(season, week)]:
             src = src_by_id.get(row.espn_event_id)
             if src is None:
                 continue
+            # Capture the pre-reconcile FINAL state so a transition INTO FINAL
+            # this cycle is detected (the diff the reconcile already computes).
+            was_final = row.status == GameStatus.FINAL
             if _reconcile_game(row, src):
                 session.add(row)
                 games_updated += 1
+            if not was_final and row.status == GameStatus.FINAL:
+                # This game became FINAL THIS cycle -> a game.final edge. Carry
+                # DISPLAY data only: week + team abbrs + integer scores.
+                finalized_this_week = True
+                finalized_games.append(
+                    (
+                        week,
+                        team_abbr.get(row.away_team_id, ""),
+                        team_abbr.get(row.home_team_id, ""),
+                        row.away_score if row.away_score is not None else 0,
+                        row.home_score if row.home_score is not None else 0,
+                    )
+                )
+
+        # week.recap fires only on the cycle whose game.final transition makes the
+        # week's LAST non-final game final: a game finalized THIS cycle AND every
+        # row in the week is now FINAL.
+        if finalized_this_week and all(
+            r.status == GameStatus.FINAL for r in by_week[(season, week)]
+        ):
+            recap_weeks.append(week)
 
     # --- Window stamping (after reconciliation, over every week in the DB) ---
     seasons = {season for season, _ in by_week}
@@ -320,4 +387,8 @@ def refresh_games(
         games_updated=games_updated,
         windows_stamped=windows_stamped,
         failed_weeks=tuple(failed_weeks),
+        finalized_games=tuple(finalized_games),
+        windows_opened=(),  # filled by the window-edge step (QT-3 Task 3)
+        windows_closed=(),
+        recap_weeks=tuple(recap_weeks),
     )

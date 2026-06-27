@@ -394,6 +394,120 @@ class RefreshGamesTests(unittest.TestCase):
             self.assertTrue(all(g.status == GameStatus.FINAL for g in wk1))
 
 
+class RefreshEdgeDetectionTests(unittest.TestCase):
+    """In-cycle edge collection: game.final + week.recap fire once-on-transition.
+
+    Drives two reconcile cycles over the real 2025 fixture (reset to a fresh
+    pre-game SCHEDULED state) and asserts the edges appear EXACTLY on the cycle
+    that transitions a game to FINAL and are ABSENT on a steady-state re-poll
+    (the fully-final week is not even re-fetched).
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.fixture = _load_fixture()
+        cls.season = int(cls.fixture["metadata"]["season"])
+
+    def setUp(self) -> None:
+        self.engine = create_engine("sqlite://")
+        SQLModel.metadata.create_all(self.engine)
+        with Session(self.engine) as session:
+            seed_teams(session)
+            import_fixture_2025(session)
+            for g in session.exec(select(Game)).all():
+                g.status = GameStatus.SCHEDULED
+                g.home_score = None
+                g.away_score = None
+                session.add(g)
+            session.commit()
+
+    def tearDown(self) -> None:
+        self.engine.dispose()
+
+    def test_game_final_recorded_once_then_empty_on_repoll(self) -> None:
+        """A finalizing cycle records finalized_games; the re-poll records none."""
+        with Session(self.engine) as session:
+            spy = _RecordingSource(Demo2025Source(offset=FINAL_OFFSET))
+
+            first = refresh_games(session, spy)
+            session.commit()
+            # At least one game finalized this cycle -> recorded once each.
+            self.assertGreater(len(first.finalized_games), 0)
+            # Every finalized entry carries display data: week + abbrs + scores.
+            for fg in first.finalized_games:
+                self.assertEqual(len(fg), 5)
+                week, away, home, away_score, home_score = fg
+                self.assertIsInstance(week, int)
+                self.assertIsInstance(away, str)
+                self.assertIsInstance(home, str)
+                self.assertIsInstance(away_score, int)
+                self.assertIsInstance(home_score, int)
+
+            spy.fetched.clear()
+            second = refresh_games(session, spy)
+            session.commit()
+            # Steady-state: nothing transitions, nothing re-fetched.
+            self.assertEqual(second.finalized_games, ())
+            self.assertEqual(spy.fetched, [])
+
+    def test_week_recap_recorded_once_then_empty_on_repoll(self) -> None:
+        """The week whose last game finals this cycle appears once in recap_weeks."""
+        with Session(self.engine) as session:
+            spy = _RecordingSource(Demo2025Source(offset=FINAL_OFFSET))
+
+            first = refresh_games(session, spy)
+            session.commit()
+            # Every week finals this cycle -> each fully-final week recaps once.
+            self.assertGreater(len(first.recap_weeks), 0)
+            # Recap weeks are unique (no double-add) and are real week numbers.
+            self.assertEqual(len(first.recap_weeks), len(set(first.recap_weeks)))
+
+            second = refresh_games(session, spy)
+            session.commit()
+            self.assertEqual(second.recap_weeks, ())
+
+    def test_recap_only_when_last_game_finals_this_cycle(self) -> None:
+        """A week with a still-non-final game does NOT recap yet."""
+        from app.scoreboard.types import ScoreboardTeam
+
+        with Session(self.engine) as session:
+            wk1 = self._games_for_week(session, 1)
+            self.assertGreater(len(wk1), 1)  # need at least two games
+            final_target = wk1[0]
+            event_id = final_target.espn_event_id
+
+            class _OneGameFinalSource:
+                """Finals exactly ONE week-1 game; the rest stay SCHEDULED."""
+
+                def fetch_week(self, season: int, week: int):
+                    if week != 1:
+                        return []
+                    return [
+                        ScoreboardGame(
+                            espn_event_id=str(event_id),
+                            season=season,
+                            week=week,
+                            kickoff_at=None,
+                            status=GameStatus.FINAL,
+                            home=ScoreboardTeam(None, None, score=24),
+                            away=ScoreboardTeam(None, None, score=17),
+                        )
+                    ]
+
+            result = refresh_games(session, _OneGameFinalSource())
+            session.commit()
+            # One game finalized, but week 1 is NOT fully final -> no recap.
+            self.assertEqual(len(result.finalized_games), 1)
+            self.assertNotIn(1, result.recap_weeks)
+
+    def _games_for_week(self, session: Session, week: int) -> list[Game]:
+        return list(
+            session.exec(
+                select(Game).where(Game.season == self.season, Game.week == week)
+            ).all()
+        )
+
+
 class BeatWiringRegressionTests(unittest.TestCase):
     """The scores beat is preserved byte-for-byte after the scheduler refactor.
 
