@@ -33,7 +33,9 @@ from __future__ import annotations
 import structlog
 from sqlmodel import Session, select
 
-from app.models import Game, Pick, PickType, Team, User, Week
+from app.models import Game, GameStatus, Pick, PickType, Team, User, Week
+from app.services.pick_submission import base_slots_complete
+from app.services.scoring import GradeOutcome, grade_pick
 from app.services.standings import season_standings, week_results
 
 logger = structlog.get_logger(__name__)
@@ -221,4 +223,320 @@ def get_recap_context(session: Session, season: int, week: int) -> dict:
         "week": week,
         "weekly_scores": weekly_scores,
         "season_standings": standings,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# 260627-vpc — embellished-chat context readers (scope items 1, 2, 3, 5, 6).
+#
+# The READ side behind the three LLM-embellished pickem-chat events. Each is a
+# pure read (no add/commit) returning a plain, DISPLAY-ONLY dict (display_name +
+# integers + team abbrs + line numbers + counts) — NEVER user_id, and for the
+# OPEN-window roster.complete event NEVER any outstanding name or pick content.
+# They REUSE the existing scoring/standings/completion services — no cover /
+# over-under / standings / completion math is re-implemented here.
+# --------------------------------------------------------------------------- #
+
+
+def _game_final_side_label(
+    pick_type: PickType,
+    *,
+    favorite_abbr: str | None,
+    underdog_abbr: str | None,
+    home_abbr: str | None,
+    away_abbr: str | None,
+) -> str:
+    """A concise public side label for a pick on THIS game.
+
+    Reuses the favorite/underdog/over-under convention of
+    :func:`app.services.notifications.pick_log_detail` (favorite/underdog name the
+    covered team; totals name the matchup) so the embellished line speaks the same
+    language as the logger feed. The game is FINAL/public, so naming the team is
+    fine. Never returns a raw enum name.
+    """
+    if pick_type is PickType.FAVORITE_COVER:
+        return f"Favorite ({favorite_abbr})" if favorite_abbr else "Favorite"
+    if pick_type is PickType.UNDERDOG_COVER:
+        return f"Underdog ({underdog_abbr})" if underdog_abbr else "Underdog"
+    if pick_type in (PickType.OVER, PickType.UNDER):
+        side = "OVER" if pick_type is PickType.OVER else "UNDER"
+        if away_abbr and home_abbr:
+            return f"{side} {away_abbr}@{home_abbr}"
+        return side
+    # MISC has no auto-graded side; label it plainly (rarely an impact here).
+    return "Misc"
+
+
+def _not_found_game_final() -> dict:
+    """The not-found / unresolvable shape for :func:`get_game_final_context`.
+
+    Lets the caller fall back to a basic event-field fact without branching on a
+    missing key. Display-only and inert: no game, no line results, no impacts.
+    """
+    return {
+        "found": False,
+        "away": None,
+        "home": None,
+        "away_score": None,
+        "home_score": None,
+        "spread_result": None,
+        "total_result": None,
+        "pick_impacts": [],
+    }
+
+
+def get_game_final_context(
+    session: Session,
+    season: int,
+    week: int,
+    *,
+    away_abbr: str,
+    home_abbr: str,
+) -> dict:
+    """Display-only context for a ``game.final`` chat line — resolves THE game.
+
+    Resolves the season's :class:`~app.models.Team` rows to an
+    ``abbreviation -> team_id`` map, finds the FINAL :class:`~app.models.Game` in
+    ``(season, week)`` whose away/home team ids match ``away_abbr``/``home_abbr``,
+    and returns a plain dict carrying:
+
+    * ``found`` — ``True`` only when exactly one game resolved with both scores;
+    * ``away`` / ``home`` / ``away_score`` / ``home_score`` — echoed from the game;
+    * ``spread_result`` — ``{favorite_abbr, spread, did_cover}`` or ``None`` on a
+      true pick'em (no gradeable spread side);
+    * ``total_result`` — ``{total, went_over}`` or ``None`` when no total posted;
+    * ``pick_impacts`` — ``[{display_name, side_label, is_mortal_lock, outcome}]``
+      for picks ON THIS game, ``outcome`` taken verbatim from
+      :func:`app.services.scoring.grade_pick` (mortal-lock hits/busts surfaced
+      first, then base winners/losers, bounded).
+
+    The line results are DERIVED from the SAME comparison the scoring engine uses:
+    ``did_cover`` is the favorite-cover result of a reference ``FAVORITE_COVER``
+    grade against this game; ``went_over`` is the over result of a reference
+    ``OVER`` grade — so no cover/over-under math is hand-rolled here (it reuses
+    :func:`app.services.scoring.grade_pick`). The game is FINAL and public, so
+    naming pick winners/losers by ``display_name`` is fine. Returns the not-found
+    shape (``found`` False, results ``None``, impacts ``[]``) when the game cannot
+    be resolved or is ambiguous. Pure read; never raises on unknown inputs.
+    """
+    # Resolve abbreviation -> team_id (and the inverse) once for this season.
+    teams = session.exec(select(Team)).all()
+    team_id_by_abbr = {t.abbreviation: t.id for t in teams if t.id is not None}
+    abbr_by_team_id = {t.id: t.abbreviation for t in teams if t.id is not None}
+
+    away_id = team_id_by_abbr.get(away_abbr)
+    home_id = team_id_by_abbr.get(home_abbr)
+    if away_id is None or home_id is None:
+        return _not_found_game_final()
+
+    games = session.exec(
+        select(Game).where(
+            Game.season == season,
+            Game.week == week,
+            Game.away_team_id == away_id,
+            Game.home_team_id == home_id,
+        )
+    ).all()
+    if len(games) != 1:  # unresolved or ambiguous -> caller falls back
+        return _not_found_game_final()
+    game = games[0]
+    if (
+        game.status is not GameStatus.FINAL
+        or game.home_score is None
+        or game.away_score is None
+    ):
+        return _not_found_game_final()
+
+    favorite_abbr = abbr_by_team_id.get(game.favorite_team_id)
+    underdog_abbr = abbr_by_team_id.get(game.underdog_team_id)
+
+    # Derive the line results by GRADING reference picks against THIS game — same
+    # engine standings/scoring use, so no cover/over-under math is re-implemented.
+    spread_result: dict | None = None
+    if favorite_abbr is not None and game.spread is not None and game.spread != 0:
+        ref_fav = Pick(
+            user_id=0,
+            game_id=game.id,
+            week_id=game.week_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+        fav_outcome = grade_pick(game, ref_fav).outcome
+        # WIN = favorite covered; LOSS = it did not; PUSH = landed on the number.
+        if fav_outcome in (GradeOutcome.WIN, GradeOutcome.LOSS):
+            spread_result = {
+                "favorite_abbr": favorite_abbr,
+                "spread": str(game.spread),
+                "did_cover": fav_outcome is GradeOutcome.WIN,
+            }
+
+    total_result: dict | None = None
+    if game.total is not None:
+        ref_over = Pick(
+            user_id=0,
+            game_id=game.id,
+            week_id=game.week_id,
+            pick_type=PickType.OVER,
+        )
+        over_outcome = grade_pick(game, ref_over).outcome
+        if over_outcome in (GradeOutcome.WIN, GradeOutcome.LOSS):
+            total_result = {
+                "total": str(game.total),
+                "went_over": over_outcome is GradeOutcome.WIN,
+            }
+
+    # Pick impacts: grade THIS game's picks via the scoring engine. Mortal-lock
+    # rows first (the dramatic hits/busts), then base rows, bounded.
+    picks = session.exec(select(Pick).where(Pick.game_id == game.id)).all()
+    user_ids = {p.user_id for p in picks}
+    display_name_by_user_id = {
+        u.id: u.display_name
+        for u in session.exec(select(User).where(User.id.in_(user_ids))).all()
+        if u.id is not None
+    }
+    impacts: list[dict] = []
+    for pick in picks:
+        display_name = display_name_by_user_id.get(pick.user_id)
+        if display_name is None:
+            continue
+        outcome = grade_pick(game, pick).outcome
+        impacts.append(
+            {
+                "display_name": display_name,
+                "side_label": _game_final_side_label(
+                    pick.pick_type,
+                    favorite_abbr=favorite_abbr,
+                    underdog_abbr=underdog_abbr,
+                    home_abbr=home_abbr,
+                    away_abbr=away_abbr,
+                ),
+                "is_mortal_lock": pick.is_mortal_lock,
+                "outcome": outcome.value,
+            }
+        )
+    # Mortal locks first, then by display_name for a stable, bounded ordering.
+    impacts.sort(key=lambda i: (not i["is_mortal_lock"], i["display_name"]))
+
+    return {
+        "found": True,
+        "away": away_abbr,
+        "home": home_abbr,
+        "away_score": game.away_score,
+        "home_score": game.home_score,
+        "spread_result": spread_result,
+        "total_result": total_result,
+        "pick_impacts": impacts,
+    }
+
+
+def get_roster_complete_context(
+    session: Session, season: int, week: int, *, actor: str
+) -> dict:
+    """Display-only context for a ``roster.complete`` chat line — COUNTS only.
+
+    The roster.complete event fires while the week's pick window is OPEN, so the
+    HARD LEAK RULE applies: only the COUNT of outstanding players may cross the
+    boundary — NEVER their names, NEVER anyone's pick content. Returns:
+
+    * ``actor`` — the submitting player's display name (echoed in);
+    * ``rank`` / ``season_total`` — the actor's public standing from
+      :func:`app.services.standings.season_standings` (matched by ``display_name``;
+      ``rank`` ``None`` and ``season_total`` ``0`` when the actor is absent from
+      standings, e.g. has no graded picks yet);
+    * ``completed_count`` — how many players in the pool hold all four base slots
+      for this week, via :func:`app.services.pick_submission.base_slots_complete`;
+    * ``total_players`` — the player pool size;
+    * ``outstanding_count`` — ``total_players - completed_count``.
+
+    Player pool choice: the pool is the set of users who hold ANY pick this season
+    (the same user set :func:`season_standings` derives its rows from), so
+    ``completed/total`` is meaningful for the active league rather than diluted by
+    never-played accounts. Pure read; reuses the existing standings + completion
+    services (no completion math re-implemented). Never returns outstanding names
+    or pick content.
+    """
+    standings_results = season_standings(session, season=season).results
+    rank: int | None = None
+    season_total = 0
+    for idx, r in enumerate(standings_results, start=1):
+        if r.display_name == actor:
+            rank = idx
+            season_total = r.season_total
+            break
+
+    # Player pool = users with any pick in the season (matches the standings user
+    # set). Derive their ids from this season's picks.
+    season_week_ids = {
+        w.id
+        for w in session.exec(select(Week).where(Week.season == season)).all()
+        if w.id is not None
+    }
+    if season_week_ids:
+        pool_user_ids = {
+            p.user_id
+            for p in session.exec(
+                select(Pick).where(Pick.week_id.in_(season_week_ids))
+            ).all()
+        }
+    else:
+        pool_user_ids = set()
+
+    total_players = len(pool_user_ids)
+    completed_count = sum(
+        1
+        for uid in pool_user_ids
+        if base_slots_complete(session, user_id=uid, season=season, week=week)
+    )
+    outstanding_count = total_players - completed_count
+
+    return {
+        "actor": actor,
+        "rank": rank,
+        "season_total": season_total,
+        "completed_count": completed_count,
+        "total_players": total_players,
+        "outstanding_count": outstanding_count,
+    }
+
+
+def get_leaders_context(session: Session, season: int) -> dict:
+    """Display-only context for a ``window.opened`` hype line — the season leaders.
+
+    Reuses :func:`app.services.standings.season_standings` (already ordered by
+    ``(-season_total, display_name)``) and reports the top one/two rows:
+
+    * ``leader`` / ``leader_total`` — the top row, or ``None`` / ``0`` for an empty
+      season;
+    * ``runner_up`` / ``runner_up_total`` — the second row, or ``None`` when only
+      one player has picked;
+    * ``gap`` — ``leader_total - runner_up_total`` (``None`` when there is no
+      runner-up).
+
+    Display_name + integers only. Pure read; never raises on an empty season.
+    """
+    results = season_standings(session, season=season).results
+    if not results:
+        return {
+            "leader": None,
+            "leader_total": 0,
+            "runner_up": None,
+            "runner_up_total": None,
+            "gap": None,
+        }
+
+    leader = results[0]
+    if len(results) >= 2:
+        runner_up = results[1]
+        return {
+            "leader": leader.display_name,
+            "leader_total": leader.season_total,
+            "runner_up": runner_up.display_name,
+            "runner_up_total": runner_up.season_total,
+            "gap": leader.season_total - runner_up.season_total,
+        }
+    return {
+        "leader": leader.display_name,
+        "leader_total": leader.season_total,
+        "runner_up": None,
+        "runner_up_total": None,
+        "gap": None,
     }
