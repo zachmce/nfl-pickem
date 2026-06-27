@@ -25,11 +25,53 @@ from sqlmodel import Session
 
 from app.api.deps import get_current_user
 from app.db import get_session
-from app.models import PickType, User
+from app.models import Game, Pick, PickType, Team, User
 from app.schemas.picks import PickRead, PickSubmitRequest
+from app.services.notifications import (
+    pick_cleared_event,
+    pick_event,
+    pick_log_detail,
+    publish_event,
+)
 from app.services.pick_submission import clear_pick, read_picks, submit_picks
 
 router = APIRouter(prefix="/api/picks", tags=["picks"])
+
+
+def _abbr(session: Session, team_id: int | None) -> str | None:
+    """Resolve a team id to its abbreviation (display data), or None.
+
+    A tiny read seam used to build the resolved side/team ``detail`` for the
+    pickem-logger events. Returns None for a missing/absent id (e.g. a true
+    pick'em has no favorite/underdog), which ``pick_log_detail`` tolerates.
+    """
+    if team_id is None:
+        return None
+    team = session.get(Team, team_id)
+    return team.abbreviation if team is not None else None
+
+
+def _resolve_pick_detail(session: Session, pick: Pick) -> str:
+    """Build the resolved side/team ``detail`` for one persisted pick.
+
+    Loads the pick's Game and its four team abbreviations and delegates to the
+    pure :func:`app.services.notifications.pick_log_detail` (which owns the
+    favorite/underdog/over/under/MISC + mortal-lock mapping). Display data only.
+    """
+    game = session.get(Game, pick.game_id)
+    if game is None:
+        # Should not happen for a just-persisted pick, but never let logging break
+        # the request — fall back to the bare pick-type label.
+        return pick.pick_type.value
+    return pick_log_detail(
+        pick.pick_type,
+        pick.is_mortal_lock,
+        pick.misc_text,
+        favorite_abbr=_abbr(session, game.favorite_team_id),
+        underdog_abbr=_abbr(session, game.underdog_team_id),
+        home_abbr=_abbr(session, game.home_team_id),
+        away_abbr=_abbr(session, game.away_team_id),
+    )
 
 
 @router.post("", response_model=list[PickRead])
@@ -56,6 +98,22 @@ def submit(
     session.commit()
     for pick in picks:
         session.refresh(pick)
+
+    # Post-commit, best-effort pickem-logger publish (one per resulting pick) —
+    # AFTER the commit succeeds (caller-owns-commit, mirrors the QT-1 login site).
+    # publish_event swallows any Redis error, so a logging hiccup can never break
+    # the submit. submit_picks upserts a slot in place, so we cannot cleanly tell
+    # an insert from an update from the returned rows — default to ``pick.changed``
+    # for the upsert (documented plan choice).
+    for pick in picks:
+        publish_event(
+            pick_event(
+                "pick.changed",
+                actor=user.display_name,
+                week=payload.week,
+                detail=_resolve_pick_detail(session, pick),
+            )
+        )
     return [PickRead.from_orm_pick(p) for p in picks]
 
 
@@ -121,4 +179,21 @@ def clear(
         is_mortal_lock=is_mortal_lock,
     )
     session.commit()
+
+    # Post-commit, best-effort pickem-logger publish. The row is already deleted,
+    # so we have no Game to resolve a team abbreviation against — name the cleared
+    # SLOT from the pick_type/lock the caller passed (pick_log_detail falls back to
+    # the bare side label, e.g. "OVER" / "Favorite", when abbrs are absent).
+    detail = pick_log_detail(
+        pick_type,
+        is_mortal_lock,
+        None,
+        favorite_abbr=None,
+        underdog_abbr=None,
+        home_abbr=None,
+        away_abbr=None,
+    )
+    publish_event(
+        pick_cleared_event(actor=user.display_name, week=week, detail=detail)
+    )
     return None

@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 
 from app.db import task_session
+from app.services.notifications import player_registered_event, publish_event
 from app.services.auth import (
     deactivate_user_by_discord_id,
     delete_user_by_id,
@@ -39,7 +40,15 @@ async def provision_user_async(discord_id: int, discord_handle: str) -> tuple[in
 
     def _sync() -> tuple[int, str, str]:
         with task_session() as session:
-            return provision_user(session, discord_id, discord_handle)
+            result = provision_user(session, discord_id, discord_handle)
+            # provision_user COMMITS internally, so this publish is post-commit by
+            # construction. Best-effort pickem-logger notice carrying ONLY the
+            # returned display_name (result[1]) — NEVER the returned plain_password
+            # (result[2]) (HARD RULE T-kvi-01). publish_event hits Redis only (no
+            # discord import), so db_bridge stays Discord-free.
+            _, display_name, _plain_password = result
+            publish_event(player_registered_event(display_name))
+            return result
 
     return await asyncio.to_thread(_sync)
 

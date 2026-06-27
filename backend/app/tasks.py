@@ -6,6 +6,11 @@ from app.db import engine, task_session
 from app.models import TaskRun
 from app.services.freeze import freeze_week
 from app.services.ingest import ingest_season
+from app.services.notifications import (
+    freeze_week_event,
+    ingest_season_event,
+    publish_event,
+)
 from app.services.scheduler import ODDS_JOB, SCORES_JOB
 
 
@@ -119,6 +124,17 @@ def ingest_season_task(season: int) -> dict:
         # ingest_season commits once at the end; this wrapper-level commit is a
         # harmless no-op that keeps the wrapper shape identical to its siblings.
         session.commit()
+        # Post-commit, best-effort pickem-logger ops line — reuse the SAME
+        # non-sensitive summary fields the task already returns. publish_event
+        # swallows Redis errors, so logging can never break the ingest.
+        publish_event(
+            ingest_season_event(
+                season=season,
+                weeks=result.weeks_present,
+                games=result.games_present,
+                failed=len(result.failed_weeks),
+            )
+        )
         return {
             "weeks_present": result.weeks_present,
             "games_present": result.games_present,
@@ -158,6 +174,9 @@ def freeze_week_task(season: int, week: int) -> dict:
         # freeze_week commits once at the end; this wrapper-level commit is a
         # harmless no-op that keeps the wrapper shape identical to its siblings.
         session.commit()
+        # Post-commit, best-effort pickem-logger ops line. publish_event swallows
+        # Redis errors, so logging can never break the freeze.
+        publish_event(freeze_week_event(week=result.week))
         return {
             "season": result.season,
             "week": result.week,

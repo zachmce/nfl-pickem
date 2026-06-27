@@ -37,7 +37,7 @@ from sqlmodel import Session
 from app.api.deps import require_admin
 from app.db import get_session
 from app.exceptions import ConflictError, NotFoundError
-from app.models import PickType, User
+from app.models import Game, PickType, Team, User
 from app.schemas.admin import (
     AdminUserListResponse,
     AdminUserRead,
@@ -61,9 +61,29 @@ from app.services.admin_picks import (
     admin_grade_misc,
     admin_set_pick,
 )
+from app.services.notifications import (
+    admin_pick_cleared_event,
+    admin_pick_set_event,
+    pick_log_detail,
+    publish_event,
+)
 from app.services.pick_submission import read_picks
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+
+def _abbr(session: Session, team_id: int | None) -> str | None:
+    """Resolve a team id to its display abbreviation, or None when absent."""
+    if team_id is None:
+        return None
+    team = session.get(Team, team_id)
+    return team.abbreviation if team is not None else None
+
+
+def _target_display_name(session: Session, user_id: int) -> str:
+    """Resolve the override target's display_name (server-resolved, never client)."""
+    target = session.get(User, user_id)
+    return target.display_name if target is not None else str(user_id)
 
 
 def _raise_for_service_error(exc: ValueError) -> None:
@@ -221,6 +241,28 @@ def set_user_pick(
     )
     session.commit()
     session.refresh(pick)
+
+    # Post-commit, best-effort pickem-logger publish (AFTER the commit succeeds).
+    # Resolve the TARGET user's display_name + the game's team abbreviations for a
+    # concise admin-override line. publish_event swallows Redis errors so logging
+    # can never break the override.
+    game = session.get(Game, pick.game_id)
+    detail = pick_log_detail(
+        pick.pick_type,
+        pick.is_mortal_lock,
+        pick.misc_text,
+        favorite_abbr=_abbr(session, game.favorite_team_id) if game else None,
+        underdog_abbr=_abbr(session, game.underdog_team_id) if game else None,
+        home_abbr=_abbr(session, game.home_team_id) if game else None,
+        away_abbr=_abbr(session, game.away_team_id) if game else None,
+    )
+    publish_event(
+        admin_pick_set_event(
+            target=_target_display_name(session, user_id),
+            week=week,
+            detail=detail,
+        )
+    )
     return PickRead.from_orm_pick(pick)
 
 
@@ -266,6 +308,10 @@ def clear_user_pick(
 ) -> None:
     """Clear the PATH user's ``{pick_type, lock}`` slot (window/lock bypassed)."""
     assert admin.id is not None
+    # Resolve the target display_name BEFORE the commit (the row is loaded now);
+    # after clearing, publish post-commit best-effort. The slot label is the
+    # pick_type value (the row is deleted, so there is no game/side to resolve).
+    target_display_name = _target_display_name(session, user_id)
     admin_clear_pick(
         session,
         caller_id=admin.id,
@@ -276,6 +322,13 @@ def clear_user_pick(
         is_mortal_lock=is_mortal_lock,
     )
     session.commit()
+    publish_event(
+        admin_pick_cleared_event(
+            target=target_display_name,
+            week=week,
+            slot=pick_type.value,
+        )
+    )
     return None
 
 
