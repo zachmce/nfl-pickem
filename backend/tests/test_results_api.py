@@ -203,15 +203,37 @@ class ResultsTests(unittest.TestCase):
             assert pick.id is not None
             return pick.id
 
+    def _open_the_window(self) -> None:
+        """Push EVERY week-1 game's kickoff into the future so the window is OPEN.
+
+        The setUp games are FINAL with PAST kickoffs, so the week's earliest
+        kickoff is in the past and ``compute_window(week_games).close_at`` is
+        already CLOSED. The week-level visibility gate keys off that single
+        boundary, so to exercise the WINDOW-OPEN state (other users hidden) every
+        kickoff in the week must be in the FUTURE. This rewrites the in-store
+        kickoffs (the gate reads them via ``compute_window``) and is explicit so
+        the window-open tests don't depend on accidental ordering.
+        """
+        future = datetime.now(timezone.utc) + timedelta(days=2)
+        with self._session() as session:
+            games = list(
+                session.exec(select(Game).where(Game.week_id == self.week_id)).all()
+            )
+            for offset, game in enumerate(games):
+                game.kickoff_at = future + timedelta(hours=offset)
+                session.add(game)
+            session.commit()
+
     def _seed_future_game(self) -> int:
         """Insert a NOT-yet-locked (future-kickoff) game in the scored week.
 
-        The setUp games are FINAL with PAST kickoffs (always
-        ``is_game_locked True``); to exercise the privacy gate we need a game
-        whose kickoff is in the FUTURE so ``is_game_locked`` is ``False``. It
-        reuses the existing teams (tid 1 & 2) and carries spread/total/
-        favorite/underdog like the FINAL games so a pick on it is well-formed.
-        It is SCHEDULED (the actual non-FINAL ``GameStatus`` member).
+        The setUp games are FINAL with PAST kickoffs (the week's earliest kickoff
+        is in the past, so the week-level window is already CLOSED); this adds a
+        SCHEDULED game whose kickoff is in the FUTURE, used to prove that once the
+        window is closed even a not-yet-kicked-off game's other-user pick is now
+        VISIBLE. It reuses the existing teams (tid 1 & 2) and carries spread/
+        total/favorite/underdog like the FINAL games so a pick on it is
+        well-formed.
         """
         future = datetime.now(timezone.utc) + timedelta(days=2)
         with self._session() as session:
@@ -381,18 +403,22 @@ class ResultsTests(unittest.TestCase):
         self.fail(f"{display_name} not present in results")
 
     def test_gate_hides_other_users_unlocked_pick(self) -> None:
-        """Another user's pick on a NOT-yet-locked game is omitted for the caller."""
-        future_game_id = self._seed_future_game()
-        # bob picks the future (unlocked) game; alice picks a FINAL (locked) one.
+        """WINDOW OPEN: another user's whole-week picks are hidden from the caller.
+
+        With every week-1 kickoff pushed into the future the week's pick window is
+        OPEN (now < the week's earliest kickoff), so the week-level gate hides ALL
+        of bob's picks while the caller (alice) still sees her own.
+        """
+        self._open_the_window()
         self._seed_pick(
             user_id=self.user_b_id,
-            game_id=future_game_id,
+            game_id=self.game_fav_id,
             pick_type=PickType.FAVORITE_COVER,
         )
         self._seed_pick(
             user_id=self.user_a_id,
-            game_id=self.game_fav_id,
-            pick_type=PickType.FAVORITE_COVER,
+            game_id=self.game_total_id,
+            pick_type=PickType.OVER,
         )
 
         with self._session() as session:
@@ -401,14 +427,17 @@ class ResultsTests(unittest.TestCase):
             )
 
         bob = self._picks_for(results, "bob")
-        self.assertNotIn(
-            future_game_id, {p.game_id for p in bob.picks}
-        )  # other user's unlocked pick hidden
+        self.assertEqual(bob.picks, ())  # other user's picks hidden while open
         alice = self._picks_for(results, "alice")
-        self.assertIn(self.game_fav_id, {p.game_id for p in alice.picks})
+        self.assertIn(self.game_total_id, {p.game_id for p in alice.picks})
 
     def test_gate_shows_other_users_locked_pick(self) -> None:
-        """Another user's pick on a LOCKED (past) game is visible to the caller."""
+        """WINDOW CLOSED: another user's whole-week picks are visible to the caller.
+
+        The default setUp window is already CLOSED (game_fav kicked off in the
+        past), so the reveal trigger ("window closed") fires and bob's pick is
+        visible to caller alice.
+        """
         self._seed_pick(
             user_id=self.user_b_id,
             game_id=self.game_fav_id,
@@ -423,8 +452,37 @@ class ResultsTests(unittest.TestCase):
         bob = self._picks_for(results, "bob")
         self.assertIn(self.game_fav_id, {p.game_id for p in bob.picks})
 
+    def test_gate_window_closed_reveals_later_unkicked_pick(self) -> None:
+        """CRUX: once the window is CLOSED, a later not-yet-kicked-off game's
+        other-user pick is VISIBLE (the OLD per-game gate hid it).
+
+        The default setUp window is CLOSED because game_fav kicked off in the
+        past. bob picks a SCHEDULED future game in the SAME week — under the new
+        week-level rule that future-game pick is revealed to caller alice even
+        though it has not kicked off, because all picking for the week is frozen.
+        """
+        future_game_id = self._seed_future_game()
+        self._seed_pick(
+            user_id=self.user_b_id,
+            game_id=future_game_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+
+        with self._session() as session:
+            results = week_results(
+                session, season=SEASON, week=WEEK, caller_user_id=self.user_a_id
+            )
+
+        bob = self._picks_for(results, "bob")
+        self.assertIn(future_game_id, {p.game_id for p in bob.picks})
+
     def test_gate_caller_always_sees_own_unlocked_pick(self) -> None:
-        """The caller sees their OWN pick on a not-yet-locked game (bypass)."""
+        """The caller sees their OWN pick on a not-yet-kicked-off game (bypass).
+
+        Works in either window state; pinned here to the WINDOW-OPEN state (all
+        kickoffs future) so the caller bypass is what reveals the pick.
+        """
+        self._open_the_window()
         future_game_id = self._seed_future_game()
         self._seed_pick(
             user_id=self.user_a_id,
@@ -441,19 +499,21 @@ class ResultsTests(unittest.TestCase):
         self.assertIn(future_game_id, {p.game_id for p in alice.picks})
 
     def test_gate_preserves_weekly_score_under_redaction(self) -> None:
-        """A redacted future-game pick does not change the user's weekly_score."""
-        future_game_id = self._seed_future_game()
-        # bob picks a FINAL (locked, scores points) game AND the future one.
+        """WINDOW OPEN: a fully-redacted other user keeps their full weekly_score.
+
+        With the window OPEN (all kickoffs future) bob's picks are hidden from the
+        caller, but his ``weekly_score`` is still computed over his FULL persisted
+        pick set, so redaction never changes a score.
+        """
+        self._open_the_window()
         self._seed_pick(
             user_id=self.user_b_id,
             game_id=self.game_fav_id,
             pick_type=PickType.FAVORITE_COVER,
         )
-        # Distinct base pick type on the future game (one of each base type per
-        # user/week is the DB constraint). UNDER grades UNGRADEABLE/0 anyway.
         self._seed_pick(
             user_id=self.user_b_id,
-            game_id=future_game_id,
+            game_id=self.game_total_id,
             pick_type=PickType.UNDER,
         )
 
@@ -475,17 +535,21 @@ class ResultsTests(unittest.TestCase):
             expected_b = score_week(games_by_pk, picks_b)
 
         bob = self._picks_for(results, "bob")
-        # The future-game entry is redacted from picks for the caller (alice)…
-        self.assertNotIn(future_game_id, {p.game_id for p in bob.picks})
+        # bob's picks are fully redacted for the caller (alice) while open…
+        self.assertEqual(bob.picks, ())
         # …but the score is computed over bob's FULL pick set (unchanged).
         self.assertEqual(bob.weekly_score, expected_b)
 
     def test_gate_http_redacts_other_users_unlocked_pick(self) -> None:
-        """Over the wire: alice does not see bob's not-yet-locked pick."""
-        future_game_id = self._seed_future_game()
+        """Over the wire (WINDOW OPEN): alice does not see any of bob's picks.
+
+        Pushes every week kickoff into the future so the window is OPEN, then
+        asserts bob's picks are absent over the wire and no ``user_id`` leaks.
+        """
+        self._open_the_window()
         self._seed_pick(
             user_id=self.user_b_id,
-            game_id=future_game_id,
+            game_id=self.game_total_id,
             pick_type=PickType.UNDER,
         )
         self._seed_pick(
@@ -504,8 +568,8 @@ class ResultsTests(unittest.TestCase):
         bob = next(r for r in rows if r["display_name"] == "bob")
         self.assertNotIn("user_id", bob)
         game_ids = {p["game_id"] for p in bob["picks"]}
-        self.assertNotIn(future_game_id, game_ids)  # unlocked pick redacted
-        self.assertIn(self.game_fav_id, game_ids)  # locked pick still shown
+        self.assertNotIn(self.game_total_id, game_ids)  # hidden while open
+        self.assertNotIn(self.game_fav_id, game_ids)  # hidden while open
 
     # -- HTTP (Task 3) -----------------------------------------------------
 
