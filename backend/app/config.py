@@ -46,6 +46,15 @@ class Settings(BaseSettings):
     # REG-07 DM password-change pointer — where the bot tells users to log in.
     app_base_url: str = "http://localhost:5173"
 
+    # Local OpenAI-compatible LLM for the pickem-chat personality layer (260627-nef).
+    # All three must be set for the feature to engage; ANY left None disables it (the
+    # bot falls back to the deterministic line). Only the bot container sets these —
+    # non-bot containers leave them unset, and a blank env value is coerced to None
+    # below so a placeholder line in .env never crashes a container.
+    llm_api_server: str | None = None
+    llm_api_model: str | None = None
+    llm_api_key: str | None = None
+
     log_level: str = "INFO"
 
     # Demo-mode gate (DEMO-GATE / PROD-LEAK-GUARD). Read from env IS_DEMO_DATA.
@@ -70,6 +79,9 @@ class Settings(BaseSettings):
         "discord_chat_channel",
         "default_admin_username",
         "default_admin_password",
+        "llm_api_server",
+        "llm_api_model",
+        "llm_api_key",
         mode="before",
     )
     @classmethod

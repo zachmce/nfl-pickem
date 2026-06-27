@@ -18,6 +18,11 @@ import asyncio
 
 from app.db import task_session
 from app.services.notifications import player_registered_event, publish_event
+from app.services.notifications_read import (
+    current_season,
+    get_history_pick_keys,
+    get_week_pick_keys,
+)
 from app.services.auth import (
     deactivate_user_by_discord_id,
     delete_user_by_id,
@@ -158,5 +163,44 @@ async def delete_user_async(user_id: int) -> None:
     def _sync() -> None:
         with task_session() as session:
             return delete_user_by_id(session, user_id)
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_week_picks_async(week: int) -> dict[str, list[dict]]:
+    """Async wrapper: this week's locked pick-keys as a plain {display_name: [keys]} dict.
+
+    Resolves the active season via ``current_season`` then runs
+    ``get_week_pick_keys`` inside a thread over ``task_session()``. Returns ``{}``
+    when the season is ambiguous/empty. NO ORM escapes the thread; this module
+    stays Discord-free (no business logic here — the season-resolve + key
+    derivation live in :mod:`app.services.notifications_read`).
+    """
+
+    def _sync() -> dict[str, list[dict]]:
+        with task_session() as session:
+            season = current_season(session)
+            if season is None:
+                return {}
+            return get_week_pick_keys(session, season, week)
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_pick_history_async(week: int, weeks_back: int = 6) -> dict[str, list[dict]]:
+    """Async wrapper: recent-weeks pick-keys as a plain {display_name: [keys]} dict.
+
+    Same posture as :func:`get_week_picks_async`: resolves the season then runs
+    ``get_history_pick_keys`` in a thread over ``task_session()`` (covering ``week``
+    and the prior ``weeks_back - 1`` weeks). Returns ``{}`` on an ambiguous/empty
+    season. Plain dict out only; Discord-free.
+    """
+
+    def _sync() -> dict[str, list[dict]]:
+        with task_session() as session:
+            season = current_season(session)
+            if season is None:
+                return {}
+            return get_history_pick_keys(session, season, week, weeks_back=weeks_back)
 
     return await asyncio.to_thread(_sync)
