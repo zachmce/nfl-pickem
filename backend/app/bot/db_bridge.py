@@ -20,8 +20,11 @@ from app.db import task_session
 from app.services.notifications import player_registered_event, publish_event
 from app.services.notifications_read import (
     current_season,
+    get_game_final_context,
     get_history_pick_keys,
+    get_leaders_context,
     get_recap_context,
+    get_roster_complete_context,
     get_week_pick_keys,
 )
 from app.services.auth import (
@@ -225,5 +228,93 @@ async def get_recap_context_async(week: int) -> dict:
             if season is None:
                 return {"week": week, "weekly_scores": [], "season_standings": []}
             return get_recap_context(session, season, week)
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_game_final_context_async(
+    week: int, away_abbr: str, home_abbr: str
+) -> dict:
+    """Async wrapper: the display-only game.final context as a plain dict.
+
+    Same posture as :func:`get_recap_context_async`: resolves the active season
+    via ``current_season`` then runs ``get_game_final_context`` inside a thread
+    over ``task_session()``. Returns a not-found-shaped dict (``found`` False, line
+    results ``None``, impacts ``[]``) when the season is ambiguous/empty so the
+    caller falls back. Plain dict out only; NO ORM escapes the thread; Discord-free
+    (the season-resolve + shaping live in
+    :mod:`app.services.notifications_read`).
+    """
+
+    def _sync() -> dict:
+        with task_session() as session:
+            season = current_season(session)
+            if season is None:
+                return {
+                    "found": False,
+                    "away": None,
+                    "home": None,
+                    "away_score": None,
+                    "home_score": None,
+                    "spread_result": None,
+                    "total_result": None,
+                    "pick_impacts": [],
+                }
+            return get_game_final_context(
+                session, season, week, away_abbr=away_abbr, home_abbr=home_abbr
+            )
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_roster_complete_context_async(week: int, actor: str) -> dict:
+    """Async wrapper: the display-only roster.complete context as a plain dict.
+
+    Same posture as :func:`get_recap_context_async`: resolves the active season
+    then runs ``get_roster_complete_context`` inside a thread over
+    ``task_session()``. Returns a safe empty-shaped dict (counts zeroed, ``rank``
+    ``None``) on an ambiguous/empty season. COUNT-only by construction — the
+    builder never returns outstanding names or pick content. Plain dict out only;
+    Discord-free.
+    """
+
+    def _sync() -> dict:
+        with task_session() as session:
+            season = current_season(session)
+            if season is None:
+                return {
+                    "actor": actor,
+                    "rank": None,
+                    "season_total": 0,
+                    "completed_count": 0,
+                    "total_players": 0,
+                    "outstanding_count": 0,
+                }
+            return get_roster_complete_context(session, season, week, actor=actor)
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_leaders_context_async() -> dict:
+    """Async wrapper: the display-only season-leaders context as a plain dict.
+
+    Same posture as :func:`get_recap_context_async`: resolves the active season
+    then runs ``get_leaders_context`` inside a thread over ``task_session()``.
+    Returns a safe empty-shaped dict (leader ``None``) on an ambiguous/empty
+    season. Plain dict out only; Discord-free.
+    """
+
+    def _sync() -> dict:
+        with task_session() as session:
+            season = current_season(session)
+            if season is None:
+                return {
+                    "leader": None,
+                    "leader_total": 0,
+                    "runner_up": None,
+                    "runner_up_total": None,
+                    "gap": None,
+                }
+            return get_leaders_context(session, season)
 
     return await asyncio.to_thread(_sync)
