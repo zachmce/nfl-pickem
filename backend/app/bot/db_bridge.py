@@ -21,6 +21,7 @@ from app.services.notifications import player_registered_event, publish_event
 from app.services.notifications_read import (
     current_season,
     get_history_pick_keys,
+    get_recap_context,
     get_week_pick_keys,
 )
 from app.services.auth import (
@@ -202,5 +203,27 @@ async def get_pick_history_async(week: int, weeks_back: int = 6) -> dict[str, li
             if season is None:
                 return {}
             return get_history_pick_keys(session, season, week, weeks_back=weeks_back)
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_recap_context_async(week: int) -> dict:
+    """Async wrapper: the display-only recap context as a plain dict.
+
+    Same posture as :func:`get_week_picks_async`: resolves the active season via
+    ``current_season`` then runs ``get_recap_context`` inside a thread over
+    ``task_session()``. Returns ``{"week": week, "weekly_scores": [],
+    "season_standings": []}`` when the season is ambiguous/empty. Plain dict out
+    only; NO ORM escapes the thread; this module stays Discord-free (no business
+    logic here — the season-resolve + shaping live in
+    :mod:`app.services.notifications_read`).
+    """
+
+    def _sync() -> dict:
+        with task_session() as session:
+            season = current_season(session)
+            if season is None:
+                return {"week": week, "weekly_scores": [], "season_standings": []}
+            return get_recap_context(session, season, week)
 
     return await asyncio.to_thread(_sync)

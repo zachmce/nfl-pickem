@@ -34,6 +34,7 @@ import structlog
 from sqlmodel import Session, select
 
 from app.models import Game, Pick, PickType, Team, User, Week
+from app.services.standings import season_standings, week_results
 
 logger = structlog.get_logger(__name__)
 
@@ -175,3 +176,49 @@ def get_history_pick_keys(
     lowest = max(1, week - weeks_back + 1)
     weeks = list(range(lowest, week + 1))
     return _pick_keys_for_weeks(session, season=season, weeks=weeks)
+
+
+def get_recap_context(session: Session, season: int, week: int) -> dict:
+    """Display-only ``{week, weekly_scores, season_standings}`` for the recap column.
+
+    The READ side behind the Tier-2 LLM weekly recap (260627-tfb). It reuses the
+    EXISTING standings services and re-implements NO scoring/standings math:
+
+    * ``weekly_scores`` = ``[{display_name, weekly_score}, ...]`` from
+      :func:`app.services.standings.week_results` (already ordered high->low).
+      ``caller_user_id`` is left ``None``: the recap fires only after the week is
+      fully FINAL, so the public/post-close shape is what we want and we read only
+      the per-user ``weekly_score`` (never an individual pick).
+    * ``season_standings`` = ``[{display_name, season_total, rank, gap_to_leader},
+      ...]`` from :func:`app.services.standings.season_standings` (already ordered
+      by ``(-season_total, display_name)``), with a 1-based dense ``rank`` and
+      ``gap_to_leader`` = the leader's ``season_total`` minus this row's total
+      (the leader's gap is 0).
+
+    Information-disclosure boundary (T-tfb-01): carries ``display_name`` + integer
+    fields ONLY — NEVER ``user_id`` (mirrors the T-nef-01 boundary at the top of
+    this module). Pure read: no ``add``/``commit`` — the caller owns the session.
+    Discord-free and httpx-free. An empty week/season yields empty lists.
+    """
+    weekly_scores = [
+        {"display_name": r.display_name, "weekly_score": r.weekly_score}
+        for r in week_results(session, season=season, week=week, caller_user_id=None)
+    ]
+
+    standings_results = season_standings(session, season=season).results
+    leader_total = standings_results[0].season_total if standings_results else 0
+    standings = [
+        {
+            "display_name": r.display_name,
+            "season_total": r.season_total,
+            "rank": idx,
+            "gap_to_leader": leader_total - r.season_total,
+        }
+        for idx, r in enumerate(standings_results, start=1)
+    ]
+
+    return {
+        "week": week,
+        "weekly_scores": weekly_scores,
+        "season_standings": standings,
+    }
