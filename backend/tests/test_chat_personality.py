@@ -418,6 +418,29 @@ class EmbellishChatEnrichedWindowOpenedTests(unittest.TestCase):
         self.assertIn("52", fact)
         self.assertIn("Dave", fact)
 
+    def test_window_opened_zero_gap_states_tie_for_the_lead(self) -> None:
+        # gap == 0 means co-leaders: the fact must say "tied for the lead",
+        # NOT phrase the runner-up as "0 back in second" (which read as a false
+        # first/second split and made the model say "tied for second").
+        event = window_opened_event(week=3)
+        ctx = {
+            "leader": "Carol",
+            "leader_total": 5,
+            "runner_up": "Dave",
+            "runner_up_total": 5,
+            "gap": 0,
+        }
+        patcher, calls = _phrase_returns("Carol & Dave tied at the top — Week 3 open!")
+        with _ctx_seam("_leaders_context", ctx), patcher:
+            _run(chat_personality.embellish_chat(event))
+        fact = calls[0]["fact"]
+        self.assertIn("tied for the lead", fact)
+        self.assertIn("Carol", fact)
+        self.assertIn("Dave", fact)
+        self.assertIn("5", fact)
+        self.assertNotIn("second", fact)
+        self.assertNotIn("0 back", fact)
+
     def test_window_opened_empty_leaders_uses_basic_fact(self) -> None:
         event = window_opened_event(week=3)
         ctx = {"leader": None, "leader_total": 0, "runner_up": None,

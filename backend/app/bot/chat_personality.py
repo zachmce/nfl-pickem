@@ -275,12 +275,22 @@ def _enriched_window_opened_fact(event: dict, context: dict) -> str | None:
     if not leader:
         return None
 
-    parts = [f"Week {event.get('week')} pick window is open."]
-    parts.append(f"{leader} leads the season with {context.get('leader_total')}.")
+    leader_total = context.get("leader_total")
     runner_up = context.get("runner_up")
-    if runner_up:
-        gap = context.get("gap")
-        parts.append(f"{runner_up} is {gap} back in second.")
+    gap = context.get("gap")
+
+    parts = [f"Week {event.get('week')} pick window is open."]
+    if runner_up and gap == 0:
+        # A zero gap means they are CO-LEADERS — phrase it as a tie for the lead,
+        # not "leader" + "runner-up is 0 back in second" (which reads as a false
+        # first/second split and led the model to say "tied for second").
+        parts.append(
+            f"{leader} and {runner_up} are tied for the lead with {leader_total}."
+        )
+    else:
+        parts.append(f"{leader} leads the season with {leader_total}.")
+        if runner_up:
+            parts.append(f"{runner_up} is {gap} back in second.")
     return " ".join(parts)
 
 
