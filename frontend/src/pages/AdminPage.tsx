@@ -21,12 +21,16 @@ import { ApiError } from "../lib/api";
 import {
   deactivateUser,
   deleteUser,
+  freezeWeek,
   grantAdmin,
+  ingestSeason,
   listUsers,
   reactivateUser,
   revokeAdmin,
   type AdminPickSet,
   type AdminUser,
+  type FreezeWeekDispatch,
+  type IngestSeasonDispatch,
 } from "../lib/admin";
 import { getCurrentWeek } from "../lib/currentWeek";
 import {
@@ -301,6 +305,8 @@ export default function AdminPage() {
         </div>
       )}
 
+      <IngestionPanel />
+
       {editorTarget && (
         <PickOverrideEditor
           key={editorTarget.id}
@@ -309,6 +315,203 @@ export default function AdminPage() {
         />
       )}
     </div>
+  );
+}
+
+// --------------------------------------------------------------------------- //
+// Ingestion / Odds panel (QT-3)
+//
+// The frontend half of the live-ingest-worker thread: two admin-only controls
+// that DISPATCH a Celery background task via the frozen QT-2 endpoints and get
+// back HTTP 202 + a task_id. The 202 means accepted/queued — NOT complete (there
+// is no status/progress endpoint), so this panel renders the returned task_id as
+// a background-dispatch confirmation and deliberately avoids any done-state
+// phrasing. Each action owns its own in-flight guard so one button disables
+// independently; a rejected 4xx/403 surfaces messageFor(err) inline (already
+// unwrapped from the envelope by api()) without unmounting the section. No new
+// auth guard here — the whole page is RequireAdmin-gated, and the server enforces
+// require_admin on both endpoints.
+// --------------------------------------------------------------------------- //
+
+/** The blue primary-button styling shared by the two dispatch controls. */
+function primaryButtonClass(disabled: boolean): string {
+  return [
+    "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+    "border-blue-600 bg-blue-600 text-white hover:bg-blue-700",
+    disabled ? "cursor-not-allowed opacity-50" : "",
+  ].join(" ");
+}
+
+/** A labeled number input mirroring PickOverrideEditor's Season/Week inputs. */
+function NumberField({
+  label,
+  value,
+  width,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  width: string;
+  onChange: (n: number) => void;
+}) {
+  return (
+    <label className="text-sm">
+      <span className="block text-xs font-medium text-gray-600">{label}</span>
+      <input
+        type="number"
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className={`mt-1 ${width} rounded-md border border-gray-300 px-2 py-1 text-sm`}
+      />
+    </label>
+  );
+}
+
+function IngestionPanel() {
+  // Sensible seeds — current calendar year, week 1 (the demo/live admin can
+  // retype either). No getCurrentWeek dependency: keep this panel self-contained.
+  const [ingestSeasonValue, setIngestSeasonValue] = useState<number>(
+    new Date().getFullYear(),
+  );
+  const [freezeSeasonValue, setFreezeSeasonValue] = useState<number>(
+    new Date().getFullYear(),
+  );
+  const [freezeWeekValue, setFreezeWeekValue] = useState<number>(1);
+
+  // Per-action in-flight + result + error so each control disables/reports
+  // independently. The result holds the dispatched 202 body (task_id rendered).
+  const [ingestBusy, setIngestBusy] = useState(false);
+  const [ingestResult, setIngestResult] = useState<IngestSeasonDispatch | null>(
+    null,
+  );
+  const [ingestError, setIngestError] = useState<string | null>(null);
+
+  const [freezeBusy, setFreezeBusy] = useState(false);
+  const [freezeResult, setFreezeResult] = useState<FreezeWeekDispatch | null>(
+    null,
+  );
+  const [freezeError, setFreezeError] = useState<string | null>(null);
+
+  const onIngest = useCallback(async () => {
+    setIngestBusy(true);
+    setIngestError(null);
+    setIngestResult(null);
+    try {
+      const dispatch = await ingestSeason(ingestSeasonValue);
+      setIngestResult(dispatch);
+    } catch (err: unknown) {
+      setIngestError(messageFor(err));
+    } finally {
+      setIngestBusy(false);
+    }
+  }, [ingestSeasonValue]);
+
+  const onFreeze = useCallback(async () => {
+    setFreezeBusy(true);
+    setFreezeError(null);
+    setFreezeResult(null);
+    try {
+      const dispatch = await freezeWeek(freezeSeasonValue, freezeWeekValue);
+      setFreezeResult(dispatch);
+    } catch (err: unknown) {
+      setFreezeError(messageFor(err));
+    } finally {
+      setFreezeBusy(false);
+    }
+  }, [freezeSeasonValue, freezeWeekValue]);
+
+  const ingestDisabled = ingestBusy || !Number.isFinite(ingestSeasonValue);
+  const freezeDisabled =
+    freezeBusy ||
+    !Number.isFinite(freezeSeasonValue) ||
+    !Number.isFinite(freezeWeekValue);
+
+  return (
+    <section
+      data-testid="ingestion-panel"
+      className="space-y-4 rounded-lg border border-gray-200 bg-white p-4"
+    >
+      <div>
+        <h2 className="text-lg font-bold">Ingestion / Odds</h2>
+        <p className="mt-0.5 text-sm text-gray-500">
+          These controls dispatch background workers. Each returns a task id that
+          runs asynchronously — the work is queued, not finished when you click.
+        </p>
+      </div>
+
+      {/* Ingest season */}
+      <div className="space-y-2 border-t border-gray-100 pt-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <NumberField
+            label="Season"
+            value={ingestSeasonValue}
+            width="w-28"
+            onChange={setIngestSeasonValue}
+          />
+          <button
+            type="button"
+            disabled={ingestDisabled}
+            onClick={() => void onIngest()}
+            className={primaryButtonClass(ingestDisabled)}
+          >
+            Ingest season now
+          </button>
+          {ingestBusy && (
+            <span className="text-xs text-gray-400">Dispatching…</span>
+          )}
+        </div>
+        {ingestResult && (
+          <p className="text-xs text-gray-600">
+            Dispatched — task{" "}
+            <code className="rounded bg-gray-100 px-1 py-0.5">
+              {ingestResult.task_id}
+            </code>{" "}
+            is running in the background for season {ingestResult.season}.
+          </p>
+        )}
+        {ingestError && <p className="text-xs text-red-600">{ingestError}</p>}
+      </div>
+
+      {/* Freeze week lines */}
+      <div className="space-y-2 border-t border-gray-100 pt-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <NumberField
+            label="Season"
+            value={freezeSeasonValue}
+            width="w-28"
+            onChange={setFreezeSeasonValue}
+          />
+          <NumberField
+            label="Week"
+            value={freezeWeekValue}
+            width="w-24"
+            onChange={setFreezeWeekValue}
+          />
+          <button
+            type="button"
+            disabled={freezeDisabled}
+            onClick={() => void onFreeze()}
+            className={primaryButtonClass(freezeDisabled)}
+          >
+            Freeze week lines now
+          </button>
+          {freezeBusy && (
+            <span className="text-xs text-gray-400">Dispatching…</span>
+          )}
+        </div>
+        {freezeResult && (
+          <p className="text-xs text-gray-600">
+            Dispatched — task{" "}
+            <code className="rounded bg-gray-100 px-1 py-0.5">
+              {freezeResult.task_id}
+            </code>{" "}
+            is running in the background for season {freezeResult.season}, week{" "}
+            {freezeResult.week}.
+          </p>
+        )}
+        {freezeError && <p className="text-xs text-red-600">{freezeError}</p>}
+      </div>
+    </section>
   );
 }
 
