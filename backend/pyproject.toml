@@ -22,11 +22,14 @@ dependencies = [
     "structlog>=25.5",
     "argon2-cffi>=25.1",
     "itsdangerous>=2.2",
+    # Async HTTP client for the bot's best-effort local-LLM call (app.bot.llm_client).
+    # Must be a runtime dep (not dev-only): the image installs `[project.dependencies]`
+    # via `uv pip install --system .`, so a dev-group entry is absent at runtime.
+    "httpx>=0.28.1",
 ]
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",
     "ruff>=0.9",
 ]
 
