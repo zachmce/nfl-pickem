@@ -2,7 +2,7 @@
 
 Thin shell over :mod:`app.demo.driver` — it wires a throwaway demo database +
 the default :class:`~app.scoreboard.demo.Demo2025Source` factory and runs the
-full odds-bearing season walkthrough (weeks 1-13) in one of two modes:
+full odds-bearing season walkthrough (weeks 1-18) in one of two modes:
 
 * ``--assert`` — the runnable INTEGRATION PROOF. Runs the full walkthrough with
   ``assert_oracle=True``; exits 0 when the DB-sourced standings equal the oracle
@@ -151,7 +151,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         default=list(DEFAULT_WEEKS),
         help=(
             "weeks to walk through (default: the full odds-bearing season, "
-            "weeks 1-13)"
+            "weeks 1-18)"
         ),
     )
     return parser.parse_args(argv)

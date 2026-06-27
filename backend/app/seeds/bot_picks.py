@@ -37,7 +37,7 @@ def seed_bot_picks(
     session: Session,
     *,
     season: int,
-    weeks: Sequence[int] = tuple(range(1, 14)),
+    weeks: Sequence[int] = tuple(range(1, 19)),
 ) -> int:
     """Persist the bots' preordained ``weeks`` picks directly as ``Pick`` rows.
 

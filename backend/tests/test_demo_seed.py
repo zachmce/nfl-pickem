@@ -12,7 +12,7 @@ Proven (with a pinned ``now``):
   the Week rows have ``window_closes_at`` stamped;
 * shared-offset: the stored DemoState anchor == the pinned now and
   ``offset_from_anchor(anchor)`` reproduces the positioning;
-* DEMO-BOTS: the 5 bots exist and their wk1-13 Pick rows are persisted directly
+* DEMO-BOTS: the 5 bots exist and their wk1-18 Pick rows are persisted directly
   (counts match the BOT_PICKS records) with ``result=PENDING``;
 * idempotency: re-seeding with the same ``now`` leaves the same Game/Week/Pick and
   single DemoState row counts (no duplicates, no IntegrityError);
@@ -36,7 +36,7 @@ from app.seeds.data.bot_picks_2025 import BOT_PICKS
 from app.seeds.demo import purge_demo, seed_demo
 
 PINNED_NOW = datetime(2026, 6, 23, 12, 0, 0, tzinfo=timezone.utc)
-WEEKS = tuple(range(1, 14))
+WEEKS = tuple(range(1, 19))
 
 
 def _expected_bot_pick_count() -> int:

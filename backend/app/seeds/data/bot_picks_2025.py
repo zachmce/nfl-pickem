@@ -10,12 +10,14 @@ Authoring guarantees
 
 * Games are referenced by their **stable ``espn_event_id``**, never the surrogate
   ``Game.id`` PK (which is assigned at seed time and is not stable across runs).
-* Every referenced ``espn_event_id`` was hand-verified to exist in the fixture for
-  the stated week and to be a FINAL game **carrying odds** — the fixture has 79
-  games with ``odds: null``, on which ``FAVORITE_COVER`` / ``UNDERDOG_COVER`` are
-  ineligible (``_is_true_pickem``). The test
-  ``tests/test_bot_picks_dataset.py`` re-asserts both facts (real game in the
-  right week) so the dataset can never silently drift from the fixture.
+* Every referenced ``espn_event_id`` was verified to exist in the fixture for the
+  stated week and to be a FINAL game **carrying odds**. Post-jt0 (quick task
+  ``260626-jt0``) ALL 272 fixture games carry odds (0 with ``odds: null``), so the
+  spread pick types ``FAVORITE_COVER`` / ``UNDERDOG_COVER`` are eligible in every
+  week — the dataset now covers the full **weeks 1-18** season (it covered only
+  weeks 1-13 before, when late-season games were odds-less and thus unpickable).
+  The test ``tests/test_bot_picks_dataset.py`` re-asserts both facts (real game in
+  the right week) so the dataset can never silently drift from the fixture.
 * Every bot/week roster obeys the conflict rules in
   :mod:`app.services.pick_validation`, including the **slot model**: at most one
   *base* (non-mortal-lock) pick per ``pick_type`` per week — one of each of the
@@ -78,11 +80,12 @@ _UNDER = PickType.UNDER
 #   week 2: 401772936, 401772725, 401772834, 401772835, 401772724
 #   week 3: 401772937, 401772842, 401772733, 401772731, 401772732,
 #           401772839, 401772840
-# Weeks 4-13 were extended for quick task 260623-t65. Each week draws the five
-# lowest-event-id fully-gradeable games (FINAL, nonzero spread, total, both
-# sides) as its shared anchor set; every bot composes a full one-of-each-type +
-# single-mortal-lock roster over those five games via a distinct deterministic
-# strategy (so season standings diverge). Anchor sets by week:
+# Weeks 4-13 were extended for quick task 260623-t65, and weeks 14-18 for quick
+# task 260627-j4s (now possible because jt0 backfilled odds onto every game). Each
+# week draws the five lowest-event-id fully-gradeable games (FINAL, nonzero spread,
+# total, both sides) as its shared anchor set; every bot composes a full
+# one-of-each-type + single-mortal-lock roster over those five games via a distinct
+# deterministic strategy (so season standings diverge). Anchor sets by week:
 #   week  4: 401772632, 401772716, 401772737, 401772738, 401772739
 #   week  5: 401772633, 401772743, 401772744, 401772745, 401772746
 #   week  6: 401772634, 401772717, 401772748, 401772749, 401772750
@@ -93,6 +96,11 @@ _UNDER = PickType.UNDER
 #   week 11: 401772631, 401772774, 401772775, 401772776, 401772777
 #   week 12: 401772779, 401772780, 401772781, 401772782, 401772783
 #   week 13: 401772621, 401772694, 401772785, 401772786, 401772787
+#   week 14: 401772790, 401772791, 401772792, 401772793, 401772794
+#   week 15: 401772795, 401772796, 401772797, 401772798, 401772799
+#   week 16: 401772612, 401772613, 401772801, 401772802, 401772803
+#   week 17: 401772622, 401772710, 401772711, 401772807, 401772808
+#   week 18: 401772955, 401772956, 401772957, 401772958, 401772959
 BOT_PICKS: dict[str, dict[int, list[BotPick]]] = {
     # ---- bot_alice: full rosters every week --------------------------------
     "bot_alice": {

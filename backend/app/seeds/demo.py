@@ -3,7 +3,7 @@
 With ``IS_DEMO_DATA=true`` and an empty DB, :func:`seed_demo` positions the real
 2025 fixture so week-1's first kickoff lands ``DEMO_KICKOFF_BUFFER`` (~24h) in the
 future, persists the SINGLE shared anchor (so the worker/beat process rebuilds the
-SAME ``Demo2025Source(offset)``), and seeds the 5 bots' weeks 1-13 picks DIRECTLY
+SAME ``Demo2025Source(offset)``), and seeds the 5 bots' weeks 1-18 picks DIRECTLY
 as ``Pick`` rows. The season then unspools in real (shifted) time — the Celery
 beat poller flips games SCHEDULED->FINAL on its own as the shifted clock crosses
 each kickoff. The human user picks live through the real ``/api/picks`` window.
@@ -81,8 +81,8 @@ def seed_demo(session: Session, *, now: datetime | None = None) -> dict:
        so ``refresh_games`` has non-FINAL weeks to position, then run
        ``refresh_games(session, Demo2025Source(offset))`` ONCE so the positioned
        ``kickoff_at`` + ``window_closes_at`` land in the Game/Week rows. Commit.
-    4. ``seed_bot_picks(session, season=season, weeks=tuple(range(1, 14)))`` to
-       persist the bots' weeks 1-13 picks directly. Commit.
+    4. ``seed_bot_picks(session, season=season, weeks=tuple(range(1, 19)))`` to
+       persist the bots' weeks 1-18 picks directly. Commit.
 
     Returns a small summary dict (counts + anchor iso) for the CLI banner.
     """
@@ -117,7 +117,7 @@ def seed_demo(session: Session, *, now: datetime | None = None) -> dict:
     session.commit()
 
     # (4) Persist the bots' wk1-13 picks directly.
-    bot_picks = seed_bot_picks(session, season=season, weeks=tuple(range(1, 14)))
+    bot_picks = seed_bot_picks(session, season=season, weeks=tuple(range(1, 19)))
 
     weeks = len(session.exec(select(Week).where(Week.season == season)).all())
     games = len(session.exec(select(Game).where(Game.season == season)).all())

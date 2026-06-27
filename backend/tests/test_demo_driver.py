@@ -4,8 +4,8 @@ This is the headline integration test of the whole pick'em domain: it drives the
 five demo bots' preordained picks through the REAL ``pick_submission`` service,
 finalizes games through the REAL ``refresh_games`` poller, then computes ACTUAL
 standings from the persisted DB rows and asserts they equal the
-``compute_standings`` oracle for weeks 1-13 (the odds-bearing extent of the
-2025 fixture).
+``compute_standings`` oracle for weeks 1-18 (every fixture game now carries odds,
+so the full season is gradeable).
 
 Everything runs OFFLINE — in-memory SQLite, no Postgres, no network, ``app.db``
 is never imported, and :class:`~app.scoreboard.espn.EspnScoreboardSource` is
@@ -39,11 +39,11 @@ from app.seeds.bots import BOT_ACCOUNTS
 from app.seeds.data.bot_picks_2025 import BOT_PICKS
 
 SEASON = 2025
-WEEKS = tuple(range(1, 14))
+WEEKS = tuple(range(1, 19))
 
 
 class DemoDriverTests(unittest.TestCase):
-    """The weeks 1-13 walkthrough actual==oracle integration proof."""
+    """The weeks 1-18 walkthrough actual==oracle integration proof."""
 
     def setUp(self) -> None:
         self.engine = create_engine("sqlite://")
@@ -109,7 +109,7 @@ class DemoDriverTests(unittest.TestCase):
                         f"picks, expected {len(records)}",
                     )
 
-            # (b) DB-sourced actual standings equal the oracle for weeks 1-13.
+            # (b) DB-sourced actual standings equal the oracle for weeks 1-18.
             actual = compute_db_standings(session, season=SEASON, weeks=WEEKS)
             expected = compute_standings(BOT_PICKS, games)
             self.assertEqual(actual, expected)

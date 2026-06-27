@@ -2,10 +2,11 @@
 
 This is the integration harness that ties the whole pick'em season lifecycle
 together and makes it ASSERTABLE: scoreboard source + poller + pick submission +
-bots + oracle, run as a single weeks-1-13 walkthrough of the 2025 season against
-the REAL app surfaces (weeks 1-13 are the odds-bearing extent of the fixture).
+bots + oracle, run as a single weeks-1-18 walkthrough of the 2025 season against
+the REAL app surfaces (every fixture game now carries odds, so the full season is
+gradeable).
 
-For each week N (default 1..13) the driver:
+For each week N (default 1..18) the driver:
 
 1. positions :class:`~app.scoreboard.demo.Demo2025Source` via
    :func:`app.demo.offset.compute_offset` so week N's pick window is OPEN (week N
@@ -78,10 +79,10 @@ from app.services.scoring import score_week
 # BOT_ACCOUNTS and BOT_PICKS). Computed once, not re-derived per call.
 BOT_NAMES: frozenset[str] = frozenset(name for name, _pw in BOT_ACCOUNTS)
 
-# Default per-week set for the walkthrough — the full odds-bearing season
-# (weeks 1-13; weeks 14-18 carry no odds in the fixture, so the demo season runs
-# out of gradeable data at week 13).
-DEFAULT_WEEKS: tuple[int, ...] = tuple(range(1, 14))
+# Default per-week set for the walkthrough — the full odds-bearing season. Every
+# fixture game now carries odds (272/272 post-jt0 backfill), so all 18 weeks are
+# gradeable and the demo season walks the whole schedule.
+DEFAULT_WEEKS: tuple[int, ...] = tuple(range(1, 19))
 
 # Source factory type: maps an offset timedelta to a ScoreboardSource.
 SourceFactory = Callable[[object], object]
