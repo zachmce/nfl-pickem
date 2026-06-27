@@ -89,6 +89,8 @@ export default function RulesPage() {
         </ul>
       </section>
 
+      {/* Point values below are documentation of the backend scoring engine —
+          keep in sync with app/services/scoring.py `_points_for` if it changes. */}
       <section className="space-y-3 rounded-lg border border-gray-200 bg-white p-4">
         <h2 className="text-lg font-bold">Scoring</h2>
         <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
