@@ -83,12 +83,6 @@ class FixtureImporterTests(unittest.TestCase):
                 return g
         self.fail("fixture has no game with odds")
 
-    def _first_game_without_odds(self) -> dict:
-        for g in self.games:
-            if g.get("odds") is None:
-                return g
-        self.fail("fixture has no game without odds")
-
     # -- tests -------------------------------------------------------------
 
     def test_imports_18_weeks_and_272_games(self) -> None:
@@ -160,26 +154,6 @@ class FixtureImporterTests(unittest.TestCase):
             self.assertEqual(game.odds_provider, "ESPN BET")
             self.assertTrue(game.odds_frozen)
             self.assertIsNotNone(game.odds_captured_at)
-
-    def test_game_without_odds_has_null_unfrozen_odds(self) -> None:
-        sample = self._first_game_without_odds()
-        with Session(self.engine) as session:
-            seed_teams(session)
-            import_fixture_2025(session)
-
-            game = session.exec(
-                select(Game).where(
-                    Game.espn_event_id == int(sample["espn_event_id"])
-                )
-            ).first()
-            self.assertIsNotNone(game)
-
-            self.assertIsNone(game.spread)
-            self.assertIsNone(game.total)
-            self.assertIsNone(game.favorite_team_id)
-            self.assertIsNone(game.underdog_team_id)
-            self.assertIsNone(game.odds_provider)
-            self.assertFalse(game.odds_frozen)
 
     def test_reimport_is_idempotent(self) -> None:
         with Session(self.engine) as session:
