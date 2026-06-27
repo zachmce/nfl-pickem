@@ -596,5 +596,132 @@ class RunNotifierRecapTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(am.roles)
 
 
+class RunNotifierDecorateTests(unittest.IsolatedAsyncioTestCase):
+    """The notifier decorates ONLY chat-channel lines with team-logo emojis
+    (260627-wt5): a chat line with a team abbreviation gains its logo before send;
+    the logger line is verbatim; an empty emoji cache leaves chat lines unchanged."""
+
+    def setUp(self) -> None:
+        from app.bot import team_emoji
+
+        team_emoji.reset_emoji_cache()
+
+    def tearDown(self) -> None:
+        from app.bot import team_emoji
+
+        team_emoji.reset_emoji_cache()
+
+    async def _drive(self, frames):
+        subscribe_frame = {"type": "subscribe", "data": 1}
+        logger_channel = _SendableChannel(id=123, name="pickem-logger")
+        chat_channel = _SendableChannel(id=456, name="pickem-chat")
+        client = _FakeClient(_SendableGuild([logger_channel, chat_channel]))
+
+        created: list[_FakeRedis] = []
+
+        def fake_from_url(_url):  # noqa: ANN001
+            if created:  # pragma: no cover - guards an unbounded reconnect loop
+                raise AssertionError("run_notifier reconnected unexpectedly")
+            pubsub = _FakePubSub([subscribe_frame, *frames])
+            redis_client = _FakeRedis(pubsub)
+            created.append(redis_client)
+            return redis_client
+
+        with (
+            mock.patch("redis.asyncio.from_url", fake_from_url),
+            mock.patch("app.bot.notifier.get_settings", lambda: _FakeSettings()),
+            mock.patch("app.bot.notifier._RECONNECT_BACKOFF_START", 0),
+            mock.patch("app.bot.notifier._RECONNECT_BACKOFF_MAX", 0),
+        ):
+            with self.assertRaises(asyncio.CancelledError):
+                await run_notifier(client)
+        return logger_channel, chat_channel
+
+    @staticmethod
+    class _FakeEmoji:
+        def __init__(self, name, id):  # noqa: A002
+            self.name = name
+            self.id = id
+
+        def __str__(self):
+            return f"<:{self.name}:{self.id}>"
+
+    async def test_chat_line_decorated_with_team_logo(self) -> None:
+        from app.bot import team_emoji
+
+        team_emoji.populate_emoji_cache([self._FakeEmoji("chiefs", 7)])
+        # game.final renders "Final: KC 27, LAC 20." (home/away abbrs). KC -> chiefs.
+        event = game_final_event(
+            week=3, away_abbr="LAC", home_abbr="KC", away_score=27, home_score=20
+        )
+        frame = {"type": "message", "data": json.dumps(event)}
+        _, chat = await self._drive([frame])
+        self.assertEqual(len(chat.sent), 1)
+        # The KC token is followed by the chiefs logo string.
+        self.assertIn("KC <:chiefs:7>", chat.sent[0])
+
+    async def test_logger_line_not_decorated(self) -> None:
+        from app.bot import team_emoji
+
+        # A KC entry would decorate IF the logger path ran through the decorator;
+        # it must not. Use a logger event whose line happens to contain an abbr.
+        team_emoji.populate_emoji_cache([self._FakeEmoji("chiefs", 7)])
+        event = pick_event("pick.created", actor="bob", week=3, detail="OVER KC")
+        frame = {"type": "message", "data": json.dumps(event)}
+        logger, _ = await self._drive([frame])
+        self.assertEqual(logger.sent, ["bob pick · Week 3 · OVER KC"])
+        self.assertNotIn("<:chiefs:7>", logger.sent[0])
+
+    async def test_empty_cache_leaves_chat_line_unchanged(self) -> None:
+        event = game_final_event(
+            week=3, away_abbr="LAC", home_abbr="KC", away_score=27, home_score=20
+        )
+        frame = {"type": "message", "data": json.dumps(event)}
+        _, chat = await self._drive([frame])
+        self.assertEqual(len(chat.sent), 1)
+        self.assertNotIn("<:", chat.sent[0])
+
+    async def test_window_closed_lock_line_and_commentary_decorated(self) -> None:
+        from app.bot import team_emoji
+
+        team_emoji.populate_emoji_cache([self._FakeEmoji("vikingslogo", 9)])
+
+        async def _commentary(week):
+            return ["MIN are streaking"]
+
+        event = window_closed_event(week=3)
+        frame = {"type": "message", "data": json.dumps(event)}
+
+        with mock.patch(
+            "app.bot.commentary.build_lock_commentary", _commentary
+        ):
+            subscribe_frame = {"type": "subscribe", "data": 1}
+            logger_channel = _SendableChannel(id=123, name="pickem-logger")
+            chat_channel = _SendableChannel(id=456, name="pickem-chat")
+            client = _FakeClient(_SendableGuild([logger_channel, chat_channel]))
+            created: list[_FakeRedis] = []
+
+            def fake_from_url(_url):  # noqa: ANN001
+                if created:  # pragma: no cover
+                    raise AssertionError("reconnected unexpectedly")
+                pubsub = _FakePubSub([subscribe_frame, frame])
+                redis_client = _FakeRedis(pubsub)
+                created.append(redis_client)
+                return redis_client
+
+            with (
+                mock.patch("redis.asyncio.from_url", fake_from_url),
+                mock.patch("app.bot.notifier.get_settings", lambda: _FakeSettings()),
+                mock.patch("app.bot.notifier._RECONNECT_BACKOFF_START", 0),
+                mock.patch("app.bot.notifier._RECONNECT_BACKOFF_MAX", 0),
+            ):
+                with self.assertRaises(asyncio.CancelledError):
+                    await run_notifier(client)
+
+        # The commentary extra line carrying MIN gains the vikings logo.
+        self.assertEqual(len(chat_channel.sent), 2)
+        self.assertIn("MIN <:vikingslogo:9>", chat_channel.sent[1])
+
+
 if __name__ == "__main__":
     unittest.main()
