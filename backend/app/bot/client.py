@@ -63,6 +63,14 @@ class PickemBot(commands.Bot):
         # Start the gateway-aware heartbeat loop.
         self._heartbeat_loop.start()
 
+        # Start the Redis event subscriber as a fire-and-forget background task.
+        # It must NOT block setup_hook; one bad event never kills the loop (the
+        # subscriber is resilient per-message). Keep a reference so close() can
+        # cancel it cleanly, mirroring the heartbeat loop.
+        from app.bot.notifier import run_notifier
+
+        self._notifier_task = asyncio.create_task(run_notifier(self))
+
     async def on_ready(self) -> None:
         """Log a ready line — informational only; init lives in setup_hook."""
         logger.info(
@@ -86,8 +94,11 @@ class PickemBot(commands.Bot):
         await self.wait_until_ready()
 
     async def close(self) -> None:
-        """Cancel the heartbeat loop on close so it stops touching the file."""
+        """Cancel background tasks on close (heartbeat loop + event subscriber)."""
         self._heartbeat_loop.cancel()
+        task = getattr(self, "_notifier_task", None)
+        if task is not None:
+            task.cancel()
         await super().close()
 
 

@@ -1,0 +1,110 @@
+"""Bot-side subscriber for the Discord notification pipe (QT-1).
+
+This is the BOT side of the pipe established in :mod:`app.services.notifications`:
+it subscribes to the shared Redis ``pickem:events`` channel, renders each event,
+and posts it into a Discord channel scoped to ``DISCORD_GUILD_ID``.
+
+Why it lives HERE (not in ``db_bridge.py``): this module renders to Discord, so it
+MAY import ``discord``. ``db_bridge.py`` is the Discord-free async/sync boundary and
+must stay that way — the subscriber is started from ``client.py``'s ``setup_hook``.
+
+Resilience contract
+-------------------
+* ``resolve_channel`` is guild-scoped (T-kd8-03): it searches ONLY the passed
+  guild's channels, matching by numeric id OR by name, and returns ``None`` (with a
+  warning) on a miss/blank/None — it never raises and never matches a channel in
+  some other guild.
+* ``run_notifier`` wraps per-message handling in try/except + continue (T-kd8-04):
+  one malformed/bad event is logged and skipped — it can never kill the loop.
+"""
+
+from __future__ import annotations
+
+import json
+
+import structlog
+
+from app.config import get_settings
+from app.services.notifications import EVENTS_CHANNEL
+
+logger = structlog.get_logger(__name__)
+
+
+def resolve_channel(guild, channel_setting: str | None):
+    """Find a channel within ``guild`` by numeric id OR by name.
+
+    Searches ONLY ``guild.channels`` (the guild-scoping requirement — never "first
+    channel named X anywhere"). Returns the first match, or ``None`` (with a
+    structlog warning) when ``guild`` is None, the setting is blank/None, or nothing
+    matches. Accepts an id-as-string OR a name because names can change/duplicate.
+    Never raises.
+    """
+    if guild is None:
+        logger.warning("notifier_guild_unavailable", channel_setting=channel_setting)
+        return None
+    if channel_setting is None or not channel_setting.strip():
+        logger.warning("notifier_channel_setting_blank")
+        return None
+
+    setting = channel_setting.strip()
+
+    # Numeric setting => match by id ONLY (do not fall back to a name match).
+    if setting.isdigit():
+        target_id = int(setting)
+        for channel in guild.channels:
+            if channel.id == target_id:
+                return channel
+        logger.warning("notifier_channel_not_found", by="id", value=setting)
+        return None
+
+    # Otherwise match by exact channel name.
+    for channel in guild.channels:
+        if channel.name == setting:
+            return channel
+    logger.warning("notifier_channel_not_found", by="name", value=setting)
+    return None
+
+
+def _render(event: dict) -> str | None:
+    """Render an event to its Discord line, or None for unknown types (ignored).
+
+    QT-1 handles only ``user.login``; QT-2/QT-3 extend this dispatch.
+    """
+    if event.get("type") == "user.login":
+        return f"{event.get('actor')} logged in"
+    return None
+
+
+async def run_notifier(client) -> None:
+    """Subscribe to ``pickem:events`` and post rendered lines into the guild.
+
+    Builds a ``redis.asyncio`` client from ``settings.redis_url``, SUBSCRIBEs to
+    :data:`EVENTS_CHANNEL`, and loops over messages. For ``user.login`` it renders
+    ``"<actor> logged in"`` and sends it to the ``discord_chat_log_channel`` within
+    ``DISCORD_GUILD_ID``. Per-message handling is wrapped in try/except + continue:
+    one bad event is logged and skipped, never killing the subscriber.
+    """
+    import redis.asyncio as aioredis
+
+    settings = get_settings()
+    redis_client = aioredis.from_url(settings.redis_url)
+    pubsub = redis_client.pubsub()
+    await pubsub.subscribe(EVENTS_CHANNEL)
+    logger.info("notifier_subscribed", channel=EVENTS_CHANNEL)
+
+    async for message in pubsub.listen():
+        try:
+            if message.get("type") != "message":
+                continue  # subscribe/confirmation frames, not payloads
+            event = json.loads(message["data"])
+            line = _render(event)
+            if line is None:
+                continue  # unknown event type — QT-2/QT-3 territory
+
+            guild = client.get_guild(settings.discord_guild_id)
+            channel = resolve_channel(guild, settings.discord_chat_log_channel)
+            if channel is not None:
+                await channel.send(line)
+        except Exception:
+            logger.warning("notifier_message_failed", exc_info=True)
+            continue
