@@ -201,14 +201,23 @@ async def run_notifier(client) -> None:
                     # route to that channel only.
                     targets = event.get("targets") or []
                     if "chat" in targets:
-                        # Tier-1 reactive events (260627-t5u) get an LLM-phrased
-                        # personality line with a deterministic render_chat fallback
-                        # baked in (embellish_chat returns the deterministic string
-                        # itself on any LLM failure — so exactly one chat line per
-                        # event, and it NEVER raises). All other chat types keep the
-                        # plain render_chat path. window.closed / week.recap are NOT
-                        # in this set and stay on render_chat untouched.
-                        if event.get("type") in (
+                        # week.recap (260627-tfb) routes through the Tier-2 recap
+                        # orchestrator: an LLM-narrated column over the full week's
+                        # scores + season standings, with the deterministic
+                        # render_chat one-liner baked in as the fallback
+                        # (build_week_recap returns that string itself on any db OR
+                        # LLM failure — so exactly one chat line lands and it NEVER
+                        # raises). The three Tier-1 reactive events (260627-t5u) get
+                        # an LLM-phrased personality line with the same deterministic
+                        # fallback via embellish_chat. All other chat types keep the
+                        # plain render_chat path. window.closed stays on render_chat
+                        # untouched.
+                        etype = event.get("type")
+                        if etype == "week.recap":
+                            from app.bot.recap import build_week_recap
+
+                            line = await build_week_recap(event)
+                        elif etype in (
                             "window.opened",
                             "game.final",
                             "roster.complete",

@@ -484,5 +484,82 @@ class RunNotifierEmbellishTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(called["embellish"])
 
 
+class RunNotifierRecapTests(unittest.IsolatedAsyncioTestCase):
+    """The ``week.recap`` event routes through the Tier-2 ``build_week_recap``
+    orchestrator: the LLM-narrated column is posted when the orchestrator yields one,
+    and the deterministic ``render_chat`` one-liner on fallback — exactly ONE line
+    lands per event and mention hygiene is unchanged."""
+
+    async def _drive(self, frames, build_recap):
+        """Drive run_notifier over ``frames`` with app.bot.recap.build_week_recap
+        patched to ``build_recap`` (an async fn)."""
+        subscribe_frame = {"type": "subscribe", "data": 1}
+        logger_channel = _SendableChannel(id=123, name="pickem-logger")
+        chat_channel = _SendableChannel(id=456, name="pickem-chat")
+        client = _FakeClient(_SendableGuild([logger_channel, chat_channel]))
+
+        created: list[_FakeRedis] = []
+
+        def fake_from_url(_url):  # noqa: ANN001
+            if created:  # pragma: no cover - guards an unbounded reconnect loop
+                raise AssertionError("run_notifier reconnected unexpectedly")
+            pubsub = _FakePubSub([subscribe_frame, *frames])
+            redis_client = _FakeRedis(pubsub)
+            created.append(redis_client)
+            return redis_client
+
+        with (
+            mock.patch("redis.asyncio.from_url", fake_from_url),
+            mock.patch("app.bot.notifier.get_settings", lambda: _FakeSettings()),
+            mock.patch("app.bot.notifier._RECONNECT_BACKOFF_START", 0),
+            mock.patch("app.bot.notifier._RECONNECT_BACKOFF_MAX", 0),
+            mock.patch("app.bot.recap.build_week_recap", build_recap),
+        ):
+            with self.assertRaises(asyncio.CancelledError):
+                await run_notifier(client)
+        return logger_channel, chat_channel
+
+    def _event(self):
+        return week_recap_event(
+            week=3, winner="alice", winner_score=9, leader="alice", leader_score=30
+        )
+
+    async def test_posts_llm_column_when_configured(self) -> None:
+        frame = {"type": "message", "data": json.dumps(self._event())}
+
+        async def _build(event):
+            return "Big week for alice; she leads the season 🏈"
+
+        _, chat = await self._drive([frame], _build)
+        self.assertEqual(chat.sent, ["Big week for alice; she leads the season 🏈"])
+
+    async def test_falls_back_to_deterministic_one_liner(self) -> None:
+        event = self._event()
+        frame = {"type": "message", "data": json.dumps(event)}
+
+        # The orchestrator's own fallback path: return render_chat(event) itself.
+        async def _build(ev):
+            return render_chat(ev)
+
+        _, chat = await self._drive([frame], _build)
+        self.assertEqual(chat.sent, [render_chat(event)])
+
+    async def test_recap_send_suppresses_mass_mentions(self) -> None:
+        import discord
+
+        frame = {"type": "message", "data": json.dumps(self._event())}
+
+        async def _build(event):
+            return "recap column"
+
+        _, chat = await self._drive([frame], _build)
+        self.assertEqual(len(chat.send_kwargs), 1)
+        am = chat.send_kwargs[0].get("allowed_mentions")
+        self.assertIsInstance(am, discord.AllowedMentions)
+        self.assertFalse(am.everyone)
+        self.assertFalse(am.users)
+        self.assertFalse(am.roles)
+
+
 if __name__ == "__main__":
     unittest.main()
