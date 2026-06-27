@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import json
 
+import discord
 import structlog
 
 from app.config import get_settings
@@ -200,7 +201,23 @@ async def run_notifier(client) -> None:
                     # route to that channel only.
                     targets = event.get("targets") or []
                     if "chat" in targets:
-                        line = render_chat(event)
+                        # Tier-1 reactive events (260627-t5u) get an LLM-phrased
+                        # personality line with a deterministic render_chat fallback
+                        # baked in (embellish_chat returns the deterministic string
+                        # itself on any LLM failure — so exactly one chat line per
+                        # event, and it NEVER raises). All other chat types keep the
+                        # plain render_chat path. window.closed / week.recap are NOT
+                        # in this set and stay on render_chat untouched.
+                        if event.get("type") in (
+                            "window.opened",
+                            "game.final",
+                            "roster.complete",
+                        ):
+                            from app.bot.chat_personality import embellish_chat
+
+                            line = await embellish_chat(event)
+                        else:
+                            line = render_chat(event)
                         channel_setting = settings.discord_chat_channel
                     else:
                         line = _render(event)
@@ -211,7 +228,11 @@ async def run_notifier(client) -> None:
                     guild = client.get_guild(settings.discord_guild_id)
                     channel = resolve_channel(guild, channel_setting)
                     if channel is not None:
-                        await channel.send(line)
+                        # Mention hygiene (T-t5u-04): suppress @everyone/@here/role
+                        # pings so LLM-authored chat text can never ping the server.
+                        await channel.send(
+                            line, allowed_mentions=discord.AllowedMentions.none()
+                        )
                         # ADDITIVE pickem-chat personality layer (260627-nef):
                         # AFTER the existing deterministic lock line, on a
                         # window.closed event ONLY, post one personality line per
@@ -226,7 +247,10 @@ async def run_notifier(client) -> None:
                             from app.bot.commentary import build_lock_commentary
 
                             for extra in await build_lock_commentary(event.get("week")):
-                                await channel.send(extra)
+                                await channel.send(
+                                    extra,
+                                    allowed_mentions=discord.AllowedMentions.none(),
+                                )
                 except Exception:
                     logger.warning("notifier_message_failed", exc_info=True)
                     continue

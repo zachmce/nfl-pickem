@@ -186,13 +186,15 @@ class _SendableChannel:
     """A channel exposing the ``.id``/``.name`` the resolver reads plus an async
     ``.send`` that records the lines posted — no real Discord object needed."""
 
-    def __init__(self, id: int, name: str) -> None:
+    def __init__(self, id: int, name: str) -> None:  # noqa: A002
         self.id = id
         self.name = name
         self.sent: list[str] = []
+        self.send_kwargs: list[dict] = []
 
-    async def send(self, line: str) -> None:
+    async def send(self, line: str, **kwargs) -> None:
         self.sent.append(line)
+        self.send_kwargs.append(kwargs)
 
 
 class _SendableGuild:
@@ -344,6 +346,142 @@ class RunNotifierRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(logger_channel.sent), 1)
         self.assertIn("3", chat_channel.sent[0])  # window.opened for week 3
         self.assertEqual(logger_channel.sent, ["ohai logged in"])
+
+
+class RunNotifierEmbellishTests(unittest.IsolatedAsyncioTestCase):
+    """The three Tier-1 chat events route through ``embellish_chat``: an LLM line
+    is posted when the client is configured, the deterministic line on a None, and
+    exactly ONE line lands per event. ``window.closed`` is untouched (no embellish
+    call) and the chat send suppresses mass mentions."""
+
+    async def _drive(self, frames, phrase_value):
+        """Drive run_notifier over ``frames`` with chat_personality.llm_client.phrase
+        patched to return ``phrase_value`` (a str, None, or a raising side effect)."""
+        from app.bot import chat_personality
+
+        subscribe_frame = {"type": "subscribe", "data": 1}
+        logger_channel = _SendableChannel(id=123, name="pickem-logger")
+        chat_channel = _SendableChannel(id=456, name="pickem-chat")
+        client = _FakeClient(_SendableGuild([logger_channel, chat_channel]))
+
+        created: list[_FakeRedis] = []
+
+        def fake_from_url(_url):  # noqa: ANN001
+            if created:  # pragma: no cover - guards an unbounded reconnect loop
+                raise AssertionError("run_notifier reconnected unexpectedly")
+            pubsub = _FakePubSub([subscribe_frame, *frames])
+            redis_client = _FakeRedis(pubsub)
+            created.append(redis_client)
+            return redis_client
+
+        if isinstance(phrase_value, BaseException):
+            async def _phrase(fact_text, *, system_prompt):
+                raise phrase_value
+        else:
+            async def _phrase(fact_text, *, system_prompt):
+                return phrase_value
+
+        with (
+            mock.patch("redis.asyncio.from_url", fake_from_url),
+            mock.patch("app.bot.notifier.get_settings", lambda: _FakeSettings()),
+            mock.patch("app.bot.notifier._RECONNECT_BACKOFF_START", 0),
+            mock.patch("app.bot.notifier._RECONNECT_BACKOFF_MAX", 0),
+            mock.patch.object(chat_personality.llm_client, "phrase", _phrase),
+        ):
+            with self.assertRaises(asyncio.CancelledError):
+                await run_notifier(client)
+        return logger_channel, chat_channel
+
+    async def test_window_opened_posts_llm_line_when_configured(self) -> None:
+        frame = {"type": "message", "data": json.dumps(window_opened_event(week=3))}
+        _, chat = await self._drive([frame], "WEEK 3 IS LIVE 🏈")
+        self.assertEqual(chat.sent, ["WEEK 3 IS LIVE 🏈"])
+
+    async def test_window_opened_falls_back_to_deterministic_on_none(self) -> None:
+        event = window_opened_event(week=3)
+        frame = {"type": "message", "data": json.dumps(event)}
+        _, chat = await self._drive([frame], None)
+        self.assertEqual(chat.sent, [render_chat(event)])
+
+    async def test_game_final_posts_llm_line_when_configured(self) -> None:
+        event = game_final_event(
+            week=3, away_abbr="LAC", home_abbr="KC", away_score=20, home_score=27
+        )
+        frame = {"type": "message", "data": json.dumps(event)}
+        _, chat = await self._drive([frame], "KC takes it 🔥")
+        self.assertEqual(chat.sent, ["KC takes it 🔥"])
+
+    async def test_roster_complete_falls_back_to_deterministic_on_none(self) -> None:
+        event = roster_complete_event(actor="Bob", week=3)
+        frame = {"type": "message", "data": json.dumps(event)}
+        _, chat = await self._drive([frame], None)
+        self.assertEqual(chat.sent, [render_chat(event)])
+
+    async def test_llm_raise_does_not_kill_loop_and_posts_deterministic(self) -> None:
+        event = window_opened_event(week=3)
+        frame = {"type": "message", "data": json.dumps(event)}
+        _, chat = await self._drive([frame], RuntimeError("llm exploded"))
+        # The loop survived (CancelledError still raised) and the deterministic
+        # line still posted exactly once.
+        self.assertEqual(chat.sent, [render_chat(event)])
+
+    async def test_chat_send_suppresses_mass_mentions(self) -> None:
+        import discord
+
+        frame = {"type": "message", "data": json.dumps(window_opened_event(week=3))}
+        _, chat = await self._drive([frame], "WEEK 3 IS LIVE 🏈")
+        self.assertEqual(len(chat.send_kwargs), 1)
+        am = chat.send_kwargs[0].get("allowed_mentions")
+        # AllowedMentions has no __eq__, so compare the suppressing flags directly.
+        self.assertIsInstance(am, discord.AllowedMentions)
+        self.assertFalse(am.everyone)
+        self.assertFalse(am.users)
+        self.assertFalse(am.roles)
+
+    async def test_window_closed_unchanged_and_no_embellish_call(self) -> None:
+        from app.bot import chat_personality
+
+        event = window_closed_event(week=3)
+        frame = {"type": "message", "data": json.dumps(event)}
+
+        called = {"embellish": False}
+        real_embellish = chat_personality.embellish_chat
+
+        async def _spy(ev):
+            called["embellish"] = True
+            return await real_embellish(ev)
+
+        logger_channel = _SendableChannel(id=123, name="pickem-logger")
+        chat_channel = _SendableChannel(id=456, name="pickem-chat")
+        client = _FakeClient(_SendableGuild([logger_channel, chat_channel]))
+        subscribe_frame = {"type": "subscribe", "data": 1}
+        created: list[_FakeRedis] = []
+
+        def fake_from_url(_url):  # noqa: ANN001
+            if created:  # pragma: no cover
+                raise AssertionError("reconnected unexpectedly")
+            pubsub = _FakePubSub([subscribe_frame, frame])
+            redis_client = _FakeRedis(pubsub)
+            created.append(redis_client)
+            return redis_client
+
+        async def _no_commentary(week):  # build_lock_commentary stub (no db)
+            return ["streak line"]
+
+        with (
+            mock.patch("redis.asyncio.from_url", fake_from_url),
+            mock.patch("app.bot.notifier.get_settings", lambda: _FakeSettings()),
+            mock.patch("app.bot.notifier._RECONNECT_BACKOFF_START", 0),
+            mock.patch("app.bot.notifier._RECONNECT_BACKOFF_MAX", 0),
+            mock.patch("app.bot.chat_personality.embellish_chat", _spy),
+            mock.patch("app.bot.commentary.build_lock_commentary", _no_commentary),
+        ):
+            with self.assertRaises(asyncio.CancelledError):
+                await run_notifier(client)
+
+        # Deterministic lock line + the commentary line posted; embellish NOT called.
+        self.assertEqual(chat_channel.sent, [render_chat(event), "streak line"])
+        self.assertFalse(called["embellish"])
 
 
 if __name__ == "__main__":
