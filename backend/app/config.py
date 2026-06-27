@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     # guild id unset; the bot container asserts they are present at startup.
     discord_bot_token: str | None = None
     discord_guild_id: int | None = None
+    # Discord notification target channels (QT-1). Resolved by the bot subscriber
+    # within DISCORD_GUILD_ID's channels (by numeric id OR by name). Default None so
+    # prod is unaffected when unset; a blank env value is coerced to None below.
+    discord_chat_log_channel: str | None = None
+    discord_chat_channel: str | None = None
     # REG-07 DM password-change pointer — where the bot tells users to log in.
     app_base_url: str = "http://localhost:5173"
 
@@ -61,6 +66,8 @@ class Settings(BaseSettings):
     @field_validator(
         "discord_bot_token",
         "discord_guild_id",
+        "discord_chat_log_channel",
+        "discord_chat_channel",
         "default_admin_username",
         "default_admin_password",
         mode="before",
