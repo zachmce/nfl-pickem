@@ -26,6 +26,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from unittest import mock
 
 from fastapi.testclient import TestClient
 from sqlalchemy import event
@@ -664,6 +665,76 @@ class AdminPicksApiTests(unittest.TestCase):
         audits = self._audits()
         self.assertEqual(len(audits), 2)
         self.assertTrue(all(a.admin_user_id == self.admin_id for a in audits))
+
+    def test_grade_misc_on_closed_window_publishes_chat_event(self) -> None:
+        """Grading a MISC pick on a CLOSED-window week publishes one misc.graded.
+
+        Week WEEK+2's only game has a PAST kickoff (window CLOSED), so the leak
+        guard lets the chat publish through. Exactly one event with the display
+        fields is captured.
+        """
+        # Retroactive create on the FINAL (closed-window) week, then grade WIN.
+        self._put(
+            self.target_id, season=SEASON, week=WEEK + 2,
+            body={"game_id": self.game_final_id, "pick_type": "MISC",
+                  "misc_text": "Mahomes throws 4 TDs"},
+            as_user=self.admin_id,
+        )
+        captured: list[dict] = []
+        with mock.patch(
+            "app.api.admin.publish_event", side_effect=captured.append
+        ):
+            resp = self._grade(
+                self.target_id, season=SEASON, week=WEEK + 2,
+                body={"result": "WIN", "points": 3}, as_user=self.admin_id,
+            )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        misc_events = [e for e in captured if e.get("type") == "misc.graded"]
+        self.assertEqual(len(misc_events), 1, captured)
+        event = misc_events[0]
+        self.assertEqual(event["targets"], ["chat"])
+        self.assertEqual(event["actor"], "target")
+        self.assertEqual(event["week"], WEEK + 2)
+        self.assertEqual(event["prediction"], "Mahomes throws 4 TDs")
+        self.assertEqual(event["verdict"], "correct")
+        self.assertEqual(event["points"], 3)
+
+    def test_grade_misc_on_open_window_publishes_nothing(self) -> None:
+        """Grading a MISC pick on an OPEN-window week publishes NO chat event.
+
+        Week WEEK's games have FUTURE kickoffs (window OPEN), so the leak guard
+        suppresses the misc.graded publish (the prediction is hidden-until-lock).
+        The grade still returns 200 and persists result/points.
+        """
+        # Retroactive create on the OPEN-window base week, then grade LOSS.
+        self._put(
+            self.target_id, season=SEASON, week=WEEK,
+            body={"game_id": self.game_open_id, "pick_type": "MISC",
+                  "misc_text": "a bold prediction"},
+            as_user=self.admin_id,
+        )
+        captured: list[dict] = []
+        with mock.patch(
+            "app.api.admin.publish_event", side_effect=captured.append
+        ):
+            resp = self._grade(
+                self.target_id, season=SEASON, week=WEEK,
+                body={"result": "LOSS", "points": -1}, as_user=self.admin_id,
+            )
+        # The grade itself still succeeds and persists.
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["result"], "LOSS")
+        self.assertEqual(body["points"], -1)
+        rows = self._picks_for(self.target_id, self.week_id)
+        misc_rows = [r for r in rows if r.pick_type == PickType.MISC]
+        self.assertEqual(len(misc_rows), 1)
+        self.assertEqual(misc_rows[0].result, PickResult.LOSS)
+        self.assertEqual(misc_rows[0].points, -1)
+        # The leak guard suppressed the chat publish.
+        misc_events = [e for e in captured if e.get("type") == "misc.graded"]
+        self.assertEqual(misc_events, [], captured)
 
     def test_graded_misc_survives_recompute(self) -> None:
         """A live week_results recompute over a graded MISC keeps the admin points.
