@@ -38,9 +38,15 @@ from app.api.deps import require_admin
 from app.db import get_session
 from app.exceptions import ConflictError, NotFoundError
 from app.models import PickType, User
-from app.schemas.admin import AdminUserListResponse, AdminUserRead
+from app.schemas.admin import (
+    AdminUserListResponse,
+    AdminUserRead,
+    FreezeWeekRequest,
+    IngestSeasonRequest,
+)
 from app.schemas.admin_picks import AdminMiscGradeRequest, AdminPickSetRequest
 from app.schemas.picks import PickRead
+from app.tasks import freeze_week_task, ingest_season_task
 from app.services.admin import (
     AdminUserRow,
     deactivate_user,
@@ -271,3 +277,45 @@ def clear_user_pick(
     )
     session.commit()
     return None
+
+
+# --------------------------------------------------------------------------- #
+# Admin worker triggers (QT-2)
+#
+# POST /api/admin/ingest-season and POST /api/admin/freeze-week let an admin (a)
+# bootstrap a season's Week+Game skeleton and (b) lock a week's DraftKings lines
+# on demand before they vanish. Both DISPATCH the existing/new Celery tasks via
+# ``.delay(...)`` and return 202 with the AsyncResult id — they do NOT run the
+# (~18 synchronous ESPN-call) ingest in the request thread. The gated source
+# resolution lives in the task wrappers (:mod:`app.tasks`), never here.
+#
+# Both sit behind Depends(require_admin) (401 anon / 403 non-admin) exactly like
+# every other /api/admin route, and there is NO actor field in the body, so there
+# is no privilege-escalation / IDOR surface (T-h2v-01). They are mutating POSTs,
+# so the existing double-submit CSRF middleware applies to cookie auth exactly as
+# the other admin POSTs (bearer is exempt; no special-casing — T-h2v-02).
+# --------------------------------------------------------------------------- #
+
+
+@router.post("/ingest-season", status_code=202)
+def trigger_ingest_season(
+    payload: IngestSeasonRequest,
+    admin: User = Depends(require_admin),
+) -> dict:
+    """Dispatch a season-bootstrap ingest (admin only). 202 + the task id."""
+    result = ingest_season_task.delay(payload.season)
+    return {"task_id": result.id, "season": payload.season}
+
+
+@router.post("/freeze-week", status_code=202)
+def trigger_freeze_week(
+    payload: FreezeWeekRequest,
+    admin: User = Depends(require_admin),
+) -> dict:
+    """Dispatch a manual line-freeze for one week (admin only). 202 + the task id."""
+    result = freeze_week_task.delay(payload.season, payload.week)
+    return {
+        "task_id": result.id,
+        "season": payload.season,
+        "week": payload.week,
+    }

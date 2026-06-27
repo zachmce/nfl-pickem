@@ -4,6 +4,7 @@ from app.celery_app import celery_app
 from app.config import default_scoreboard_source
 from app.db import engine, task_session
 from app.models import TaskRun
+from app.services.freeze import freeze_week
 from app.services.ingest import ingest_season
 from app.services.scheduler import ODDS_JOB, SCORES_JOB
 
@@ -124,4 +125,43 @@ def ingest_season_task(season: int) -> dict:
             "weeks_created": result.weeks_created,
             "games_created": result.games_created,
             "failed_weeks": [list(w) for w in result.failed_weeks],
+        }
+
+
+@celery_app.task(name="app.tasks.freeze_week")
+def freeze_week_task(season: int, week: int) -> dict:
+    """Manual worker-callable trigger: re-snapshot + LOCK one week's lines NOW.
+
+    Thin gated wrapper mirroring :func:`ingest_season_task` EXACTLY — the
+    on-demand line-freeze the computed odds clock does NOT cover (it freezes on a
+    cadence; this freezes immediately, before the ephemeral DraftKings line
+    vanishes). Opens a non-HTTP ``task_session()``, resolves the GATED default
+    scoreboard source (the real ESPN adapter in prod, the time-shifted
+    Demo2025Source under the demo gate) via
+    :func:`app.config.default_scoreboard_source` — the gated resolution stays HERE
+    in the thin wrapper, NOT in the source-agnostic
+    :func:`app.services.freeze.freeze_week` service — runs the freeze, and returns
+    a JSON-serializable summary so Celery's json result serializer accepts it.
+
+    This is a MANUAL trigger only (dispatched from the admin
+    ``POST /api/admin/freeze-week`` route). It is deliberately NOT registered in
+    the polling-job registry / ``beat_schedule``.
+
+    :param season: the NFL season year (e.g. ``2026``).
+    :param week: the regular-season week to freeze (``1``..``18``).
+    """
+    with task_session() as session:
+        # Pass the open session so the demo branch reuses it (reading the shared
+        # anchor on this same session); the ESPN (prod) branch ignores the arg.
+        source = default_scoreboard_source(session)
+        result = freeze_week(session, source, season, week)
+        # freeze_week commits once at the end; this wrapper-level commit is a
+        # harmless no-op that keeps the wrapper shape identical to its siblings.
+        session.commit()
+        return {
+            "season": result.season,
+            "week": result.week,
+            "games_updated": result.games_updated,
+            "already_frozen": result.already_frozen,
+            "failed": result.failed,
         }

@@ -63,3 +63,32 @@ class AdminUserListResponse(BaseModel):
     def from_rows(cls, rows: list[AdminUserRow]) -> "AdminUserListResponse":
         """Shape the service's result rows into the list response."""
         return cls(users=[AdminUserRead.from_row(r) for r in rows])
+
+
+# --------------------------------------------------------------------------- #
+# Admin trigger requests (QT-2)
+#
+# Request bodies for the two admin-only worker triggers under /api/admin:
+# ``POST /ingest-season`` (bootstrap a season's Week+Game skeleton) and
+# ``POST /freeze-week`` (re-snapshot + lock one week's lines NOW). The acting
+# admin is the verified session — there is NO actor field in the body, so there
+# is no spoofable caller and no IDOR surface. Both endpoints DISPATCH a Celery
+# task and return a small 202 body carrying the dispatched task id.
+# --------------------------------------------------------------------------- #
+
+
+class IngestSeasonRequest(BaseModel):
+    """Body for ``POST /api/admin/ingest-season``: just the season to ingest."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    season: int
+
+
+class FreezeWeekRequest(BaseModel):
+    """Body for ``POST /api/admin/freeze-week``: the season + week to freeze."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    season: int
+    week: int
