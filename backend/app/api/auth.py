@@ -16,6 +16,7 @@ from app.exceptions import InvalidCredentialsError
 from app.models import User
 from app.schemas.auth import LogoutResponse, TokenResponse, UserLoginRequest, UserRead
 from app.services.auth import create_session_cookie, login_user
+from app.services.notifications import login_event, publish_event
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -65,6 +66,13 @@ def login(
     _set_session_cookie(response, user.id)
     # Issue a CSRF token so the SPA can protect subsequent cookie-auth mutations.
     set_csrf_cookie(response, issue_csrf_token())
+    # Post-commit, best-effort: announce the login to the Discord pipe. This site
+    # is the success path only (after is_active/credential checks), and the
+    # request's get_session dependency commits when this handler returns — so a
+    # rejected/rolled-back login never announces. publish_event is best-effort
+    # internally (swallows a Redis outage), so the route needs no extra try/except.
+    # Display name only — nothing sensitive crosses to Discord.
+    publish_event(login_event(user.display_name))
     return _to_user_read(user)
 
 
