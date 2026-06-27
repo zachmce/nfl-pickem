@@ -60,6 +60,21 @@ class PickemBot(commands.Bot):
         await self.tree.sync(guild=guild)
         logger.info("command_tree_synced", guild_id=get_settings().discord_guild_id)
 
+        # Team-logo emoji cache (260627-wt5): fetch the application's custom emojis
+        # ONCE at startup and populate the team_emoji cache so chat lines can be
+        # decorated with team logos — with NO hardcoded emoji ids. Best-effort: a
+        # fetch failure logs a warning and continues (the resolver then returns None
+        # and chat lines simply post undecorated). The emojis are static, so a single
+        # fetch is sufficient — no re-fetch loop.
+        try:
+            from app.bot.team_emoji import populate_emoji_cache
+
+            emojis = await self.fetch_application_emojis()
+            count = populate_emoji_cache(emojis)
+            logger.info("team_emojis_cached", count=count)
+        except Exception:
+            logger.warning("team_emoji_fetch_failed", exc_info=True)
+
         # Start the gateway-aware heartbeat loop.
         self._heartbeat_loop.start()
 

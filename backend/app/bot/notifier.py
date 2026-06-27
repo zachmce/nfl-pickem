@@ -31,6 +31,7 @@ import json
 import discord
 import structlog
 
+from app.bot.team_emoji import decorate_team_logos
 from app.config import get_settings
 from app.services.notifications import EVENTS_CHANNEL
 
@@ -242,6 +243,16 @@ async def run_notifier(client) -> None:
                     if line is None:
                         continue  # unknown event type — ignored
 
+                    # Team-logo decoration (260627-wt5): tag team references in
+                    # player-facing CHAT lines with their Discord application-emoji
+                    # logo. Applied ONLY on the chat branch — the terse logger feed
+                    # is never decorated. decorate_team_logos is best-effort and
+                    # NEVER raises (no-op when the startup emoji fetch failed / the
+                    # cache is empty), so it cannot regress posting.
+                    is_chat = "chat" in (event.get("targets") or [])
+                    if is_chat and line is not None:
+                        line = decorate_team_logos(line)
+
                     guild = client.get_guild(settings.discord_guild_id)
                     channel = resolve_channel(guild, channel_setting)
                     if channel is not None:
@@ -264,8 +275,9 @@ async def run_notifier(client) -> None:
                             from app.bot.commentary import build_lock_commentary
 
                             for extra in await build_lock_commentary(event.get("week")):
+                                # Chat-channel send — decorate team references too.
                                 await channel.send(
-                                    extra,
+                                    decorate_team_logos(extra),
                                     allowed_mentions=discord.AllowedMentions.none(),
                                 )
                 except Exception:
