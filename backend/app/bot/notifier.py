@@ -68,10 +68,33 @@ def resolve_channel(guild, channel_setting: str | None):
 def _render(event: dict) -> str | None:
     """Render an event to its Discord line, or None for unknown types (ignored).
 
-    QT-1 handles only ``user.login``; QT-2/QT-3 extend this dispatch.
+    The bot does NO resolution — every field it joins (the resolved side/team
+    ``detail``, the ``target`` display_name, the ingest summary) is already shaped
+    by the publisher's pure builders in :mod:`app.services.notifications`. QT-1
+    handled only ``user.login``; QT-2 adds the seven granular pickem-logger types.
+    Unknown types still return ``None`` (ignored upstream).
     """
-    if event.get("type") == "user.login":
+    etype = event.get("type")
+
+    if etype == "user.login":
         return f"{event.get('actor')} logged in"
+    if etype in ("pick.created", "pick.changed"):
+        return f"{event.get('actor')} pick · Week {event.get('week')} · {event.get('detail')}"
+    if etype == "pick.cleared":
+        return f"{event.get('actor')} cleared · Week {event.get('week')} · {event.get('detail')}"
+    if etype == "admin.pick_set":
+        return f"admin set {event.get('target')} · Week {event.get('week')} · {event.get('detail')}"
+    if etype == "admin.pick_cleared":
+        return f"admin cleared {event.get('target')} · Week {event.get('week')} · {event.get('slot')}"
+    if etype == "player.registered":
+        return f"new player: {event.get('actor')}"
+    if etype == "ingest.season":
+        return (
+            f"ingested {event.get('season')} · {event.get('weeks')} wk / "
+            f"{event.get('games')} games ({event.get('failed')} failed)"
+        )
+    if etype == "freeze.week":
+        return f"Week {event.get('week')} lines frozen"
     return None
 
 

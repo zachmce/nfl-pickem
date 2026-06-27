@@ -15,7 +15,17 @@ from __future__ import annotations
 import unittest
 from dataclasses import dataclass
 
-from app.bot.notifier import resolve_channel
+from app.bot.notifier import _render, resolve_channel
+from app.services.notifications import (
+    admin_pick_cleared_event,
+    admin_pick_set_event,
+    freeze_week_event,
+    ingest_season_event,
+    login_event,
+    pick_cleared_event,
+    pick_event,
+    player_registered_event,
+)
 
 
 @dataclass
@@ -69,6 +79,52 @@ class ResolveChannelTests(unittest.TestCase):
     def test_none_guild_returns_none(self) -> None:
         # get_guild() can return None (bot not in guild yet) — must not raise.
         self.assertIsNone(resolve_channel(None, "pickem-logger"))
+
+
+class RenderTests(unittest.TestCase):
+    """Feed each builder's output through ``_render`` and assert the exact line.
+
+    The bot does NO resolution — it only string-joins the structured fields the
+    QT-2 builders emit (the resolved side/team is already in ``detail``).
+    """
+
+    def test_render_login(self) -> None:
+        self.assertEqual(_render(login_event("alice")), "alice logged in")
+
+    def test_render_pick_created(self) -> None:
+        event = pick_event("pick.created", actor="bob", week=3, detail="OVER KC")
+        self.assertEqual(_render(event), "bob pick · Week 3 · OVER KC")
+
+    def test_render_pick_changed(self) -> None:
+        event = pick_event("pick.changed", actor="bob", week=3, detail="Favorite (KC)")
+        self.assertEqual(_render(event), "bob pick · Week 3 · Favorite (KC)")
+
+    def test_render_pick_cleared(self) -> None:
+        event = pick_cleared_event(actor="bob", week=3, detail="OVER KC")
+        self.assertEqual(_render(event), "bob cleared · Week 3 · OVER KC")
+
+    def test_render_admin_pick_set(self) -> None:
+        event = admin_pick_set_event(target="alice", week=3, detail="Favorite (KC)")
+        self.assertEqual(_render(event), "admin set alice · Week 3 · Favorite (KC)")
+
+    def test_render_admin_pick_cleared(self) -> None:
+        event = admin_pick_cleared_event(target="alice", week=3, slot="FAVORITE_COVER")
+        self.assertEqual(
+            _render(event), "admin cleared alice · Week 3 · FAVORITE_COVER"
+        )
+
+    def test_render_player_registered(self) -> None:
+        self.assertEqual(_render(player_registered_event("newbie")), "new player: newbie")
+
+    def test_render_ingest_season(self) -> None:
+        event = ingest_season_event(season=2026, weeks=18, games=272, failed=1)
+        self.assertEqual(_render(event), "ingested 2026 · 18 wk / 272 games (1 failed)")
+
+    def test_render_freeze_week(self) -> None:
+        self.assertEqual(_render(freeze_week_event(week=3)), "Week 3 lines frozen")
+
+    def test_render_unknown_type_returns_none(self) -> None:
+        self.assertIsNone(_render({"v": 1, "type": "totally.unknown"}))
 
 
 if __name__ == "__main__":
