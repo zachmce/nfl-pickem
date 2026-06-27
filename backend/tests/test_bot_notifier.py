@@ -18,17 +18,22 @@ import unittest
 from dataclasses import dataclass
 from unittest import mock
 
-from app.bot.notifier import _render, resolve_channel, run_notifier
+from app.bot.notifier import _render, render_chat, resolve_channel, run_notifier
 from app.services.notifications import (
     EVENTS_CHANNEL,
     admin_pick_cleared_event,
     admin_pick_set_event,
     freeze_week_event,
+    game_final_event,
     ingest_season_event,
     login_event,
     pick_cleared_event,
     pick_event,
     player_registered_event,
+    roster_complete_event,
+    week_recap_event,
+    window_closed_event,
+    window_opened_event,
 )
 
 
@@ -131,6 +136,52 @@ class RenderTests(unittest.TestCase):
         self.assertIsNone(_render({"v": 1, "type": "totally.unknown"}))
 
 
+class RenderChatTests(unittest.TestCase):
+    """``render_chat`` renders the five player-facing chat lines (the LLM seam)."""
+
+    def test_render_roster_complete(self) -> None:
+        line = render_chat(roster_complete_event(actor="Bob", week=3))
+        self.assertIsNotNone(line)
+        self.assertIn("Bob", line)
+        self.assertIn("3", line)
+
+    def test_render_window_opened(self) -> None:
+        line = render_chat(window_opened_event(week=3))
+        self.assertIsNotNone(line)
+        self.assertIn("3", line)
+
+    def test_render_window_closed(self) -> None:
+        line = render_chat(window_closed_event(week=3))
+        self.assertIsNotNone(line)
+        self.assertIn("3", line)
+
+    def test_render_game_final(self) -> None:
+        line = render_chat(
+            game_final_event(
+                week=3, away_abbr="LAC", home_abbr="KC", away_score=20, home_score=27
+            )
+        )
+        self.assertIsNotNone(line)
+        self.assertIn("KC", line)
+        self.assertIn("LAC", line)
+        self.assertIn("27", line)
+        self.assertIn("20", line)
+
+    def test_render_week_recap(self) -> None:
+        line = render_chat(
+            week_recap_event(
+                week=3, winner="Carol", winner_score=6, leader="Dave", leader_score=18
+            )
+        )
+        self.assertIsNotNone(line)
+        self.assertIn("Carol", line)
+        self.assertIn("Dave", line)
+        self.assertIn("6", line)
+
+    def test_render_chat_unknown_type_returns_none(self) -> None:
+        self.assertIsNone(render_chat({"v": 1, "type": "totally.unknown"}))
+
+
 class _SendableChannel:
     """A channel exposing the ``.id``/``.name`` the resolver reads plus an async
     ``.send`` that records the lines posted — no real Discord object needed."""
@@ -161,6 +212,7 @@ class _FakeSettings:
     redis_url = "redis://fake:6379/0"
     discord_guild_id = 999
     discord_chat_log_channel = "pickem-logger"
+    discord_chat_channel = "pickem-chat"
 
 
 class _FakePubSub:
@@ -246,6 +298,52 @@ class RunNotifierReconnectTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(created[1]._pubsub.subscribed, [EVENTS_CHANNEL])
         self.assertTrue(created[0]._pubsub.closed)
         self.assertTrue(created[0].closed)
+
+
+class RunNotifierRoutingTests(unittest.IsolatedAsyncioTestCase):
+    """``run_notifier`` routes by the event's ``targets``: chat-targeted events go
+    to ``discord_chat_channel``; logger-targeted events go to
+    ``discord_chat_log_channel`` — both within ``DISCORD_GUILD_ID``."""
+
+    async def test_chat_and_logger_events_route_to_their_channels(self) -> None:
+        subscribe_frame = {"type": "subscribe", "data": 1}
+        chat_frame = {
+            "type": "message",
+            "data": json.dumps(window_opened_event(week=3)),
+        }
+        logger_frame = {
+            "type": "message",
+            "data": json.dumps(login_event("ohai")),
+        }
+
+        logger_channel = _SendableChannel(id=123, name="pickem-logger")
+        chat_channel = _SendableChannel(id=456, name="pickem-chat")
+        client = _FakeClient(_SendableGuild([logger_channel, chat_channel]))
+
+        created: list[_FakeRedis] = []
+
+        def fake_from_url(_url):  # noqa: ANN001
+            if created:  # pragma: no cover - guards an unbounded reconnect loop
+                raise AssertionError("run_notifier reconnected unexpectedly")
+            pubsub = _FakePubSub([subscribe_frame, chat_frame, logger_frame])
+            redis_client = _FakeRedis(pubsub)
+            created.append(redis_client)
+            return redis_client
+
+        with (
+            mock.patch("redis.asyncio.from_url", fake_from_url),
+            mock.patch("app.bot.notifier.get_settings", lambda: _FakeSettings()),
+            mock.patch("app.bot.notifier._RECONNECT_BACKOFF_START", 0),
+            mock.patch("app.bot.notifier._RECONNECT_BACKOFF_MAX", 0),
+        ):
+            with self.assertRaises(asyncio.CancelledError):
+                await run_notifier(client)
+
+        # The chat event landed in pickem-chat; the logger event in pickem-logger.
+        self.assertEqual(len(chat_channel.sent), 1)
+        self.assertEqual(len(logger_channel.sent), 1)
+        self.assertIn("3", chat_channel.sent[0])  # window.opened for week 3
+        self.assertEqual(logger_channel.sent, ["ohai logged in"])
 
 
 if __name__ == "__main__":

@@ -68,7 +68,7 @@ from sqlmodel import Session, select
 from app.models import Game, GameStatus, Team, Week
 from app.scoreboard.port import ScoreboardFetchError, ScoreboardSource
 from app.scoreboard.types import ScoreboardGame
-from app.services.pick_window import compute_window
+from app.services.pick_window import compute_window, is_pick_open
 
 
 @dataclass(frozen=True)
@@ -196,6 +196,35 @@ def _team_abbr_map(session: Session) -> dict[int, str]:
     }
 
 
+def _week_open_states(
+    by_week: dict[tuple[int, int], list[Game]], now: datetime
+) -> dict[tuple[int, int], bool]:
+    """Compute each week's pick-window-open boolean at ``now`` (reusing the math).
+
+    For every ``(season, week)`` group, derive the :class:`PickWindow` from the
+    week's CURRENT (in-memory) kickoffs plus the previous week's kickoffs exactly
+    as the stamping step does — reusing :func:`compute_window` /
+    :func:`is_pick_open`, NO re-implemented open/close math — and record whether
+    the window is open at ``now``. A week with no kickoff (``compute_window``
+    raises ``ValueError``) is treated as NOT open (skipped from any crossing), the
+    same defensive skip the stamping loop uses. Called once at function entry and
+    again after reconcile+stamping so a False->True / True->False change between
+    the two snapshots is the in-cycle window crossing.
+    """
+    states: dict[tuple[int, int], bool] = {}
+    for (season, week), this_games in by_week.items():
+        prev_games = by_week.get((season, week - 1))
+        try:
+            window = compute_window(
+                _normalized_games(this_games),
+                _normalized_games(prev_games) if prev_games else None,
+            )
+            states[(season, week)] = is_pick_open(window, now)
+        except ValueError:
+            states[(season, week)] = False
+    return states
+
+
 def _scores_by_event_id(games: list[ScoreboardGame]) -> dict[int, ScoreboardGame]:
     """Index the source's games by integer ``espn_event_id`` (skip Nones)."""
     indexed: dict[int, ScoreboardGame] = {}
@@ -283,6 +312,11 @@ def refresh_games(
     finalized_games: list[tuple[int, str, str, int, int]] = []
     recap_weeks: list[int] = []
     team_abbr = _team_abbr_map(session)
+
+    # QT-3 window edges: snapshot each week's window-open boolean at `now` from
+    # the CURRENT persisted kickoffs BEFORE this cycle mutates them, so a crossing
+    # this cycle can be detected by comparing against the post-reconcile snapshot.
+    window_open_before = _week_open_states(by_week, now)
 
     for season, week in needy:
         try:
@@ -382,13 +416,31 @@ def refresh_games(
                     session.add(week_row)
                     windows_stamped += 1
 
+    # QT-3 window edges: recompute each week's window-open boolean from the
+    # now-updated kickoffs and compare to the pre-reconcile snapshot. A
+    # False->True change is a closed->open crossing (window.opened); a True->False
+    # change is an open->closed crossing (window.closed). A steady-state cycle
+    # computes the same boolean both times, so it emits neither (idempotent).
+    window_open_after = _week_open_states(by_week, now)
+    windows_opened: list[int] = []
+    windows_closed: list[int] = []
+    for key, before_open in window_open_before.items():
+        after_open = window_open_after.get(key, before_open)
+        if before_open == after_open:
+            continue
+        _season, week = key
+        if after_open:
+            windows_opened.append(week)
+        else:
+            windows_closed.append(week)
+
     return RefreshResult(
         weeks_polled=weeks_polled,
         games_updated=games_updated,
         windows_stamped=windows_stamped,
         failed_weeks=tuple(failed_weeks),
         finalized_games=tuple(finalized_games),
-        windows_opened=(),  # filled by the window-edge step (QT-3 Task 3)
-        windows_closed=(),
+        windows_opened=tuple(windows_opened),
+        windows_closed=tuple(windows_closed),
         recap_weeks=tuple(recap_weeks),
     )

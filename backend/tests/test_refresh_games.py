@@ -508,6 +508,158 @@ class RefreshEdgeDetectionTests(unittest.TestCase):
         )
 
 
+class RefreshWindowEdgeTests(unittest.TestCase):
+    """In-cycle window.opened / window.closed edges fire once on the crossing.
+
+    These build a tiny two-week DB directly (no fixture) and a synthetic source
+    with explicit per-week kickoffs so a single reconcile crosses a window
+    boundary at an injected ``now``. Proves the crossing is recorded ONCE and a
+    steady-state re-poll (same kickoffs both ends) records neither.
+    """
+
+    SEASON = 2025
+
+    def setUp(self) -> None:
+        self.engine = create_engine("sqlite://")
+        SQLModel.metadata.create_all(self.engine)
+        from app.models import Team
+
+        with Session(self.engine) as session:
+            session.add_all(
+                [
+                    Team(espn_team_id=i, abbreviation=f"T{i}", display_name=f"Team {i}")
+                    for i in range(1, 5)
+                ]
+            )
+            session.commit()
+            self.team_ids = [
+                t.id for t in session.exec(select(Team)).all() if t.id is not None
+            ]
+
+    def tearDown(self) -> None:
+        self.engine.dispose()
+
+    def _seed_week_game(
+        self, session: Session, *, week: int, event_id: int, kickoff: datetime
+    ) -> None:
+        wk = Week(season=self.SEASON, week=week)
+        session.add(wk)
+        session.commit()
+        session.refresh(wk)
+        session.add(
+            Game(
+                espn_event_id=event_id,
+                week_id=wk.id,
+                season=self.SEASON,
+                week=week,
+                home_team_id=self.team_ids[0],
+                away_team_id=self.team_ids[1],
+                kickoff_at=kickoff,
+                status=GameStatus.SCHEDULED,
+            )
+        )
+        session.commit()
+
+    def test_window_closed_edge_once_then_none_on_repoll(self) -> None:
+        """A week whose earliest kickoff moves into the past closes the window."""
+        from app.scoreboard.types import ScoreboardTeam
+
+        now = datetime(2025, 9, 10, 12, 0, tzinfo=timezone.utc)
+        future = now + timedelta(days=2)
+        past = now - timedelta(hours=2)
+
+        with Session(self.engine) as session:
+            # Persisted kickoff is in the FUTURE -> window OPEN at `now`.
+            self._seed_week_game(session, week=1, event_id=5001, kickoff=future)
+
+        # Source repositions the game's kickoff to the PAST and finals it ->
+        # earliest kickoff now in the past -> window CLOSED at `now`.
+        def _src(season, week):
+            if week != 1:
+                return []
+            return [
+                ScoreboardGame(
+                    espn_event_id="5001",
+                    season=season,
+                    week=week,
+                    kickoff_at=past,
+                    status=GameStatus.FINAL,
+                    home=ScoreboardTeam(None, None, score=21),
+                    away=ScoreboardTeam(None, None, score=17),
+                )
+            ]
+
+        class _Src:
+            fetch_week = staticmethod(_src)
+
+        with Session(self.engine) as session:
+            first = refresh_games(session, _Src(), now=now)
+            session.commit()
+            self.assertIn(1, first.windows_closed)
+            self.assertNotIn(1, first.windows_opened)
+
+            # Steady-state re-poll: week 1 is now fully FINAL -> not refetched, and
+            # the window boolean is the same both ends -> no edge.
+            second = refresh_games(session, _Src(), now=now)
+            self.assertEqual(second.windows_closed, ())
+            self.assertEqual(second.windows_opened, ())
+
+    def test_window_opened_edge_once_then_none_on_repoll(self) -> None:
+        """Week 2 opens once week 1's last game (its kickoff) moves into the past."""
+        from app.scoreboard.types import ScoreboardTeam
+
+        now = datetime(2025, 9, 18, 12, 0, tzinfo=timezone.utc)
+        wk1_future = now + timedelta(days=5)  # before: wk1 far future -> wk2 closed
+        wk1_past = now - timedelta(hours=6)  # after: wk1 past -> wk2 open_at past
+        wk2_future = now + timedelta(days=3)  # wk2 close stays future -> still open
+
+        with Session(self.engine) as session:
+            self._seed_week_game(session, week=1, event_id=6001, kickoff=wk1_future)
+            self._seed_week_game(session, week=2, event_id=6002, kickoff=wk2_future)
+
+        def _src(season, week):
+            if week == 1:
+                return [
+                    ScoreboardGame(
+                        espn_event_id="6001",
+                        season=season,
+                        week=week,
+                        kickoff_at=wk1_past,
+                        status=GameStatus.FINAL,
+                        home=ScoreboardTeam(None, None, score=10),
+                        away=ScoreboardTeam(None, None, score=7),
+                    )
+                ]
+            if week == 2:
+                # Week 2 stays SCHEDULED with its future kickoff (window stays open).
+                return [
+                    ScoreboardGame(
+                        espn_event_id="6002",
+                        season=season,
+                        week=week,
+                        kickoff_at=wk2_future,
+                        status=GameStatus.SCHEDULED,
+                        home=ScoreboardTeam(None, None, score=None),
+                        away=ScoreboardTeam(None, None, score=None),
+                    )
+                ]
+            return []
+
+        class _Src:
+            fetch_week = staticmethod(_src)
+
+        with Session(self.engine) as session:
+            first = refresh_games(session, _Src(), now=now)
+            session.commit()
+            self.assertIn(2, first.windows_opened)
+            self.assertNotIn(2, first.windows_closed)
+
+            # Re-poll: week 1 is fully final (not refetched), week 2 unchanged ->
+            # the window boolean is stable both ends -> no new edge.
+            second = refresh_games(session, _Src(), now=now)
+            self.assertEqual(second.windows_opened, ())
+
+
 class BeatWiringRegressionTests(unittest.TestCase):
     """The scores beat is preserved byte-for-byte after the scheduler refactor.
 

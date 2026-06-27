@@ -118,13 +118,50 @@ def _render(event: dict) -> str | None:
     return None
 
 
+def render_chat(event: dict) -> str | None:
+    """Render a player-facing pickem-CHAT event to its Discord line (QT-3).
+
+    This is the SWAPPABLE seam where a FUTURE local-LLM personality layer will
+    plug in — it takes the structured event and returns a chattier line than the
+    terse logger feed. NO LLM / nudge / QT-4 logic lives here yet: it is a plain
+    string map over the five ``targets:["chat"]`` event types. Unknown types
+    return ``None`` (ignored upstream), mirroring :func:`_render`.
+
+    The bot does NO resolution — every field (display names, integer scores, team
+    abbreviations) is already shaped by the pure builders in
+    :mod:`app.services.notifications`.
+    """
+    etype = event.get("type")
+
+    if etype == "roster.complete":
+        return f"{event.get('actor')}'s locked in all their Week {event.get('week')} picks. 🔒"
+    if etype == "window.opened":
+        return f"Week {event.get('week')} picks are open — get 'em in!"
+    if etype == "window.closed":
+        return f"Week {event.get('week')} is locked. Good luck, everyone."
+    if etype == "game.final":
+        return (
+            f"Final: {event.get('home')} {event.get('home_score')}, "
+            f"{event.get('away')} {event.get('away_score')}."
+        )
+    if etype == "week.recap":
+        return (
+            f"Week {event.get('week')}'s in the books — "
+            f"{event.get('winner')} takes the week with {event.get('winner_score')}; "
+            f"{event.get('leader')} leads the season."
+        )
+    return None
+
+
 async def run_notifier(client) -> None:
     """Subscribe to ``pickem:events`` and post rendered lines into the guild.
 
     Builds a ``redis.asyncio`` client from ``settings.redis_url``, SUBSCRIBEs to
-    :data:`EVENTS_CHANNEL`, and loops over messages. For ``user.login`` it renders
-    ``"<actor> logged in"`` and sends it to the ``discord_chat_log_channel`` within
-    ``DISCORD_GUILD_ID``.
+    :data:`EVENTS_CHANNEL`, and loops over messages. Each event is routed by its
+    ``targets`` (QT-3): a chat-targeted event renders via :func:`render_chat` and
+    posts to ``discord_chat_channel``; a logger-targeted event renders via
+    :func:`_render` and posts to ``discord_chat_log_channel`` — both resolved
+    within ``DISCORD_GUILD_ID``.
 
     Two layers of resilience:
 
@@ -154,12 +191,25 @@ async def run_notifier(client) -> None:
                     if message.get("type") != "message":
                         continue  # subscribe/confirmation frames, not payloads
                     event = json.loads(message["data"])
-                    line = _render(event)
+
+                    # Route by the event's targets (QT-3): a chat-targeted event
+                    # renders via the render_chat seam and posts to the
+                    # discord_chat_channel; a logger-targeted event renders via the
+                    # logger path and posts to the discord_chat_log_channel. Both
+                    # resolve within DISCORD_GUILD_ID. An event carries one target;
+                    # route to that channel only.
+                    targets = event.get("targets") or []
+                    if "chat" in targets:
+                        line = render_chat(event)
+                        channel_setting = settings.discord_chat_channel
+                    else:
+                        line = _render(event)
+                        channel_setting = settings.discord_chat_log_channel
                     if line is None:
-                        continue  # unknown event type — QT-2/QT-3 territory
+                        continue  # unknown event type — ignored
 
                     guild = client.get_guild(settings.discord_guild_id)
-                    channel = resolve_channel(guild, settings.discord_chat_log_channel)
+                    channel = resolve_channel(guild, channel_setting)
                     if channel is not None:
                         await channel.send(line)
                 except Exception:
