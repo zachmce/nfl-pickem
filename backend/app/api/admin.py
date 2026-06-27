@@ -31,13 +31,15 @@ refreshed ``pick_count``); DELETE returns 204 with no body.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends
 from sqlmodel import Session
 
 from app.api.deps import require_admin
 from app.db import get_session
 from app.exceptions import ConflictError, NotFoundError
-from app.models import Game, PickType, Team, User
+from app.models import Game, PickResult, PickType, Team, User
 from app.schemas.admin import (
     AdminUserListResponse,
     AdminUserRead,
@@ -64,10 +66,16 @@ from app.services.admin_picks import (
 from app.services.notifications import (
     admin_pick_cleared_event,
     admin_pick_set_event,
+    misc_graded_event,
     pick_log_detail,
     publish_event,
 )
-from app.services.pick_submission import read_picks
+from app.services.pick_submission import (
+    _load_week_games,
+    _normalized_game,
+    read_picks,
+)
+from app.services.pick_window import compute_window, is_pick_open
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -84,6 +92,29 @@ def _target_display_name(session: Session, user_id: int) -> str:
     """Resolve the override target's display_name (server-resolved, never client)."""
     target = session.get(User, user_id)
     return target.display_name if target is not None else str(user_id)
+
+
+def _week_window_closed(session: Session, season: int, week: int) -> bool:
+    """Whether ``{season, week}``'s pick window is CLOSED at now — best-effort.
+
+    Reuses the PURE window predicates the same way standings.py / pick_submission.py
+    do (load this week's games + the previous week's for the open boundary, normalize
+    each to a tz-aware copy, build the window with :func:`compute_window`, and check
+    :func:`is_pick_open` at now) — it does NOT re-implement window math. The whole
+    computation is wrapped so an empty / kickoff-less week (which would raise out of
+    ``compute_window``) degrades to ``False`` ("treat as NOT closed → do not publish")
+    rather than breaking the caller — the leak-safe default is to suppress the chat
+    publish (T-w9w-01 / T-w9w-03).
+    """
+    try:
+        week_games = _load_week_games(session, season, week)
+        norm = [_normalized_game(g) for g in week_games]
+        prev_games = _load_week_games(session, season, week - 1) if week > 1 else []
+        prev_norm = [_normalized_game(g) for g in prev_games] or None
+        window = compute_window(norm, prev_norm)
+        return not is_pick_open(window, datetime.now(timezone.utc))
+    except Exception:
+        return False
 
 
 def _raise_for_service_error(exc: ValueError) -> None:
@@ -293,6 +324,27 @@ def grade_user_misc_pick(
     )
     session.commit()
     session.refresh(pick)
+
+    # Post-commit, best-effort pickem-CHAT publish (AFTER the commit succeeds),
+    # mirroring the set/clear routes' "publish in the ROUTE, never in the pure
+    # service" pattern. LEAK GUARD (T-w9w-01): misc_text is hidden-until-lock, so
+    # publish the prediction to the public chat ONLY once the week's pick window is
+    # CLOSED — reusing the pure compute_window/is_pick_open predicates (no
+    # re-implemented window math). While the window is still OPEN, skip the publish
+    # entirely (lossy is acceptable; a grade during an open window is rare). The
+    # verdict word is derived from the graded PickResult; publish_event swallows
+    # Redis errors so it can never break the grade response.
+    if _week_window_closed(session, season, week):
+        verdict = "correct" if pick.result is PickResult.WIN else "incorrect"
+        publish_event(
+            misc_graded_event(
+                actor=_target_display_name(session, user_id),
+                week=week,
+                prediction=pick.misc_text,
+                verdict=verdict,
+                points=pick.points,
+            )
+        )
     return PickRead.from_orm_pick(pick)
 
 
