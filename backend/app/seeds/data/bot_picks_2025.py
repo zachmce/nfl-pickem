@@ -188,6 +188,42 @@ BOT_PICKS: dict[str, dict[int, list[BotPick]]] = {
             BotPick(401772786, _UNDER, False),
             BotPick(401772787, _FAV, True),  # mortal lock
         ],
+        # weeks 14-18: alice keeps favoring favorites + the FAVORITE mortal lock.
+        14: [
+            BotPick(401772790, _FAV, False),
+            BotPick(401772791, _DOG, False),
+            BotPick(401772792, _OVER, False),
+            BotPick(401772793, _UNDER, False),
+            BotPick(401772794, _FAV, True),  # mortal lock
+        ],
+        15: [
+            BotPick(401772795, _FAV, False),
+            BotPick(401772796, _DOG, False),
+            BotPick(401772797, _OVER, False),
+            BotPick(401772798, _UNDER, False),
+            BotPick(401772799, _FAV, True),  # mortal lock
+        ],
+        16: [
+            BotPick(401772612, _FAV, False),
+            BotPick(401772613, _DOG, False),
+            BotPick(401772801, _OVER, False),
+            BotPick(401772802, _UNDER, False),
+            BotPick(401772803, _FAV, True),  # mortal lock
+        ],
+        17: [
+            BotPick(401772622, _FAV, False),
+            BotPick(401772710, _DOG, False),
+            BotPick(401772711, _OVER, False),
+            BotPick(401772807, _UNDER, False),
+            BotPick(401772808, _FAV, True),  # mortal lock
+        ],
+        18: [
+            BotPick(401772955, _FAV, False),
+            BotPick(401772956, _DOG, False),
+            BotPick(401772957, _OVER, False),
+            BotPick(401772958, _UNDER, False),
+            BotPick(401772959, _FAV, True),  # mortal lock
+        ],
     },
     # ---- bot_bob: full rosters, different picks ----------------------------
     "bot_bob": {
@@ -282,6 +318,42 @@ BOT_PICKS: dict[str, dict[int, list[BotPick]]] = {
             BotPick(401772694, _OVER, False),
             BotPick(401772785, _UNDER, False),
             BotPick(401772787, _UNDER, True),  # mortal lock
+        ],
+        # weeks 14-18: bob keeps favoring dogs + unders, with the UNDER mortal lock.
+        14: [
+            BotPick(401772793, _FAV, False),
+            BotPick(401772790, _DOG, False),
+            BotPick(401772791, _OVER, False),
+            BotPick(401772792, _UNDER, False),
+            BotPick(401772794, _UNDER, True),  # mortal lock
+        ],
+        15: [
+            BotPick(401772798, _FAV, False),
+            BotPick(401772795, _DOG, False),
+            BotPick(401772796, _OVER, False),
+            BotPick(401772797, _UNDER, False),
+            BotPick(401772799, _UNDER, True),  # mortal lock
+        ],
+        16: [
+            BotPick(401772802, _FAV, False),
+            BotPick(401772612, _DOG, False),
+            BotPick(401772613, _OVER, False),
+            BotPick(401772801, _UNDER, False),
+            BotPick(401772803, _UNDER, True),  # mortal lock
+        ],
+        17: [
+            BotPick(401772807, _FAV, False),
+            BotPick(401772622, _DOG, False),
+            BotPick(401772710, _OVER, False),
+            BotPick(401772711, _UNDER, False),
+            BotPick(401772808, _UNDER, True),  # mortal lock
+        ],
+        18: [
+            BotPick(401772958, _FAV, False),
+            BotPick(401772955, _DOG, False),
+            BotPick(401772956, _OVER, False),
+            BotPick(401772957, _UNDER, False),
+            BotPick(401772959, _UNDER, True),  # mortal lock
         ],
     },
     # ---- bot_carol: a spread pick + a total pick on the SAME game (allowed),
@@ -378,6 +450,42 @@ BOT_PICKS: dict[str, dict[int, list[BotPick]]] = {
             BotPick(401772621, _UNDER, False),
             BotPick(401772787, _OVER, True),  # mortal lock
         ],
+        # weeks 14-18: carol keeps mixing all four types, with the OVER mortal lock.
+        14: [
+            BotPick(401772791, _FAV, False),
+            BotPick(401772792, _DOG, False),
+            BotPick(401772793, _OVER, False),
+            BotPick(401772790, _UNDER, False),
+            BotPick(401772794, _OVER, True),  # mortal lock
+        ],
+        15: [
+            BotPick(401772796, _FAV, False),
+            BotPick(401772797, _DOG, False),
+            BotPick(401772798, _OVER, False),
+            BotPick(401772795, _UNDER, False),
+            BotPick(401772799, _OVER, True),  # mortal lock
+        ],
+        16: [
+            BotPick(401772613, _FAV, False),
+            BotPick(401772801, _DOG, False),
+            BotPick(401772802, _OVER, False),
+            BotPick(401772612, _UNDER, False),
+            BotPick(401772803, _OVER, True),  # mortal lock
+        ],
+        17: [
+            BotPick(401772710, _FAV, False),
+            BotPick(401772711, _DOG, False),
+            BotPick(401772807, _OVER, False),
+            BotPick(401772622, _UNDER, False),
+            BotPick(401772808, _OVER, True),  # mortal lock
+        ],
+        18: [
+            BotPick(401772956, _FAV, False),
+            BotPick(401772957, _DOG, False),
+            BotPick(401772958, _OVER, False),
+            BotPick(401772955, _UNDER, False),
+            BotPick(401772959, _OVER, True),  # mortal lock
+        ],
     },
     # ---- bot_dave: includes a PARTIAL week (week 2 has only 3 picks) --------
     "bot_dave": {
@@ -471,6 +579,44 @@ BOT_PICKS: dict[str, dict[int, list[BotPick]]] = {
             BotPick(401772621, _OVER, False),
             BotPick(401772694, _UNDER, False),
             BotPick(401772787, _DOG, True),  # mortal lock
+        ],
+        # weeks 14-18: dave plays full rosters with the DOG mortal lock, except
+        # week 16 — a fresh PARTIAL roster (mortal lock dropped, four base picks)
+        # to extend the dataset's human-looking partial-coverage character into
+        # the late season alongside dave's canonical week-2 partial.
+        14: [
+            BotPick(401772792, _FAV, False),
+            BotPick(401772793, _DOG, False),
+            BotPick(401772790, _OVER, False),
+            BotPick(401772791, _UNDER, False),
+            BotPick(401772794, _DOG, True),  # mortal lock
+        ],
+        15: [
+            BotPick(401772797, _FAV, False),
+            BotPick(401772798, _DOG, False),
+            BotPick(401772795, _OVER, False),
+            BotPick(401772796, _UNDER, False),
+            BotPick(401772799, _DOG, True),  # mortal lock
+        ],
+        16: [  # PARTIAL roster — four base picks, no mortal lock this week
+            BotPick(401772801, _FAV, False),
+            BotPick(401772802, _DOG, False),
+            BotPick(401772612, _OVER, False),
+            BotPick(401772613, _UNDER, False),
+        ],
+        17: [
+            BotPick(401772711, _FAV, False),
+            BotPick(401772807, _DOG, False),
+            BotPick(401772622, _OVER, False),
+            BotPick(401772710, _UNDER, False),
+            BotPick(401772808, _DOG, True),  # mortal lock
+        ],
+        18: [
+            BotPick(401772957, _FAV, False),
+            BotPick(401772958, _DOG, False),
+            BotPick(401772955, _OVER, False),
+            BotPick(401772956, _UNDER, False),
+            BotPick(401772959, _DOG, True),  # mortal lock
         ],
     },
     # ---- bot_erin: full rosters ---------------------------------------------
@@ -567,6 +713,43 @@ BOT_PICKS: dict[str, dict[int, list[BotPick]]] = {
             BotPick(401772785, _OVER, False),
             BotPick(401772694, _UNDER, False),
             BotPick(401772621, _FAV, True),  # mortal lock
+        ],
+        # weeks 14-18: erin keeps leaning underdog/total, with a FAVORITE mortal
+        # lock on a different slot (the lowest anchor id) than alice's.
+        14: [
+            BotPick(401772794, _FAV, False),
+            BotPick(401772793, _DOG, False),
+            BotPick(401772792, _OVER, False),
+            BotPick(401772791, _UNDER, False),
+            BotPick(401772790, _FAV, True),  # mortal lock
+        ],
+        15: [
+            BotPick(401772799, _FAV, False),
+            BotPick(401772798, _DOG, False),
+            BotPick(401772797, _OVER, False),
+            BotPick(401772796, _UNDER, False),
+            BotPick(401772795, _FAV, True),  # mortal lock
+        ],
+        16: [
+            BotPick(401772803, _FAV, False),
+            BotPick(401772802, _DOG, False),
+            BotPick(401772801, _OVER, False),
+            BotPick(401772613, _UNDER, False),
+            BotPick(401772612, _FAV, True),  # mortal lock
+        ],
+        17: [
+            BotPick(401772808, _FAV, False),
+            BotPick(401772807, _DOG, False),
+            BotPick(401772711, _OVER, False),
+            BotPick(401772710, _UNDER, False),
+            BotPick(401772622, _FAV, True),  # mortal lock
+        ],
+        18: [
+            BotPick(401772959, _FAV, False),
+            BotPick(401772958, _DOG, False),
+            BotPick(401772957, _OVER, False),
+            BotPick(401772956, _UNDER, False),
+            BotPick(401772955, _FAV, True),  # mortal lock
         ],
     },
 }
