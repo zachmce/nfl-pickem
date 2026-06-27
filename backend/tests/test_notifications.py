@@ -26,6 +26,7 @@ from app.services.notifications import (
     admin_pick_cleared_event,
     admin_pick_set_event,
     freeze_week_event,
+    game_final_event,
     ingest_season_event,
     login_event,
     pick_cleared_event,
@@ -33,6 +34,10 @@ from app.services.notifications import (
     pick_log_detail,
     player_registered_event,
     publish_event,
+    roster_complete_event,
+    week_recap_event,
+    window_closed_event,
+    window_opened_event,
 )
 
 
@@ -262,6 +267,109 @@ class AllBuildersTargetLoggerTests(unittest.TestCase):
         for event in events:
             self.assertEqual(event["targets"], ["logger"])
             self.assertEqual(event["v"], 1)
+
+
+# --------------------------------------------------------------------------- #
+# QT-3 — five player-facing pickem-CHAT event builders (targets ["chat"]).
+# --------------------------------------------------------------------------- #
+
+
+class ChatEventBuilderTests(unittest.TestCase):
+    """Each QT-3 builder targets EXACTLY ["chat"] and carries DISPLAY data only."""
+
+    def test_roster_complete_shape(self) -> None:
+        event = roster_complete_event(actor="bob", week=3)
+        self.assertEqual(event["v"], 1)
+        self.assertEqual(event["type"], "roster.complete")
+        self.assertEqual(event["targets"], ["chat"])
+        self.assertEqual(event["actor"], "bob")
+        self.assertEqual(event["week"], 3)
+        self.assertEqual(set(event.keys()), {"v", "type", "targets", "actor", "week"})
+
+    def test_window_opened_shape(self) -> None:
+        event = window_opened_event(week=3)
+        self.assertEqual(event["v"], 1)
+        self.assertEqual(event["type"], "window.opened")
+        self.assertEqual(event["targets"], ["chat"])
+        self.assertEqual(event["week"], 3)
+        self.assertEqual(set(event.keys()), {"v", "type", "targets", "week"})
+
+    def test_window_closed_shape(self) -> None:
+        event = window_closed_event(week=3)
+        self.assertEqual(event["v"], 1)
+        self.assertEqual(event["type"], "window.closed")
+        self.assertEqual(event["targets"], ["chat"])
+        self.assertEqual(event["week"], 3)
+        self.assertEqual(set(event.keys()), {"v", "type", "targets", "week"})
+
+    def test_game_final_shape(self) -> None:
+        event = game_final_event(
+            week=3, away_abbr="LAC", home_abbr="KC", away_score=20, home_score=27
+        )
+        self.assertEqual(event["v"], 1)
+        self.assertEqual(event["type"], "game.final")
+        self.assertEqual(event["targets"], ["chat"])
+        self.assertEqual(event["week"], 3)
+        self.assertEqual(event["away"], "LAC")
+        self.assertEqual(event["home"], "KC")
+        self.assertEqual(event["away_score"], 20)
+        self.assertEqual(event["home_score"], 27)
+        self.assertEqual(
+            set(event.keys()),
+            {"v", "type", "targets", "week", "away", "home", "away_score", "home_score"},
+        )
+
+    def test_week_recap_shape(self) -> None:
+        event = week_recap_event(
+            week=3, winner="Carol", winner_score=6, leader="Dave", leader_score=18
+        )
+        self.assertEqual(event["v"], 1)
+        self.assertEqual(event["type"], "week.recap")
+        self.assertEqual(event["targets"], ["chat"])
+        self.assertEqual(event["week"], 3)
+        self.assertEqual(event["winner"], "Carol")
+        self.assertEqual(event["winner_score"], 6)
+        self.assertEqual(event["leader"], "Dave")
+        self.assertEqual(event["leader_score"], 18)
+        self.assertEqual(
+            set(event.keys()),
+            {
+                "v",
+                "type",
+                "targets",
+                "week",
+                "winner",
+                "winner_score",
+                "leader",
+                "leader_score",
+            },
+        )
+
+    def test_every_chat_builder_targets_chat_only_and_leaks_nothing(self) -> None:
+        events = [
+            roster_complete_event(actor="a", week=1),
+            window_opened_event(week=1),
+            window_closed_event(week=1),
+            game_final_event(
+                week=1, away_abbr="A", home_abbr="B", away_score=0, home_score=0
+            ),
+            week_recap_event(
+                week=1, winner="a", winner_score=0, leader="b", leader_score=0
+            ),
+        ]
+        for event in events:
+            self.assertEqual(event["targets"], ["chat"])
+            self.assertEqual(event["v"], 1)
+            # No sensitive/user-identifying fields ever cross into chat.
+            for forbidden in (
+                "user_id",
+                "password",
+                "plain_password",
+                "token",
+                "email",
+                "secret",
+            ):
+                self.assertNotIn(forbidden, event)
 
 
 class _FakeRedis:

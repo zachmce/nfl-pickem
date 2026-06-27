@@ -32,8 +32,14 @@ from app.services.notifications import (
     pick_event,
     pick_log_detail,
     publish_event,
+    roster_complete_event,
 )
-from app.services.pick_submission import clear_pick, read_picks, submit_picks
+from app.services.pick_submission import (
+    base_slots_complete,
+    clear_pick,
+    read_picks,
+    submit_picks,
+)
 
 router = APIRouter(prefix="/api/picks", tags=["picks"])
 
@@ -113,6 +119,17 @@ def submit(
                 week=payload.week,
                 detail=_resolve_pick_detail(session, pick),
             )
+        )
+
+    # QT-3 pickem-CHAT: when THIS submit results in the user holding all four
+    # base slots for the week, fire ONE roster.complete (display_name only) to
+    # the chat feed — post-commit + best-effort (publish_event swallows). A
+    # submit that leaves the roster incomplete fires none.
+    if base_slots_complete(
+        session, user_id=user.id, season=payload.season, week=payload.week
+    ):
+        publish_event(
+            roster_complete_event(actor=user.display_name, week=payload.week)
         )
     return [PickRead.from_orm_pick(p) for p in picks]
 

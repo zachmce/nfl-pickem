@@ -33,6 +33,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from unittest import mock
 
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
@@ -1023,6 +1024,117 @@ class PicksApiTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].game_id, self.game_total_id)
         self.assertEqual(rows[0].misc_text, "third prediction")
+
+    # -- roster.complete chat event (QT-3) ---------------------------------
+
+    def _add_fourth_base_game(self) -> int:
+        """Add a 4th SCHEDULED future-kickoff game to week 1 and return its id.
+
+        The setUp fixture's week 1 has three games (spread, total, pickem). The
+        four base slots (UNDERDOG_COVER, FAVORITE_COVER, OVER, UNDER) need four
+        distinct games because FAVORITE/UNDERDOG conflict on one game and
+        OVER/UNDER conflict on another — so we add a fourth spread/total game.
+        """
+        now = datetime.now(timezone.utc)
+        with self._session() as session:
+            teams = list(session.exec(select(Team)).all())
+            tid = [t.id for t in teams]
+            game = Game(
+                espn_event_id=1004,
+                week_id=self.week_id,
+                season=SEASON,
+                week=WEEK,
+                home_team_id=tid[0],
+                away_team_id=tid[1],
+                kickoff_at=now + _FUTURE + timedelta(hours=9),
+                status=GameStatus.SCHEDULED,
+                spread=Decimal("7.0"),
+                total=Decimal("45.0"),
+                favorite_team_id=tid[0],
+                underdog_team_id=tid[1],
+            )
+            session.add(game)
+            session.commit()
+            session.refresh(game)
+            assert game.id is not None
+            return game.id
+
+    def test_completing_fourth_base_slot_publishes_one_roster_complete(self) -> None:
+        """The submit that fills the 4th base slot publishes ONE roster.complete."""
+        game4_id = self._add_fourth_base_game()
+        # Seed three base slots directly (bypassing the publish path) on three
+        # distinct games — leaving FAVORITE_COVER (on the spread game) for the
+        # submit that COMPLETES the roster. UNDERDOG goes on the 4th spread game
+        # (so it does not conflict with the FAVORITE on the spread game); OVER on
+        # the totals game; UNDER on the pickem game (total 48.0, totals-eligible).
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=game4_id,
+            week_id=self.week_id,
+            pick_type=PickType.UNDERDOG_COVER,
+        )
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_total_id,
+            week_id=self.week_id,
+            pick_type=PickType.OVER,
+        )
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_pickem_id,
+            week_id=self.week_id,
+            pick_type=PickType.UNDER,
+        )
+
+        recorded: list[dict] = []
+        headers = self._cookie_auth_headers(self.user_a_id)
+        with mock.patch(
+            "app.api.picks.publish_event", side_effect=recorded.append
+        ):
+            resp = self.client.post(
+                "/api/picks",
+                json={
+                    "season": SEASON,
+                    "week": WEEK,
+                    "picks": [
+                        {
+                            "game_id": self.game_spread_id,
+                            "pick_type": "FAVORITE_COVER",
+                        }
+                    ],
+                },
+                headers=headers,
+            )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        roster_events = [e for e in recorded if e.get("type") == "roster.complete"]
+        self.assertEqual(len(roster_events), 1)
+        event = roster_events[0]
+        self.assertEqual(event["targets"], ["chat"])
+        self.assertEqual(event["actor"], "userA")  # display_name, not user_id
+        self.assertEqual(event["week"], WEEK)
+
+    def test_incomplete_roster_submit_publishes_no_roster_complete(self) -> None:
+        """A submit that does NOT complete all four base slots fires none."""
+        recorded: list[dict] = []
+        headers = self._cookie_auth_headers(self.user_a_id)
+        with mock.patch(
+            "app.api.picks.publish_event", side_effect=recorded.append
+        ):
+            resp = self.client.post(
+                "/api/picks",
+                json={
+                    "season": SEASON,
+                    "week": WEEK,
+                    "picks": [
+                        {"game_id": self.game_total_id, "pick_type": "OVER"}
+                    ],
+                },
+                headers=headers,
+            )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        roster_events = [e for e in recorded if e.get("type") == "roster.complete"]
+        self.assertEqual(roster_events, [])
 
     def test_clear_cannot_delete_anothers_pick(self) -> None:
         """userA clearing userB's slot -> 404; userB's pick is unchanged.

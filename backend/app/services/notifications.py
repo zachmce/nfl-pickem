@@ -30,6 +30,18 @@ v1 event types
 
 All seven QT-2 types target ``["logger"]`` only.
 
+QT-3 player-facing pickem-CHAT types (all target ``["chat"]`` only):
+
+* ``roster.complete``   — ``actor``, ``week`` (a user filled all 4 base slots)
+* ``window.opened``     — ``week``
+* ``window.closed``     — ``week``
+* ``game.final``        — ``week``, ``away``, ``home``, ``away_score``, ``home_score``
+* ``week.recap``        — ``week``, ``winner``, ``winner_score``, ``leader``,
+  ``leader_score`` (week winner + season leader display_name + scores)
+
+The five QT-3 types carry DISPLAY data only (display_name strings, integer
+scores, week number, team abbreviations) — never a user_id, password, or token.
+
 HARD RULE: only DISPLAY data is ever published — never passwords, tokens, emails,
 session cookies, or any secret. The event crosses a trust boundary into Discord,
 so the builders below carry display fields only (T-kd8-02 / T-kvi-01 / T-kvi-02).
@@ -225,6 +237,105 @@ def freeze_week_event(week: int) -> dict:
         "type": "freeze.week",
         "targets": ["logger"],
         "week": week,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# QT-3 — player-facing pickem-CHAT event builders (pure, no I/O).
+#
+# These five milestone/edge events feed the ``pickem-chat`` channel (targets
+# ``["chat"]``). They mirror the QT-2 builder shape but carry DISPLAY data ONLY
+# — display_name strings, integer scores, a week number, and team abbreviations.
+# The chat seam is where a FUTURE local-LLM personality layer will plug in
+# (bot-side ``render_chat``); NO LLM/nudge logic lives here. The events never
+# carry a user_id, password, token, or any secret (T-llw-01).
+# --------------------------------------------------------------------------- #
+
+
+def roster_complete_event(*, actor: str, week: int) -> dict:
+    """Build a ``roster.complete`` event — ``actor`` filled all 4 base slots.
+
+    ``actor`` is the user's DISPLAY name only. Fired once, post-commit, only when
+    a submit results in the user holding all four base (non-mortal-lock, non-MISC)
+    pick slots for the week.
+    """
+    return {
+        "v": 1,
+        "type": "roster.complete",
+        "targets": ["chat"],
+        "actor": actor,
+        "week": week,
+    }
+
+
+def window_opened_event(week: int) -> dict:
+    """Build a ``window.opened`` event — ``week``'s pick window just opened."""
+    return {
+        "v": 1,
+        "type": "window.opened",
+        "targets": ["chat"],
+        "week": week,
+    }
+
+
+def window_closed_event(week: int) -> dict:
+    """Build a ``window.closed`` event — ``week``'s pick window just closed."""
+    return {
+        "v": 1,
+        "type": "window.closed",
+        "targets": ["chat"],
+        "week": week,
+    }
+
+
+def game_final_event(
+    *,
+    week: int,
+    away_abbr: str,
+    home_abbr: str,
+    away_score: int,
+    home_score: int,
+) -> dict:
+    """Build a ``game.final`` event — one game went FINAL. DISPLAY data only.
+
+    Carries the two team abbreviations and the two integer final scores plus the
+    week number — nothing user-identifying.
+    """
+    return {
+        "v": 1,
+        "type": "game.final",
+        "targets": ["chat"],
+        "week": week,
+        "away": away_abbr,
+        "home": home_abbr,
+        "away_score": away_score,
+        "home_score": home_score,
+    }
+
+
+def week_recap_event(
+    *,
+    week: int,
+    winner: str,
+    winner_score: int,
+    leader: str,
+    leader_score: int,
+) -> dict:
+    """Build a ``week.recap`` event — a week's last game just went FINAL.
+
+    ``winner`` is the week winner's DISPLAY name and ``winner_score`` their weekly
+    score; ``leader`` is the season leader's DISPLAY name and ``leader_score``
+    their season total. Display names + integer scores ONLY — nothing sensitive.
+    """
+    return {
+        "v": 1,
+        "type": "week.recap",
+        "targets": ["chat"],
+        "week": week,
+        "winner": winner,
+        "winner_score": winner_score,
+        "leader": leader,
+        "leader_score": leader_score,
     }
 
 

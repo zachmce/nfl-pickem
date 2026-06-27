@@ -168,6 +168,43 @@ def read_picks(
     )
 
 
+# The four BASE pick slots a complete weekly roster requires — the non-MISC
+# pick types that are not mortal locks. Derived from the PickType enum (NOT
+# hardcoded strings) so it can never drift from the model. MISC and mortal-lock
+# rows do NOT count toward roster completion.
+_BASE_PICK_TYPES: frozenset[PickType] = frozenset(
+    {
+        PickType.UNDERDOG_COVER,
+        PickType.FAVORITE_COVER,
+        PickType.OVER,
+        PickType.UNDER,
+    }
+)
+
+
+def base_slots_complete(
+    session: Session, *, user_id: int, season: int, week: int
+) -> bool:
+    """Whether ``user_id`` holds ALL four base slots for ``{season, week}``.
+
+    A pure READ (no commit): loads the user's week picks via :func:`read_picks`
+    and returns ``True`` iff the set of their base (non-mortal-lock, non-MISC)
+    pick types equals the four :data:`_BASE_PICK_TYPES`. Mortal-lock and MISC
+    rows are ignored — they never count toward the four base slots. Used by the
+    picks route to derive the post-commit ``roster.complete`` chat event; the
+    set-equality means it is ``True`` only on the submit that FILLS the last
+    missing base slot (a re-submit of an already-complete roster also reads
+    ``True``, but the route only publishes when a submit transitions it complete).
+    """
+    picks = read_picks(session, user_id=user_id, season=season, week=week)
+    present_base = {
+        p.pick_type
+        for p in picks
+        if not p.is_mortal_lock and p.pick_type in _BASE_PICK_TYPES
+    }
+    return present_base == _BASE_PICK_TYPES
+
+
 def clear_pick(
     session: Session,
     *,
