@@ -126,6 +126,70 @@ class PhrasePatternTests(unittest.TestCase):
         self.assertIsNone(out)
 
 
+class PhraseTests(unittest.TestCase):
+    """The generalized ``phrase(fact, *, system_prompt)`` core: same wire-format
+    and best-effort contract as ``phrase_pattern``, but the system prompt is a
+    parameter so any event can phrase its own bot-supplied fact."""
+
+    def test_success_sends_supplied_prompt_and_fact_and_wire_format(self) -> None:
+        _FakeAsyncClient._response = _FakeResponse(
+            200, {"choices": [{"message": {"content": "  let's go! 🏈  "}}]}
+        )
+        with _configured(), mock.patch.object(httpx, "AsyncClient", _FakeAsyncClient):
+            out = _run(
+                llm_client.phrase(
+                    "Week 3 picks are open", system_prompt="You are a hype bot"
+                )
+            )
+        self.assertEqual(out, "let's go! 🏈")
+        body = _FakeAsyncClient.last_json
+        # The SUPPLIED prompt is the system message; the fact is the user message.
+        messages = {m["role"]: m["content"] for m in body["messages"]}
+        self.assertEqual(messages["system"], "You are a hype bot")
+        self.assertEqual(messages["user"], "Week 3 picks are open")
+        # HARD RULE: enable_thinking must be False or content comes back empty.
+        self.assertEqual(body["chat_template_kwargs"]["enable_thinking"], False)
+        # bearer auth + chat/completions endpoint + model wired through.
+        self.assertEqual(
+            _FakeAsyncClient.last_headers["Authorization"], "Bearer secret-key"
+        )
+        self.assertTrue(_FakeAsyncClient.last_url.endswith("/chat/completions"))
+        self.assertEqual(body["model"], "gemma")
+
+    def test_non_200_returns_none(self) -> None:
+        _FakeAsyncClient._response = _FakeResponse(503, {})
+        with _configured(), mock.patch.object(httpx, "AsyncClient", _FakeAsyncClient):
+            out = _run(llm_client.phrase("fact", system_prompt="prompt"))
+        self.assertIsNone(out)
+
+    def test_empty_content_returns_none(self) -> None:
+        _FakeAsyncClient._response = _FakeResponse(
+            200, {"choices": [{"message": {"content": "  \n "}}]}
+        )
+        with _configured(), mock.patch.object(httpx, "AsyncClient", _FakeAsyncClient):
+            out = _run(llm_client.phrase("fact", system_prompt="prompt"))
+        self.assertIsNone(out)
+
+    def test_timeout_returns_none_never_raises(self) -> None:
+        class _RaisingClient(_FakeAsyncClient):
+            async def post(self, url, *, json=None, headers=None):  # noqa: A002
+                raise httpx.TimeoutException("slow")
+
+        with _configured(), mock.patch.object(httpx, "AsyncClient", _RaisingClient):
+            out = _run(llm_client.phrase("fact", system_prompt="prompt"))
+        self.assertIsNone(out)
+
+    def test_unconfigured_returns_none_without_calling_http(self) -> None:
+        with mock.patch.multiple(
+            settings,
+            llm_api_server=None,
+            llm_api_model=None,
+            llm_api_key=None,
+        ), mock.patch.object(httpx, "AsyncClient", _FakeAsyncClient):
+            out = _run(llm_client.phrase("fact", system_prompt="prompt"))
+        self.assertIsNone(out)
+
+
 class ConfigLlmSettingsTests(unittest.TestCase):
     def test_blank_env_coerces_to_none(self) -> None:
         from app.config import Settings
