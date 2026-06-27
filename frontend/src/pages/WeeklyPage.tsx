@@ -9,10 +9,14 @@
  * and a mortal-lock badge. The current user's group is highlighted via a
  * display_name match against useAuth().
  *
- * Privacy: OTHER users' picks on not-yet-locked games are omitted SERVER-SIDE
- * (the leak gate). When a non-self group has no visible picks we show a subtle
- * static "hidden until lock" hint rather than a blank — the count is never
- * computed or shown (the server already redacted the entries).
+ * Privacy: OTHER users' picks for the week are omitted SERVER-SIDE (the leak
+ * gate) until the week's picks lock at the first kickoff; once the window closes
+ * everyone's picks for the week — including later games — are shown. The gate is
+ * week-level, so a non-self group is either fully hidden (window open) or fully
+ * shown (window closed) — there is no mixed per-game partial reveal. When a
+ * non-self group has no visible picks we show a subtle static "hidden until
+ * lock" hint rather than a blank — the count is never computed or shown (the
+ * server already redacted the entries).
  */
 import { useAuth } from "../auth/useAuth";
 import type { PickType, SlateGame } from "../lib/picks";
@@ -187,7 +191,7 @@ function UserCard({
         <p className="px-3 py-3 text-sm text-gray-400">
           {isMe
             ? "No picks for this week."
-            : "Picks hidden until each game locks."}
+            : "Picks hidden until the week's picks lock (first kickoff)."}
         </p>
       )}
     </section>

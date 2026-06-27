@@ -78,9 +78,13 @@ export default function RulesPage() {
             CLOSES at that week's first kickoff. (Week 1 is open from the start.)
           </li>
           <li>
-            Each game also locks individually at its own kickoff — once a game
-            kicks off you can no longer add or change a pick on it, even if other
-            games in the week haven't started.
+            Picking for the WHOLE week ends at that first kickoff — once the
+            window closes you can no longer add or change any pick for the week,
+            even on games later in the week that haven't kicked off yet.
+          </li>
+          <li>
+            Once the window closes, EVERYONE's picks for that week become
+            visible to all players (your own picks are always visible to you).
           </li>
           <li>
             Picks are graded against the line as it was when picks locked (the
