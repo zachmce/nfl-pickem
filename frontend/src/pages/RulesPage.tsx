@@ -22,7 +22,10 @@ export default function RulesPage() {
       <section className="space-y-3 rounded-lg border border-gray-200 bg-white p-4">
         <h2 className="text-lg font-bold">Your weekly picks</h2>
         <p className="text-sm text-gray-700">
-          Four bet types, one of each per week.
+          Each week you can make up to five main picks — one of each of the four
+          bet types (favorite cover, underdog cover, over, under) plus a mortal
+          lock wildcard — and one misc prediction. Every pick is optional; there's
+          no minimum, so make as many or as few as you like.
         </p>
         <ul className="list-disc space-y-1 pl-5 text-sm text-gray-700">
           <li>
@@ -44,15 +47,14 @@ export default function RulesPage() {
         </ul>
         <ul className="list-disc space-y-1 pl-5 text-sm text-gray-700">
           <li>
-            <span className="font-semibold">Mortal Lock</span> — one optional
-            higher-stakes pick per week. It's a 5th pick on any game/type of your
-            choosing; a winning mortal lock is worth more, but a losing one costs
-            you (see Scoring).
+            <span className="font-semibold">Mortal Lock</span> — a fifth main pick,
+            a wildcard on any game and type of your choosing. A winning mortal lock
+            is worth more, but a losing one costs you (see Scoring).
           </li>
           <li>
-            <span className="font-semibold">Misc</span> — one optional free-text
-            prediction per week tied to a game (e.g. "Mahomes throws for 350+
-            yards"). It's graded by an admin, not automatically.
+            <span className="font-semibold">Misc</span> — the genuinely different
+            one: a free-text prediction tied to a game (e.g. "Mahomes throws for
+            350+ yards"), graded by an admin rather than automatically.
           </li>
         </ul>
       </section>
