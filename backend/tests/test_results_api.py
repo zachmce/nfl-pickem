@@ -45,7 +45,11 @@ from app.models import (
 )
 from app.services.auth import create_session_cookie, hash_password
 from app.services.scoring import GradeOutcome, score_week
-from app.services.standings import season_standings, week_results
+from app.services.standings import (
+    season_is_complete,
+    season_standings,
+    week_results,
+)
 
 SEASON = 2025
 WEEK = 1
@@ -326,6 +330,32 @@ class ResultsTests(unittest.TestCase):
         with self._session() as session:
             standings = season_standings(session, season=SEASON)
         self.assertEqual([r.display_name for r in standings.results], ["alice"])
+
+    def test_season_is_complete_all_final(self) -> None:
+        """All seeded games are FINAL -> the season is complete."""
+        with self._session() as session:
+            self.assertTrue(season_is_complete(session, season=SEASON))
+
+    def test_season_is_complete_false_with_non_final_game(self) -> None:
+        """Any non-FINAL game makes the season incomplete.
+
+        Flip one seeded FINAL game to IN_PROGRESS; the season is no longer
+        complete even though every other game is FINAL.
+        """
+        with self._session() as session:
+            game = session.exec(
+                select(Game).where(Game.id == self.game_fav_id)
+            ).one()
+            game.status = GameStatus.IN_PROGRESS
+            session.add(game)
+            session.commit()
+        with self._session() as session:
+            self.assertFalse(season_is_complete(session, season=SEASON))
+
+    def test_season_is_complete_false_for_empty_season(self) -> None:
+        """A season with zero games is NOT complete (the empty-season rule)."""
+        with self._session() as session:
+            self.assertFalse(season_is_complete(session, season=SEASON + 1))
 
     def test_week_results_shape_and_scores(self) -> None:
         """week_results carries each user's graded picks + weekly_score.
@@ -669,6 +699,8 @@ class ResultsTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         body = resp.json()
         self.assertEqual(body["season"], SEASON)
+        # setUp seeds two FINAL games (no non-FINAL game) -> season complete.
+        self.assertTrue(body["season_complete"])
         rows = body["standings"]
         self.assertEqual(
             [r["display_name"] for r in rows], ["alice", "bob", "carol"]

@@ -28,7 +28,11 @@ from app.api.deps import get_current_user
 from app.db import get_session
 from app.models import User
 from app.schemas.results import SeasonStandingsResponse, WeekResultsResponse
-from app.services.standings import season_standings, week_results
+from app.services.standings import (
+    season_is_complete,
+    season_standings,
+    week_results,
+)
 
 router = APIRouter(prefix="/api/results", tags=["results"])
 
@@ -67,6 +71,7 @@ def read_standings(
     :func:`app.services.standings.season_standings`.
     """
     standings = season_standings(session, season=season)
+    complete = season_is_complete(session, season=season)
     return SeasonStandingsResponse.from_standings(
-        season=season, standings=standings
+        season=season, standings=standings, season_complete=complete
     )

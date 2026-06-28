@@ -48,7 +48,7 @@ from app.demo.oracle import (
     Standings,
     games_by_pk_index,
 )
-from app.models import Game, Pick, PickType, User, Week
+from app.models import Game, GameStatus, Pick, PickType, User, Week
 from app.services.pick_window import compute_window
 from app.services.scoring import GradeOutcome, grade_pick, score_week
 
@@ -180,6 +180,33 @@ def season_standings(session: Session, *, season: int) -> Standings:
 
     results.sort(key=lambda r: (-r.season_total, r.display_name))
     return Standings(results=tuple(results))
+
+
+def season_is_complete(session: Session, *, season: int) -> bool:
+    """Whether every game in ``season`` is FINAL (the season-end state).
+
+    Returns:
+    - ``True`` iff the season has at least one ``Game`` row AND no ``Game`` row
+      for the season has a status other than :class:`~app.models.GameStatus.FINAL`.
+    - ``False`` if ANY game for the season is non-FINAL (SCHEDULED / IN_PROGRESS).
+    - ``False`` if the season has ZERO ``Game`` rows (an empty season is not
+      "complete").
+
+    Pure read: an efficient existence-based check that never loads full ``Game``
+    objects — it reads only the bare existence of (a) any game and (b) any
+    non-FINAL game for the season.
+    """
+    any_game = session.exec(
+        select(Game.id).where(Game.season == season).limit(1)
+    ).first()
+    if any_game is None:
+        return False
+    any_non_final = session.exec(
+        select(Game.id)
+        .where(Game.season == season, Game.status != GameStatus.FINAL)
+        .limit(1)
+    ).first()
+    return any_non_final is None
 
 
 def week_results(

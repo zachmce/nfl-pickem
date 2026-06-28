@@ -111,18 +111,25 @@ class SeasonStandingsResponse(BaseModel):
 
     season: int
     standings: list[SeasonStandingRow]
+    # True ONLY when the season has games and EVERY game is FINAL — the
+    # season-end state that the frontend uses to award 1st/2nd/3rd medals. False
+    # for an in-progress season and for a season with zero games.
+    season_complete: bool
 
     @classmethod
     def from_standings(
-        cls, *, season: int, standings: Standings
+        cls, *, season: int, standings: Standings, season_complete: bool
     ) -> "SeasonStandingsResponse":
         """Shape the service :class:`~app.demo.oracle.Standings` into the response.
 
         Preserves the service's ``(-season_total, display_name)`` ordering (the
-        rows are emitted in the order the service produced them).
+        rows are emitted in the order the service produced them). ``season_complete``
+        is the route-computed season-end flag (see
+        :func:`app.services.standings.season_is_complete`).
         """
         return cls(
             season=season,
+            season_complete=season_complete,
             standings=[
                 SeasonStandingRow(
                     display_name=row.display_name,
