@@ -22,13 +22,16 @@ import {
   deactivateUser,
   deleteUser,
   freezeWeek,
+  getBotPersonality,
   grantAdmin,
   ingestSeason,
   listUsers,
   reactivateUser,
   revokeAdmin,
+  setBotPersonality,
   type AdminPickSet,
   type AdminUser,
+  type BotPersonality,
   type FreezeWeekDispatch,
   type IngestSeasonDispatch,
 } from "../lib/admin";
@@ -307,6 +310,8 @@ export default function AdminPage() {
 
       <IngestionPanel />
 
+      <BotPersonalityPanel />
+
       {editorTarget && (
         <PickOverrideEditor
           key={editorTarget.id}
@@ -511,6 +516,113 @@ function IngestionPanel() {
         )}
         {freezeError && <p className="text-xs text-red-600">{freezeError}</p>}
       </div>
+    </section>
+  );
+}
+
+// --------------------------------------------------------------------------- //
+// Bot Personality panel (260627-xbb)
+//
+// One admin-only selector for the app-wide LLM chat voice. Loads the active id +
+// available ids on mount; a <select> change POSTs the new id and re-merges the
+// server-truth active_id (never an optimistic flip). Busy/error state mirrors the
+// IngestionPanel's useState shape; a rejected 4xx (e.g. 409 unknown_personality)
+// surfaces messageFor(err) inline. No new auth guard — the page is RequireAdmin-
+// gated and the server enforces require_admin on both verbs.
+// --------------------------------------------------------------------------- //
+
+/** Humanize a personality id for the option label (e.g. stats_nerd -> "Stats Nerd"). */
+function personalityLabel(id: string): string {
+  return id
+    .split("_")
+    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
+    .join(" ");
+}
+
+function BotPersonalityPanel() {
+  const [data, setData] = useState<BotPersonality | null>(null);
+  const [status, setStatus] = useState<LoadStatus>("loading");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setStatus("loading");
+    getBotPersonality()
+      .then((p) => {
+        if (cancelled) return;
+        setData(p);
+        setStatus("ok");
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(messageFor(err));
+        setStatus("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const onSelect = useCallback(async (id: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await setBotPersonality(id);
+      setData(updated); // server-truth merge (active_id + available_ids)
+    } catch (err: unknown) {
+      setError(messageFor(err));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  return (
+    <section
+      data-testid="bot-personality-panel"
+      className="space-y-3 rounded-lg border border-gray-200 bg-white p-4"
+    >
+      <div>
+        <h2 className="text-lg font-bold">Bot Personality</h2>
+        <p className="mt-0.5 text-sm text-gray-500">
+          Choose the chat bot's voice. The swap is live — it takes effect on the
+          next event without a redeploy. The facts-first and leak-safety guardrails
+          stay the same for every voice.
+        </p>
+      </div>
+
+      {status === "loading" ? (
+        <p className="text-sm text-gray-500">Loading…</p>
+      ) : status === "error" ? (
+        <p className="text-sm text-gray-600">
+          {error ?? "Couldn't load the bot personality. Please try again later."}
+        </p>
+      ) : data ? (
+        <div className="flex flex-wrap items-end gap-3 border-t border-gray-100 pt-3">
+          <label className="text-sm">
+            <span className="block text-xs font-medium text-gray-600">
+              Active voice
+            </span>
+            <select
+              value={data.active_id}
+              disabled={busy}
+              onChange={(e) => void onSelect(e.target.value)}
+              className={[
+                "mt-1 block w-64 rounded-md border border-gray-300 px-2 py-1.5 text-sm",
+                busy ? "cursor-not-allowed opacity-50" : "",
+              ].join(" ")}
+            >
+              {data.available_ids.map((id) => (
+                <option key={id} value={id}>
+                  {personalityLabel(id)}
+                </option>
+              ))}
+            </select>
+          </label>
+          {busy && <span className="text-xs text-gray-400">Saving…</span>}
+          {error && <p className="w-full text-xs text-red-600">{error}</p>}
+        </div>
+      ) : null}
     </section>
   );
 }

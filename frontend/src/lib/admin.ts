@@ -256,3 +256,40 @@ export function freezeWeek(
     body: JSON.stringify({ season, week }),
   });
 }
+
+// --------------------------------------------------------------------------- //
+// Bot personality API (260627-xbb)
+//
+// GET/POST /api/admin/bot-personality read/set the app-wide LLM chat voice. Both
+// route through the CSRF-aware api<T>() (X-CSRF-Token attached on the unsafe POST)
+// — never a raw fetch — and carry NO actor field (the admin is resolved
+// server-side; routes are require_admin-gated: 401 anon / 403 non-admin / 409 on
+// an unknown id). Wire shape mirrors the backend BotPersonalityRead field-for-field.
+// --------------------------------------------------------------------------- //
+
+/**
+ * The active bot personality id + the selectable ids (mirrors backend
+ * BotPersonalityRead field-for-field). `active_id` is always one of
+ * `available_ids`; the backend lists the safe default (sarcastic) first.
+ */
+export interface BotPersonality {
+  active_id: string;
+  available_ids: string[];
+}
+
+/** Read the active bot personality + the list of selectable ids (admin only). */
+export function getBotPersonality(): Promise<BotPersonality> {
+  return api<BotPersonality>("/api/admin/bot-personality");
+}
+
+/**
+ * Set the active bot personality id; returns the server-truth BotPersonality
+ * (active_id + available_ids). Rejects with ApiError (carrying .status +
+ * .message) on 4xx — notably 409 (`unknown_personality`) for an unknown id.
+ */
+export function setBotPersonality(id: string): Promise<BotPersonality> {
+  return api<BotPersonality>("/api/admin/bot-personality", {
+    method: "POST",
+    body: JSON.stringify({ personality_id: id }),
+  });
+}
