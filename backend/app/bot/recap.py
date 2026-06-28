@@ -19,21 +19,37 @@ from __future__ import annotations
 import structlog
 
 from app.bot import llm_client
+from app.bot.personality import DEFAULT_PERSONALITY_ID, PERSONALITIES, compose_prompt
 
 logger = structlog.get_logger(__name__)
 
-# The Tier-2 recap persona. It MUST instruct the model to narrate ONLY the supplied
+# The Tier-2 recap ROLE line: the event-specific context (writing the weekly recap
+# column). It is NOT the voice — the leading voice sentence is supplied by the
+# active personality at compose time (260627-xbb).
+RECAP_ROLE = (
+    "You are writing a short weekly recap column. Given this week's final per-player "
+    "scores and the current season standings, reply with 2-3 short sentences that "
+    "recap THIS week's results AND the current season picture."
+)
+
+# The INVARIANT recap guard. It MUST instruct the model to narrate ONLY the supplied
 # numbers and NOT invent movement/trends — no prior-week standings are supplied, so
-# the model has no basis to claim anyone "jumped" or "climbed" (T-tfb-02).
-RECAP_PROMPT = (
-    "You are the house bot for an NFL pick'em league writing a short weekly recap "
-    "column. Given this week's final per-player scores and the current season "
-    "standings, reply with 2-3 short sentences that recap THIS week's results AND "
-    "the current season picture. Use ONLY the numbers you are given. Do NOT invent "
-    "movement, trends, jumps, climbs, streaks, or any stat that is not in the data "
-    "— you were given no prior-week standings, so never claim anyone rose or fell. "
-    "Keep the tone consistent with a friendly, lightly-snarky house bot. Use at "
-    "most one or two emoji."
+# the model has no basis to claim anyone "jumped" or "climbed" (T-tfb-02). This
+# stays byte-identical across every personality (the no-prior-standings clause is a
+# correctness guarantee, not voice flavor — 260627-xbb).
+RECAP_GUARD = (
+    "Use ONLY the numbers you are given. Do NOT invent movement, trends, jumps, "
+    "climbs, streaks, or any stat that is not in the data — you were given no "
+    "prior-week standings, so never claim anyone rose or fell. Use at most one or "
+    "two emoji."
+)
+
+# Back-compat: the composed default (sarcastic) recap prompt. ``build_week_recap``
+# composes with the ACTIVE voice resolved via the db_bridge seam; this constant is
+# the unset/default composition (active voice == sarcastic) so callers/tests that
+# reference RECAP_PROMPT still see the default prompt.
+RECAP_PROMPT = compose_prompt(
+    PERSONALITIES[DEFAULT_PERSONALITY_ID], RECAP_ROLE, RECAP_GUARD
 )
 
 
@@ -48,6 +64,18 @@ async def _recap_context(week: int) -> dict:
     from app.bot.db_bridge import get_recap_context_async
 
     return await get_recap_context_async(week)
+
+
+async def _active_voice() -> str:
+    """Resolve the active personality's voice preamble via the db_bridge seam.
+
+    The DB read happens INSIDE db_bridge's async/thread seam; falls back to the
+    sarcastic voice on any miss/unset/raise. Lazy import mirrors ``_recap_context``
+    so tests can monkeypatch this seam without a real db.
+    """
+    from app.bot.db_bridge import resolve_active_voice_async
+
+    return await resolve_active_voice_async()
 
 
 def _recap_fact(context: dict) -> str | None:
@@ -104,7 +132,12 @@ async def build_week_recap(event: dict) -> str:
         fact = _recap_fact(context)
         if fact is None:
             return render_chat(event)  # nothing to narrate -> deterministic line
-        phrased = await llm_client.phrase(fact, system_prompt=RECAP_PROMPT)
+        # Compose the active voice (resolved in the db_bridge seam) + the recap
+        # ROLE + the byte-identical recap guard. Unset/unreadable -> sarcastic, so
+        # this equals RECAP_PROMPT by default.
+        active_voice = await _active_voice()
+        system_prompt = compose_prompt(active_voice, RECAP_ROLE, RECAP_GUARD)
+        phrased = await llm_client.phrase(fact, system_prompt=system_prompt)
         if phrased is not None:
             return phrased
         return render_chat(event)

@@ -21,7 +21,11 @@ from __future__ import annotations
 import structlog
 
 from app.bot import llm_client
-from app.bot.db_bridge import get_pick_history_async, get_week_picks_async
+from app.bot.db_bridge import (
+    get_pick_history_async,
+    get_week_picks_async,
+    resolve_active_voice_async,
+)
 from app.services.pick_patterns import scan_streak
 
 logger = structlog.get_logger(__name__)
@@ -49,6 +53,10 @@ async def build_lock_commentary(week: int) -> list[str]:
     try:
         slates = await get_week_picks_async(week)
         histories = await get_pick_history_async(week)
+        # Resolve the active voice ONCE inside the db_bridge seam and thread it into
+        # the pure phrase layer (which never reads the DB itself); sarcastic on any
+        # miss/raise.
+        active_voice = await resolve_active_voice_async()
     except Exception:
         # db hiccup — produce no commentary rather than break the caller.
         logger.warning("commentary_read_failed", week=week, exc_info=True)
@@ -61,7 +69,7 @@ async def build_lock_commentary(week: int) -> list[str]:
             if fact is None:
                 continue
             sentence = _fact_sentence(display_name, fact)
-            phrased = await llm_client.phrase_pattern(sentence)
+            phrased = await llm_client.phrase_pattern(sentence, voice=active_voice)
             lines.append(phrased if phrased is not None else sentence)
         except Exception:
             # One bad player must never abort the batch.

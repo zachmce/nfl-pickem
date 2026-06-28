@@ -40,6 +40,7 @@ from __future__ import annotations
 import structlog
 
 from app.bot import llm_client
+from app.bot.personality import compose_prompt
 
 logger = structlog.get_logger(__name__)
 
@@ -53,9 +54,16 @@ _NAIL_BITER_MARGIN = 3  # margin <= 3 -> a nail-biter
 _BLOWOUT_MARGIN = 17  # margin >= 17 -> a blowout
 
 # The shared STATE-FACTS-FIRST + anti-hallucination guard every embellished prompt
-# leads with. It mirrors recap.RECAP_PROMPT's discipline: say the news (the supplied
-# numbers/names) FIRST, never let flavor replace it, and invent NOTHING beyond the
-# facts handed in (no stats, no line values, no movement).
+# composes LAST. It mirrors recap.RECAP_PROMPT's discipline: say the news (the
+# supplied numbers/names) FIRST, never let flavor replace it, and invent NOTHING
+# beyond the facts handed in (no stats, no line values, no movement).
+#
+# INVARIANT (260627-xbb): this guard — and the per-event ROLE leak/verdict clauses
+# below — are byte-identical for EVERY personality. They stay OUT of the swappable
+# voice preamble (see app.bot.personality): a personality may ONLY change the
+# leading voice sentence, never weaken or relocate these guarantees. Each event's
+# system prompt is built at call time as
+# ``compose_prompt(<active voice>, <ROLE line>, _FACTS_FIRST_GUARD)``.
 _FACTS_FIRST_GUARD = (
     "STATE THE CONCRETE FACTS FIRST (scores, teams, names, numbers), THEN add a "
     "little personality — flavor must NEVER replace the news. Use ONLY the facts "
@@ -64,30 +72,27 @@ _FACTS_FIRST_GUARD = (
     "or two emoji."
 )
 
-_WINDOW_OPENED_PROMPT = (
-    "You are the hype-bot for an NFL pick'em league announcing that the pick window "
-    "just opened. " + _FACTS_FIRST_GUARD
+# Per-event ROLE lines: the event-specific CONTEXT (not the voice). The
+# roster.complete leak clause and the misc.graded verdict-preservation clause live
+# here and are byte-identical across every personality (they are correctness
+# guarantees, not flavor). The leading voice sentence is supplied separately by the
+# active personality at compose time.
+_WINDOW_OPENED_ROLE = "You are announcing that the pick window just opened."
+
+_GAME_FINAL_ROLE = "You are reacting to a game that just went final."
+
+_ROSTER_COMPLETE_ROLE = (
+    "You are reacting to a player locking in their full roster for the week. You "
+    "are told their public standing and a COUNT of how many players still have not "
+    "locked in — you do NOT know who they are or what anyone picked, so NEVER name "
+    "another player and NEVER guess any pick."
 )
 
-_GAME_FINAL_PROMPT = (
-    "You are the house bot for an NFL pick'em league reacting to a game that just "
-    "went final. " + _FACTS_FIRST_GUARD
-)
-
-_ROSTER_COMPLETE_PROMPT = (
-    "You are the house bot for an NFL pick'em league reacting to a player locking in "
-    "their full roster for the week. You are told their public standing and a COUNT "
-    "of how many players still have not locked in — you do NOT know who they are or "
-    "what anyone picked, so NEVER name another player and NEVER guess any pick. "
-    + _FACTS_FIRST_GUARD
-)
-
-_MISC_GRADED_PROMPT = (
-    "You are the house bot for an NFL pick'em league reacting to an admin grading a "
-    "player's MISC prediction. State the player, their prediction, whether it was "
-    "correct or incorrect, and the points FIRST — then add a little personality. "
-    "The prediction text is the player's own words; quote it as given and do NOT "
-    "alter the verdict or the points. " + _FACTS_FIRST_GUARD
+_MISC_GRADED_ROLE = (
+    "You are reacting to an admin grading a player's MISC prediction. State the "
+    "player, their prediction, whether it was correct or incorrect, and the points "
+    "FIRST — then add a little personality. The prediction text is the player's own "
+    "words; quote it as given and do NOT alter the verdict or the points."
 )
 
 
@@ -136,6 +141,19 @@ async def _leaders_context(event: dict) -> dict:
     from app.bot.db_bridge import get_leaders_context_async
 
     return await get_leaders_context_async()
+
+
+async def _active_voice() -> str:
+    """Resolve the active personality's voice preamble via the db_bridge seam.
+
+    The DB read happens INSIDE db_bridge's async/thread seam (never from the pure
+    ``llm_client.phrase`` layer); falls back to the sarcastic voice on any
+    miss/unset/raise. Lazy import mirrors the context seams above so tests can
+    monkeypatch this seam without a real db.
+    """
+    from app.bot.db_bridge import resolve_active_voice_async
+
+    return await resolve_active_voice_async()
 
 
 # --------------------------------------------------------------------------- #
@@ -318,13 +336,18 @@ def _enriched_window_opened_fact(event: dict, context: dict) -> str | None:
     return " ".join(parts)
 
 
-async def _enriched_fact_and_prompt(event: dict) -> tuple[str, str] | None:
+async def _enriched_fact_and_prompt(
+    event: dict, active_voice: str
+) -> tuple[str, str] | None:
     """Build the (fact, system_prompt) for a handled event, reading DB context.
 
     Reads the matching display-only context through the async seam, builds the
     enriched STATE-FACTS-FIRST fact, and degrades to the basic event-field fact
-    when the context misses/empties OR the read raises. Returns ``None`` only for a
-    non-handled type (guarded upstream).
+    when the context misses/empties OR the read raises. The system prompt is
+    composed at call time as ``compose_prompt(active_voice, <ROLE>,
+    _FACTS_FIRST_GUARD)`` — the swappable ``active_voice`` (resolved upstream in
+    the db_bridge seam) leads, the per-event ROLE + the byte-identical guard
+    follow. Returns ``None`` only for a non-handled type (guarded upstream).
     """
     etype = event.get("type")
 
@@ -335,7 +358,8 @@ async def _enriched_fact_and_prompt(event: dict) -> tuple[str, str] | None:
         except Exception:
             logger.warning("window_opened_context_failed", exc_info=True)
             fact = None
-        return (fact or _basic_window_opened_fact(event)), _WINDOW_OPENED_PROMPT
+        prompt = compose_prompt(active_voice, _WINDOW_OPENED_ROLE, _FACTS_FIRST_GUARD)
+        return (fact or _basic_window_opened_fact(event)), prompt
 
     if etype == "game.final":
         try:
@@ -344,7 +368,8 @@ async def _enriched_fact_and_prompt(event: dict) -> tuple[str, str] | None:
         except Exception:
             logger.warning("game_final_context_failed", exc_info=True)
             fact = None
-        return (fact or _basic_game_final_fact(event)), _GAME_FINAL_PROMPT
+        prompt = compose_prompt(active_voice, _GAME_FINAL_ROLE, _FACTS_FIRST_GUARD)
+        return (fact or _basic_game_final_fact(event)), prompt
 
     if etype == "roster.complete":
         try:
@@ -353,12 +378,14 @@ async def _enriched_fact_and_prompt(event: dict) -> tuple[str, str] | None:
         except Exception:
             logger.warning("roster_complete_context_failed", exc_info=True)
             fact = None
-        return (fact or _basic_roster_complete_fact(event)), _ROSTER_COMPLETE_PROMPT
+        prompt = compose_prompt(active_voice, _ROSTER_COMPLETE_ROLE, _FACTS_FIRST_GUARD)
+        return (fact or _basic_roster_complete_fact(event)), prompt
 
     if etype == "misc.graded":
         # This event carries all its facts in the payload — no db read / context
         # seam. Build the STATE-FACTS-FIRST fact directly from the event fields.
-        return _basic_misc_graded_fact(event), _MISC_GRADED_PROMPT
+        prompt = compose_prompt(active_voice, _MISC_GRADED_ROLE, _FACTS_FIRST_GUARD)
+        return _basic_misc_graded_fact(event), prompt
 
     return None
 
@@ -387,7 +414,10 @@ async def embellish_chat(event: dict) -> str | None:
     from app.bot.notifier import render_chat
 
     try:
-        built = await _enriched_fact_and_prompt(event)
+        # Resolve the active voice INSIDE the async/db seam (never from the pure
+        # phrase layer); falls back to the sarcastic voice on any miss/raise.
+        active_voice = await _active_voice()
+        built = await _enriched_fact_and_prompt(event, active_voice)
         if built is None:  # pragma: no cover - guarded by the _HANDLED_TYPES check
             return None
         fact, system_prompt = built

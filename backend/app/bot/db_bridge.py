@@ -295,6 +295,44 @@ async def get_roster_complete_context_async(week: int, actor: str) -> dict:
     return await asyncio.to_thread(_sync)
 
 
+async def get_bot_personality_async() -> str:
+    """Async wrapper: the active bot personality id as a plain str.
+
+    Resolves the active personality inside a thread over ``task_session()`` (the
+    same async/thread seam every other DB read uses). Best-effort: returns the
+    sarcastic DEFAULT on an unset setting OR any read failure, so the bot keeps its
+    current voice and NEVER raises into the notifier loop. Plain str out only;
+    Discord-free.
+    """
+    from app.bot.personality import DEFAULT_PERSONALITY_ID
+    from app.services.app_settings import get_bot_personality
+
+    def _sync() -> str:
+        with task_session() as session:
+            return get_bot_personality(session)
+
+    try:
+        return await asyncio.to_thread(_sync)
+    except Exception:  # pragma: no cover - defensive best-effort
+        return DEFAULT_PERSONALITY_ID
+
+
+async def resolve_active_voice_async() -> str:
+    """Async wrapper: the active personality's VOICE PREAMBLE as a plain str.
+
+    Resolves the active personality id via :func:`get_bot_personality_async` then
+    maps it to its voice preamble through the registry. Best-effort: any miss /
+    unknown id / read failure falls back to the sarcastic voice (the registry's
+    ``voice_for`` already defaults unknown ids, and the id resolver already
+    defaults on a DB miss). This is the ONLY place the active voice is read for the
+    prompt builders — the pure ``llm_client.phrase`` layer never touches the DB.
+    """
+    from app.bot.personality import voice_for
+
+    personality_id = await get_bot_personality_async()
+    return voice_for(personality_id)
+
+
 async def get_leaders_context_async() -> dict:
     """Async wrapper: the display-only season-leaders context as a plain dict.
 

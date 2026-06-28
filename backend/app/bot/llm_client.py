@@ -24,6 +24,7 @@ from __future__ import annotations
 import httpx
 import structlog
 
+from app.bot.personality import DEFAULT_PERSONALITY_ID, PERSONALITIES, compose_prompt
 from app.config import settings
 
 logger = structlog.get_logger(__name__)
@@ -33,14 +34,29 @@ _MAX_TOKENS = 80
 _TEMPERATURE = 0.9
 _TIMEOUT_SECONDS = 10.0
 
-REPEATED_PICK_SYSTEM_PROMPT = (
-    "You are the snarky house bot for an NFL pick'em league. You are given ONE fact "
-    "about a player's repeated pick: who they are, the team + side they keep taking, "
-    "and for how many weeks running. STATE THAT FACT FIRST — name the player, the "
-    "team and side, and the streak length — THEN add a short playful roast. Flavor "
-    "must NEVER replace the fact; a reader who sees only your line must still know "
-    "who did what. Reply with ONE short line and at most one emoji. Use ONLY the "
-    "fact you are given: NEVER invent any stat or detail beyond it."
+# The repeated-pick ROLE line (the event-specific context) + the INVARIANT guard
+# tail, split out from the swappable voice (260627-xbb). The leading voice sentence
+# is supplied by the active personality at compose time; the ROLE + guard below are
+# byte-identical for every voice (the facts-first / anti-hallucination guarantee).
+REPEATED_PICK_ROLE = (
+    "You are given ONE fact about a player's repeated pick: who they are, the team + "
+    "side they keep taking, and for how many weeks running."
+)
+
+REPEATED_PICK_GUARD = (
+    "STATE THAT FACT FIRST — name the player, the team and side, and the streak "
+    "length — THEN add a short playful roast. Flavor must NEVER replace the fact; a "
+    "reader who sees only your line must still know who did what. Reply with ONE "
+    "short line and at most one emoji. Use ONLY the fact you are given: NEVER invent "
+    "any stat or detail beyond it."
+)
+
+# Back-compat: the composed default (sarcastic) repeated-pick prompt. The pure
+# ``phrase_pattern`` accepts an optional resolved voice and defaults to this voice
+# when none is supplied — phrase()/phrase_pattern() NEVER read the DB (the active
+# voice is resolved upstream in the db_bridge seam by the caller).
+REPEATED_PICK_SYSTEM_PROMPT = compose_prompt(
+    PERSONALITIES[DEFAULT_PERSONALITY_ID], REPEATED_PICK_ROLE, REPEATED_PICK_GUARD
 )
 
 
@@ -96,12 +112,17 @@ async def phrase(fact_text: str, *, system_prompt: str) -> str | None:
         return None
 
 
-async def phrase_pattern(fact_text: str) -> str | None:
+async def phrase_pattern(fact_text: str, *, voice: str | None = None) -> str | None:
     """Phrase a repeated-pick fact into one roast line, or ``None`` on any failure.
 
-    Back-compat thin wrapper (260627-nef): delegates to :func:`phrase` with
-    :data:`REPEATED_PICK_SYSTEM_PROMPT`. Signature and observable behavior are
-    unchanged — ``commentary.build_lock_commentary`` and the existing tests call
-    it as before.
+    Thin wrapper (260627-nef): composes the system prompt from the active ``voice``
+    preamble + the repeated-pick ROLE + the invariant guard, then delegates to
+    :func:`phrase`. This function is PURE — it never reads the DB; the active voice
+    must be resolved upstream in the db_bridge seam and passed in by the caller
+    (``commentary.build_lock_commentary``). When ``voice`` is omitted it defaults to
+    the sarcastic voice, so ``phrase_pattern(fact)`` reproduces the prior behavior
+    and the existing callers/tests are unchanged.
     """
-    return await phrase(fact_text, system_prompt=REPEATED_PICK_SYSTEM_PROMPT)
+    active_voice = voice if voice is not None else PERSONALITIES[DEFAULT_PERSONALITY_ID]
+    system_prompt = compose_prompt(active_voice, REPEATED_PICK_ROLE, REPEATED_PICK_GUARD)
+    return await phrase(fact_text, system_prompt=system_prompt)
