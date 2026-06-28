@@ -34,7 +34,7 @@ import structlog
 from sqlmodel import Session, select
 
 from app.models import Game, GameStatus, Pick, PickType, Team, User, Week
-from app.services.pick_submission import base_slots_complete
+from app.services.pick_submission import main_picks_complete
 from app.services.scoring import GradeOutcome, grade_pick
 from app.services.standings import season_standings, week_results
 
@@ -442,8 +442,9 @@ def get_roster_complete_context(
       :func:`app.services.standings.season_standings` (matched by ``display_name``;
       ``rank`` ``None`` and ``season_total`` ``0`` when the actor is absent from
       standings, e.g. has no graded picks yet);
-    * ``completed_count`` — how many players in the pool hold all four base slots
-      for this week, via :func:`app.services.pick_submission.base_slots_complete`;
+    * ``completed_count`` — how many players in the pool hold a full standard card
+      (four base bet types plus a mortal lock) for this week, via
+      :func:`app.services.pick_submission.main_picks_complete`;
     * ``total_players`` — the player pool size;
     * ``outstanding_count`` — ``total_players - completed_count``.
 
@@ -484,7 +485,7 @@ def get_roster_complete_context(
     completed_count = sum(
         1
         for uid in pool_user_ids
-        if base_slots_complete(session, user_id=uid, season=season, week=week)
+        if main_picks_complete(session, user_id=uid, season=season, week=week)
     )
     outstanding_count = total_players - completed_count
 

@@ -32,7 +32,8 @@ All seven QT-2 types target ``["logger"]`` only.
 
 QT-3 player-facing pickem-CHAT types (all target ``["chat"]`` only):
 
-* ``roster.complete``   — ``actor``, ``week`` (a user filled all 4 base slots)
+* ``roster.complete``   — ``actor``, ``week`` (a user filled their full standard
+  card — four base bet types + a mortal lock)
 * ``window.opened``     — ``week``
 * ``window.closed``     — ``week``
 * ``game.final``        — ``week``, ``away``, ``home``, ``away_score``, ``home_score``
@@ -262,11 +263,11 @@ def freeze_week_event(week: int) -> dict:
 
 
 def roster_complete_event(*, actor: str, week: int) -> dict:
-    """Build a ``roster.complete`` event — ``actor`` filled all 4 base slots.
+    """Build a ``roster.complete`` event — ``actor`` filled their full standard card.
 
     ``actor`` is the user's DISPLAY name only. Fired once, post-commit, only when
-    a submit results in the user holding all four base (non-mortal-lock, non-MISC)
-    pick slots for the week.
+    a submit results in the user holding their full standard card for the week —
+    all four base bet types plus a mortal lock.
     """
     return {
         "v": 1,

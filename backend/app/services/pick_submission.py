@@ -168,10 +168,11 @@ def read_picks(
     )
 
 
-# The four BASE pick slots a complete weekly roster requires — the non-MISC
-# pick types that are not mortal locks. Derived from the PickType enum (NOT
-# hardcoded strings) so it can never drift from the model. MISC and mortal-lock
-# rows do NOT count toward roster completion.
+# The four base bet types — the non-MISC, non-mortal-lock pick types — derived
+# from the PickType enum (NOT hardcoded strings) so they can never drift from the
+# model. These name the four base bet slots; completeness of the standard card
+# additionally requires a mortal lock. MISC and mortal-lock rows are never part of
+# this set.
 _BASE_PICK_TYPES: frozenset[PickType] = frozenset(
     {
         PickType.UNDERDOG_COVER,
@@ -182,19 +183,20 @@ _BASE_PICK_TYPES: frozenset[PickType] = frozenset(
 )
 
 
-def base_slots_complete(
+def main_picks_complete(
     session: Session, *, user_id: int, season: int, week: int
 ) -> bool:
-    """Whether ``user_id`` holds ALL four base slots for ``{season, week}``.
+    """Whether ``user_id`` holds a FULL standard card for ``{season, week}``.
 
     A pure READ (no commit): loads the user's week picks via :func:`read_picks`
-    and returns ``True`` iff the set of their base (non-mortal-lock, non-MISC)
-    pick types equals the four :data:`_BASE_PICK_TYPES`. Mortal-lock and MISC
-    rows are ignored — they never count toward the four base slots. Used by the
-    picks route to derive the post-commit ``roster.complete`` chat event; the
-    set-equality means it is ``True`` only on the submit that FILLS the last
-    missing base slot (a re-submit of an already-complete roster also reads
-    ``True``, but the route only publishes when a submit transitions it complete).
+    and returns ``True`` iff the user holds all four base bet types (as
+    non-mortal-lock base picks, set-equal to :data:`_BASE_PICK_TYPES`) AND
+    exactly one mortal lock for the week. Validation already enforces at most one
+    mortal lock per user/week, so "a mortal lock exists" equals "exactly one
+    mortal lock". MISC rows never count toward the card. Used by the picks route
+    to derive the post-commit ``roster.complete`` chat event; because both halves
+    of the conjunction must hold, the submit that adds the mortal lock (or fills
+    the last base bet type) can be the one that transitions the card complete.
     """
     picks = read_picks(session, user_id=user_id, season=season, week=week)
     present_base = {
@@ -202,7 +204,8 @@ def base_slots_complete(
         for p in picks
         if not p.is_mortal_lock and p.pick_type in _BASE_PICK_TYPES
     }
-    return present_base == _BASE_PICK_TYPES
+    has_mortal_lock = any(p.is_mortal_lock for p in picks)
+    return present_base == _BASE_PICK_TYPES and has_mortal_lock
 
 
 def clear_pick(

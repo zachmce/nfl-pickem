@@ -38,8 +38,8 @@ from app.services.notifications import (
     roster_complete_event,
 )
 from app.services.pick_submission import (
-    base_slots_complete,
     clear_pick,
+    main_picks_complete,
     read_picks,
     submit_picks,
 )
@@ -141,15 +141,17 @@ def submit(
                     misc_picked_event(actor=user.display_name, week=payload.week)
                 )
 
-    # QT-3 pickem-CHAT: when THIS submit results in the user holding all four
-    # base slots for the week, fire ONE roster.complete (display_name only) to
-    # the chat feed — post-commit + best-effort (publish_event swallows). Gated
+    # QT-3 pickem-CHAT: when THIS submit results in the user holding their full
+    # standard card for the week — all four base bet types plus a mortal lock —
+    # fire ONE roster.complete (display_name only) to the chat feed — post-commit
+    # + best-effort (publish_event swallows). Adding the mortal lock can now be
+    # the submit that completes the card (no longer a no-op for completion). Gated
     # behind a ~5-min cooldown per (user, season, week) so an immediate second
-    # completing submit (e.g. adding a mortal lock, or re-setting a base slot
-    # while the four base slots stay complete) does NOT re-post the roster line
-    # (260628-itg). A submit that leaves the roster incomplete fires none; the
-    # cooldown is fail-open so a Redis hiccup can never suppress the milestone.
-    if base_slots_complete(
+    # completing submit (e.g. re-setting a slot while the card stays complete)
+    # does NOT re-post the roster line (260628-itg). A submit that leaves the card
+    # incomplete fires none; the cooldown is fail-open so a Redis hiccup can never
+    # suppress the milestone.
+    if main_picks_complete(
         session, user_id=user.id, season=payload.season, week=payload.week
     ):
         roster_key = (
