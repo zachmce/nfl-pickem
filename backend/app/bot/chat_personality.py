@@ -46,7 +46,7 @@ logger = structlog.get_logger(__name__)
 
 # Tier-1 event types this seam phrases. Everything else is the notifier's job.
 _HANDLED_TYPES = frozenset(
-    {"window.opened", "game.final", "roster.complete", "misc.graded"}
+    {"window.opened", "game.final", "roster.complete", "misc.graded", "misc.picked"}
 )
 
 # Margin thresholds (points) for the COMPUTED game.final descriptor.
@@ -82,10 +82,12 @@ _WINDOW_OPENED_ROLE = "You are announcing that the pick window just opened."
 _GAME_FINAL_ROLE = "You are reacting to a game that just went final."
 
 _ROSTER_COMPLETE_ROLE = (
-    "You are reacting to a player locking in their full roster for the week. You "
-    "are told their public standing and a COUNT of how many players still have not "
-    "locked in — you do NOT know who they are or what anyone picked, so NEVER name "
-    "another player and NEVER guess any pick."
+    "You are reacting to a player making/setting their full roster of picks for "
+    "the week — they got their picks in (the SYSTEM locks them at kickoff; the "
+    "player does NOT 'lock in', so never use that phrase). You are told their "
+    "public standing and a COUNT of how many players still have not submitted — "
+    "you do NOT know who they are or what anyone picked, so NEVER name another "
+    "player and NEVER guess any pick."
 )
 
 _MISC_GRADED_ROLE = (
@@ -93,6 +95,14 @@ _MISC_GRADED_ROLE = (
     "player, their prediction, whether it was correct or incorrect, and the points "
     "FIRST — then add a little personality. The prediction text is the player's own "
     "words; quote it as given and do NOT alter the verdict or the points."
+)
+
+_MISC_PICKED_ROLE = (
+    "You are announcing that a player just got their MISC call/prediction in for "
+    "the week. You know ONLY that they made the call and the week — you do NOT "
+    "know the prediction text and it is hidden until the window closes, so NEVER "
+    "guess, invent, hint at, or state what they predicted, and NEVER name another "
+    "player."
 )
 
 
@@ -214,6 +224,19 @@ def _basic_misc_graded_fact(event: dict) -> str:
 # --------------------------------------------------------------------------- #
 # Enriched facts built from the DB context (None -> use the basic fallback).
 # --------------------------------------------------------------------------- #
+
+
+def _basic_misc_picked_fact(event: dict) -> str:
+    """A deterministic misc.picked fact from the event fields ONLY (LEAK-SAFE).
+
+    actor + week and NOTHING prediction-related — this event carries no enriched
+    context (and no db read), and the prediction text is hidden until the window
+    closes, so the fact STATES only that the player got their misc call in.
+    """
+    return (
+        f"{event.get('actor')} just submitted their Week "
+        f"{event.get('week')} misc call."
+    )
 
 
 def _enriched_game_final_fact(event: dict, context: dict) -> str | None:
@@ -386,6 +409,12 @@ async def _enriched_fact_and_prompt(
         # seam. Build the STATE-FACTS-FIRST fact directly from the event fields.
         prompt = compose_prompt(active_voice, _MISC_GRADED_ROLE, _FACTS_FIRST_GUARD)
         return _basic_misc_graded_fact(event), prompt
+
+    if etype == "misc.picked":
+        # Like misc.graded, no db/context seam — but LEAK-SAFE: the fact carries
+        # only actor + week (the prediction is hidden until the window closes).
+        prompt = compose_prompt(active_voice, _MISC_PICKED_ROLE, _FACTS_FIRST_GUARD)
+        return _basic_misc_picked_fact(event), prompt
 
     return None
 

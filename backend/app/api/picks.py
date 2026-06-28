@@ -28,6 +28,9 @@ from app.db import get_session
 from app.models import Game, Pick, PickType, Team, User
 from app.schemas.picks import PickRead, PickSubmitRequest
 from app.services.notifications import (
+    COOLDOWN_TTL_SECONDS,
+    claim_cooldown,
+    misc_picked_event,
     pick_cleared_event,
     pick_event,
     pick_log_detail,
@@ -121,16 +124,41 @@ def submit(
             )
         )
 
+        # QT-3 pickem-CHAT (260628-itg): when THIS submit set/updated a MISC
+        # prediction, fire ONE leak-safe misc.picked line announcing only THAT
+        # the player made their misc call — never the misc_text. Gated behind a
+        # ~5-min cooldown per (user, season, week) so repeated edits to the
+        # prediction within the window do not re-spam the chat feed. Done AFTER
+        # the pick.changed publish so the logger event is unaffected; the
+        # cooldown is fail-open and publish_event swallows, so it stays
+        # post-commit + best-effort.
+        if pick.pick_type is PickType.MISC:
+            misc_key = (
+                f"pickem:misc_picked_cd:{payload.season}:{payload.week}:{user.id}"
+            )
+            if claim_cooldown(misc_key, COOLDOWN_TTL_SECONDS):
+                publish_event(
+                    misc_picked_event(actor=user.display_name, week=payload.week)
+                )
+
     # QT-3 pickem-CHAT: when THIS submit results in the user holding all four
     # base slots for the week, fire ONE roster.complete (display_name only) to
-    # the chat feed — post-commit + best-effort (publish_event swallows). A
-    # submit that leaves the roster incomplete fires none.
+    # the chat feed — post-commit + best-effort (publish_event swallows). Gated
+    # behind a ~5-min cooldown per (user, season, week) so an immediate second
+    # completing submit (e.g. adding a mortal lock, or re-setting a base slot
+    # while the four base slots stay complete) does NOT re-post the roster line
+    # (260628-itg). A submit that leaves the roster incomplete fires none; the
+    # cooldown is fail-open so a Redis hiccup can never suppress the milestone.
     if base_slots_complete(
         session, user_id=user.id, season=payload.season, week=payload.week
     ):
-        publish_event(
-            roster_complete_event(actor=user.display_name, week=payload.week)
+        roster_key = (
+            f"pickem:roster_complete_cd:{payload.season}:{payload.week}:{user.id}"
         )
+        if claim_cooldown(roster_key, COOLDOWN_TTL_SECONDS):
+            publish_event(
+                roster_complete_event(actor=user.display_name, week=payload.week)
+            )
     return [PickRead.from_orm_pick(p) for p in picks]
 
 

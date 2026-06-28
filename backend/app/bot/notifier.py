@@ -136,7 +136,9 @@ def render_chat(event: dict) -> str | None:
     etype = event.get("type")
 
     if etype == "roster.complete":
-        return f"{event.get('actor')}'s locked in all their Week {event.get('week')} picks. 🔒"
+        # NOT "locked in" — players make/set their picks; the SYSTEM locks at
+        # first kickoff. No lock emoji here (260628-itg).
+        return f"{event.get('actor')} got their Week {event.get('week')} picks in. 👍"
     if etype == "window.opened":
         return f"Week {event.get('week')} picks are open — get 'em in!"
     if etype == "window.closed":
@@ -152,6 +154,10 @@ def render_chat(event: dict) -> str | None:
             f"{event.get('winner')} takes the week with {event.get('winner_score')}; "
             f"{event.get('leader')} leads the season."
         )
+    if etype == "misc.picked":
+        # LEAK-SAFE (260628-itg): actor + week ONLY — NEVER any prediction/text
+        # content (predictions are hidden until the window closes).
+        return f"{event.get('actor')} got their Week {event.get('week')} misc call in. 👀"
     if etype == "misc.graded":
         # Signed points: a positive shows a leading plus, a negative its sign.
         return (
@@ -230,6 +236,7 @@ async def run_notifier(client) -> None:
                             "game.final",
                             "roster.complete",
                             "misc.graded",
+                            "misc.picked",
                         ):
                             from app.bot.chat_personality import embellish_chat
 

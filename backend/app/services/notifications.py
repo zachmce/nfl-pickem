@@ -42,6 +42,10 @@ QT-3 player-facing pickem-CHAT types (all target ``["chat"]`` only):
   ``points`` (an admin graded a player's MISC prediction; the player's OWN free
   text + the verdict word + signed points — published ONLY once the week's pick
   window is closed so the prediction is never revealed before lock)
+* ``misc.picked``       — ``actor``, ``week`` (a player submitted/set their MISC
+  prediction; announces ONLY THAT they made a misc call — LEAK-SAFE: NEVER the
+  ``misc_text`` content, NEVER a user_id, since picks are hidden until the window
+  closes. Deduped behind a ~5-min :func:`claim_cooldown` window per user/week.)
 
 The QT-3 chat types carry DISPLAY data only (display_name strings, integer
 scores, week number, team abbreviations, the player's own prediction text) —
@@ -273,6 +277,25 @@ def roster_complete_event(*, actor: str, week: int) -> dict:
     }
 
 
+def misc_picked_event(*, actor: str, week: int) -> dict:
+    """Build a ``misc.picked`` event — ``actor`` submitted/set their MISC pick.
+
+    HARD LEAK RULE (T-itg-01): carries the player's DISPLAY name + the week ONLY.
+    It NEVER carries the ``misc_text`` content (predictions are hidden until the
+    pick window closes) and NEVER a user_id — the key set is EXACTLY
+    ``{v, type, targets, actor, week}``, mirroring :func:`roster_complete_event`.
+    The caller fires this once per (user, season, week) cooldown window behind
+    :func:`claim_cooldown` so repeated edits to the prediction do not re-spam chat.
+    """
+    return {
+        "v": 1,
+        "type": "misc.picked",
+        "targets": ["chat"],
+        "actor": actor,
+        "week": week,
+    }
+
+
 def window_opened_event(week: int) -> dict:
     """Build a ``window.opened`` event — ``week``'s pick window just opened."""
     return {
@@ -387,6 +410,45 @@ def _redis_client():
     import redis
 
     return redis.Redis.from_url(settings.redis_url)
+
+
+# Default cooldown window (seconds) for the dedup'd chat milestones below
+# (roster.complete + misc.picked). ~5 minutes: long enough that a flurry of
+# re-submits on the same week collapses to ONE chat line, short enough that a
+# genuine re-completion much later can re-announce (accepted).
+COOLDOWN_TTL_SECONDS = 300
+
+
+def claim_cooldown(key: str, ttl_seconds: int = COOLDOWN_TTL_SECONDS) -> bool:
+    """Atomically claim ``key`` for ``ttl_seconds`` — best-effort, FAIL-OPEN.
+
+    Runs a Redis ``SET key 1 NX EX ttl_seconds`` via the shared
+    :func:`_redis_client` seam (so tests monkeypatch ONE place). Returns:
+
+    * ``True``  — the key was newly claimed (first time within the TTL window):
+      the caller SHOULD publish its milestone.
+    * ``False`` — the key already existed (a repeat within the window): the
+      caller SHOULD suppress the duplicate.
+
+    FAIL-OPEN (T-itg-03): the whole op is wrapped in try/except. On ANY error it
+    logs a structlog warning (mirroring :data:`publish_event`'s posture) and
+    returns ``True`` — it NEVER raises into the request path and NEVER silently
+    swallows the milestone. The events bus is itself Redis, so if Redis is fully
+    down nothing posts anyway; failing open here just means we do not let the
+    dedup op become a new failure mode for the pick submit.
+    """
+    try:
+        client = _redis_client()
+        # redis-py: set(..., nx=True, ex=ttl) returns True on a successful new
+        # claim and None when the key already exists (NX rejected the write).
+        return bool(client.set(key, "1", nx=True, ex=ttl_seconds))
+    except Exception:
+        logger.warning(
+            "cooldown_claim_failed",
+            key=key,
+            ttl_seconds=ttl_seconds,
+        )
+        return True  # FAIL-OPEN — never swallow the milestone.
 
 
 def publish_event(event: dict) -> None:
