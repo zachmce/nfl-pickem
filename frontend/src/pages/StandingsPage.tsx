@@ -46,6 +46,20 @@ function weekColumns(rows: SeasonStandingRow[]): number[] {
 }
 
 /**
+ * Map a 1-based COMPETITION rank to its season-end medal: 1 -> 🥇, 2 -> 🥈,
+ * 3 -> 🥉, any other rank -> "" (no medal). Because the rank comes from
+ * competitionRanks(), tied players share a rank and therefore a medal — e.g. two
+ * players tied at rank 1 both show 🥇 and the next distinct total lands at rank 3
+ * (🥉) with no 🥈 emitted. Only shown when the season is complete.
+ */
+function rankMedal(rank: number): string {
+  if (rank === 1) return "🥇";
+  if (rank === 2) return "🥈";
+  if (rank === 3) return "🥉";
+  return "";
+}
+
+/**
  * Standard competition ranks ("1, 2, 2, 4") for the ALREADY-ORDERED rows, keyed
  * by season_total: row 0 is rank 1; each subsequent row keeps the previous rank
  * when its total ties the row above, otherwise its rank is its 1-based position.
@@ -63,7 +77,8 @@ function competitionRanks(rows: SeasonStandingRow[]): number[] {
 }
 
 export default function StandingsPage() {
-  const { status, season, currentWeek, standings } = useStandings();
+  const { status, season, currentWeek, standings, seasonComplete } =
+    useStandings();
   const { user } = useAuth();
 
   const seasonLabel = season !== null ? `${season} season` : null;
@@ -150,6 +165,11 @@ export default function StandingsPage() {
                   ].join(" ")}
                 >
                   <td className="px-3 py-2 text-right tabular-nums text-gray-500">
+                    {seasonComplete && rankMedal(ranks[i]) !== "" && (
+                      <span className="mr-1" aria-hidden="true">
+                        {rankMedal(ranks[i])}
+                      </span>
+                    )}
                     {ranks[i]}
                   </td>
                   <td className="px-3 py-2 text-right font-semibold tabular-nums text-gray-900">

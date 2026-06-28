@@ -94,6 +94,13 @@ export interface SeasonStandingRow {
 export interface SeasonStandingsResponse {
   season: number;
   standings: SeasonStandingRow[];
+  /**
+   * True ONLY when every game in the season is FINAL (mirrors the backend
+   * SeasonStandingsResponse.season_complete). The Standings page uses this to
+   * award 1st/2nd/3rd medals; it is false for an in-progress season and for a
+   * season with zero games.
+   */
+  season_complete: boolean;
 }
 
 /** Fetch the season scoreboard (one row per player) for a season. */

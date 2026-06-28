@@ -26,6 +26,12 @@ export interface UseStandings {
   currentWeek: number | null;
   /** Rows in the server-returned order (do NOT re-sort). */
   standings: SeasonStandingRow[];
+  /**
+   * True only when every season game is FINAL (from the API's season_complete).
+   * The Standings page awards 1st/2nd/3rd medals only when this is true; default
+   * false until the load resolves.
+   */
+  seasonComplete: boolean;
 }
 
 export function useStandings(): UseStandings {
@@ -33,6 +39,7 @@ export function useStandings(): UseStandings {
   const [season, setSeason] = useState<number | null>(null);
   const [currentWeek, setCurrentWeek] = useState<number | null>(null);
   const [standings, setStandings] = useState<SeasonStandingRow[]>([]);
+  const [seasonComplete, setSeasonComplete] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -47,6 +54,7 @@ export function useStandings(): UseStandings {
         if (cancelled) return;
         setSeason(resp.season);
         setStandings(resp.standings);
+        setSeasonComplete(Boolean(resp.season_complete));
         setStatus("ok");
       })
       .catch(() => {
@@ -59,5 +67,5 @@ export function useStandings(): UseStandings {
     };
   }, []);
 
-  return { status, season, currentWeek, standings };
+  return { status, season, currentWeek, standings, seasonComplete };
 }
