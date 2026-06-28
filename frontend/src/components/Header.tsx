@@ -22,6 +22,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/", label: "My Picks", end: true },
   { to: "/standings", label: "Standings" },
   { to: "/weekly", label: "Weekly" },
+  { to: "/calendar", label: "Calendar" },
   { to: "/rules", label: "Rules" },
 ];
 

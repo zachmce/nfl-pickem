@@ -11,6 +11,7 @@ import RequireAdmin from "./auth/RequireAdmin";
 import RequireAuth from "./auth/RequireAuth";
 import AppShell from "./components/AppShell";
 import AdminPage from "./pages/AdminPage";
+import CalendarPage from "./pages/CalendarPage";
 import LoginPage from "./pages/LoginPage";
 import MyPicksPage from "./pages/MyPicksPage";
 import RulesPage from "./pages/RulesPage";
@@ -31,6 +32,7 @@ export const router = createBrowserRouter([
           { index: true, element: <MyPicksPage /> },
           { path: "standings", element: <StandingsPage /> },
           { path: "weekly", element: <WeeklyPage /> },
+          { path: "calendar", element: <CalendarPage /> },
           { path: "rules", element: <RulesPage /> },
           {
             element: <RequireAdmin />,

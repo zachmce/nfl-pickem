@@ -1,0 +1,320 @@
+/**
+ * Calendar page — a pageable month-grid view of the whole NFL schedule.
+ *
+ * Renders INSIDE AppShell (which is inside RequireAuth), so this is CONTENT
+ * ONLY: no shell, header, nav, or auth guard — exactly like StandingsPage.
+ *
+ * Behaviour:
+ *   - A standard 6-row x 7-col month grid, defaulting to the REAL current month
+ *     via `new Date()`. Prev/Next page by one month (rolling the year on
+ *     Dec->Jan / Jan->Dec); a "Today" button jumps back to the current month.
+ *   - The grid starts on the Sunday on/before the 1st of the month and renders
+ *     42 cells, so leading/trailing days of the adjacent months appear greyed.
+ *   - Each game is placed on its US Eastern (America/New_York) CALENDAR DAY
+ *     (LOAD-BEARING): an 8:20pm-ET Thursday night game stored as 00:20 UTC the
+ *     next day must show on Thursday, not Friday. We derive the ET day key with
+ *     `Intl.DateTimeFormat(..., { timeZone: 'America/New_York' })` and bucket
+ *     games into a Map keyed by that `YYYY-MM-DD` ET key. Each grid cell builds
+ *     its own `YYYY-MM-DD` key the same way (plain local calendar day) so cell
+ *     key === game ET key matches.
+ *   - Each game renders a compact informational chip (NO click-through): the
+ *     matchup `AWAY @ HOME` by abbreviation, the ET kickoff time, and — only
+ *     when `status === "FINAL"` — the final score `AWAY n @ HOME n`.
+ *   - Loading / error / empty states render clean gray messages (none throw),
+ *     mirroring the existing pages. Public-schedule view: no picks, no user data.
+ */
+import { useEffect, useMemo, useState } from "react";
+
+import type { CalendarGame, CalendarResponse } from "../lib/calendar";
+import { getCalendar } from "../lib/calendar";
+
+const ET_TIME_ZONE = "America/New_York";
+
+const MONTH_LABELS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** A plain local calendar day (year, 0-indexed month, day-of-month). */
+interface DayCell {
+  year: number;
+  month: number;
+  day: number;
+  inMonth: boolean;
+  /** `YYYY-MM-DD` key matching the ET game keys. */
+  key: string;
+}
+
+/** Zero-pad a number to two digits. */
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+/** `YYYY-MM-DD` key for a plain (year, 0-indexed month, day) tuple. */
+function dayKey(year: number, month: number, day: number): string {
+  return `${year}-${pad2(month + 1)}-${pad2(day)}`;
+}
+
+/**
+ * The 42-cell (6x7) grid for the given month: starts on the Sunday on/before
+ * the 1st, runs six full weeks. Leading/trailing adjacent-month days are
+ * flagged `inMonth: false`.
+ */
+function buildGrid(year: number, month: number): DayCell[] {
+  const first = new Date(year, month, 1);
+  const start = new Date(year, month, 1 - first.getDay()); // back up to Sunday
+  const cells: DayCell[] = [];
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+    const y = d.getFullYear();
+    const m = d.getMonth();
+    const dd = d.getDate();
+    cells.push({
+      year: y,
+      month: m,
+      day: dd,
+      inMonth: m === month && y === year,
+      key: dayKey(y, m, dd),
+    });
+  }
+  return cells;
+}
+
+/**
+ * The US Eastern `YYYY-MM-DD` calendar-day key for a UTC kickoff ISO string.
+ * `en-CA` yields `YYYY-MM-DD` directly under the ET time zone.
+ */
+function etDayKey(kickoffIso: string): string {
+  const d = new Date(kickoffIso);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: ET_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+/** The ET clock time (e.g. "8:20 PM") for a UTC kickoff ISO string. */
+function etTime(kickoffIso: string): string {
+  const d = new Date(kickoffIso);
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: ET_TIME_ZONE,
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(d);
+}
+
+/** Today's ET calendar-day key (for the "today" cell marker). */
+function todayEtKey(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: ET_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+type Status = "loading" | "error" | "ok";
+
+export default function CalendarPage() {
+  const now = new Date();
+  const [view, setView] = useState({
+    year: now.getFullYear(),
+    month: now.getMonth(),
+  });
+  const [status, setStatus] = useState<Status>("loading");
+  const [games, setGames] = useState<CalendarGame[]>([]);
+
+  const grid = useMemo(
+    () => buildGrid(view.year, view.month),
+    [view.year, view.month],
+  );
+
+  // The fetch window is the full visible grid: first cell .. last cell.
+  const fromDate = grid[0].key;
+  const toDate = grid[grid.length - 1].key;
+
+  useEffect(() => {
+    let cancelled = false;
+    setStatus("loading");
+    getCalendar(fromDate, toDate)
+      .then((res: CalendarResponse) => {
+        if (cancelled) return;
+        setGames(res.games);
+        setStatus("ok");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setGames([]);
+        setStatus("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [fromDate, toDate]);
+
+  // Bucket games onto their ET calendar day.
+  const gamesByDay = useMemo(() => {
+    const map = new Map<string, CalendarGame[]>();
+    for (const g of games) {
+      if (!g.kickoff_at) continue;
+      const key = etDayKey(g.kickoff_at);
+      const list = map.get(key);
+      if (list) list.push(g);
+      else map.set(key, [g]);
+    }
+    return map;
+  }, [games]);
+
+  const todayKey = todayEtKey();
+  const isCurrentMonth =
+    view.year === now.getFullYear() && view.month === now.getMonth();
+
+  function shiftMonth(delta: number) {
+    setView((v) => {
+      const total = v.year * 12 + v.month + delta;
+      return { year: Math.floor(total / 12), month: ((total % 12) + 12) % 12 };
+    });
+  }
+
+  function goToday() {
+    const d = new Date();
+    setView({ year: d.getFullYear(), month: d.getMonth() });
+  }
+
+  return (
+    <div className="space-y-6">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Calendar</h1>
+          <p className="mt-1 text-sm text-gray-500">
+            {MONTH_LABELS[view.month]} {view.year}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => shiftMonth(-1)}
+            className="rounded border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            ← Prev
+          </button>
+          <button
+            type="button"
+            onClick={goToday}
+            disabled={isCurrentMonth}
+            className="rounded border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-default disabled:opacity-40"
+          >
+            Today
+          </button>
+          <button
+            type="button"
+            onClick={() => shiftMonth(1)}
+            className="rounded border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Next →
+          </button>
+        </div>
+      </header>
+
+      {status === "loading" && (
+        <p className="text-gray-500">Loading the schedule…</p>
+      )}
+      {status === "error" && (
+        <p className="text-gray-600">
+          Couldn't load the calendar. Please try again later.
+        </p>
+      )}
+      {status === "ok" && gamesByDay.size === 0 && (
+        <p className="text-gray-500">No games scheduled this month.</p>
+      )}
+
+      <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+        {/* Weekday header */}
+        <div className="grid grid-cols-7 border-b border-gray-200 text-center text-xs font-semibold text-gray-500">
+          {WEEKDAY_LABELS.map((w) => (
+            <div key={w} className="px-2 py-2">
+              {w}
+            </div>
+          ))}
+        </div>
+        {/* 6x7 day grid */}
+        <div className="grid grid-cols-7">
+          {grid.map((cell) => {
+            const dayGames = gamesByDay.get(cell.key) ?? [];
+            const isToday = cell.key === todayKey;
+            return (
+              <div
+                key={cell.key}
+                className={[
+                  "min-h-24 border-b border-r border-gray-100 p-1 align-top",
+                  cell.inMonth ? "bg-white" : "bg-gray-50",
+                ].join(" ")}
+              >
+                <div
+                  className={[
+                    "mb-1 text-right text-xs",
+                    cell.inMonth ? "text-gray-700" : "text-gray-400",
+                  ].join(" ")}
+                >
+                  <span
+                    className={
+                      isToday
+                        ? "inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 font-semibold text-white"
+                        : ""
+                    }
+                  >
+                    {cell.day}
+                  </span>
+                </div>
+                <div className="space-y-1">
+                  {dayGames.map((g) => {
+                    const away = g.away_team.abbreviation;
+                    const home = g.home_team.abbreviation;
+                    const isFinal = g.status === "FINAL";
+                    return (
+                      <div
+                        key={g.game_id}
+                        className="rounded border border-gray-200 bg-gray-50 px-1 py-0.5 text-[11px] leading-tight"
+                      >
+                        {isFinal ? (
+                          <div className="font-medium text-gray-800">
+                            {away} {g.away_score ?? 0} @ {home}{" "}
+                            {g.home_score ?? 0}
+                          </div>
+                        ) : (
+                          <>
+                            <div className="font-medium text-gray-800">
+                              {away} @ {home}
+                            </div>
+                            {g.kickoff_at && (
+                              <div className="text-gray-500">
+                                {etTime(g.kickoff_at)} ET
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
