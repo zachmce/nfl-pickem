@@ -25,11 +25,13 @@ from app.services.notifications import (
     EVENTS_CHANNEL,
     admin_pick_cleared_event,
     admin_pick_set_event,
+    claim_cooldown,
     freeze_week_event,
     game_final_event,
     ingest_season_event,
     login_event,
     misc_graded_event,
+    misc_picked_event,
     pick_cleared_event,
     pick_event,
     pick_log_detail,
@@ -446,6 +448,93 @@ class PublishEventTests(unittest.TestCase):
 
         with patch.object(notifications, "_redis_client", side_effect=_boom):
             self.assertIsNone(publish_event(login_event("alice")))
+
+
+# --------------------------------------------------------------------------- #
+# claim_cooldown (260628-itg) — SET NX EX dedup helper, fail-open.
+# --------------------------------------------------------------------------- #
+
+
+class _NxFakeRedis:
+    """A tiny in-memory client honoring SET NX semantics on a single key set.
+
+    ``set(key, value, nx=True, ex=...)`` returns ``True`` the FIRST time a key is
+    seen and ``None`` (redis-py's NX-rejected return) on any repeat — exactly the
+    contract :func:`claim_cooldown` relies on.
+    """
+
+    def __init__(self) -> None:
+        self._keys: set[str] = set()
+        self.calls: list[tuple] = []
+
+    def set(self, key, value, nx=False, ex=None):  # noqa: A002
+        self.calls.append((key, value, nx, ex))
+        if nx and key in self._keys:
+            return None
+        self._keys.add(key)
+        return True
+
+
+class _BoomSetRedis:
+    """A client whose ``set`` always raises — the cooldown FAIL-OPEN path."""
+
+    def set(self, *args, **kwargs):
+        raise RuntimeError("redis is down")
+
+
+class ClaimCooldownTests(unittest.TestCase):
+    def test_first_claim_true_repeat_false(self) -> None:
+        fake = _NxFakeRedis()
+        with patch.object(notifications, "_redis_client", return_value=fake):
+            self.assertTrue(claim_cooldown("pickem:cd:1:2:3", 300))
+            # Immediate repeat within the window — suppressed.
+            self.assertFalse(claim_cooldown("pickem:cd:1:2:3", 300))
+        # A DIFFERENT key is independently claimable (still True).
+        with patch.object(notifications, "_redis_client", return_value=fake):
+            self.assertTrue(claim_cooldown("pickem:cd:9:9:9", 300))
+        # It ran SET NX EX with the supplied ttl.
+        self.assertTrue(all(c[2] is True and c[3] == 300 for c in fake.calls))
+
+    def test_fail_open_when_set_raises(self) -> None:
+        with patch.object(
+            notifications, "_redis_client", return_value=_BoomSetRedis()
+        ):
+            # FAIL-OPEN: returns True, never raises.
+            self.assertTrue(claim_cooldown("pickem:cd:k", 300))
+
+    def test_fail_open_when_client_construction_raises(self) -> None:
+        def _boom() -> object:
+            raise ConnectionError("cannot connect to redis")
+
+        with patch.object(notifications, "_redis_client", side_effect=_boom):
+            self.assertTrue(claim_cooldown("pickem:cd:k", 300))
+
+
+# --------------------------------------------------------------------------- #
+# misc.picked (260628-itg) — leak-safe chat event: actor + week ONLY.
+# --------------------------------------------------------------------------- #
+
+
+class MiscPickedEventBuilderTests(unittest.TestCase):
+    def test_misc_picked_exact_shape(self) -> None:
+        event = misc_picked_event(actor="bob", week=3)
+        self.assertEqual(event["v"], 1)
+        self.assertEqual(event["type"], "misc.picked")
+        self.assertEqual(event["targets"], ["chat"])
+        self.assertEqual(event["actor"], "bob")
+        self.assertEqual(event["week"], 3)
+        # Exactly these keys — no user_id, no misc_text.
+        self.assertEqual(set(event.keys()), {"v", "type", "targets", "actor", "week"})
+
+    def test_misc_picked_carries_no_user_id_or_misc_text(self) -> None:
+        secret_text = "Mahomes throws 5 TDs and it rains"
+        event = misc_picked_event(actor="bob", week=7)
+        for forbidden in ("user_id", "misc_text", "prediction", "detail"):
+            self.assertNotIn(forbidden, event)
+        # The actual prediction text appears NOWHERE in the event (LEAK-SAFE).
+        self.assertNotIn(secret_text, repr(event))
+        for value in event.values():
+            self.assertNotEqual(value, secret_text)
 
 
 if __name__ == "__main__":

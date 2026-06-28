@@ -1027,20 +1027,21 @@ class PicksApiTests(unittest.TestCase):
 
     # -- roster.complete chat event (QT-3) ---------------------------------
 
-    def _add_fourth_base_game(self) -> int:
-        """Add a 4th SCHEDULED future-kickoff game to week 1 and return its id.
+    def _add_base_game(self, espn_event_id: int = 1004) -> int:
+        """Add an extra SCHEDULED future-kickoff spread/total game to week 1.
 
         The setUp fixture's week 1 has three games (spread, total, pickem). The
         four base slots (UNDERDOG_COVER, FAVORITE_COVER, OVER, UNDER) need four
         distinct games because FAVORITE/UNDERDOG conflict on one game and
-        OVER/UNDER conflict on another — so we add a fourth spread/total game.
+        OVER/UNDER conflict on another — so we add an extra spread/total game.
+        ``espn_event_id`` is parameterized so callers can add more than one.
         """
         now = datetime.now(timezone.utc)
         with self._session() as session:
             teams = list(session.exec(select(Team)).all())
             tid = [t.id for t in teams]
             game = Game(
-                espn_event_id=1004,
+                espn_event_id=espn_event_id,
                 week_id=self.week_id,
                 season=SEASON,
                 week=WEEK,
@@ -1058,6 +1059,10 @@ class PicksApiTests(unittest.TestCase):
             session.refresh(game)
             assert game.id is not None
             return game.id
+
+    def _add_fourth_base_game(self) -> int:
+        """Back-compat alias: add the 4th base game (espn_event_id 1004)."""
+        return self._add_base_game(1004)
 
     def test_completing_fourth_base_slot_publishes_one_roster_complete(self) -> None:
         """The submit that fills the 4th base slot publishes ONE roster.complete."""
@@ -1135,6 +1140,240 @@ class PicksApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         roster_events = [e for e in recorded if e.get("type") == "roster.complete"]
         self.assertEqual(roster_events, [])
+
+    def _seed_full_base_roster(self) -> int:
+        """Seed all four base slots for userA on four distinct week-1 games.
+
+        Leaves the roster COMPLETE so a subsequent submit (a re-set, or adding a
+        mortal lock) keeps the four base slots filled — used to prove the
+        cooldown / mortal-lock suppression of roster.complete. Returns the id of
+        the extra (fourth) spread/total game seeded with UNDERDOG_COVER.
+        """
+        game4_id = self._add_fourth_base_game()
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_spread_id,
+            week_id=self.week_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=game4_id,
+            week_id=self.week_id,
+            pick_type=PickType.UNDERDOG_COVER,
+        )
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_total_id,
+            week_id=self.week_id,
+            pick_type=PickType.OVER,
+        )
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_pickem_id,
+            week_id=self.week_id,
+            pick_type=PickType.UNDER,
+        )
+        return game4_id
+
+    def test_roster_complete_suppressed_within_cooldown_window(self) -> None:
+        """Two completing submits in one cooldown window publish roster.complete ONCE.
+
+        The completing submit fires it (claim_cooldown -> True); an immediate
+        SECOND submit that keeps the four base slots complete (here: re-setting
+        the FAVORITE_COVER base slot to a different game and back) is SUPPRESSED
+        (claim_cooldown -> False).
+        """
+        self._seed_full_base_roster()
+        # A fresh spread/total game to MOVE the FAVORITE_COVER slot onto (it has
+        # no UNDERDOG/OVER/UNDER pick on it, so a FAVORITE re-set there is clean).
+        move_game_id = self._add_base_game(espn_event_id=1005)
+
+        recorded: list[dict] = []
+        headers = self._cookie_auth_headers(self.user_a_id)
+        # First claim succeeds, second is suppressed — mirrors the ~5-min window.
+        with mock.patch(
+            "app.api.picks.publish_event", side_effect=recorded.append
+        ), mock.patch(
+            "app.api.picks.claim_cooldown", side_effect=[True, False]
+        ):
+            # Submit 1: move FAVORITE_COVER onto the fresh game — roster stays
+            # complete, so roster.complete fires once.
+            resp1 = self.client.post(
+                "/api/picks",
+                json={
+                    "season": SEASON,
+                    "week": WEEK,
+                    "picks": [
+                        {"game_id": move_game_id, "pick_type": "FAVORITE_COVER"}
+                    ],
+                },
+                headers=headers,
+            )
+            self.assertEqual(resp1.status_code, 200, resp1.text)
+            # Submit 2 in the SAME window: move FAVORITE_COVER back to the spread
+            # game — roster STILL complete, but the cooldown suppresses it.
+            resp2 = self.client.post(
+                "/api/picks",
+                json={
+                    "season": SEASON,
+                    "week": WEEK,
+                    "picks": [
+                        {"game_id": self.game_spread_id, "pick_type": "FAVORITE_COVER"}
+                    ],
+                },
+                headers=headers,
+            )
+            self.assertEqual(resp2.status_code, 200, resp2.text)
+
+        roster_events = [e for e in recorded if e.get("type") == "roster.complete"]
+        self.assertEqual(len(roster_events), 1)
+
+    def test_mortal_lock_submit_does_not_refire_roster_complete(self) -> None:
+        """Adding a mortal lock to an already-announced roster fires no roster.complete.
+
+        With the four base slots already complete (and announced), a later submit
+        that only ADDS a mortal lock is inside the cooldown window — it must NOT
+        re-post roster.complete. The mortal lock is a SEPARATE slot from the base
+        picks, so it does not change base completeness.
+        """
+        self._seed_full_base_roster()
+        # A fresh spread game to hang the mortal lock on (no base pick on it, so
+        # the mortal-lock FAVORITE_COVER does not conflict with any base slot).
+        ml_game_id = self._add_base_game(espn_event_id=1006)
+
+        recorded: list[dict] = []
+        headers = self._cookie_auth_headers(self.user_a_id)
+        # The cooldown is already claimed from the original completing submit, so
+        # this later mortal-lock submit gets a False claim (suppressed).
+        with mock.patch(
+            "app.api.picks.publish_event", side_effect=recorded.append
+        ), mock.patch(
+            "app.api.picks.claim_cooldown", return_value=False
+        ):
+            resp = self.client.post(
+                "/api/picks",
+                json={
+                    "season": SEASON,
+                    "week": WEEK,
+                    "picks": [
+                        {
+                            "game_id": ml_game_id,
+                            "pick_type": "FAVORITE_COVER",
+                            "is_mortal_lock": True,
+                        }
+                    ],
+                },
+                headers=headers,
+            )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        roster_events = [e for e in recorded if e.get("type") == "roster.complete"]
+        self.assertEqual(roster_events, [])
+
+    # -- misc.picked chat event (260628-itg) -------------------------------
+
+    def test_misc_submit_publishes_one_leak_safe_misc_picked(self) -> None:
+        """A MISC submit fires ONE misc.picked, leak-safe (no misc_text)."""
+        secret = "Mahomes throws for 400 yards and it snows"
+        recorded: list[dict] = []
+        headers = self._cookie_auth_headers(self.user_a_id)
+        with mock.patch(
+            "app.api.picks.publish_event", side_effect=recorded.append
+        ), mock.patch(
+            "app.api.picks.claim_cooldown", return_value=True
+        ):
+            resp = self.client.post(
+                "/api/picks",
+                json={
+                    "season": SEASON,
+                    "week": WEEK,
+                    "picks": [
+                        {
+                            "game_id": self.game_total_id,
+                            "pick_type": "MISC",
+                            "misc_text": secret,
+                        }
+                    ],
+                },
+                headers=headers,
+            )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        misc_events = [e for e in recorded if e.get("type") == "misc.picked"]
+        self.assertEqual(len(misc_events), 1)
+        event = misc_events[0]
+        self.assertEqual(event["targets"], ["chat"])
+        self.assertEqual(event["actor"], "userA")  # display_name, not user_id
+        self.assertEqual(event["week"], WEEK)
+        # LEAK-SAFE: the misc_text appears NOWHERE in the published event.
+        self.assertNotIn(secret, repr(event))
+        for value in event.values():
+            self.assertNotEqual(value, secret)
+        self.assertNotIn("misc_text", event)
+        self.assertNotIn("user_id", event)
+
+    def test_misc_picked_deduped_within_cooldown_window(self) -> None:
+        """A second MISC submit (changed text) in the same window fires no misc.picked."""
+        # Seed the MISC slot so the second submit is an in-place update.
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_total_id,
+            week_id=self.week_id,
+            pick_type=PickType.MISC,
+        )
+        with self._session() as session:
+            row = session.exec(
+                select(Pick).where(
+                    Pick.user_id == self.user_a_id, Pick.pick_type == PickType.MISC
+                )
+            ).first()
+            row.misc_text = "first prediction"
+            session.add(row)
+            session.commit()
+
+        recorded: list[dict] = []
+        headers = self._cookie_auth_headers(self.user_a_id)
+        # First claim True (fires), second False (suppressed) — same window.
+        with mock.patch(
+            "app.api.picks.publish_event", side_effect=recorded.append
+        ), mock.patch(
+            "app.api.picks.claim_cooldown", side_effect=[True, False]
+        ):
+            resp1 = self.client.post(
+                "/api/picks",
+                json={
+                    "season": SEASON,
+                    "week": WEEK,
+                    "picks": [
+                        {
+                            "game_id": self.game_total_id,
+                            "pick_type": "MISC",
+                            "misc_text": "second prediction",
+                        }
+                    ],
+                },
+                headers=headers,
+            )
+            self.assertEqual(resp1.status_code, 200, resp1.text)
+            resp2 = self.client.post(
+                "/api/picks",
+                json={
+                    "season": SEASON,
+                    "week": WEEK,
+                    "picks": [
+                        {
+                            "game_id": self.game_total_id,
+                            "pick_type": "MISC",
+                            "misc_text": "third prediction",
+                        }
+                    ],
+                },
+                headers=headers,
+            )
+            self.assertEqual(resp2.status_code, 200, resp2.text)
+
+        misc_events = [e for e in recorded if e.get("type") == "misc.picked"]
+        self.assertEqual(len(misc_events), 1)
 
     def test_clear_cannot_delete_anothers_pick(self) -> None:
         """userA clearing userB's slot -> 404; userB's pick is unchanged.

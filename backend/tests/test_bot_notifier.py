@@ -28,6 +28,7 @@ from app.services.notifications import (
     ingest_season_event,
     login_event,
     misc_graded_event,
+    misc_picked_event,
     pick_cleared_event,
     pick_event,
     player_registered_event,
@@ -142,6 +143,20 @@ class RenderChatTests(unittest.TestCase):
 
     def test_render_roster_complete(self) -> None:
         line = render_chat(roster_complete_event(actor="Bob", week=3))
+        self.assertIsNotNone(line)
+        self.assertIn("Bob", line)
+        self.assertIn("3", line)
+
+    def test_render_roster_complete_no_locked_in_and_no_lock_emoji(self) -> None:
+        """The reworded roster line drops "locked in" framing AND the lock emoji."""
+        line = render_chat(roster_complete_event(actor="Bob", week=3))
+        self.assertIsNotNone(line)
+        self.assertNotIn("locked in", line)
+        self.assertNotIn("\U0001f512", line)  # 🔒 lock emoji
+
+    def test_render_misc_picked_is_leak_safe(self) -> None:
+        """misc.picked renders a content-free line from actor + week only."""
+        line = render_chat(misc_picked_event(actor="Bob", week=3))
         self.assertIsNotNone(line)
         self.assertIn("Bob", line)
         self.assertIn("3", line)
