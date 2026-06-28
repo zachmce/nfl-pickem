@@ -132,6 +132,23 @@ function slotGameLabel(
 }
 
 /**
+ * The away/home abbreviations for a filled slot's resolved game, for rendering
+ * static logos beside the roster-tracker label. Returns null when the slot is
+ * empty OR the game can't be resolved on the slate — callers then stay text-only.
+ */
+function slotGameTeams(
+  picks: PicksBySlot,
+  slate: SlateGame[],
+  key: string,
+): { away: string; home: string } | null {
+  const pick = picks[key];
+  if (!pick) return null;
+  const game = slate.find((g) => g.game_id === pick.game_id);
+  if (!game) return null;
+  return { away: game.away_team.abbreviation, home: game.home_team.abbreviation };
+}
+
+/**
  * The user's held picks whose `pick_type` is now INELIGIBLE on its game.
  *
  * INELIGIBLE-ONLY (side-flip / favorite-flip is deferred — there is no model
@@ -295,6 +312,7 @@ function RosterTracker({
               label={PICK_TYPE_LABEL[pt]}
               filled={filled}
               detail={onGame}
+              teams={slotGameTeams(picks, slate, key)}
             />
           );
         })}
@@ -302,6 +320,7 @@ function RosterTracker({
           label="Mortal Lock"
           filled={Boolean(mortalKey)}
           detail={mortalKey ? slotGameLabel(picks, slate, mortalKey) : null}
+          teams={mortalKey ? slotGameTeams(picks, slate, mortalKey) : null}
           accent
         />
       </div>
@@ -313,13 +332,17 @@ function SlotChip({
   label,
   filled,
   detail,
+  teams,
   accent,
 }: {
   label: string;
   filled: boolean;
   detail: string | null;
+  teams?: { away: string; home: string } | null;
   accent?: boolean;
 }) {
+  // Render small static color logos only on a filled slot whose game resolved.
+  const showLogos = filled && teams !== null && teams !== undefined;
   return (
     <div
       className={[
@@ -334,11 +357,13 @@ function SlotChip({
       <div className="text-xs font-medium text-gray-700">{label}</div>
       <div
         className={[
-          "mt-0.5 text-xs",
+          "mt-0.5 flex items-center justify-center gap-1 text-xs",
           filled ? "text-gray-600" : "text-gray-400",
         ].join(" ")}
       >
-        {filled ? (detail ?? "filled") : "empty"}
+        {showLogos && <TeamLogo abbreviation={teams.away} size={16} />}
+        <span>{filled ? (detail ?? "filled") : "empty"}</span>
+        {showLogos && <TeamLogo abbreviation={teams.home} size={16} />}
       </div>
     </div>
   );
