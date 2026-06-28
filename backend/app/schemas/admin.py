@@ -92,3 +92,30 @@ class FreezeWeekRequest(BaseModel):
 
     season: int
     week: int
+
+
+# --------------------------------------------------------------------------- #
+# Bot personality (260627-xbb)
+#
+# GET /api/admin/bot-personality returns the active id plus the registry's
+# available ids (so the admin selector can render the options); POST sets it. The
+# acting admin is the verified session — there is NO actor field in the body, so
+# there is no spoofable caller / IDOR surface.
+# --------------------------------------------------------------------------- #
+
+
+class BotPersonalityRead(BaseModel):
+    """The active bot personality id + the list of selectable ids."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    active_id: str
+    available_ids: list[str]
+
+
+class SetBotPersonalityRequest(BaseModel):
+    """Body for ``POST /api/admin/bot-personality``: just the id to make active."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    personality_id: str

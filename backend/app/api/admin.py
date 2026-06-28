@@ -43,8 +43,10 @@ from app.models import Game, PickResult, PickType, Team, User
 from app.schemas.admin import (
     AdminUserListResponse,
     AdminUserRead,
+    BotPersonalityRead,
     FreezeWeekRequest,
     IngestSeasonRequest,
+    SetBotPersonalityRequest,
 )
 from app.schemas.admin_picks import AdminMiscGradeRequest, AdminPickSetRequest
 from app.schemas.picks import PickRead
@@ -70,6 +72,11 @@ from app.services.notifications import (
     pick_log_detail,
     publish_event,
 )
+from app.services.app_settings import (
+    get_bot_personality,
+    set_bot_personality,
+)
+from app.bot.personality import available_personality_ids
 from app.services.pick_submission import (
     _load_week_games,
     _normalized_game,
@@ -424,3 +431,47 @@ def trigger_freeze_week(
         "season": payload.season,
         "week": payload.week,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Bot personality (260627-xbb)
+#
+# GET/POST /api/admin/bot-personality read/set the app-wide LLM chat voice. Both
+# sit behind Depends(require_admin) (401 anon / 403 non-admin) exactly like every
+# other /api/admin route; there is NO actor field in the body, so there is no
+# privilege-escalation / IDOR surface (T-xbb-01). The POST is a mutating request,
+# so the existing double-submit CSRF middleware applies to cookie auth as usual
+# (bearer is exempt; no special-casing). The service validates the id against the
+# personality registry and raises ``ValueError("unknown_personality: ...")`` on a
+# miss, which ``_raise_for_service_error`` maps to 409 (T-xbb-02).
+# --------------------------------------------------------------------------- #
+
+
+@router.get("/bot-personality", response_model=BotPersonalityRead)
+def get_bot_personality_setting(
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> BotPersonalityRead:
+    """Return the active bot personality id + the registry's selectable ids."""
+    return BotPersonalityRead(
+        active_id=get_bot_personality(session),
+        available_ids=available_personality_ids(),
+    )
+
+
+@router.post("/bot-personality", response_model=BotPersonalityRead)
+def set_bot_personality_setting(
+    payload: SetBotPersonalityRequest,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> BotPersonalityRead:
+    """Set the active bot personality. 409 on an unknown id (unknown_personality)."""
+    try:
+        active = set_bot_personality(session, payload.personality_id)
+    except ValueError as exc:
+        _raise_for_service_error(exc)
+        raise  # unreachable; satisfies the type checker
+    return BotPersonalityRead(
+        active_id=active,
+        available_ids=available_personality_ids(),
+    )

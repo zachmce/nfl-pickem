@@ -83,6 +83,33 @@ class DemoState(SQLModel, table=True):
     )
 
 
+class AppSetting(SQLModel, table=True):
+    """A keyed app-wide settings row (the generic key/value store).
+
+    Mirrors :class:`DemoState`'s single-row minimalism but is KEYED rather than
+    a singleton: one row per ``setting_key`` (unique + indexed), carrying an
+    opaque string ``setting_value`` and a tz-aware ``updated_at`` bumped on every
+    write. The first consumer is the admin-selectable bot personality (stored
+    under key ``bot_personality``); the table is deliberately generic so future
+    app-wide toggles can reuse it without a new migration per setting.
+
+    No enum is involved (the personality id is a free string validated in the
+    service against the registry), so there is no PG-enum-reuse concern here.
+    """
+
+    __tablename__ = "app_setting"
+
+    id: int | None = Field(default=None, primary_key=True)
+    setting_key: str = Field(
+        sa_column=sa.Column(sa.String(100), nullable=False, unique=True, index=True),
+    )
+    setting_value: str = Field(sa_column=sa.Column(sa.String, nullable=False))
+    updated_at: datetime = Field(
+        sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False),
+        default_factory=_utcnow,
+    )
+
+
 class TaskRun(SQLModel, table=True):
     """A trivial record written by the Celery worker to prove the DB wiring.
 
