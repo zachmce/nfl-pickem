@@ -19,7 +19,41 @@ import { useState } from "react";
 
 import { errorKey, slotKey, type PickItem, type PickType, type SlateGame } from "../lib/picks";
 import type { WindowState } from "../lib/currentWeek";
+import { teamLogoUrl } from "../lib/teamLogos";
 import { useMyPicks, type PicksBySlot } from "./useMyPicks";
+
+/**
+ * Small decorative team logo (Family-A color, derived from the abbreviation).
+ * `alt=""` — purely cosmetic. On a 404 the single <img> hides itself so the row
+ * layout never breaks. `dimmed` grayscales + dims it (used for the non-ridden
+ * team on a team-cover pick); default is full color (neutral).
+ */
+function TeamLogo({
+  abbreviation,
+  size = 20,
+  dimmed = false,
+}: {
+  abbreviation: string;
+  size?: number;
+  dimmed?: boolean;
+}) {
+  return (
+    <img
+      src={teamLogoUrl(abbreviation)}
+      alt=""
+      width={size}
+      height={size}
+      className={[
+        "inline-block shrink-0 object-contain align-middle",
+        dimmed ? "grayscale opacity-50" : "",
+      ].join(" ")}
+      style={{ width: size, height: size }}
+      onError={(e) => {
+        e.currentTarget.style.display = "none";
+      }}
+    />
+  );
+}
 
 const PICK_TYPE_LABEL: Record<PickType, string> = {
   UNDERDOG_COVER: "Underdog",
@@ -541,12 +575,40 @@ function GameCard({
 
   const eligibleTypes = BASE_SLOTS.filter((pt) => game.eligibility[pt]);
 
+  // The team_id the user is "riding" on THIS game via a team-cover pick, if any.
+  // Scan all held picks for a FAVORITE_COVER / UNDERDOG_COVER on this game
+  // (covers the mortal-lock variant too — both ride the same team). Maps to the
+  // ridden team_id; null when the user holds no team-cover pick here (OVER/UNDER,
+  // MISC-only, or no pick) — in which case both logos stay full color (neutral).
+  const riddenTeamId = (() => {
+    for (const pick of Object.values(picks)) {
+      if (pick.game_id !== game.game_id) continue;
+      if (pick.pick_type === "FAVORITE_COVER") return game.favorite_team_id;
+      if (pick.pick_type === "UNDERDOG_COVER") return game.underdog_team_id;
+    }
+    return null;
+  })();
+
+  // A team's logo dims only when there IS a ridden team and it's not this team.
+  const dimmed = (teamId: number) =>
+    riddenTeamId !== null && riddenTeamId !== teamId;
+
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
-          <div className="text-base font-semibold">
-            {game.away_team.display_name} @ {game.home_team.display_name}
+          <div className="flex items-center gap-1.5 text-base font-semibold">
+            <TeamLogo
+              abbreviation={game.away_team.abbreviation}
+              dimmed={dimmed(game.away_team.team_id)}
+            />
+            <span>{game.away_team.display_name}</span>
+            <span className="text-gray-400">@</span>
+            <TeamLogo
+              abbreviation={game.home_team.abbreviation}
+              dimmed={dimmed(game.home_team.team_id)}
+            />
+            <span>{game.home_team.display_name}</span>
           </div>
           <div className="mt-0.5 text-xs text-gray-500">
             {friendlyKickoff(game.kickoff_at)} · {lineSummary(game)}
