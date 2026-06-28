@@ -3,7 +3,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.api import admin, auth, config, current_week, picks, proof, results, slate
+from app.api import (
+    admin,
+    auth,
+    calendar,
+    config,
+    current_week,
+    picks,
+    proof,
+    results,
+    slate,
+)
 from app.config import settings
 from app.csrf import csrf_dispatch
 from app.db import get_session
@@ -51,6 +61,7 @@ app.include_router(picks.router)
 app.include_router(results.router)
 app.include_router(current_week.router)
 app.include_router(slate.router)
+app.include_router(calendar.router)
 app.include_router(config.router)
 app.include_router(admin.router)
 
