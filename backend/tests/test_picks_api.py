@@ -1064,14 +1064,82 @@ class PicksApiTests(unittest.TestCase):
         """Back-compat alias: add the 4th base game (espn_event_id 1004)."""
         return self._add_base_game(1004)
 
-    def test_completing_fourth_base_slot_publishes_one_roster_complete(self) -> None:
-        """The submit that fills the 4th base slot publishes ONE roster.complete."""
+    def test_completing_main_card_publishes_one_roster_complete(self) -> None:
+        """The submit that completes the FULL standard card fires ONE roster.complete.
+
+        A full standard card is all four base bet types PLUS a mortal lock. Here
+        we seed three base slots and the mortal lock directly (bypassing publish),
+        leaving FAVORITE_COVER (on the spread game) for the submit that completes
+        the card -> exactly one roster.complete.
+        """
         game4_id = self._add_fourth_base_game()
-        # Seed three base slots directly (bypassing the publish path) on three
-        # distinct games — leaving FAVORITE_COVER (on the spread game) for the
-        # submit that COMPLETES the roster. UNDERDOG goes on the 4th spread game
-        # (so it does not conflict with the FAVORITE on the spread game); OVER on
-        # the totals game; UNDER on the pickem game (total 48.0, totals-eligible).
+        ml_game_id = self._add_base_game(espn_event_id=1006)
+        # Seed three base slots + the mortal lock directly. UNDERDOG on the 4th
+        # spread game; OVER on the totals game; UNDER on the pickem game; the
+        # mortal lock on a fresh spread game so it conflicts with no base slot.
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=game4_id,
+            week_id=self.week_id,
+            pick_type=PickType.UNDERDOG_COVER,
+        )
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_total_id,
+            week_id=self.week_id,
+            pick_type=PickType.OVER,
+        )
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_pickem_id,
+            week_id=self.week_id,
+            pick_type=PickType.UNDER,
+        )
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=ml_game_id,
+            week_id=self.week_id,
+            pick_type=PickType.FAVORITE_COVER,
+            is_mortal_lock=True,
+        )
+
+        recorded: list[dict] = []
+        headers = self._cookie_auth_headers(self.user_a_id)
+        with mock.patch(
+            "app.api.picks.publish_event", side_effect=recorded.append
+        ):
+            resp = self.client.post(
+                "/api/picks",
+                json={
+                    "season": SEASON,
+                    "week": WEEK,
+                    "picks": [
+                        {
+                            "game_id": self.game_spread_id,
+                            "pick_type": "FAVORITE_COVER",
+                        }
+                    ],
+                },
+                headers=headers,
+            )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        roster_events = [e for e in recorded if e.get("type") == "roster.complete"]
+        self.assertEqual(len(roster_events), 1)
+        event = roster_events[0]
+        self.assertEqual(event["targets"], ["chat"])
+        self.assertEqual(event["actor"], "userA")  # display_name, not user_id
+        self.assertEqual(event["week"], WEEK)
+
+    def test_four_base_without_mortal_lock_publishes_no_roster_complete(self) -> None:
+        """Four base bet types WITHOUT a mortal lock does NOT fire roster.complete.
+
+        The explicit "4 base alone is not a complete card" regression guard.
+        ACCEPTED CONSEQUENCE: a player who never makes a mortal lock gets no
+        "picks in" line. Seed three base slots, submit the 4th (no mortal lock
+        anywhere) -> zero roster.complete events.
+        """
+        game4_id = self._add_fourth_base_game()
         self._seed_pick(
             user_id=self.user_a_id,
             game_id=game4_id,
@@ -1111,45 +1179,21 @@ class PicksApiTests(unittest.TestCase):
                 headers=headers,
             )
         self.assertEqual(resp.status_code, 200, resp.text)
-
-        roster_events = [e for e in recorded if e.get("type") == "roster.complete"]
-        self.assertEqual(len(roster_events), 1)
-        event = roster_events[0]
-        self.assertEqual(event["targets"], ["chat"])
-        self.assertEqual(event["actor"], "userA")  # display_name, not user_id
-        self.assertEqual(event["week"], WEEK)
-
-    def test_incomplete_roster_submit_publishes_no_roster_complete(self) -> None:
-        """A submit that does NOT complete all four base slots fires none."""
-        recorded: list[dict] = []
-        headers = self._cookie_auth_headers(self.user_a_id)
-        with mock.patch(
-            "app.api.picks.publish_event", side_effect=recorded.append
-        ):
-            resp = self.client.post(
-                "/api/picks",
-                json={
-                    "season": SEASON,
-                    "week": WEEK,
-                    "picks": [
-                        {"game_id": self.game_total_id, "pick_type": "OVER"}
-                    ],
-                },
-                headers=headers,
-            )
-        self.assertEqual(resp.status_code, 200, resp.text)
         roster_events = [e for e in recorded if e.get("type") == "roster.complete"]
         self.assertEqual(roster_events, [])
 
-    def _seed_full_base_roster(self) -> int:
-        """Seed all four base slots for userA on four distinct week-1 games.
+    def test_main_picks_complete_predicate_cases(self) -> None:
+        """Direct predicate checks: 4 base + ML (+MISC) complete; missing one not.
 
-        Leaves the roster COMPLETE so a subsequent submit (a re-set, or adding a
-        mortal lock) keeps the four base slots filled — used to prove the
-        cooldown / mortal-lock suppression of roster.complete. Returns the id of
-        the extra (fourth) spread/total game seeded with UNDERDOG_COVER.
+        Asserts main_picks_complete precisely and fast: four base + a mortal lock
+        is complete; adding a MISC keeps it complete (does not over-restrict);
+        dropping one base type makes it incomplete.
         """
+        from app.services.pick_submission import main_picks_complete
+
         game4_id = self._add_fourth_base_game()
+        ml_game_id = self._add_base_game(espn_event_id=1007)
+        # Four base slots + a mortal lock = a full standard card.
         self._seed_pick(
             user_id=self.user_a_id,
             game_id=self.game_spread_id,
@@ -1173,6 +1217,143 @@ class PicksApiTests(unittest.TestCase):
             game_id=self.game_pickem_id,
             week_id=self.week_id,
             pick_type=PickType.UNDER,
+        )
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=ml_game_id,
+            week_id=self.week_id,
+            pick_type=PickType.FAVORITE_COVER,
+            is_mortal_lock=True,
+        )
+
+        with self._session() as session:
+            self.assertTrue(
+                main_picks_complete(
+                    session,
+                    user_id=self.user_a_id,
+                    season=SEASON,
+                    week=WEEK,
+                )
+            )
+
+        # Adding a MISC keeps the card complete (MISC never restricts the card).
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_total_id,
+            week_id=self.week_id,
+            pick_type=PickType.MISC,
+        )
+        with self._session() as session:
+            self.assertTrue(
+                main_picks_complete(
+                    session,
+                    user_id=self.user_a_id,
+                    season=SEASON,
+                    week=WEEK,
+                )
+            )
+
+        # Dropping one base type makes the card incomplete (userB: 3 base + ML).
+        ml_game_b = self._add_base_game(espn_event_id=1008)
+        self._seed_pick(
+            user_id=self.user_b_id,
+            game_id=self.game_spread_id,
+            week_id=self.week_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+        self._seed_pick(
+            user_id=self.user_b_id,
+            game_id=self.game_total_id,
+            week_id=self.week_id,
+            pick_type=PickType.OVER,
+        )
+        self._seed_pick(
+            user_id=self.user_b_id,
+            game_id=self.game_pickem_id,
+            week_id=self.week_id,
+            pick_type=PickType.UNDER,
+        )
+        self._seed_pick(
+            user_id=self.user_b_id,
+            game_id=ml_game_b,
+            week_id=self.week_id,
+            pick_type=PickType.FAVORITE_COVER,
+            is_mortal_lock=True,
+        )
+        with self._session() as session:
+            self.assertFalse(
+                main_picks_complete(
+                    session,
+                    user_id=self.user_b_id,
+                    season=SEASON,
+                    week=WEEK,
+                )
+            )
+
+    def test_incomplete_roster_submit_publishes_no_roster_complete(self) -> None:
+        """A submit that does NOT complete a full standard card fires none."""
+        recorded: list[dict] = []
+        headers = self._cookie_auth_headers(self.user_a_id)
+        with mock.patch(
+            "app.api.picks.publish_event", side_effect=recorded.append
+        ):
+            resp = self.client.post(
+                "/api/picks",
+                json={
+                    "season": SEASON,
+                    "week": WEEK,
+                    "picks": [
+                        {"game_id": self.game_total_id, "pick_type": "OVER"}
+                    ],
+                },
+                headers=headers,
+            )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        roster_events = [e for e in recorded if e.get("type") == "roster.complete"]
+        self.assertEqual(roster_events, [])
+
+    def _seed_full_base_roster(self) -> int:
+        """Seed a FULL standard card for userA — four base slots + a mortal lock.
+
+        Leaves the card genuinely COMPLETE (four base bet types plus a mortal
+        lock) so a subsequent submit (a re-set within the cooldown) keeps the
+        card complete — used to prove the cooldown suppression of roster.complete.
+        The mortal lock sits on a fresh spread game (espn_event_id 1009) so it
+        conflicts with no base slot. Returns the id of the extra (fourth)
+        spread/total game seeded with UNDERDOG_COVER.
+        """
+        game4_id = self._add_fourth_base_game()
+        ml_game_id = self._add_base_game(espn_event_id=1009)
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_spread_id,
+            week_id=self.week_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=game4_id,
+            week_id=self.week_id,
+            pick_type=PickType.UNDERDOG_COVER,
+        )
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_total_id,
+            week_id=self.week_id,
+            pick_type=PickType.OVER,
+        )
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_pickem_id,
+            week_id=self.week_id,
+            pick_type=PickType.UNDER,
+        )
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=ml_game_id,
+            week_id=self.week_id,
+            pick_type=PickType.FAVORITE_COVER,
+            is_mortal_lock=True,
         )
         return game4_id
 
@@ -1229,27 +1410,48 @@ class PicksApiTests(unittest.TestCase):
         roster_events = [e for e in recorded if e.get("type") == "roster.complete"]
         self.assertEqual(len(roster_events), 1)
 
-    def test_mortal_lock_submit_does_not_refire_roster_complete(self) -> None:
-        """Adding a mortal lock to an already-announced roster fires no roster.complete.
+    def test_mortal_lock_submit_completes_card_and_fires_once(self) -> None:
+        """The mortal-lock submit that completes the card fires ONE roster.complete.
 
-        With the four base slots already complete (and announced), a later submit
-        that only ADDS a mortal lock is inside the cooldown window — it must NOT
-        re-post roster.complete. The mortal lock is a SEPARATE slot from the base
-        picks, so it does not change base completeness.
+        Under the full-standard-card model the card is NOT complete until a mortal
+        lock exists. With all four base slots already present (but no mortal lock),
+        the submit that ADDS the mortal lock is the one that completes the card,
+        so it fires roster.complete exactly once.
         """
-        self._seed_full_base_roster()
+        # Seed the four base slots directly (no mortal lock yet -> incomplete).
+        game4_id = self._add_fourth_base_game()
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_spread_id,
+            week_id=self.week_id,
+            pick_type=PickType.FAVORITE_COVER,
+        )
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=game4_id,
+            week_id=self.week_id,
+            pick_type=PickType.UNDERDOG_COVER,
+        )
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_total_id,
+            week_id=self.week_id,
+            pick_type=PickType.OVER,
+        )
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_pickem_id,
+            week_id=self.week_id,
+            pick_type=PickType.UNDER,
+        )
         # A fresh spread game to hang the mortal lock on (no base pick on it, so
         # the mortal-lock FAVORITE_COVER does not conflict with any base slot).
         ml_game_id = self._add_base_game(espn_event_id=1006)
 
         recorded: list[dict] = []
         headers = self._cookie_auth_headers(self.user_a_id)
-        # The cooldown is already claimed from the original completing submit, so
-        # this later mortal-lock submit gets a False claim (suppressed).
         with mock.patch(
             "app.api.picks.publish_event", side_effect=recorded.append
-        ), mock.patch(
-            "app.api.picks.claim_cooldown", return_value=False
         ):
             resp = self.client.post(
                 "/api/picks",
@@ -1268,7 +1470,9 @@ class PicksApiTests(unittest.TestCase):
             )
         self.assertEqual(resp.status_code, 200, resp.text)
         roster_events = [e for e in recorded if e.get("type") == "roster.complete"]
-        self.assertEqual(roster_events, [])
+        self.assertEqual(len(roster_events), 1)
+        self.assertEqual(roster_events[0]["actor"], "userA")
+        self.assertEqual(roster_events[0]["week"], WEEK)
 
     # -- misc.picked chat event (260628-itg) -------------------------------
 

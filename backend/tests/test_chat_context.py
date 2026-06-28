@@ -310,9 +310,10 @@ class ChatContextTests(unittest.TestCase):
     def test_roster_complete_reports_counts_only(self) -> None:
         with self._session() as session:
             ctx = get_roster_complete_context(session, SEASON, WEEK, actor="alice")
-        # Pool is the 2 players who have any pick this season. Neither holds all 4
-        # BASE slots in this seed (each has a mortal lock + one base pick), so the
-        # completion count is 0 and both are outstanding.
+        # Pool is the 2 players who have any pick this season. Neither holds a full
+        # standard card in this seed (each has a mortal lock + one base pick, far
+        # short of all four base types), so the completion count is 0 and both are
+        # outstanding.
         self.assertEqual(ctx["total_players"], 2)
         self.assertEqual(ctx["completed_count"], 0)
         self.assertEqual(ctx["outstanding_count"], 2)
@@ -321,15 +322,18 @@ class ChatContextTests(unittest.TestCase):
         )
 
     def test_roster_complete_counts_a_full_roster(self) -> None:
-        # Give bob all four BASE slots; he should then count as completed.
+        # Give bob all four BASE slots; with his existing mortal lock that makes a
+        # full standard card, so he should then count as completed.
         from sqlmodel import select
 
         with self._session() as session:
             bob = session.exec(
                 select(User).where(User.display_name == "bob")
             ).one()
-            # bob already has UNDERDOG_COVER(ML) on KC + OVER on SF. Add the three
-            # missing base types so his base set is {FAV, UNDERDOG, OVER, UNDER}.
+            # bob already has UNDERDOG_COVER(ML) on KC + OVER on SF — the mortal
+            # lock that the full-standard-card predicate also requires. Add the
+            # three missing base types so his base set is {FAV, UNDERDOG, OVER,
+            # UNDER} and, with the mortal lock, the card is complete.
             session.add_all(
                 [
                     Pick(
