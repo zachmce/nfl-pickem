@@ -248,7 +248,7 @@ export default function AdminPage() {
     return (
       <div>
         <h1 className="text-2xl font-bold">Admin</h1>
-        <p className="mt-2 text-gray-500">Loading users…</p>
+        <p className="mt-2 text-fg-muted">Loading users…</p>
       </div>
     );
   }
@@ -257,7 +257,7 @@ export default function AdminPage() {
     return (
       <div>
         <h1 className="text-2xl font-bold">Admin</h1>
-        <p className="mt-2 text-gray-600">
+        <p className="mt-2 text-fg-muted">
           {pageError ?? "Couldn't load users. Please try again later."}
         </p>
       </div>
@@ -268,19 +268,19 @@ export default function AdminPage() {
     <div className="space-y-6">
       <header>
         <h1 className="text-2xl font-bold">Player management</h1>
-        <p className="mt-1 text-sm text-gray-500">
+        <p className="mt-1 text-sm text-fg-muted">
           {users.length} {users.length === 1 ? "user" : "users"} · deactivate,
           grant/revoke admin, or delete any other player.
         </p>
       </header>
 
       {users.length === 0 ? (
-        <p className="text-gray-500">No users yet.</p>
+        <p className="text-fg-muted">No users yet.</p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+        <div className="overflow-x-auto rounded-lg border border-border bg-surface">
           <table className="min-w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-200 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+              <tr className="border-b border-border text-left text-xs font-semibold uppercase tracking-wide text-fg-muted">
                 <th className="px-4 py-3">Player</th>
                 <th className="px-4 py-3">Origin</th>
                 <th className="px-4 py-3">Active</th>
@@ -343,7 +343,7 @@ export default function AdminPage() {
 function primaryButtonClass(disabled: boolean): string {
   return [
     "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
-    "border-blue-600 bg-blue-600 text-white hover:bg-blue-700",
+    "border-accent-solid bg-accent-solid text-on-accent hover:bg-accent-solid-hover",
     disabled ? "cursor-not-allowed opacity-50" : "",
   ].join(" ");
 }
@@ -362,12 +362,12 @@ function NumberField({
 }) {
   return (
     <label className="text-sm">
-      <span className="block text-xs font-medium text-gray-600">{label}</span>
+      <span className="block text-xs font-medium text-fg-muted">{label}</span>
       <input
         type="number"
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className={`mt-1 ${width} rounded-md border border-gray-300 px-2 py-1 text-sm`}
+        className={`mt-1 ${width} rounded-md border border-border px-2 py-1 text-sm`}
       />
     </label>
   );
@@ -435,18 +435,18 @@ function IngestionPanel() {
   return (
     <section
       data-testid="ingestion-panel"
-      className="space-y-4 rounded-lg border border-gray-200 bg-white p-4"
+      className="space-y-4 rounded-lg border border-border bg-surface p-4"
     >
       <div>
         <h2 className="text-lg font-bold">Ingestion / Odds</h2>
-        <p className="mt-0.5 text-sm text-gray-500">
+        <p className="mt-0.5 text-sm text-fg-muted">
           These controls dispatch background workers. Each returns a task id that
           runs asynchronously — the work is queued, not finished when you click.
         </p>
       </div>
 
       {/* Ingest season */}
-      <div className="space-y-2 border-t border-gray-100 pt-4">
+      <div className="space-y-2 border-t border-border pt-4">
         <div className="flex flex-wrap items-end gap-3">
           <NumberField
             label="Season"
@@ -463,23 +463,23 @@ function IngestionPanel() {
             Ingest season now
           </button>
           {ingestBusy && (
-            <span className="text-xs text-gray-400">Dispatching…</span>
+            <span className="text-xs text-fg-muted">Dispatching…</span>
           )}
         </div>
         {ingestResult && (
-          <p className="text-xs text-gray-600">
+          <p className="text-xs text-fg-muted">
             Dispatched — task{" "}
-            <code className="rounded bg-gray-100 px-1 py-0.5">
+            <code className="rounded bg-surface-raised px-1 py-0.5">
               {ingestResult.task_id}
             </code>{" "}
             is running in the background for season {ingestResult.season}.
           </p>
         )}
-        {ingestError && <p className="text-xs text-red-600">{ingestError}</p>}
+        {ingestError && <p className="text-xs text-danger-fg">{ingestError}</p>}
       </div>
 
       {/* Freeze week lines */}
-      <div className="space-y-2 border-t border-gray-100 pt-4">
+      <div className="space-y-2 border-t border-border pt-4">
         <div className="flex flex-wrap items-end gap-3">
           <NumberField
             label="Season"
@@ -502,20 +502,20 @@ function IngestionPanel() {
             Freeze week lines now
           </button>
           {freezeBusy && (
-            <span className="text-xs text-gray-400">Dispatching…</span>
+            <span className="text-xs text-fg-muted">Dispatching…</span>
           )}
         </div>
         {freezeResult && (
-          <p className="text-xs text-gray-600">
+          <p className="text-xs text-fg-muted">
             Dispatched — task{" "}
-            <code className="rounded bg-gray-100 px-1 py-0.5">
+            <code className="rounded bg-surface-raised px-1 py-0.5">
               {freezeResult.task_id}
             </code>{" "}
             is running in the background for season {freezeResult.season}, week{" "}
             {freezeResult.week}.
           </p>
         )}
-        {freezeError && <p className="text-xs text-red-600">{freezeError}</p>}
+        {freezeError && <p className="text-xs text-danger-fg">{freezeError}</p>}
       </div>
     </section>
   );
@@ -581,11 +581,11 @@ function BotPersonalityPanel() {
   return (
     <section
       data-testid="bot-personality-panel"
-      className="space-y-3 rounded-lg border border-gray-200 bg-white p-4"
+      className="space-y-3 rounded-lg border border-border bg-surface p-4"
     >
       <div>
         <h2 className="text-lg font-bold">Bot Personality</h2>
-        <p className="mt-0.5 text-sm text-gray-500">
+        <p className="mt-0.5 text-sm text-fg-muted">
           Choose the chat bot's voice. The swap is live — it takes effect on the
           next event without a redeploy. The facts-first and leak-safety guardrails
           stay the same for every voice.
@@ -593,15 +593,15 @@ function BotPersonalityPanel() {
       </div>
 
       {status === "loading" ? (
-        <p className="text-sm text-gray-500">Loading…</p>
+        <p className="text-sm text-fg-muted">Loading…</p>
       ) : status === "error" ? (
-        <p className="text-sm text-gray-600">
+        <p className="text-sm text-fg-muted">
           {error ?? "Couldn't load the bot personality. Please try again later."}
         </p>
       ) : data ? (
-        <div className="flex flex-wrap items-end gap-3 border-t border-gray-100 pt-3">
+        <div className="flex flex-wrap items-end gap-3 border-t border-border pt-3">
           <label className="text-sm">
-            <span className="block text-xs font-medium text-gray-600">
+            <span className="block text-xs font-medium text-fg-muted">
               Active voice
             </span>
             <select
@@ -609,7 +609,7 @@ function BotPersonalityPanel() {
               disabled={busy}
               onChange={(e) => void onSelect(e.target.value)}
               className={[
-                "mt-1 block w-64 rounded-md border border-gray-300 px-2 py-1.5 text-sm",
+                "mt-1 block w-64 rounded-md border border-border px-2 py-1.5 text-sm",
                 busy ? "cursor-not-allowed opacity-50" : "",
               ].join(" ")}
             >
@@ -620,8 +620,8 @@ function BotPersonalityPanel() {
               ))}
             </select>
           </label>
-          {busy && <span className="text-xs text-gray-400">Saving…</span>}
-          {error && <p className="w-full text-xs text-red-600">{error}</p>}
+          {busy && <span className="text-xs text-fg-muted">Saving…</span>}
+          {error && <p className="w-full text-xs text-danger-fg">{error}</p>}
         </div>
       ) : null}
     </section>
@@ -637,9 +637,9 @@ function Badge({
   tone: "green" | "blue" | "gray";
 }) {
   const tones: Record<typeof tone, string> = {
-    green: "border-green-300 bg-green-50 text-green-700",
-    blue: "border-blue-300 bg-blue-50 text-blue-700",
-    gray: "border-gray-300 bg-gray-50 text-gray-500",
+    green: "border-success-fg bg-success-bg text-success-fg",
+    blue: "border-accent bg-accent-bg text-accent",
+    gray: "border-border bg-surface-raised text-fg-muted",
   };
   return (
     <span
@@ -666,8 +666,8 @@ function RowButton({
   onClick: () => void;
 }) {
   const tones: Record<typeof tone, string> = {
-    neutral: "border-gray-300 bg-white text-gray-700 hover:border-blue-400",
-    danger: "border-red-300 bg-white text-red-600 hover:border-red-500",
+    neutral: "border-border bg-surface text-fg-muted hover:border-accent",
+    danger: "border-danger-fg bg-surface text-danger-fg hover:border-danger-fg",
   };
   return (
     <button
@@ -711,14 +711,14 @@ function UserRow({
 
   return (
     <>
-      <tr className="border-b border-gray-100 last:border-0">
-        <td className="px-4 py-3 font-medium text-gray-800">
+      <tr className="border-b border-border last:border-0">
+        <td className="px-4 py-3 font-medium text-fg">
           {row.display_name}
           {isSelf && (
-            <span className="ml-2 text-xs font-normal text-gray-400">(you)</span>
+            <span className="ml-2 text-xs font-normal text-fg-muted">(you)</span>
           )}
         </td>
-        <td className="px-4 py-3 text-gray-600">
+        <td className="px-4 py-3 text-fg-muted">
           {row.discord_id !== null ? "Discord" : "Web"}
         </td>
         <td className="px-4 py-3">
@@ -733,11 +733,11 @@ function UserRow({
             tone={row.is_admin ? "blue" : "gray"}
           />
         </td>
-        <td className="px-4 py-3 text-gray-600">{friendlyDate(row.created_at)}</td>
-        <td className="px-4 py-3 text-right text-gray-700">{row.pick_count}</td>
+        <td className="px-4 py-3 text-fg-muted">{friendlyDate(row.created_at)}</td>
+        <td className="px-4 py-3 text-right text-fg-muted">{row.pick_count}</td>
         <td className="px-4 py-3">
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {busy && <span className="text-xs text-gray-400">Saving…</span>}
+            {busy && <span className="text-xs text-fg-muted">Saving…</span>}
             {/* Editing picks is allowed for ANY user INCLUDING self (admin may
                fix own picks off-window), so this is NOT gated by isSelf —
                only by the row's in-flight guard. */}
@@ -770,7 +770,7 @@ function UserRow({
       </tr>
       {error && (
         <tr>
-          <td colSpan={7} className="px-4 pb-3 text-xs text-red-600">
+          <td colSpan={7} className="px-4 pb-3 text-xs text-danger-fg">
             {error}
           </td>
         </tr>
@@ -844,14 +844,14 @@ function PickOverrideEditor({
   return (
     <section
       data-testid="pick-override-editor"
-      className="space-y-4 rounded-lg border border-blue-300 bg-white p-4"
+      className="space-y-4 rounded-lg border border-accent bg-surface p-4"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold">
             Pick override · {target.display_name}
           </h2>
-          <p className="mt-0.5 text-sm text-gray-500">
+          <p className="mt-0.5 text-sm text-fg-muted">
             Edit this player's roster for any week.
           </p>
         </div>
@@ -866,7 +866,7 @@ function PickOverrideEditor({
       {/* REQUIRED off-window-override affordance: make it OBVIOUS this bypasses
          the normal pick lock while roster rules still apply. */}
       <div
-        className="rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800"
+        className="rounded-md border border-warning-fg bg-warning-bg px-4 py-2 text-sm text-warning-fg"
         role="alert"
       >
         <span className="font-semibold">Admin override.</span> This editor
@@ -877,29 +877,29 @@ function PickOverrideEditor({
 
       <div className="flex flex-wrap items-end gap-4">
         <label className="text-sm">
-          <span className="block text-xs font-medium text-gray-600">Season</span>
+          <span className="block text-xs font-medium text-fg-muted">Season</span>
           <input
             type="number"
             value={season}
             onChange={(e) => setSeason(Number(e.target.value))}
-            className="mt-1 w-28 rounded-md border border-gray-300 px-2 py-1 text-sm"
+            className="mt-1 w-28 rounded-md border border-border px-2 py-1 text-sm"
           />
         </label>
         <label className="text-sm">
-          <span className="block text-xs font-medium text-gray-600">Week</span>
+          <span className="block text-xs font-medium text-fg-muted">Week</span>
           <input
             type="number"
             value={week}
             onChange={(e) => setWeek(Number(e.target.value))}
-            className="mt-1 w-24 rounded-md border border-gray-300 px-2 py-1 text-sm"
+            className="mt-1 w-24 rounded-md border border-border px-2 py-1 text-sm"
           />
         </label>
       </div>
 
       {status === "loading" ? (
-        <p className="text-gray-500">Loading roster…</p>
+        <p className="text-fg-muted">Loading roster…</p>
       ) : status === "error" ? (
-        <p className="text-gray-600">
+        <p className="text-fg-muted">
           Couldn't load this week for {target.display_name}. Check the season/week
           and try again.
         </p>
@@ -917,7 +917,7 @@ function PickOverrideEditor({
           />
 
           {slate.length === 0 ? (
-            <p className="text-gray-500">No games are scheduled for this week.</p>
+            <p className="text-fg-muted">No games are scheduled for this week.</p>
           ) : (
             <div className="space-y-4">
               {slate.map((game) => (
@@ -991,30 +991,30 @@ function MiscOverridePanel({
     : undefined;
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4">
-      <h3 className="text-sm font-semibold text-gray-700">Misc pick</h3>
+    <div className="rounded-lg border border-border bg-surface p-4">
+      <h3 className="text-sm font-semibold text-fg-muted">Misc pick</h3>
 
       {!miscPick ? (
         // -------- Retroactive create --------
         <div className="mt-3 space-y-2">
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-fg-muted">
             This player has no misc pick for this week. Create one
             retroactively (window/lock bypassed), then grade it.
           </p>
           {slate.length === 0 ? (
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-fg-muted">
               No games are scheduled for this week.
             </p>
           ) : (
             <>
-              <label className="block text-xs font-medium text-gray-600">
+              <label className="block text-xs font-medium text-fg-muted">
                 Game
                 <select
                   value={createGameId ?? ""}
                   disabled={savingMisc}
                   onChange={(e) => setCreateGameId(Number(e.target.value))}
                   className={[
-                    "mt-1 block w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm",
+                    "mt-1 block w-full rounded-md border border-border px-2 py-1.5 text-sm",
                     savingMisc ? "cursor-not-allowed opacity-50" : "",
                   ].join(" ")}
                 >
@@ -1025,7 +1025,7 @@ function MiscOverridePanel({
                   ))}
                 </select>
               </label>
-              <label className="block text-xs font-medium text-gray-600">
+              <label className="block text-xs font-medium text-fg-muted">
                 Prediction
                 <textarea
                   value={createText}
@@ -1034,7 +1034,7 @@ function MiscOverridePanel({
                   rows={2}
                   placeholder="e.g. Mahomes passes for 400+ yards"
                   className={[
-                    "mt-1 block w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm",
+                    "mt-1 block w-full rounded-md border border-border px-2 py-1.5 text-sm",
                     savingMisc ? "cursor-not-allowed opacity-50" : "",
                   ].join(" ")}
                 />
@@ -1058,7 +1058,7 @@ function MiscOverridePanel({
                   }
                   className={[
                     "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
-                    "border-blue-600 bg-blue-600 text-white hover:bg-blue-700",
+                    "border-accent-solid bg-accent-solid text-on-accent hover:bg-accent-solid-hover",
                     savingMisc ||
                     createGameId === null ||
                     createText.trim().length === 0
@@ -1069,11 +1069,11 @@ function MiscOverridePanel({
                   Add Misc pick
                 </button>
                 {savingMisc && (
-                  <span className="text-xs text-gray-400">Saving…</span>
+                  <span className="text-xs text-fg-muted">Saving…</span>
                 )}
               </div>
               {createError && (
-                <p className="mt-1 text-xs text-red-600">{createError}</p>
+                <p className="mt-1 text-xs text-danger-fg">{createError}</p>
               )}
             </>
           )}
@@ -1082,8 +1082,8 @@ function MiscOverridePanel({
         // -------- Grade an existing MISC pick --------
         <div className="mt-3 space-y-3">
           <div>
-            <p className="text-sm text-gray-800">{miscPick.misc_text}</p>
-            <p className="mt-0.5 text-xs text-gray-500">
+            <p className="text-sm text-fg">{miscPick.misc_text}</p>
+            <p className="mt-0.5 text-xs text-fg-muted">
               {slotGameLabel(picks, slate, slotKey("MISC", false)) ??
                 `Game #${miscPick.game_id}`}
               {" · "}
@@ -1092,7 +1092,7 @@ function MiscOverridePanel({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-medium text-gray-600">Grade:</span>
+            <span className="text-xs font-medium text-fg-muted">Grade:</span>
             <button
               type="button"
               disabled={savingMisc}
@@ -1100,8 +1100,8 @@ function MiscOverridePanel({
               className={[
                 "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
                 gradeResult === "WIN"
-                  ? "border-green-600 bg-green-600 text-white"
-                  : "border-gray-300 bg-white text-gray-700 hover:border-green-400",
+                  ? "border-success-solid bg-success-solid text-on-success"
+                  : "border-border bg-surface text-fg-muted hover:border-success-fg",
                 savingMisc ? "cursor-not-allowed opacity-50" : "",
               ].join(" ")}
             >
@@ -1114,14 +1114,14 @@ function MiscOverridePanel({
               className={[
                 "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
                 gradeResult === "LOSS"
-                  ? "border-red-600 bg-red-600 text-white"
-                  : "border-gray-300 bg-white text-gray-700 hover:border-red-400",
+                  ? "border-danger-solid bg-danger-solid text-on-danger"
+                  : "border-border bg-surface text-fg-muted hover:border-danger-fg",
                 savingMisc ? "cursor-not-allowed opacity-50" : "",
               ].join(" ")}
             >
               Incorrect
             </button>
-            <label className="text-xs font-medium text-gray-600">
+            <label className="text-xs font-medium text-fg-muted">
               Points
               <input
                 type="number"
@@ -1130,7 +1130,7 @@ function MiscOverridePanel({
                 disabled={savingMisc}
                 onChange={(e) => setGradePoints(e.target.value)}
                 className={[
-                  "ml-1 w-20 rounded-md border border-gray-300 px-2 py-1 text-sm",
+                  "ml-1 w-20 rounded-md border border-border px-2 py-1 text-sm",
                   savingMisc ? "cursor-not-allowed opacity-50" : "",
                 ].join(" ")}
               />
@@ -1147,7 +1147,7 @@ function MiscOverridePanel({
               }
               className={[
                 "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
-                "border-blue-600 bg-blue-600 text-white hover:bg-blue-700",
+                "border-accent-solid bg-accent-solid text-on-accent hover:bg-accent-solid-hover",
                 savingMisc || gradeResult === null
                   ? "cursor-not-allowed opacity-50"
                   : "",
@@ -1156,16 +1156,16 @@ function MiscOverridePanel({
               Save grade
             </button>
             {savingMisc && (
-              <span className="text-xs text-gray-400">Saving…</span>
+              <span className="text-xs text-fg-muted">Saving…</span>
             )}
           </div>
           {gradeResult === null && (
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-fg-muted">
               Choose Correct or Incorrect to enable saving (a grade must decide
               the pick).
             </p>
           )}
-          {gradeError && <p className="text-xs text-red-600">{gradeError}</p>}
+          {gradeError && <p className="text-xs text-danger-fg">{gradeError}</p>}
         </div>
       )}
     </div>
@@ -1181,12 +1181,12 @@ function MiscResultText({
   points: number;
 }) {
   if (result === "WIN") {
-    return <span className="text-green-700">Correct · {points} pts</span>;
+    return <span className="text-success-fg">Correct · {points} pts</span>;
   }
   if (result === "LOSS") {
-    return <span className="text-red-700">Incorrect · {points} pts</span>;
+    return <span className="text-danger-fg">Incorrect · {points} pts</span>;
   }
-  return <span className="text-gray-500">Pending</span>;
+  return <span className="text-fg-muted">Pending</span>;
 }
 
 /** Compact at-a-glance summary of the 5 slots (4 base + the mortal lock). */
@@ -1206,8 +1206,8 @@ function OverrideRosterTracker({
   })();
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4">
-      <h3 className="text-sm font-semibold text-gray-700">Player roster</h3>
+    <div className="rounded-lg border border-border bg-surface p-4">
+      <h3 className="text-sm font-semibold text-fg-muted">Player roster</h3>
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
         {BASE_SLOTS.map((pt) => {
           const key = slotKey(pt, false);
@@ -1248,16 +1248,16 @@ function OverrideSlotChip({
         "rounded-md border px-2.5 py-2 text-center",
         filled
           ? accent
-            ? "border-blue-300 bg-blue-50"
-            : "border-green-300 bg-green-50"
-          : "border-dashed border-gray-300 bg-gray-50",
+            ? "border-accent bg-accent-bg"
+            : "border-success-fg bg-success-bg"
+          : "border-dashed border-border bg-surface-raised",
       ].join(" ")}
     >
-      <div className="text-xs font-medium text-gray-700">{label}</div>
+      <div className="text-xs font-medium text-fg-muted">{label}</div>
       <div
         className={[
           "mt-0.5 text-xs",
-          filled ? "text-gray-600" : "text-gray-400",
+          filled ? "text-fg-muted" : "text-fg-muted",
         ].join(" ")}
       >
         {filled ? (detail ?? "filled") : "empty"}
@@ -1286,25 +1286,25 @@ function OverrideGameCard({
   const eligibleTypes = BASE_SLOTS.filter((pt) => game.eligibility[pt]);
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4">
+    <div className="rounded-lg border border-border bg-surface p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
           <div className="text-base font-semibold">
             {game.away_team.display_name} @ {game.home_team.display_name}
           </div>
-          <div className="mt-0.5 text-xs text-gray-500">
+          <div className="mt-0.5 text-xs text-fg-muted">
             {formatLocalDateTime(game.kickoff_at)} · {lineSummary(game)}
           </div>
         </div>
         {game.locked && (
-          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+          <span className="rounded-full bg-warning-bg px-2 py-0.5 text-xs font-medium text-warning-fg">
             locked (override)
           </span>
         )}
       </div>
 
       {eligibleTypes.length === 0 ? (
-        <p className="mt-3 text-sm text-gray-400">
+        <p className="mt-3 text-sm text-fg-muted">
           No bet options are eligible for this game.
         </p>
       ) : (
@@ -1375,8 +1375,8 @@ function OverrideBetOption({
           className={[
             "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
             baseSelected
-              ? "border-blue-600 bg-blue-600 text-white"
-              : "border-gray-300 bg-white text-gray-700 hover:border-blue-400",
+              ? "border-accent-solid bg-accent-solid text-on-accent"
+              : "border-border bg-surface text-fg-muted hover:border-accent",
             baseSaving ? "cursor-not-allowed opacity-50" : "",
           ].join(" ")}
         >
@@ -1397,7 +1397,7 @@ function OverrideBetOption({
             title="Clear this pick"
             className={[
               "rounded-md border px-2 py-1 text-xs font-medium transition-colors",
-              "border-red-300 bg-white text-red-600 hover:border-red-500",
+              "border-danger-fg bg-surface text-danger-fg hover:border-danger-fg",
               baseSaving ? "cursor-not-allowed opacity-50" : "",
             ].join(" ")}
           >
@@ -1419,8 +1419,8 @@ function OverrideBetOption({
           className={[
             "rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors",
             lockSelected
-              ? "border-blue-600 bg-blue-50 text-blue-700"
-              : "border-gray-300 bg-white text-gray-500 hover:border-blue-400",
+              ? "border-accent bg-accent-bg text-accent"
+              : "border-border bg-surface text-fg-muted hover:border-accent",
             lockSaving ? "cursor-not-allowed opacity-50" : "",
           ].join(" ")}
         >
@@ -1441,7 +1441,7 @@ function OverrideBetOption({
             title="Remove the Mortal Lock"
             className={[
               "rounded-md border px-2 py-1 text-xs font-medium transition-colors",
-              "border-red-300 bg-white text-red-600 hover:border-red-500",
+              "border-danger-fg bg-surface text-danger-fg hover:border-danger-fg",
               lockSaving ? "cursor-not-allowed opacity-50" : "",
             ].join(" ")}
           >
@@ -1450,13 +1450,13 @@ function OverrideBetOption({
         )}
 
         {(baseSaving || lockSaving) && (
-          <span className="text-xs text-gray-400">Saving…</span>
+          <span className="text-xs text-fg-muted">Saving…</span>
         )}
       </div>
 
-      {baseError && <p className="mt-1 text-xs text-red-600">{baseError}</p>}
+      {baseError && <p className="mt-1 text-xs text-danger-fg">{baseError}</p>}
       {lockError && lockError !== baseError && (
-        <p className="mt-1 text-xs text-red-600">{lockError}</p>
+        <p className="mt-1 text-xs text-danger-fg">{lockError}</p>
       )}
     </div>
   );
