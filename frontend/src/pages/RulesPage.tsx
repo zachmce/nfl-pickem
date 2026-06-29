@@ -23,8 +23,8 @@ export default function RulesPage() {
         <h2 className="text-lg font-bold">Your weekly picks</h2>
         <p className="text-sm text-gray-700">
           Each week you can make up to five main picks — one of each of the four
-          bet types (favorite cover, underdog cover, over, under) plus a mortal
-          lock wildcard — and one misc pick. Every pick is optional; there's
+          bet types (favorite cover, underdog cover, over, under) plus a Mortal
+          Lock wildcard — and one misc pick. Every pick is optional; there's
           no minimum, so make as many or as few as you like.
         </p>
         <ul className="list-disc space-y-1 pl-5 text-sm text-gray-700">
