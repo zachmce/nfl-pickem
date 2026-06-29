@@ -81,7 +81,10 @@ export default function StandingsPage() {
     useStandings();
   const { user } = useAuth();
 
-  const seasonLabel = season !== null ? `${season} season` : null;
+  const seasonLabel =
+    season !== null
+      ? `${season} season${seasonComplete ? " · final" : ""}`
+      : null;
 
   if (status === "loading") {
     return (

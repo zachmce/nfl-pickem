@@ -91,7 +91,11 @@ export default function ContextBar() {
   let content: string;
   if (status === "loading") content = "Loading week…";
   else if (status === "error" || !data) content = "Week status unavailable";
-  else {
+  else if (data.season_complete) {
+    // Season-over: no "closes" clause (the close date is now in the past and
+    // reads nonsensically). Decision #4 of the site-consistency pass.
+    content = `Season complete · ${data.season} final`;
+  } else {
     content = `Week ${data.week} · picks ${readableState(
       data.window_state,
     )} · closes ${friendlyTime(data.window_closes_at)}`;
