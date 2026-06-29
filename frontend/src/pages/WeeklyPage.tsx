@@ -26,11 +26,11 @@ import { useWeekly } from "./useWeekly";
 
 /** Tailwind accent classes for each GradeOutcome string (UNGRADEABLE = neutral). */
 const OUTCOME_STYLE: Record<string, string> = {
-  WIN: "bg-green-50 text-green-700 ring-green-200",
-  LOSS: "bg-red-50 text-red-700 ring-red-200",
-  PUSH: "bg-gray-100 text-gray-600 ring-gray-200",
-  INELIGIBLE: "bg-amber-50 text-amber-700 ring-amber-200",
-  UNGRADEABLE: "bg-gray-50 text-gray-500 ring-gray-200",
+  WIN: "bg-success-bg text-success-fg ring-success-fg",
+  LOSS: "bg-danger-bg text-danger-fg ring-danger-fg",
+  PUSH: "bg-surface-raised text-fg-muted ring-border",
+  INELIGIBLE: "bg-warning-bg text-warning-fg ring-warning-fg",
+  UNGRADEABLE: "bg-surface-raised text-fg-muted ring-border",
 };
 
 /** Human label for each outcome (UNGRADEABLE reads as "pending"). */
@@ -116,17 +116,17 @@ function PickRow({
     <li className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
-          <span className="font-medium text-gray-800">{primary}</span>
+          <span className="font-medium text-fg">{primary}</span>
           {!isMisc && pick.is_mortal_lock && (
-            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
+            <span className="rounded-full bg-accent-bg px-2 py-0.5 text-xs font-semibold text-accent">
               Mortal Lock
             </span>
           )}
         </div>
-        <div className="text-xs text-gray-500">{subline}</div>
+        <div className="text-xs text-fg-muted">{subline}</div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        <span className="tabular-nums text-gray-600">{pick.points} pts</span>
+        <span className="tabular-nums text-fg-muted">{pick.points} pts</span>
         <span
           className={[
             "rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset",
@@ -152,34 +152,34 @@ function UserCard({
   return (
     <section
       className={[
-        "overflow-hidden rounded-lg border bg-white",
-        isMe ? "border-blue-300 ring-1 ring-blue-200" : "border-gray-200",
+        "overflow-hidden rounded-lg border bg-surface",
+        isMe ? "border-accent ring-1 ring-accent" : "border-border",
       ].join(" ")}
     >
       <header
         className={[
           "flex items-center justify-between px-3 py-2",
-          isMe ? "bg-blue-50" : "bg-gray-50",
+          isMe ? "bg-accent-bg" : "bg-surface-raised",
         ].join(" ")}
       >
         <span
           className={[
             "font-semibold",
-            isMe ? "text-blue-800" : "text-gray-800",
+            isMe ? "text-accent" : "text-fg",
           ].join(" ")}
         >
           {result.display_name}
           {isMe && (
-            <span className="ml-2 text-xs font-normal text-blue-600">(you)</span>
+            <span className="ml-2 text-xs font-normal text-accent">(you)</span>
           )}
         </span>
-        <span className="tabular-nums text-sm font-semibold text-gray-900">
+        <span className="tabular-nums text-sm font-semibold text-fg">
           {result.weekly_score} pts
         </span>
       </header>
 
       {result.picks.length > 0 ? (
-        <ul className="divide-y divide-gray-100">
+        <ul className="divide-y divide-border">
           {result.picks.map((pick) => (
             <PickRow
               key={`${pick.game_id}-${pick.pick_type}-${pick.is_mortal_lock}`}
@@ -189,7 +189,7 @@ function UserCard({
           ))}
         </ul>
       ) : (
-        <p className="px-3 py-3 text-sm text-gray-400">
+        <p className="px-3 py-3 text-sm text-fg-muted">
           {isMe
             ? "No picks for this week."
             : "Picks hidden until the week's picks lock (first kickoff)."}
@@ -210,7 +210,7 @@ export default function WeeklyPage() {
     return (
       <div>
         <h1 className="text-2xl font-bold">Weekly</h1>
-        <p className="mt-2 text-gray-500">{LOADING_WEEKLY}</p>
+        <p className="mt-2 text-fg-muted">{LOADING_WEEKLY}</p>
       </div>
     );
   }
@@ -219,7 +219,7 @@ export default function WeeklyPage() {
     return (
       <div>
         <h1 className="text-2xl font-bold">Weekly</h1>
-        <p className="mt-2 text-gray-600">{ERROR_WEEKLY}</p>
+        <p className="mt-2 text-fg-muted">{ERROR_WEEKLY}</p>
       </div>
     );
   }
@@ -233,7 +233,7 @@ export default function WeeklyPage() {
         <div>
           <h1 className="text-2xl font-bold">Weekly</h1>
           {seasonLabel && (
-            <p className="mt-1 text-sm text-gray-500">{seasonLabel}</p>
+            <p className="mt-1 text-sm text-fg-muted">{seasonLabel}</p>
           )}
         </div>
 
@@ -242,18 +242,18 @@ export default function WeeklyPage() {
             type="button"
             onClick={prev}
             disabled={atFirst}
-            className="rounded-md border border-gray-300 px-3 py-1 text-sm font-medium text-gray-700 enabled:hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-md border border-border px-3 py-1 text-sm font-medium text-fg-muted enabled:hover:bg-surface-raised disabled:cursor-not-allowed disabled:opacity-40"
           >
             ‹ Prev
           </button>
-          <span className="rounded-full bg-blue-50 px-3 py-1 text-sm font-semibold text-blue-700">
+          <span className="rounded-full bg-accent-bg px-3 py-1 text-sm font-semibold text-accent">
             Week {week}
           </span>
           <button
             type="button"
             onClick={next}
             disabled={atLast}
-            className="rounded-md border border-gray-300 px-3 py-1 text-sm font-medium text-gray-700 enabled:hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-md border border-border px-3 py-1 text-sm font-medium text-fg-muted enabled:hover:bg-surface-raised disabled:cursor-not-allowed disabled:opacity-40"
           >
             Next ›
           </button>
@@ -261,7 +261,7 @@ export default function WeeklyPage() {
       </header>
 
       {results.length === 0 ? (
-        <p className="text-gray-500">{EMPTY_WEEKLY}</p>
+        <p className="text-fg-muted">{EMPTY_WEEKLY}</p>
       ) : (
         <div className="space-y-4">
           {results.map((result, i) => {

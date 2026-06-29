@@ -191,7 +191,7 @@ export default function CalendarPage() {
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Calendar</h1>
-          <p className="mt-1 text-sm text-gray-500">
+          <p className="mt-1 text-sm text-fg-muted">
             {MONTH_LABELS[view.month]} {view.year}
           </p>
         </div>
@@ -199,7 +199,7 @@ export default function CalendarPage() {
           <button
             type="button"
             onClick={() => shiftMonth(-1)}
-            className="rounded border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="rounded border border-border bg-surface px-3 py-1 text-sm font-medium text-fg-muted hover:bg-surface-raised"
           >
             ← Prev
           </button>
@@ -207,14 +207,14 @@ export default function CalendarPage() {
             type="button"
             onClick={goToday}
             disabled={isCurrentMonth}
-            className="rounded border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-default disabled:opacity-40"
+            className="rounded border border-border bg-surface px-3 py-1 text-sm font-medium text-fg-muted hover:bg-surface-raised disabled:cursor-default disabled:opacity-40"
           >
             Today
           </button>
           <button
             type="button"
             onClick={() => shiftMonth(1)}
-            className="rounded border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="rounded border border-border bg-surface px-3 py-1 text-sm font-medium text-fg-muted hover:bg-surface-raised"
           >
             Next →
           </button>
@@ -222,18 +222,18 @@ export default function CalendarPage() {
       </header>
 
       {status === "loading" && (
-        <p className="text-gray-500">{LOADING_CALENDAR}</p>
+        <p className="text-fg-muted">{LOADING_CALENDAR}</p>
       )}
       {status === "error" && (
-        <p className="text-gray-600">{ERROR_CALENDAR}</p>
+        <p className="text-fg-muted">{ERROR_CALENDAR}</p>
       )}
       {status === "ok" && gamesByDay.size === 0 && (
-        <p className="text-gray-500">{EMPTY_CALENDAR}</p>
+        <p className="text-fg-muted">{EMPTY_CALENDAR}</p>
       )}
 
-      <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+      <div className="overflow-x-auto rounded-lg border border-border bg-surface">
         {/* Weekday header */}
-        <div className="grid grid-cols-7 border-b border-gray-200 text-center text-xs font-semibold text-gray-500">
+        <div className="grid grid-cols-7 border-b border-border text-center text-xs font-semibold text-fg-muted">
           {WEEKDAY_LABELS.map((w) => (
             <div key={w} className="px-2 py-2">
               {w}
@@ -249,20 +249,20 @@ export default function CalendarPage() {
               <div
                 key={cell.key}
                 className={[
-                  "min-h-24 border-b border-r border-gray-100 p-1 align-top",
-                  cell.inMonth ? "bg-white" : "bg-gray-50",
+                  "min-h-24 border-b border-r border-border p-1 align-top",
+                  cell.inMonth ? "bg-surface" : "bg-surface-raised",
                 ].join(" ")}
               >
                 <div
                   className={[
                     "mb-1 text-right text-xs",
-                    cell.inMonth ? "text-gray-700" : "text-gray-400",
+                    cell.inMonth ? "text-fg-muted" : "text-fg-muted",
                   ].join(" ")}
                 >
                   <span
                     className={
                       isToday
-                        ? "inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 font-semibold text-white"
+                        ? "inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent-solid font-semibold text-on-accent"
                         : ""
                     }
                   >
@@ -277,20 +277,20 @@ export default function CalendarPage() {
                     return (
                       <div
                         key={g.game_id}
-                        className="rounded border border-gray-200 bg-gray-50 px-1 py-0.5 text-[11px] leading-tight"
+                        className="rounded border border-border bg-surface-raised px-1 py-0.5 text-[11px] leading-tight"
                       >
                         {isFinal ? (
-                          <div className="font-medium text-gray-800">
+                          <div className="font-medium text-fg">
                             {away} {g.away_score ?? 0} @ {home}{" "}
                             {g.home_score ?? 0}
                           </div>
                         ) : (
                           <>
-                            <div className="font-medium text-gray-800">
+                            <div className="font-medium text-fg">
                               {away} @ {home}
                             </div>
                             {g.kickoff_at && (
-                              <div className="text-gray-500">
+                              <div className="text-fg-muted">
                                 {formatLocalDateTime(g.kickoff_at)}
                               </div>
                             )}

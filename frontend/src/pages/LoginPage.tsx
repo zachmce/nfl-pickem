@@ -51,24 +51,24 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-raised">
       <DemoBanner />
       <div className="flex min-h-screen items-center justify-center px-4">
         <form
           onSubmit={handleSubmit}
-          className="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-6 shadow-sm"
+          className="w-full max-w-sm rounded-lg border border-border bg-surface p-6 shadow-sm"
         >
-          <h1 className="mb-6 text-center text-xl font-bold text-gray-900">
+          <h1 className="mb-6 text-center text-xl font-bold text-fg">
             🏈 NFL Pick'em
           </h1>
 
           {error && (
-            <p className="mb-4 rounded bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p className="mb-4 rounded bg-danger-bg px-3 py-2 text-sm text-danger-fg">
               {error}
             </p>
           )}
 
-          <label className="mb-1 block text-sm font-medium text-gray-700">
+          <label className="mb-1 block text-sm font-medium text-fg-muted">
             Display name
           </label>
           <input
@@ -77,10 +77,10 @@ export default function LoginPage() {
             onChange={(e) => setDisplayName(e.target.value)}
             autoComplete="username"
             required
-            className="mb-4 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            className="mb-4 w-full rounded border border-border px-3 py-2 text-sm focus:border-accent focus:outline-none"
           />
 
-          <label className="mb-1 block text-sm font-medium text-gray-700">
+          <label className="mb-1 block text-sm font-medium text-fg-muted">
             Password
           </label>
           <input
@@ -89,13 +89,13 @@ export default function LoginPage() {
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="current-password"
             required
-            className="mb-6 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            className="mb-6 w-full rounded border border-border px-3 py-2 text-sm focus:border-accent focus:outline-none"
           />
 
           <button
             type="submit"
             disabled={submitting}
-            className="w-full rounded bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="w-full rounded bg-accent-solid px-4 py-2 font-medium text-on-accent hover:bg-accent-solid-hover disabled:opacity-50"
           >
             {submitting ? "Signing in…" : "Sign in"}
           </button>

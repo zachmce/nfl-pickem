@@ -181,7 +181,7 @@ export default function MyPicksPage() {
     return (
       <div>
         <h1 className="text-2xl font-bold">My Picks</h1>
-        <p className="mt-2 text-gray-500">{LOADING_MY_PICKS}</p>
+        <p className="mt-2 text-fg-muted">{LOADING_MY_PICKS}</p>
       </div>
     );
   }
@@ -190,7 +190,7 @@ export default function MyPicksPage() {
     return (
       <div>
         <h1 className="text-2xl font-bold">My Picks</h1>
-        <p className="mt-2 text-gray-600">{ERROR_MY_PICKS}</p>
+        <p className="mt-2 text-fg-muted">{ERROR_MY_PICKS}</p>
       </div>
     );
   }
@@ -206,19 +206,19 @@ export default function MyPicksPage() {
     <div className="space-y-6">
       <header>
         <h1 className="text-2xl font-bold">My Picks</h1>
-        <p className="mt-1 text-sm text-gray-500">
+        <p className="mt-1 text-sm text-fg-muted">
           Week {currentWeek.week} · {currentWeek.season} season
         </p>
       </header>
 
       {!editable && windowState !== "open" && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+        <div className="rounded-md border border-warning-fg bg-warning-bg px-4 py-2 text-sm text-warning-fg">
           {WINDOW_BANNER[windowState]}
         </div>
       )}
 
       {rePickFlags.length > 0 && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+        <div className="rounded-md border border-warning-fg bg-warning-bg px-4 py-2 text-sm text-warning-fg">
           <p className="font-medium">
             The odds for this week have frozen and one or more of your picks is
             no longer eligible. You can re-pick before the week locks.
@@ -246,7 +246,7 @@ export default function MyPicksPage() {
       />
 
       {slate.length === 0 ? (
-        <p className="text-gray-500">No games are scheduled for this week.</p>
+        <p className="text-fg-muted">No games are scheduled for this week.</p>
       ) : (
         <div className="space-y-4">
           {slate.map((game) => (
@@ -285,8 +285,8 @@ function RosterTracker({
   })();
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4">
-      <h2 className="text-sm font-semibold text-gray-700">Your roster</h2>
+    <div className="rounded-lg border border-border bg-surface p-4">
+      <h2 className="text-sm font-semibold text-fg-muted">Your roster</h2>
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
         {BASE_SLOTS.map((pt) => {
           const key = slotKey(pt, false);
@@ -335,16 +335,16 @@ function SlotChip({
         "rounded-md border px-2.5 py-2 text-center",
         filled
           ? accent
-            ? "border-blue-300 bg-blue-50"
-            : "border-green-300 bg-green-50"
-          : "border-dashed border-gray-300 bg-gray-50",
+            ? "border-accent bg-accent-bg"
+            : "border-success-fg bg-success-bg"
+          : "border-dashed border-border bg-surface-raised",
       ].join(" ")}
     >
-      <div className="text-xs font-medium text-gray-700">{label}</div>
+      <div className="text-xs font-medium text-fg-muted">{label}</div>
       <div
         className={[
           "mt-0.5 flex items-center justify-center gap-1 text-xs",
-          filled ? "text-gray-600" : "text-gray-400",
+          filled ? "text-fg-muted" : "text-fg-muted",
         ].join(" ")}
       >
         {showLogos && <TeamLogo abbreviation={teams.away} size={16} />}
@@ -403,15 +403,15 @@ function MiscPickCard({
   // Read-only (window not open): show the saved prediction + state with no inputs.
   if (!editable) {
     return (
-      <div className="rounded-lg border border-gray-200 bg-white p-4">
-        <h2 className="text-sm font-semibold text-gray-700">Misc pick</h2>
+      <div className="rounded-lg border border-border bg-surface p-4">
+        <h2 className="text-sm font-semibold text-fg-muted">Misc pick</h2>
         {miscPick ? (
           <div className="mt-2 space-y-1">
-            <p className="text-sm text-gray-800">{miscPick.misc_text}</p>
+            <p className="text-sm text-fg">{miscPick.misc_text}</p>
             <MiscStateBadge pick={miscPick} />
           </div>
         ) : (
-          <p className="mt-2 text-sm text-gray-400">
+          <p className="mt-2 text-sm text-fg-muted">
             No misc pick for this week.
           </p>
         )}
@@ -420,30 +420,30 @@ function MiscPickCard({
   }
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4">
+    <div className="rounded-lg border border-border bg-surface p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold text-gray-700">Misc pick</h2>
+        <h2 className="text-sm font-semibold text-fg-muted">Misc pick</h2>
         {miscPick && <MiscStateBadge pick={miscPick} />}
       </div>
-      <p className="mt-0.5 text-xs text-gray-500">
+      <p className="mt-0.5 text-xs text-fg-muted">
         One free-text pick per week, tied to a game. An admin grades it after
         the game.
       </p>
 
       {slate.length === 0 ? (
-        <p className="mt-3 text-sm text-gray-400">
+        <p className="mt-3 text-sm text-fg-muted">
           No games are scheduled for this week.
         </p>
       ) : (
         <div className="mt-3 space-y-2">
-          <label className="block text-xs font-medium text-gray-600">
+          <label className="block text-xs font-medium text-fg-muted">
             Game
             <select
               value={gameId ?? ""}
               disabled={savingMisc}
               onChange={(e) => setGameId(Number(e.target.value))}
               className={[
-                "mt-1 block w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm",
+                "mt-1 block w-full rounded-md border border-border px-2 py-1.5 text-sm",
                 savingMisc ? "cursor-not-allowed opacity-50" : "",
               ].join(" ")}
             >
@@ -455,7 +455,7 @@ function MiscPickCard({
             </select>
           </label>
 
-          <label className="block text-xs font-medium text-gray-600">
+          <label className="block text-xs font-medium text-fg-muted">
             Pick
             <textarea
               value={text}
@@ -464,7 +464,7 @@ function MiscPickCard({
               rows={2}
               placeholder="e.g. Mahomes passes for 400+ yards"
               className={[
-                "mt-1 block w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm",
+                "mt-1 block w-full rounded-md border border-border px-2 py-1.5 text-sm",
                 savingMisc ? "cursor-not-allowed opacity-50" : "",
               ].join(" ")}
             />
@@ -485,7 +485,7 @@ function MiscPickCard({
               }
               className={[
                 "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
-                "border-blue-600 bg-blue-600 text-white hover:bg-blue-700",
+                "border-accent-solid bg-accent-solid text-on-accent hover:bg-accent-solid-hover",
                 saveDisabled ? "cursor-not-allowed opacity-50" : "",
               ].join(" ")}
             >
@@ -506,7 +506,7 @@ function MiscPickCard({
                 title="Clear this pick"
                 className={[
                   "rounded-md border px-2 py-1 text-xs font-medium transition-colors",
-                  "border-red-300 bg-white text-red-600 hover:border-red-500",
+                  "border-danger-fg bg-surface text-danger-fg hover:border-danger-fg",
                   savingMisc ? "cursor-not-allowed opacity-50" : "",
                 ].join(" ")}
               >
@@ -515,11 +515,11 @@ function MiscPickCard({
             )}
 
             {savingMisc && (
-              <span className="text-xs text-gray-400">Saving…</span>
+              <span className="text-xs text-fg-muted">Saving…</span>
             )}
           </div>
 
-          {miscError && <p className="mt-1 text-xs text-red-600">{miscError}</p>}
+          {miscError && <p className="mt-1 text-xs text-danger-fg">{miscError}</p>}
         </div>
       )}
     </div>
@@ -538,9 +538,9 @@ function MiscStateBadge({ pick }: { pick: PicksBySlot[string] }) {
         : { label: "Pending", tone: "gray" as const };
 
   const tones: Record<typeof tone, string> = {
-    green: "bg-green-50 text-green-700 ring-green-200",
-    red: "bg-red-50 text-red-700 ring-red-200",
-    gray: "bg-gray-50 text-gray-500 ring-gray-200",
+    green: "bg-success-bg text-success-fg ring-success-fg",
+    red: "bg-danger-bg text-danger-fg ring-danger-fg",
+    gray: "bg-surface-raised text-fg-muted ring-border",
   };
 
   return (
@@ -605,7 +605,7 @@ function GameCard({
     riddenTeamId !== null && riddenTeamId !== teamId;
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4">
+    <div className="rounded-lg border border-border bg-surface p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
           <div className="flex items-center gap-1.5 text-base font-semibold">
@@ -614,26 +614,26 @@ function GameCard({
               dimmed={dimmed(game.away_team.team_id)}
             />
             <span>{game.away_team.display_name}</span>
-            <span className="text-gray-400">@</span>
+            <span className="text-fg-muted">@</span>
             <TeamLogo
               abbreviation={game.home_team.abbreviation}
               dimmed={dimmed(game.home_team.team_id)}
             />
             <span>{game.home_team.display_name}</span>
           </div>
-          <div className="mt-0.5 text-xs text-gray-500">
+          <div className="mt-0.5 text-xs text-fg-muted">
             {formatLocalDateTime(game.kickoff_at)} · {lineSummary(game)}
           </div>
         </div>
         {game.locked && (
-          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
+          <span className="rounded-full bg-surface-raised px-2 py-0.5 text-xs font-medium text-fg-muted">
             locked
           </span>
         )}
       </div>
 
       {eligibleTypes.length === 0 ? (
-        <p className="mt-3 text-sm text-gray-400">
+        <p className="mt-3 text-sm text-fg-muted">
           No bet options are eligible for this game.
         </p>
       ) : (
@@ -721,8 +721,8 @@ function BetOption({
           className={[
             "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
             baseSelected
-              ? "border-blue-600 bg-blue-600 text-white"
-              : "border-gray-300 bg-white text-gray-700 hover:border-blue-400",
+              ? "border-accent-solid bg-accent-solid text-on-accent"
+              : "border-border bg-surface text-fg-muted hover:border-accent",
             baseDisabled ? "cursor-not-allowed opacity-50" : "",
           ].join(" ")}
         >
@@ -743,7 +743,7 @@ function BetOption({
             title="Clear this pick"
             className={[
               "rounded-md border px-2 py-1 text-xs font-medium transition-colors",
-              "border-red-300 bg-white text-red-600 hover:border-red-500",
+              "border-danger-fg bg-surface text-danger-fg hover:border-danger-fg",
               baseDisabled ? "cursor-not-allowed opacity-50" : "",
             ].join(" ")}
           >
@@ -765,8 +765,8 @@ function BetOption({
           className={[
             "rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors",
             lockSelected
-              ? "border-blue-600 bg-blue-50 text-blue-700"
-              : "border-gray-300 bg-white text-gray-500 hover:border-blue-400",
+              ? "border-accent bg-accent-bg text-accent"
+              : "border-border bg-surface text-fg-muted hover:border-accent",
             lockDisabled ? "cursor-not-allowed opacity-50" : "",
           ].join(" ")}
         >
@@ -787,7 +787,7 @@ function BetOption({
             title="Remove your Mortal Lock"
             className={[
               "rounded-md border px-2 py-1 text-xs font-medium transition-colors",
-              "border-red-300 bg-white text-red-600 hover:border-red-500",
+              "border-danger-fg bg-surface text-danger-fg hover:border-danger-fg",
               lockDisabled ? "cursor-not-allowed opacity-50" : "",
             ].join(" ")}
           >
@@ -796,15 +796,15 @@ function BetOption({
         )}
 
         {(baseSaving || lockSaving) && (
-          <span className="text-xs text-gray-400">Saving…</span>
+          <span className="text-xs text-fg-muted">Saving…</span>
         )}
       </div>
 
       {baseError && (
-        <p className="mt-1 text-xs text-red-600">{baseError}</p>
+        <p className="mt-1 text-xs text-danger-fg">{baseError}</p>
       )}
       {lockError && lockError !== baseError && (
-        <p className="mt-1 text-xs text-red-600">{lockError}</p>
+        <p className="mt-1 text-xs text-danger-fg">{lockError}</p>
       )}
     </div>
   );

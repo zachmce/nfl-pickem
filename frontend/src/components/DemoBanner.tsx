@@ -32,7 +32,7 @@ export default function DemoBanner() {
   }
 
   return (
-    <div className="w-full bg-amber-400 px-4 py-2 text-center text-sm font-bold text-amber-950">
+    <div className="w-full bg-warning-solid px-4 py-2 text-center text-sm font-bold text-on-warning">
       ⚠️ DEMO MODE — fake time-shifted 2025 season, NOT production data.
     </div>
   );

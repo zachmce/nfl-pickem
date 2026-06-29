@@ -12,22 +12,22 @@ export default function RulesPage() {
     <div className="space-y-6">
       <header>
         <h1 className="text-2xl font-bold">Rules</h1>
-        <p className="mt-1 text-sm text-gray-500">
+        <p className="mt-1 text-sm text-fg-muted">
           Each NFL week, make your picks against that week's games. Picks are
           graded against the betting line and the final scores, and roll up into
           weekly and season-long standings.
         </p>
       </header>
 
-      <section className="space-y-3 rounded-lg border border-gray-200 bg-white p-4">
+      <section className="space-y-3 rounded-lg border border-border bg-surface p-4">
         <h2 className="text-lg font-bold">Your weekly picks</h2>
-        <p className="text-sm text-gray-700">
+        <p className="text-sm text-fg-muted">
           Each week you can make up to five main picks — one of each of the four
           bet types (favorite cover, underdog cover, over, under) plus a Mortal
           Lock wildcard — and one misc pick. Every pick is optional; there's
           no minimum, so make as many or as few as you like.
         </p>
-        <ul className="list-disc space-y-1 pl-5 text-sm text-gray-700">
+        <ul className="list-disc space-y-1 pl-5 text-sm text-fg-muted">
           <li>
             <span className="font-semibold">Favorite cover</span> — the favorite
             covers the spread.
@@ -45,7 +45,7 @@ export default function RulesPage() {
             stays under the total.
           </li>
         </ul>
-        <ul className="list-disc space-y-1 pl-5 text-sm text-gray-700">
+        <ul className="list-disc space-y-1 pl-5 text-sm text-fg-muted">
           <li>
             <span className="font-semibold">Mortal Lock</span> — a fifth main pick,
             a wildcard on any game and type of your choosing. A winning Mortal Lock
@@ -59,9 +59,9 @@ export default function RulesPage() {
         </ul>
       </section>
 
-      <section className="space-y-3 rounded-lg border border-gray-200 bg-white p-4">
+      <section className="space-y-3 rounded-lg border border-border bg-surface p-4">
         <h2 className="text-lg font-bold">Roster rules</h2>
-        <ul className="list-disc space-y-1 pl-5 text-sm text-gray-700">
+        <ul className="list-disc space-y-1 pl-5 text-sm text-fg-muted">
           <li>At most one base pick of each of the four types per week.</li>
           <li>The Mortal Lock is the only same-type duplicate allowed.</li>
           <li>
@@ -72,9 +72,9 @@ export default function RulesPage() {
         </ul>
       </section>
 
-      <section className="space-y-3 rounded-lg border border-gray-200 bg-white p-4">
+      <section className="space-y-3 rounded-lg border border-border bg-surface p-4">
         <h2 className="text-lg font-bold">The pick window</h2>
-        <ul className="list-disc space-y-1 pl-5 text-sm text-gray-700">
+        <ul className="list-disc space-y-1 pl-5 text-sm text-fg-muted">
           <li>
             A week's window OPENS after the previous week's last game ends, and
             CLOSES at that week's first kickoff. (Week 1 is open from the start.)
@@ -97,12 +97,12 @@ export default function RulesPage() {
 
       {/* Point values below are documentation of the backend scoring engine —
           keep in sync with app/services/scoring.py `_points_for` if it changes. */}
-      <section className="space-y-3 rounded-lg border border-gray-200 bg-white p-4">
+      <section className="space-y-3 rounded-lg border border-border bg-surface p-4">
         <h2 className="text-lg font-bold">Scoring</h2>
-        <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+        <div className="overflow-x-auto rounded-lg border border-border bg-surface">
           <table className="min-w-full border-collapse text-sm">
             <thead>
-              <tr className="border-b border-gray-200 text-gray-600">
+              <tr className="border-b border-border text-fg-muted">
                 <th className="px-3 py-2 text-left font-semibold">Outcome</th>
                 <th className="px-3 py-2 text-right font-semibold">
                   Normal pick
@@ -113,50 +113,50 @@ export default function RulesPage() {
               </tr>
             </thead>
             <tbody>
-              <tr className="border-b border-gray-100 last:border-0">
-                <td className="px-3 py-2 text-left text-gray-800">Win</td>
-                <td className="px-3 py-2 text-right tabular-nums text-gray-700">
+              <tr className="border-b border-border last:border-0">
+                <td className="px-3 py-2 text-left text-fg">Win</td>
+                <td className="px-3 py-2 text-right tabular-nums text-fg-muted">
                   +1
                 </td>
-                <td className="px-3 py-2 text-right tabular-nums text-gray-700">
+                <td className="px-3 py-2 text-right tabular-nums text-fg-muted">
                   +2
                 </td>
               </tr>
-              <tr className="border-b border-gray-100 last:border-0">
-                <td className="px-3 py-2 text-left text-gray-800">Loss</td>
-                <td className="px-3 py-2 text-right tabular-nums text-gray-700">
+              <tr className="border-b border-border last:border-0">
+                <td className="px-3 py-2 text-left text-fg">Loss</td>
+                <td className="px-3 py-2 text-right tabular-nums text-fg-muted">
                   0
                 </td>
-                <td className="px-3 py-2 text-right tabular-nums text-gray-700">
+                <td className="px-3 py-2 text-right tabular-nums text-fg-muted">
                   −1
                 </td>
               </tr>
-              <tr className="border-b border-gray-100 last:border-0">
-                <td className="px-3 py-2 text-left text-gray-800">
+              <tr className="border-b border-border last:border-0">
+                <td className="px-3 py-2 text-left text-fg">
                   Push (line lands exactly)
                 </td>
-                <td className="px-3 py-2 text-right tabular-nums text-gray-700">
+                <td className="px-3 py-2 text-right tabular-nums text-fg-muted">
                   0
                 </td>
-                <td className="px-3 py-2 text-right tabular-nums text-gray-700">
+                <td className="px-3 py-2 text-right tabular-nums text-fg-muted">
                   0
                 </td>
               </tr>
-              <tr className="border-b border-gray-100 last:border-0">
-                <td className="px-3 py-2 text-left text-gray-800">
+              <tr className="border-b border-border last:border-0">
+                <td className="px-3 py-2 text-left text-fg">
                   Not gradeable / not applicable
                 </td>
-                <td className="px-3 py-2 text-right tabular-nums text-gray-700">
+                <td className="px-3 py-2 text-right tabular-nums text-fg-muted">
                   0
                 </td>
-                <td className="px-3 py-2 text-right tabular-nums text-gray-700">
+                <td className="px-3 py-2 text-right tabular-nums text-fg-muted">
                   0
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-fg-muted">
           A "push" is when the result lands exactly on the line (no win, no
           loss). A spread pick on a true pick'em game (no favorite) can't be
           graded as a cover, so it scores 0. A game that isn't final yet scores 0
@@ -165,9 +165,9 @@ export default function RulesPage() {
         </p>
       </section>
 
-      <section className="space-y-3 rounded-lg border border-gray-200 bg-white p-4">
+      <section className="space-y-3 rounded-lg border border-border bg-surface p-4">
         <h2 className="text-lg font-bold">Standings</h2>
-        <p className="text-sm text-gray-700">
+        <p className="text-sm text-fg-muted">
           Your weekly score is the sum of your picks that week; the season
           standings rank everyone by total points across all weeks. Ties share a
           rank.

@@ -91,7 +91,7 @@ export default function StandingsPage() {
     return (
       <div>
         <h1 className="text-2xl font-bold">Standings</h1>
-        <p className="mt-2 text-gray-500">{LOADING_STANDINGS}</p>
+        <p className="mt-2 text-fg-muted">{LOADING_STANDINGS}</p>
       </div>
     );
   }
@@ -100,7 +100,7 @@ export default function StandingsPage() {
     return (
       <div>
         <h1 className="text-2xl font-bold">Standings</h1>
-        <p className="mt-2 text-gray-600">{ERROR_STANDINGS}</p>
+        <p className="mt-2 text-fg-muted">{ERROR_STANDINGS}</p>
       </div>
     );
   }
@@ -117,10 +117,10 @@ export default function StandingsPage() {
         <header>
           <h1 className="text-2xl font-bold">Standings</h1>
           {seasonLabel && (
-            <p className="mt-1 text-sm text-gray-500">{seasonLabel}</p>
+            <p className="mt-1 text-sm text-fg-muted">{seasonLabel}</p>
           )}
         </header>
-        <p className="text-gray-500">{EMPTY_STANDINGS}</p>
+        <p className="text-fg-muted">{EMPTY_STANDINGS}</p>
       </div>
     );
   }
@@ -132,14 +132,14 @@ export default function StandingsPage() {
       <header>
         <h1 className="text-2xl font-bold">Standings</h1>
         {seasonLabel && (
-          <p className="mt-1 text-sm text-gray-500">{seasonLabel}</p>
+          <p className="mt-1 text-sm text-fg-muted">{seasonLabel}</p>
         )}
       </header>
 
-      <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+      <div className="overflow-x-auto rounded-lg border border-border bg-surface">
         <table className="min-w-full border-collapse text-sm">
           <thead>
-            <tr className="border-b border-gray-200 text-gray-600">
+            <tr className="border-b border-border text-fg-muted">
               <th className="px-3 py-2 text-right font-semibold">Rank</th>
               <th className="px-3 py-2 text-right font-semibold">Total</th>
               <th className="px-3 py-2 text-left font-semibold">Player</th>
@@ -159,11 +159,11 @@ export default function StandingsPage() {
                 <tr
                   key={`${row.display_name}-${i}`}
                   className={[
-                    "border-b border-gray-100 last:border-0",
-                    isMe ? "bg-blue-50" : "",
+                    "border-b border-border last:border-0",
+                    isMe ? "bg-accent-bg" : "",
                   ].join(" ")}
                 >
-                  <td className="px-3 py-2 text-right tabular-nums text-gray-500">
+                  <td className="px-3 py-2 text-right tabular-nums text-fg-muted">
                     {seasonComplete && rankMedal(ranks[i]) !== "" && (
                       <span className="mr-1" aria-hidden="true">
                         {rankMedal(ranks[i])}
@@ -171,13 +171,13 @@ export default function StandingsPage() {
                     )}
                     {ranks[i]}
                   </td>
-                  <td className="px-3 py-2 text-right font-semibold tabular-nums text-gray-900">
+                  <td className="px-3 py-2 text-right font-semibold tabular-nums text-fg">
                     {row.season_total}
                   </td>
                   <td
                     className={[
                       "px-3 py-2 text-left",
-                      isMe ? "font-semibold text-blue-800" : "text-gray-800",
+                      isMe ? "font-semibold text-accent" : "text-fg",
                     ].join(" ")}
                   >
                     {row.display_name}
@@ -189,7 +189,7 @@ export default function StandingsPage() {
                         key={w}
                         className={[
                           "px-3 py-2 text-right tabular-nums",
-                          future ? "text-gray-300" : "text-gray-700",
+                          future ? "text-fg-muted" : "text-fg-muted",
                         ].join(" ")}
                       >
                         {future ? "N/A" : (row.weekly_scores[String(w)] ?? 0)}

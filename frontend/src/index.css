@@ -41,6 +41,29 @@
   --color-success-bg: #f0fdf4; /* green-50 */
   --color-warning-fg: #b45309; /* amber-700 */
   --color-warning-bg: #fffbeb; /* amber-50 */
+
+  /*
+   * Solid fills (Task 2 extension). The base -fg/-bg roles cover text + soft
+   * tints; these add the saturated SOLID buttons/toggles the base set can't
+   * express. Light values equal the prior hardcoded hex exactly:
+   *   accent-solid       = blue-600   (submit + selected toggles)
+   *   accent-solid-hover = blue-700
+   *   on-accent          = white      (text on the accent fill)
+   *   success-solid      = green-600  (admin "Correct" grade toggle)
+   *   danger-solid       = red-600    (admin "Incorrect" grade toggle)
+   *   warning-solid      = amber-400  (demo banner fill)
+   *   on-success/on-danger = white ; on-warning = amber-950
+   */
+  --color-accent-solid: #2563eb; /* blue-600 */
+  --color-accent-solid-hover: #1d4ed8; /* blue-700 */
+  --color-on-accent: #ffffff;
+
+  --color-success-solid: #16a34a; /* green-600 */
+  --color-on-success: #ffffff;
+  --color-danger-solid: #dc2626; /* red-600 */
+  --color-on-danger: #ffffff;
+  --color-warning-solid: #fbbf24; /* amber-400 */
+  --color-on-warning: #451a03; /* amber-950 */
 }
 
 /*
@@ -63,4 +86,21 @@
   --color-success-bg: #0f2a1a; /* deep desaturated green */
   --color-warning-fg: #fcd34d; /* amber-300 */
   --color-warning-bg: #2e2410; /* deep desaturated amber */
+
+  /*
+   * Solid fills on a dark page — hand-picked (decision 5), NOT a mechanical
+   * darken. The accent stays a confident blue; the status solids are slightly
+   * muted but still saturated so they read as buttons against the near-black
+   * surface, each paired with an on-fill text that keeps strong contrast.
+   */
+  --color-accent-solid: #3b82f6; /* blue-500 — confident on dark */
+  --color-accent-solid-hover: #2563eb; /* blue-600 */
+  --color-on-accent: #f8fafc; /* near-white */
+
+  --color-success-solid: #22a35a; /* saturated green, slightly muted */
+  --color-on-success: #f0fdf4; /* near-white green tint */
+  --color-danger-solid: #e0473e; /* saturated red, slightly muted */
+  --color-on-danger: #fef2f2; /* near-white red tint */
+  --color-warning-solid: #d99a2b; /* amber that reads as a fill on dark */
+  --color-on-warning: #1a1206; /* deep brown-black for contrast */
 }
