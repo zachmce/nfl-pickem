@@ -13,6 +13,7 @@ import {
   type CurrentWeek,
   type WindowState,
 } from "../lib/currentWeek";
+import { formatLocalDateTime } from "../lib/datetime";
 
 type Status = "loading" | "ok" | "error";
 
@@ -25,18 +26,6 @@ const STATE_LABEL: Record<WindowState, string> = {
 
 function readableState(state: WindowState): string {
   return STATE_LABEL[state] ?? state;
-}
-
-function friendlyTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
 }
 
 /** Shared hook: fetch the current week once, tracking loading/ok/error. */
@@ -98,7 +87,7 @@ export default function ContextBar() {
   } else {
     content = `Week ${data.week} · picks ${readableState(
       data.window_state,
-    )} · closes ${friendlyTime(data.window_closes_at)}`;
+    )} · closes ${formatLocalDateTime(data.window_closes_at)}`;
   }
 
   return (

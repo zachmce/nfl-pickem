@@ -19,6 +19,7 @@ import { useState } from "react";
 
 import { errorKey, slotKey, type PickItem, type PickType, type SlateGame } from "../lib/picks";
 import type { WindowState } from "../lib/currentWeek";
+import { formatLocalDateTime } from "../lib/datetime";
 import { teamLogoUrl } from "../lib/teamLogos";
 import { useMyPicks, type PicksBySlot } from "./useMyPicks";
 
@@ -81,20 +82,6 @@ const WINDOW_BANNER: Record<Exclude<WindowState, "open">, string> = {
   locked: "Picks are locked — games are underway.",
   closed: "This week is final.",
 };
-
-/** Format an ISO kickoff like ContextBar.friendlyTime; tolerate null/invalid. */
-function friendlyKickoff(iso: string | null): string {
-  if (!iso) return "Time TBD";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "Time TBD";
-  return d.toLocaleString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
 
 /** Resolve a team_id on a game to its abbreviation (or "—" if unknown). */
 function abbrevFor(game: SlateGame, teamId: number | null): string {
@@ -636,7 +623,7 @@ function GameCard({
             <span>{game.home_team.display_name}</span>
           </div>
           <div className="mt-0.5 text-xs text-gray-500">
-            {friendlyKickoff(game.kickoff_at)} · {lineSummary(game)}
+            {formatLocalDateTime(game.kickoff_at)} · {lineSummary(game)}
           </div>
         </div>
         {game.locked && (

@@ -27,6 +27,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { CalendarGame, CalendarResponse } from "../lib/calendar";
 import { getCalendar } from "../lib/calendar";
+import { formatLocalDateTime } from "../lib/datetime";
 
 const ET_TIME_ZONE = "America/New_York";
 
@@ -103,16 +104,6 @@ function etDayKey(kickoffIso: string): string {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(d);
-}
-
-/** The ET clock time (e.g. "8:20 PM") for a UTC kickoff ISO string. */
-function etTime(kickoffIso: string): string {
-  const d = new Date(kickoffIso);
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone: ET_TIME_ZONE,
-    hour: "numeric",
-    minute: "2-digit",
   }).format(d);
 }
 
@@ -301,7 +292,7 @@ export default function CalendarPage() {
                             </div>
                             {g.kickoff_at && (
                               <div className="text-gray-500">
-                                {etTime(g.kickoff_at)} ET
+                                {formatLocalDateTime(g.kickoff_at)}
                               </div>
                             )}
                           </>

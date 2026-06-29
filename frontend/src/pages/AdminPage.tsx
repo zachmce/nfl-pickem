@@ -36,6 +36,7 @@ import {
   type IngestSeasonDispatch,
 } from "../lib/admin";
 import { getCurrentWeek } from "../lib/currentWeek";
+import { formatLocalDateTime } from "../lib/datetime";
 import {
   errorKey,
   slotKey,
@@ -789,20 +790,6 @@ function UserRow({
 // integrity is enforced server-side and surfaces as inline 4xx.
 // --------------------------------------------------------------------------- //
 
-/** Format an ISO kickoff (mirrors MyPicksPage.friendlyKickoff); tolerate null/invalid. */
-function friendlyKickoff(iso: string | null): string {
-  if (!iso) return "Time TBD";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "Time TBD";
-  return d.toLocaleString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
 /** Resolve a team_id on a game to its abbreviation (or "—" if unknown). */
 function abbrevFor(game: SlateGame, teamId: number | null): string {
   if (teamId === null) return "—";
@@ -1306,7 +1293,7 @@ function OverrideGameCard({
             {game.away_team.display_name} @ {game.home_team.display_name}
           </div>
           <div className="mt-0.5 text-xs text-gray-500">
-            {friendlyKickoff(game.kickoff_at)} · {lineSummary(game)}
+            {formatLocalDateTime(game.kickoff_at)} · {lineSummary(game)}
           </div>
         </div>
         {game.locked && (
