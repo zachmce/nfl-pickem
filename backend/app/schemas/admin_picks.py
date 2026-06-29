@@ -15,9 +15,10 @@ either: the admin comes from the verified session, the target from the path
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import PickResult, PickType
+from app.schemas.picks import MISC_POINTS_MAX, MISC_POINTS_MIN, MISC_TEXT_MAX
 
 
 class AdminPickSetRequest(BaseModel):
@@ -35,7 +36,9 @@ class AdminPickSetRequest(BaseModel):
     # pick (so an admin can author the MISC text for a user who missed it). NULL
     # for every other pick type. Validation of "MISC requires text" is the
     # user-facing concern; the retroactive admin path mirrors the column only.
-    misc_text: str | None = None
+    # Capped at the VARCHAR(280) column width so overlong text is a 422, not a
+    # DB error.
+    misc_text: str | None = Field(default=None, max_length=MISC_TEXT_MAX)
 
 
 class AdminMiscGradeRequest(BaseModel):
@@ -53,4 +56,8 @@ class AdminMiscGradeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     result: PickResult
-    points: int
+    # Anti-abuse bound, NOT a scoring rule: scoring intentionally does not clamp
+    # MISC points (any admin-set int is a legitimate grade), so this symmetric
+    # range is chosen generously enough to cover every real grade while rejecting
+    # absurd/abusive values as a 422 before the DB write.
+    points: int = Field(ge=MISC_POINTS_MIN, le=MISC_POINTS_MAX)

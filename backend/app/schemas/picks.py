@@ -13,6 +13,23 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import Pick, PickResult, PickType
 
+# Anti-abuse request bounds (T-nus-03) — reject overlong / oversized input as a
+# 422 at validation, before any DB write, instead of a Postgres 500.
+#
+# MISC_TEXT_MAX mirrors the VARCHAR(280) Pick.misc_text column. PICKS_BATCH_MAX is
+# a generous-but-finite cap: a real week has only a single-digit number of pick
+# slots (the base types + one mortal lock + MISC), so 64 comfortably exceeds any
+# legitimate submission yet rejects an abusive 10k-item batch. MISC_POINTS_* is an
+# anti-abuse guard on the admin MISC grade — scoring intentionally does NOT clamp
+# MISC points (any admin-set int is a legitimate grade), so this range is chosen
+# generously enough to cover every real grade while rejecting absurd values; it is
+# NOT a scoring rule. These live here so the schemas and their tests share one
+# source of truth.
+MISC_TEXT_MAX = 280
+PICKS_BATCH_MAX = 64
+MISC_POINTS_MIN = -100
+MISC_POINTS_MAX = 100
+
 
 class PickItem(BaseModel):
     """A single incoming pick on one game.
@@ -27,8 +44,9 @@ class PickItem(BaseModel):
     pick_type: PickType
     is_mortal_lock: bool = False
     # Free-text prediction — REQUIRED for a MISC pick, rejected for any other type
-    # (enforced in ``app.services.pick_submission.submit_picks``).
-    misc_text: str | None = None
+    # (enforced in ``app.services.pick_submission.submit_picks``). Capped at the
+    # VARCHAR(280) column width so overlong text is a 422, not a DB error.
+    misc_text: str | None = Field(default=None, max_length=MISC_TEXT_MAX)
 
 
 class PickSubmitRequest(BaseModel):
@@ -38,8 +56,11 @@ class PickSubmitRequest(BaseModel):
 
     season: int
     week: int
-    # Non-empty: at least one pick item. A single pick is a list of length 1.
-    picks: list[PickItem] = Field(min_length=1)
+    # Non-empty: at least one pick item. A single pick is a list of length 1. The
+    # max_length cap is an anti-abuse bound — a real week has only a single-digit
+    # number of slots, so PICKS_BATCH_MAX (64) comfortably exceeds any legitimate
+    # submission while rejecting an abusive oversized batch as a 422.
+    picks: list[PickItem] = Field(min_length=1, max_length=PICKS_BATCH_MAX)
 
 
 class PickRead(BaseModel):
