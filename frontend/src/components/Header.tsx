@@ -29,8 +29,8 @@ const NAV_ITEMS: NavItem[] = [
 
 function navLinkClass({ isActive }: { isActive: boolean }): string {
   return isActive
-    ? "font-semibold text-blue-700"
-    : "text-gray-600 hover:text-blue-700";
+    ? "font-semibold text-accent"
+    : "text-fg-muted hover:text-accent";
 }
 
 export default function Header() {
@@ -71,13 +71,13 @@ export default function Header() {
   const userMenu = (
     <div className="flex items-center gap-3">
       {user && (
-        <span className="text-sm text-gray-700">{user.display_name}</span>
+        <span className="text-sm text-fg-muted">{user.display_name}</span>
       )}
       <ThemeSwitcher />
       <button
         type="button"
         onClick={handleLogout}
-        className="rounded border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50"
+        className="rounded border border-border bg-surface px-3 py-1 text-sm font-medium text-fg-muted hover:bg-surface-raised"
       >
         Sign out
       </button>
@@ -85,10 +85,10 @@ export default function Header() {
   );
 
   return (
-    <header className="border-b border-gray-200 bg-white">
+    <header className="border-b border-border bg-surface">
       <div className="mx-auto flex w-full max-w-5xl xl:max-w-7xl 2xl:max-w-[1700px] items-center justify-between px-4 sm:px-6 lg:px-8 py-3">
         {/* Brand */}
-        <NavLink to="/" end className="text-lg font-bold text-gray-900">
+        <NavLink to="/" end className="text-lg font-bold text-fg">
           🏈 NFL Pick'em
         </NavLink>
 
@@ -106,7 +106,7 @@ export default function Header() {
             aria-label="Toggle navigation menu"
             aria-expanded={open}
             onClick={() => setOpen((v) => !v)}
-            className="rounded border border-gray-300 px-2 py-1 text-gray-700 md:hidden"
+            className="rounded border border-border px-2 py-1 text-fg-muted md:hidden"
           >
             ☰
           </button>
@@ -115,9 +115,9 @@ export default function Header() {
 
       {/* Mobile collapsed menu (below md) */}
       {open && (
-        <div className="border-t border-gray-200 px-4 py-3 md:hidden">
+        <div className="border-t border-border px-4 py-3 md:hidden">
           <nav className="flex flex-col gap-3 text-sm">{navLinks}</nav>
-          <div className="mt-3 border-t border-gray-200 pt-3">{userMenu}</div>
+          <div className="mt-3 border-t border-border pt-3">{userMenu}</div>
         </div>
       )}
     </header>

@@ -12,7 +12,7 @@ import Header from "./Header";
 
 export default function AppShell() {
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-surface">
       <DemoBanner />
       <Header />
       <ContextBar />

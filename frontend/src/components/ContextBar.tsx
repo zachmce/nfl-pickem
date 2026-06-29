@@ -68,7 +68,7 @@ export function WeekChip() {
   }
 
   return (
-    <span className="rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700">
+    <span className="rounded-full bg-accent-bg px-2.5 py-0.5 text-xs font-medium text-accent">
       {text}
     </span>
   );
@@ -92,7 +92,7 @@ export default function ContextBar() {
   }
 
   return (
-    <div className="border-b border-gray-200 bg-gray-50 px-4 py-1.5 text-center text-xs text-gray-600">
+    <div className="border-b border-border bg-surface-raised px-4 py-1.5 text-center text-xs text-fg-muted">
       {content}
     </div>
   );
