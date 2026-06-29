@@ -178,6 +178,8 @@ class CurrentWeekTests(unittest.TestCase):
         self.assertEqual(body["week"], 1)
         self.assertEqual(body["window_state"], "open")
         self.assertEqual(_aware(datetime.fromisoformat(body["window_closes_at"])), first)
+        # A future SCHEDULED kickoff means the season is NOT over.
+        self.assertIs(body["season_complete"], False)
 
     def test_state_not_yet_open(self) -> None:
         """Chosen week's open boundary (prev week's last kickoff + duration) is
@@ -240,6 +242,8 @@ class CurrentWeekTests(unittest.TestCase):
         body = resp.json()
         self.assertEqual(body["week"], 1)
         self.assertEqual(body["window_state"], "closed")
+        # The single week is past + every game FINAL -> the season is complete.
+        self.assertIs(body["season_complete"], True)
 
     def test_current_week_selection_picks_earliest_open(self) -> None:
         """Week 1 fully closed/past, week 2 still future-open -> week 2 chosen."""
