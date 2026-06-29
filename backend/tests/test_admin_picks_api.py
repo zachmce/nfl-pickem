@@ -483,17 +483,20 @@ class AdminPicksApiTests(unittest.TestCase):
         self.assertIsNone(a.after_is_mortal_lock)
         self.assertFalse(a.game_was_final)
 
-    def test_audit_not_cascaded_on_user_delete(self) -> None:
-        """Audit rows are NOT cascaded away when a user is deleted.
+    def test_audit_cascaded_on_user_delete(self) -> None:
+        """Audit rows ARE cascaded away when a referenced user is deleted.
 
-        The two user FKs on ``pick_edit_audit`` carry NO ``ondelete`` (NO ACTION,
-        the OPPOSITE of ``pick.user_id``'s CASCADE), so the audit is a permanent
-        record. With SQLite FK enforcement ON (as in production Postgres), the DB
-        therefore REFUSES to delete a user still referenced by an audit row rather
-        than silently cascading the audit away — the audit always survives.
+        REVERSES the prior "audit is a permanent record / survives the user"
+        decision (per .planning/notes/admin-hardening-pre-stakeholder.md decision
+        6): both user FKs on ``pick_edit_audit`` now carry ``ON DELETE CASCADE``
+        (mirroring ``pick.user_id``). With SQLite FK enforcement ON (as in
+        production Postgres), deleting a user referenced by an audit row SUCCEEDS
+        (no FK violation) and removes that audit row — the audit no longer
+        survives the user.
 
-        Contrast with the target's OWN pick, which DOES cascade: we delete that
-        pick directly to prove the cascade path leaves the audit untouched.
+        Here the target user is the audit row's ``target_user_id`` (and the admin
+        is its ``admin_user_id``); deleting the target removes the audit via the
+        target FK cascade.
         """
         resp = self._put(
             self.target_id, season=SEASON, week=WEEK,
@@ -503,31 +506,40 @@ class AdminPicksApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(len(self._audits()), 1)
 
-        # Deleting a user referenced by an audit row is BLOCKED (NO ACTION FK) —
-        # the audit is never cascaded away.
-        from sqlalchemy.exc import IntegrityError
-
+        # Deleting the referenced target user SUCCEEDS (CASCADE FK) and removes
+        # the audit row — no IntegrityError.
         with self._session() as session:
             user = session.get(User, self.target_id)
             session.delete(user)
-            with self.assertRaises(IntegrityError):
-                session.commit()
-            session.rollback()
+            session.commit()  # must NOT raise a FK violation
 
-        # The audit row is intact, and the user still exists (delete refused).
-        self.assertEqual(len(self._audits()), 1)
+        # The audit row is gone, and the user is gone.
+        self.assertEqual(self._audits(), [], "audit row should cascade away")
         with self._session() as session:
-            self.assertIsNotNone(session.get(User, self.target_id))
+            self.assertIsNone(session.get(User, self.target_id))
 
-        # The target's OWN pick cascades cleanly without touching the audit.
-        with self._session() as session:
-            for p in session.exec(
-                select(Pick).where(Pick.user_id == self.target_id)
-            ).all():
-                session.delete(p)
-            session.commit()
-        self.assertEqual(self._picks_for(self.target_id, self.week_id), [])
+    def test_audit_cascaded_on_admin_user_delete(self) -> None:
+        """Deleting the ACTING ADMIN also cascades the audit row (admin FK).
+
+        Proves the cascade fires on BOTH user FKs: deleting the user who appears
+        as ``admin_user_id`` (not the target) still removes the audit row.
+        """
+        resp = self._put(
+            self.target_id, season=SEASON, week=WEEK,
+            body={"game_id": self.game_open_id, "pick_type": "FAVORITE_COVER"},
+            as_user=self.admin_id,
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(len(self._audits()), 1)
+
+        with self._session() as session:
+            admin = session.get(User, self.admin_id)
+            session.delete(admin)
+            session.commit()  # must NOT raise a FK violation
+
+        self.assertEqual(self._audits(), [], "audit row should cascade away")
+        with self._session() as session:
+            self.assertIsNone(session.get(User, self.admin_id))
 
     # -- missing target user -> clean 404 (not an FK 500) ------------------
 

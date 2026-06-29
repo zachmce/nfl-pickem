@@ -312,7 +312,7 @@ class Pick(SQLModel, table=True):
 
 
 class PickEditAudit(SQLModel, table=True):
-    """One permanent record of a single admin pick override.
+    """One record of a single admin pick override.
 
     The admin override path (:mod:`app.services.admin_picks`) writes one of these
     rows for every set/clear it performs, recording WHO (the acting admin) edited
@@ -320,10 +320,16 @@ class PickEditAudit(SQLModel, table=True):
     and whether the game was already FINAL at edit time. It is a Repudiation
     mitigation (T-m66-04): the audit answers "who changed whose pick".
 
-    CRITICAL (locked decision 6 — audit is a PERMANENT record): the two user FKs
-    deliberately carry NO ``ondelete`` cascade — this is the OPPOSITE of
-    :attr:`Pick.user_id` (which is ``ondelete="CASCADE"``). Deleting a user must
-    NOT delete the audit rows that reference them; the audit survives the user.
+    CASCADE (reverses the prior pick-edit-audit decision 6, per
+    ``.planning/notes/admin-hardening-pre-stakeholder.md`` decision 6): both user
+    FKs (``admin_user_id`` and ``target_user_id``) now carry ``ondelete="CASCADE"``,
+    MIRRORING :attr:`Pick.user_id`. Deleting a user therefore removes their audit
+    rows (whether they were the acting admin or the target) instead of raising a
+    Postgres FK violation when an admin hard-deletes a user. This intentionally
+    drops the audit's former "survive the user / permanent record" guarantee —
+    Zach explicitly accepted that a user delete also deletes their audit rows. The
+    audit's PURPOSE (who-changed-whose-pick repudiation mitigation) is unchanged;
+    only its permanence is. The Postgres-path companion is migration 0013.
 
     Reuses the EXISTING ``picktype`` Postgres enum for the before/after pick-type
     columns (no new enum type is introduced). Does NOT model the deferred
@@ -334,9 +340,17 @@ class PickEditAudit(SQLModel, table=True):
     __tablename__: ClassVar[str] = "pick_edit_audit"
 
     id: int | None = Field(default=None, primary_key=True)
-    # NO ondelete on either user FK — the audit must survive a user delete.
-    admin_user_id: int = Field(foreign_key="users.id", nullable=False)
-    target_user_id: int = Field(foreign_key="users.id", nullable=False)
+    # Both user FKs cascade on user delete (mirrors Pick.user_id) — deleting a
+    # user removes their audit rows. Reverses the prior no-ondelete "audit
+    # survives the user" decision (hardening note decision 6). No relationship is
+    # declared on this table, so the column-level ondelete is what drives the
+    # cascade (exactly as Pick.user_id does); no passive_deletes is needed.
+    admin_user_id: int = Field(
+        foreign_key="users.id", ondelete="CASCADE", nullable=False
+    )
+    target_user_id: int = Field(
+        foreign_key="users.id", ondelete="CASCADE", nullable=False
+    )
     game_id: int = Field(foreign_key="game.id", nullable=False)
     week_id: int = Field(foreign_key="week.id", nullable=False)
     # "set" | "clear" — the override action that produced this row.

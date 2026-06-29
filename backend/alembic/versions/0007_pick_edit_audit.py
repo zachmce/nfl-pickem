@@ -8,10 +8,16 @@ Hand-written (mirrors 0004/0005/0006's style) so the new ``pick_edit_audit``
 table is created deterministically and — critically — reuses the EXISTING
 ``picktype`` native enum (created by 0004) instead of trying to recreate it.
 
-The two user FKs (``admin_user_id`` / ``target_user_id``) deliberately carry NO
-``ondelete`` cascade: this is the OPPOSITE of ``pick.user_id`` (0006). The audit
-is a permanent record, so deleting a user must NOT delete the audit rows that
-reference them (locked decision 6 in .planning/notes/admin-pick-override-design.md).
+At THIS revision the two user FKs (``admin_user_id`` / ``target_user_id``)
+deliberately carried NO ``ondelete`` cascade (the OPPOSITE of ``pick.user_id``,
+0006), on the then-current "audit is a permanent record, survives the user"
+decision (locked decision 6 in .planning/notes/admin-pick-override-design.md).
+
+LINEAGE NOTE: that decision was later REVERSED. Migration ``0013`` drops and
+recreates BOTH user FK constraints WITH ``ON DELETE CASCADE`` (per
+.planning/notes/admin-hardening-pre-stakeholder.md decision 6) so deleting a user
+removes their audit rows. This 0007 migration's code is left unchanged (history is
+immutable); 0013 is the forward correction. See 0013 for the rationale.
 
 ``downgrade()`` drops only the table — it does NOT drop the shared ``picktype``
 enum, which predates this migration (0004 owns it).
@@ -66,8 +72,10 @@ def upgrade() -> None:
         sa.Column("game_was_final", sa.Boolean(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id"),
-        # User FKs: NO ondelete — the audit survives a user delete (opposite of
-        # pick.user_id's ON DELETE CASCADE).
+        # User FKs: NO ondelete at THIS revision. Migration 0013 later reverses
+        # this and recreates both WITH ON DELETE CASCADE (matching pick.user_id),
+        # so deleting a user removes their audit rows. Left unchanged here —
+        # history is immutable; 0013 is the forward correction.
         sa.ForeignKeyConstraint(
             ["admin_user_id"], ["users.id"],
             name="fk_pick_edit_audit_admin_user_id_users",
