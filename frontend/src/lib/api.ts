@@ -11,7 +11,8 @@
 /** A user as returned by the backend (mirrors backend/app/schemas/auth.py UserRead). */
 export interface UserRead {
   id: number;
-  discord_id: number | null;
+  /** Discord snowflake id as a STRING (a 64-bit id loses precision as a JSON number). */
+  discord_id: string | null;
   /** Discord avatar hash; null means no custom avatar (fall back to initials). No URL built here. */
   discord_avatar_hash: string | null;
   display_name: string;

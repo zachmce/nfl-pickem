@@ -49,11 +49,12 @@ export interface UserWeekResult {
   weekly_score: number;
   picks: WeekResultPickRead[];
   /**
-   * Discord snowflake id for this user (mirrors the backend UserWeekResult
-   * additions). Null when the user has no Discord identity; paired with
+   * Discord snowflake id for this user as a STRING (mirrors the backend
+   * UserWeekResult additions; a 64-bit id loses precision as a JSON number).
+   * Null when the user has no Discord identity; paired with
    * `discord_avatar_hash` to build the avatar CDN URL (else initials fallback).
    */
-  discord_id: number | null;
+  discord_id: string | null;
   /**
    * Discord avatar hash (mirrors the backend UserWeekResult addition). Null when
    * the user has no custom avatar; the `<Avatar>` component falls back to
@@ -97,11 +98,12 @@ export interface SeasonStandingRow {
   season_total: number;
   weekly_scores: Record<string, number>;
   /**
-   * Discord snowflake id for this user (mirrors the backend SeasonStandingRow
-   * additions). Null when the user has no Discord identity; paired with
+   * Discord snowflake id for this user as a STRING (mirrors the backend
+   * SeasonStandingRow additions; a 64-bit id loses precision as a JSON number).
+   * Null when the user has no Discord identity; paired with
    * `discord_avatar_hash` to build the avatar CDN URL (else initials fallback).
    */
-  discord_id: number | null;
+  discord_id: string | null;
   /**
    * Discord avatar hash (mirrors the backend SeasonStandingRow addition). Null
    * when the user has no custom avatar; the `<Avatar>` component falls back to

@@ -13,8 +13,12 @@
 import { useState } from "react";
 
 export interface AvatarProps {
-  /** Discord snowflake id; null for web-origin / non-Discord accounts. */
-  discordId: number | null;
+  /**
+   * Discord snowflake id as a STRING (a 64-bit id loses precision as a JSON
+   * number, corrupting the CDN URL); null for web-origin / non-Discord accounts.
+   * Only ever interpolated into the CDN URL or null-checked — never arithmetic.
+   */
+  discordId: string | null;
   /** Discord avatar hash; null when the user has no custom avatar. */
   avatarHash: string | null;
   /** Display name — source of the initials fallback and the accessible label. */

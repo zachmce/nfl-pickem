@@ -26,7 +26,9 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models import User
+from app.schemas.admin import AdminUserRead
 from app.schemas.auth import UserRead
+from app.schemas.results import SeasonStandingRow, UserWeekResult
 from app.services.auth import provision_user, upsert_avatar_hash_by_discord_id
 
 
@@ -254,6 +256,92 @@ class ProvisionAndUpsertAvatarTests(unittest.TestCase):
         with self._session() as session:
             changed = upsert_avatar_hash_by_discord_id(session, 999999, "orphan")
             self.assertFalse(changed)
+
+
+class DiscordIdSnowflakePrecisionTests(unittest.TestCase):
+    """Snowflake ids serialize to an EXACT string via the JSON path (260629-kor).
+
+    Discord snowflakes (e.g. 302924379799683073) exceed JS Number.MAX_SAFE_INTEGER
+    (2**53). If emitted as a JSON number, the browser's JSON.parse rounds them to
+    the nearest double — ...683073 -> ...683100 — corrupting the avatar CDN URL.
+    Every schema that exposes discord_id MUST emit it as a string. These pin that
+    via model_dump(mode="json") (the path FastAPI uses) for a value LARGER than
+    2**53, asserting the exact string and that no precision is lost.
+    """
+
+    # A real Discord snowflake, comfortably above 2**53 (9007199254740992).
+    SNOWFLAKE = 302924379799683073
+    SNOWFLAKE_STR = "302924379799683073"
+
+    def test_snowflake_exceeds_js_safe_integer(self) -> None:
+        # Guard the premise: the fixture id is genuinely unsafe as a JS number.
+        self.assertGreater(self.SNOWFLAKE, 2**53)
+
+    def test_user_read_serializes_snowflake_to_exact_string(self) -> None:
+        read = UserRead(
+            id=1,
+            discord_id=self.SNOWFLAKE,
+            discord_avatar_hash="deadbeef",
+            display_name="snowflake_user",
+            is_admin=False,
+            is_active=True,
+        )
+        dumped = read.model_dump(mode="json")
+        self.assertEqual(dumped["discord_id"], self.SNOWFLAKE_STR)
+        self.assertIsInstance(dumped["discord_id"], str)
+
+    def test_admin_user_read_serializes_snowflake_to_exact_string(self) -> None:
+        from datetime import datetime, timezone
+
+        read = AdminUserRead(
+            id=1,
+            display_name="snowflake_admin",
+            discord_id=self.SNOWFLAKE,
+            discord_avatar_hash="deadbeef",
+            is_admin=True,
+            is_active=True,
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            pick_count=0,
+        )
+        dumped = read.model_dump(mode="json")
+        self.assertEqual(dumped["discord_id"], self.SNOWFLAKE_STR)
+        self.assertIsInstance(dumped["discord_id"], str)
+
+    def test_user_week_result_serializes_snowflake_to_exact_string(self) -> None:
+        result = UserWeekResult(
+            display_name="snowflake_user",
+            weekly_score=0,
+            picks=[],
+            discord_id=self.SNOWFLAKE,
+            discord_avatar_hash="deadbeef",
+        )
+        dumped = result.model_dump(mode="json")
+        self.assertEqual(dumped["discord_id"], self.SNOWFLAKE_STR)
+        self.assertIsInstance(dumped["discord_id"], str)
+
+    def test_season_standing_row_serializes_snowflake_to_exact_string(self) -> None:
+        row = SeasonStandingRow(
+            display_name="snowflake_user",
+            season_total=0,
+            weekly_scores={},
+            discord_id=self.SNOWFLAKE,
+            discord_avatar_hash="deadbeef",
+        )
+        dumped = row.model_dump(mode="json")
+        self.assertEqual(dumped["discord_id"], self.SNOWFLAKE_STR)
+        self.assertIsInstance(dumped["discord_id"], str)
+
+    def test_none_discord_id_serializes_to_null(self) -> None:
+        # The web-bootstrap admin / web-origin accounts carry no snowflake.
+        read = UserRead(
+            id=1,
+            discord_id=None,
+            discord_avatar_hash=None,
+            display_name="web_admin",
+            is_admin=True,
+            is_active=True,
+        )
+        self.assertIsNone(read.model_dump(mode="json")["discord_id"])
 
 
 if __name__ == "__main__":

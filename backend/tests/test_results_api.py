@@ -687,7 +687,8 @@ class ResultsTests(unittest.TestCase):
             self.assertIn(p["outcome"], {o.value for o in GradeOutcome})
             self.assertNotEqual(p["outcome"], GradeOutcome.UNGRADEABLE.value)
         # Avatar identity threads through per-row: alice has a hash, bob null.
-        self.assertEqual(alice["discord_id"], 4242)
+        # discord_id is serialized as a STRING on the wire (snowflake precision).
+        self.assertEqual(alice["discord_id"], "4242")
         self.assertEqual(alice["discord_avatar_hash"], "abc123hash")
         bob = next(r for r in results if r["display_name"] == "bob")
         self.assertIsNone(bob["discord_id"])
@@ -743,8 +744,9 @@ class ResultsTests(unittest.TestCase):
         # weekly_scores is keyed by week number (JSON stringifies int keys).
         self.assertEqual(rows[0]["weekly_scores"], {str(WEEK): 3})
         # Avatar identity threads through per-row: alice has a hash, the others
-        # (no Discord identity) report null for both avatar fields.
-        self.assertEqual(rows[0]["discord_id"], 9001)
+        # (no Discord identity) report null for both avatar fields. discord_id is
+        # serialized as a STRING on the wire (snowflake precision).
+        self.assertEqual(rows[0]["discord_id"], "9001")
         self.assertEqual(rows[0]["discord_avatar_hash"], "deadbeefhash")
         for other in rows[1:]:
             self.assertIsNone(other["discord_id"])

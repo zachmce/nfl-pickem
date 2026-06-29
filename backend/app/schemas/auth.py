@@ -2,10 +2,12 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.types import DiscordId
+
 
 class UserRead(BaseModel):
     id: int
-    discord_id: int | None  # NULL for the web-bootstrap admin
+    discord_id: DiscordId  # NULL for the web-bootstrap admin; emitted as a string
     # The Discord avatar hash; None means no custom avatar — downstream falls back
     # to display_name initials (no URL is constructed here).
     discord_avatar_hash: str | None

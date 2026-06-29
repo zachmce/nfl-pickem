@@ -24,12 +24,13 @@ import type { PickRead, PickResult, PickType } from "./picks";
 /**
  * One user as seen by an admin (mirrors backend AdminUserRead field-for-field).
  * `created_at` is an ISO datetime serialized as a string on the wire;
- * `discord_id` is null for web-origin accounts (non-null => Discord origin).
+ * `discord_id` is a STRING snowflake (a 64-bit id loses precision as a JSON
+ * number) or null for web-origin accounts (non-null => Discord origin).
  */
 export interface AdminUser {
   id: number;
   display_name: string;
-  discord_id: number | null;
+  discord_id: string | null;
   /**
    * Discord avatar hash (mirrors backend AdminUserRead). Null for web-origin /
    * seeded accounts or Discord users without a custom avatar; the `<Avatar>`

@@ -17,6 +17,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
+from app.schemas.types import DiscordId
 from app.services.admin import AdminUserRow
 
 
@@ -32,7 +33,7 @@ class AdminUserRead(BaseModel):
 
     id: int
     display_name: str
-    discord_id: int | None
+    discord_id: DiscordId
     # Discord avatar hash (mirrors AdminUserRow). None for web-origin / seeded
     # accounts or Discord users without a custom avatar; the admin table builds
     # the CDN avatar URL from this and falls back to initials.

@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.demo.oracle import Standings
 from app.models import PickType
+from app.schemas.types import DiscordId
 from app.services.standings import UserIdentity
 from app.services.standings import UserWeekResult as UserWeekResultService
 from app.services.standings import WeekResultPick
@@ -63,7 +64,7 @@ class UserWeekResult(BaseModel):
     # Avatar identity (mirrors the service UserWeekResult). Both None when the
     # user has no Discord avatar; the frontend builds the CDN URL from these and
     # falls back to initials otherwise. user_id stays deliberately absent.
-    discord_id: int | None = None
+    discord_id: DiscordId = None
     discord_avatar_hash: str | None = None
 
     @classmethod
@@ -113,7 +114,7 @@ class SeasonStandingRow(BaseModel):
     # Avatar identity, joined by the unique display_name from the standings
     # service's identity map. Both None when the user has no Discord avatar; the
     # frontend builds the CDN URL from these and falls back to initials.
-    discord_id: int | None = None
+    discord_id: DiscordId = None
     discord_avatar_hash: str | None = None
 
 
