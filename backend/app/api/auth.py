@@ -14,8 +14,15 @@ from app.csrf import CSRF_COOKIE_NAME, issue_csrf_token, set_csrf_cookie
 from app.db import get_session
 from app.exceptions import InvalidCredentialsError
 from app.models import User
-from app.schemas.auth import LogoutResponse, TokenResponse, UserLoginRequest, UserRead
-from app.services.auth import create_session_cookie, login_user
+from app.schemas.auth import (
+    ChangePasswordRequest,
+    ChangePasswordResponse,
+    LogoutResponse,
+    TokenResponse,
+    UserLoginRequest,
+    UserRead,
+)
+from app.services.auth import change_password, create_session_cookie, login_user
 from app.services.notifications import login_event, publish_event
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -29,6 +36,7 @@ def _to_user_read(user: User) -> UserRead:
         display_name=user.display_name,
         is_admin=user.is_admin,
         is_active=user.is_active,
+        created_at=user.created_at,
     )
 
 
@@ -123,3 +131,28 @@ def logout(response: Response) -> LogoutResponse:
 def me(user: User = Depends(get_current_user)) -> UserRead:
     """Return the currently authenticated user (used by the SPA to bootstrap auth state)."""
     return _to_user_read(user)
+
+
+@router.post("/change-password", response_model=ChangePasswordResponse)
+def change_password_route(
+    payload: ChangePasswordRequest,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> ChangePasswordResponse:
+    """Self-serve password change for the logged-in user.
+
+    Auth is required via get_current_user (same dependency as /me) — an
+    unauthenticated request is a 401 (unauthorized). The route is NOT in
+    app.csrf._EXEMPT_PATHS, so a cookie-authenticated POST without the
+    double-submit CSRF pair is rejected 403 (csrf_failed) by the middleware
+    before this handler runs.
+
+    The current password is re-verified inside change_password(); a wrong
+    current password raises InvalidCredentialsError (401, invalid_credentials)
+    — we do NOT wrap it, so the global handler envelopes it (never a 500). A
+    new_password shorter than 8 chars fails as a 422 in ChangePasswordRequest
+    before this handler runs.
+    """
+    assert user.id is not None  # persisted user always has an id
+    change_password(session, user.id, payload.current_password, payload.new_password)
+    return ChangePasswordResponse(message="password_changed")

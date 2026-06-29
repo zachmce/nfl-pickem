@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -14,6 +15,9 @@ class UserRead(BaseModel):
     display_name: str
     is_admin: bool
     is_active: bool
+    # Account join date — non-sensitive, always non-null on the User model. Lets
+    # the Profile page show "Joined …". NEVER add password_hash or any secret here.
+    created_at: datetime
 
 
 class UserLoginRequest(BaseModel):
