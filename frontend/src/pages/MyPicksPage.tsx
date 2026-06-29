@@ -418,7 +418,7 @@ function MiscPickCard({
   if (!editable) {
     return (
       <div className="rounded-lg border border-gray-200 bg-white p-4">
-        <h2 className="text-sm font-semibold text-gray-700">Misc prediction</h2>
+        <h2 className="text-sm font-semibold text-gray-700">Misc pick</h2>
         {miscPick ? (
           <div className="mt-2 space-y-1">
             <p className="text-sm text-gray-800">{miscPick.misc_text}</p>
@@ -426,7 +426,7 @@ function MiscPickCard({
           </div>
         ) : (
           <p className="mt-2 text-sm text-gray-400">
-            No misc prediction for this week.
+            No misc pick for this week.
           </p>
         )}
       </div>
@@ -436,11 +436,11 @@ function MiscPickCard({
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold text-gray-700">Misc prediction</h2>
+        <h2 className="text-sm font-semibold text-gray-700">Misc pick</h2>
         {miscPick && <MiscStateBadge pick={miscPick} />}
       </div>
       <p className="mt-0.5 text-xs text-gray-500">
-        One free-text prediction per week, tied to a game. An admin grades it after
+        One free-text pick per week, tied to a game. An admin grades it after
         the game.
       </p>
 
@@ -470,7 +470,7 @@ function MiscPickCard({
           </label>
 
           <label className="block text-xs font-medium text-gray-600">
-            Prediction
+            Pick
             <textarea
               value={text}
               disabled={savingMisc}
@@ -503,7 +503,7 @@ function MiscPickCard({
                 saveDisabled ? "cursor-not-allowed opacity-50" : "",
               ].join(" ")}
             >
-              {miscPick ? "Update prediction" : "Save prediction"}
+              {miscPick ? "Update pick" : "Save pick"}
             </button>
 
             {miscPick && (
@@ -517,7 +517,7 @@ function MiscPickCard({
                     is_mortal_lock: false,
                   })
                 }
-                title="Clear this prediction"
+                title="Clear this pick"
                 className={[
                   "rounded-md border px-2 py-1 text-xs font-medium transition-colors",
                   "border-red-300 bg-white text-red-600 hover:border-red-500",

@@ -105,7 +105,7 @@ function PickRow({
   // absent (server-redacted/omitted edge), fall back to a neutral label.
   const isMisc = pick.pick_type === "MISC";
   const primary = isMisc
-    ? (pick.misc_text ?? "Misc prediction")
+    ? (pick.misc_text ?? "Misc pick")
     : game
       ? sideLabel(pick.pick_type, game)
       : pick.pick_type;

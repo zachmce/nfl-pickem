@@ -24,7 +24,7 @@ export default function RulesPage() {
         <p className="text-sm text-gray-700">
           Each week you can make up to five main picks — one of each of the four
           bet types (favorite cover, underdog cover, over, under) plus a mortal
-          lock wildcard — and one misc prediction. Every pick is optional; there's
+          lock wildcard — and one misc pick. Every pick is optional; there's
           no minimum, so make as many or as few as you like.
         </p>
         <ul className="list-disc space-y-1 pl-5 text-sm text-gray-700">
@@ -53,7 +53,7 @@ export default function RulesPage() {
           </li>
           <li>
             <span className="font-semibold">Misc</span> — the genuinely different
-            one: a free-text prediction tied to a game (e.g. "Mahomes throws for
+            one: a free-text pick tied to a game (e.g. "Mahomes throws for
             350+ yards"), graded by an admin rather than automatically.
           </li>
         </ul>

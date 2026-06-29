@@ -1005,13 +1005,13 @@ function MiscOverridePanel({
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4">
-      <h3 className="text-sm font-semibold text-gray-700">Misc prediction</h3>
+      <h3 className="text-sm font-semibold text-gray-700">Misc pick</h3>
 
       {!miscPick ? (
         // -------- Retroactive create --------
         <div className="mt-3 space-y-2">
           <p className="text-xs text-gray-500">
-            This player has no misc prediction for this week. Create one
+            This player has no misc pick for this week. Create one
             retroactively (window/lock bypassed), then grade it.
           </p>
           {slate.length === 0 ? (
@@ -1079,7 +1079,7 @@ function MiscOverridePanel({
                       : "",
                   ].join(" ")}
                 >
-                  Add MISC pick
+                  Add Misc pick
                 </button>
                 {savingMisc && (
                   <span className="text-xs text-gray-400">Saving…</span>
