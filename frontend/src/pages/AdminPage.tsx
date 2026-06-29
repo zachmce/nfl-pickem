@@ -708,7 +708,15 @@ function UserRow({
   // Self-guards mirror the server: the current admin's own active-toggle,
   // admin-toggle, and delete are all disabled (cannot_act_on_self / last_admin).
   // A row mid-mutation disables its controls too (no double-submit).
+  //
+  // Protected-row disables mirror the server "protected" guard: the bootstrap
+  // break-glass admin can never be deactivated / demoted / deleted. Only the
+  // LOCKING direction is disabled — Reactivate / Grant admin stay allowed (the
+  // server does not guard those, they cannot strand the system).
   const controlsDisabled = isSelf || busy;
+  const protectedDeactivate = row.is_protected && row.is_active;
+  const protectedRevoke = row.is_protected && row.is_admin;
+  const protectedDelete = row.is_protected;
 
   return (
     <>
@@ -725,6 +733,11 @@ function UserRow({
               {isSelf && (
                 <span className="ml-2 text-xs font-normal text-fg-muted">
                   (you)
+                </span>
+              )}
+              {row.is_protected && (
+                <span className="ml-2 text-xs font-normal text-fg-muted">
+                  (protected)
                 </span>
               )}
             </span>
@@ -762,19 +775,19 @@ function UserRow({
             <RowButton
               label={row.is_active ? "Deactivate" : "Reactivate"}
               tone="neutral"
-              disabled={controlsDisabled}
+              disabled={controlsDisabled || protectedDeactivate}
               onClick={() => onToggleActive(row)}
             />
             <RowButton
               label={row.is_admin ? "Revoke admin" : "Grant admin"}
               tone="neutral"
-              disabled={controlsDisabled}
+              disabled={controlsDisabled || protectedRevoke}
               onClick={() => onToggleAdmin(row)}
             />
             <RowButton
               label="Delete"
               tone="danger"
-              disabled={controlsDisabled}
+              disabled={controlsDisabled || protectedDelete}
               onClick={() => onDelete(row)}
             />
           </div>

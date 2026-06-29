@@ -300,6 +300,7 @@ class DiscordIdSnowflakePrecisionTests(unittest.TestCase):
             discord_avatar_hash="deadbeef",
             is_admin=True,
             is_active=True,
+            is_protected=False,
             created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
             pick_count=0,
         )

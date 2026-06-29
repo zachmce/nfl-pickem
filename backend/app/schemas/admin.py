@@ -40,6 +40,11 @@ class AdminUserRead(BaseModel):
     discord_avatar_hash: str | None
     is_admin: bool
     is_active: bool
+    # The break-glass marker (the bootstrap admin). True only for the protected
+    # account whose Deactivate / Revoke admin / Delete controls the UI disables to
+    # mirror the server-side "protected" guard. extra="forbid" requires this field
+    # to be listed for the new AdminUserRow attribute to surface.
+    is_protected: bool
     created_at: datetime
     pick_count: int
 
@@ -53,6 +58,7 @@ class AdminUserRead(BaseModel):
             discord_avatar_hash=row.discord_avatar_hash,
             is_admin=row.is_admin,
             is_active=row.is_active,
+            is_protected=row.is_protected,
             created_at=row.created_at,
             pick_count=row.pick_count,
         )

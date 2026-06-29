@@ -39,6 +39,12 @@ export interface AdminUser {
   discord_avatar_hash: string | null;
   is_admin: boolean;
   is_active: boolean;
+  /**
+   * The bootstrap break-glass admin. When true, its Deactivate / Revoke admin /
+   * Delete controls are disabled in the UI to mirror the server-side "protected"
+   * guard (grant / reactivate stay allowed).
+   */
+  is_protected: boolean;
   created_at: string;
   pick_count: number;
 }
