@@ -49,6 +49,7 @@ from app.models import (
     PickEditAudit,
     PickResult,
     PickType,
+    User,
 )
 from app.services.pick_submission import (
     _load_week_games,
@@ -91,6 +92,15 @@ def admin_set_pick(
     """
     if now is None:
         now = datetime.now(timezone.utc)
+
+    # Guard a missing/typo'd target user up front: a non-existent target_user_id
+    # would otherwise become an FK IntegrityError 500 at commit (the pick/audit
+    # add references it). Raise a clean 404 BEFORE any session.add (T-nus-01).
+    if session.get(User, target_user_id) is None:
+        raise NotFoundError(
+            f"No user {target_user_id} to set a pick for.",
+            reason="user_not_found",
+        )
 
     week_row = _resolve_week(session, season, week)
     assert week_row.id is not None  # a persisted week always has an id
@@ -208,6 +218,15 @@ def admin_clear_pick(
     if now is None:
         now = datetime.now(timezone.utc)
 
+    # Guard a missing/typo'd target user up front: the audit row references it,
+    # so a non-existent target_user_id would be an FK IntegrityError 500 at
+    # commit. Raise a clean 404 BEFORE any session.add (T-nus-01).
+    if session.get(User, target_user_id) is None:
+        raise NotFoundError(
+            f"No user {target_user_id} to clear a pick for.",
+            reason="user_not_found",
+        )
+
     week_row = _resolve_week(session, season, week)
     assert week_row.id is not None  # a persisted week always has an id
 
@@ -288,6 +307,15 @@ def admin_grade_misc(
         raise ValidationError(
             "Grading a MISC pick must decide it (WIN or LOSS), not PENDING.",
             reason="misc_grade_must_decide",
+        )
+
+    # Guard a missing/typo'd target user up front: the audit row references it,
+    # so a non-existent target_user_id would be an FK IntegrityError 500 at
+    # commit. Raise a clean 404 BEFORE any session.add (T-nus-01).
+    if session.get(User, target_user_id) is None:
+        raise NotFoundError(
+            f"No user {target_user_id} to grade a MISC pick for.",
+            reason="user_not_found",
         )
 
     week_row = _resolve_week(session, season, week)

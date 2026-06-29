@@ -529,6 +529,46 @@ class AdminPicksApiTests(unittest.TestCase):
         self.assertEqual(self._picks_for(self.target_id, self.week_id), [])
         self.assertEqual(len(self._audits()), 1)
 
+    # -- missing target user -> clean 404 (not an FK 500) ------------------
+
+    def test_set_missing_user_404(self) -> None:
+        """PUT a pick for a non-existent target_user_id -> 404, no FK 500.
+
+        A typo'd / missing target user must be a clean ``user_not_found`` 404
+        BEFORE any pick/audit add, not an FK IntegrityError at commit. No audit
+        row is written.
+        """
+        resp = self._put(
+            999999, season=SEASON, week=WEEK,
+            body={"game_id": self.game_open_id, "pick_type": "FAVORITE_COVER"},
+            as_user=self.admin_id,
+        )
+        self.assertEqual(resp.status_code, 404, resp.text)
+        err = self._assert_envelope(resp.json())
+        self.assertEqual(err.get("reason"), "user_not_found")
+        self.assertEqual(self._audits(), [], "no audit row for a missing user")
+
+    def test_clear_missing_user_404(self) -> None:
+        """DELETE a slot for a non-existent target_user_id -> 404 (user_not_found)."""
+        resp = self._delete(
+            999999, season=SEASON, week=WEEK,
+            pick_type="FAVORITE_COVER", is_mortal_lock=False,
+            as_user=self.admin_id,
+        )
+        self.assertEqual(resp.status_code, 404, resp.text)
+        err = self._assert_envelope(resp.json())
+        self.assertEqual(err.get("reason"), "user_not_found")
+
+    def test_grade_missing_user_404(self) -> None:
+        """PUT misc-grade for a non-existent target_user_id -> 404 (user_not_found)."""
+        resp = self._grade(
+            999999, season=SEASON, week=WEEK,
+            body={"result": "WIN", "points": 3}, as_user=self.admin_id,
+        )
+        self.assertEqual(resp.status_code, 404, resp.text)
+        err = self._assert_envelope(resp.json())
+        self.assertEqual(err.get("reason"), "user_not_found")
+
     # -- read --------------------------------------------------------------
 
     def test_get_returns_target_user_picks(self) -> None:
