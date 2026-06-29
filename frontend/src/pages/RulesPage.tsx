@@ -48,7 +48,7 @@ export default function RulesPage() {
         <ul className="list-disc space-y-1 pl-5 text-sm text-gray-700">
           <li>
             <span className="font-semibold">Mortal Lock</span> — a fifth main pick,
-            a wildcard on any game and type of your choosing. A winning mortal lock
+            a wildcard on any game and type of your choosing. A winning Mortal Lock
             is worth more, but a losing one costs you (see Scoring).
           </li>
           <li>
@@ -63,12 +63,12 @@ export default function RulesPage() {
         <h2 className="text-lg font-bold">Roster rules</h2>
         <ul className="list-disc space-y-1 pl-5 text-sm text-gray-700">
           <li>At most one base pick of each of the four types per week.</li>
-          <li>The mortal lock is the only same-type duplicate allowed.</li>
+          <li>The Mortal Lock is the only same-type duplicate allowed.</li>
           <li>
             You can't pick both sides of the same line on the same game (Favorite
             cover AND Underdog cover, or Over AND Under).
           </li>
-          <li>A Misc is never a mortal lock.</li>
+          <li>A Misc is never a Mortal Lock.</li>
         </ul>
       </section>
 

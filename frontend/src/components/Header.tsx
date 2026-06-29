@@ -77,7 +77,7 @@ export default function Header() {
         onClick={handleLogout}
         className="rounded border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50"
       >
-        Logout
+        Sign out
       </button>
     </div>
   );

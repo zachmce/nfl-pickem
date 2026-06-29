@@ -775,7 +775,7 @@ function BetOption({
               is_mortal_lock: true,
             })
           }
-          title="Designate this as your mortal lock"
+          title="Designate this as your Mortal Lock"
           className={[
             "rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors",
             lockSelected
@@ -784,7 +784,7 @@ function BetOption({
             lockDisabled ? "cursor-not-allowed opacity-50" : "",
           ].join(" ")}
         >
-          {lockSelected ? "★ Mortal lock" : "☆ Mortal lock"}
+          {lockSelected ? "★ Mortal Lock" : "☆ Mortal Lock"}
         </button>
 
         {lockSelected && !frozen && (
@@ -798,7 +798,7 @@ function BetOption({
                 is_mortal_lock: true,
               })
             }
-            title="Remove your mortal lock"
+            title="Remove your Mortal Lock"
             className={[
               "rounded-md border px-2 py-1 text-xs font-medium transition-colors",
               "border-red-300 bg-white text-red-600 hover:border-red-500",
