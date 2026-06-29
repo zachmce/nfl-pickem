@@ -6,6 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field
 class UserRead(BaseModel):
     id: int
     discord_id: int | None  # NULL for the web-bootstrap admin
+    # The Discord avatar hash; None means no custom avatar — downstream falls back
+    # to display_name initials (no URL is constructed here).
+    discord_avatar_hash: str | None
     display_name: str
     is_admin: bool
     is_active: bool

@@ -25,6 +25,7 @@ def _to_user_read(user: User) -> UserRead:
     return UserRead(
         id=user.id,
         discord_id=user.discord_id,
+        discord_avatar_hash=user.discord_avatar_hash,
         display_name=user.display_name,
         is_admin=user.is_admin,
         is_active=user.is_active,

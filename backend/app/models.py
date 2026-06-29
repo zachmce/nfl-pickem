@@ -57,6 +57,13 @@ class User(SQLModel, table=True):
         description="The unique Discord User Snowflake ID (NULL for web-bootstrap admin)",
     )
     password_hash: str | None = None
+    # The Discord avatar hash (32-char hex, or prefixed ``a_`` for an animated
+    # avatar). None when the member has no custom avatar (default avatar) or for
+    # web-only / seeded-admin accounts. The site builds the CDN URL from this hash
+    # downstream; storing only the hash keeps this layer Discord-free of URLs.
+    discord_avatar_hash: str | None = Field(
+        default=None, sa_column=sa.Column(sa.String(64), nullable=True)
+    )
     display_name: str = Field(max_length=100, unique=True)
     is_admin: bool = Field(default=False)
     is_active: bool = Field(default=False)

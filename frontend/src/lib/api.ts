@@ -12,6 +12,8 @@
 export interface UserRead {
   id: number;
   discord_id: number | null;
+  /** Discord avatar hash; null means no custom avatar (fall back to initials). No URL built here. */
+  discord_avatar_hash: string | null;
   display_name: string;
   is_admin: boolean;
   is_active: boolean;
