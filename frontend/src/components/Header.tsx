@@ -10,6 +10,7 @@ import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/useAuth";
+import ThemeSwitcher from "../theme/ThemeSwitcher";
 import { WeekChip } from "./ContextBar";
 
 interface NavItem {
@@ -72,6 +73,7 @@ export default function Header() {
       {user && (
         <span className="text-sm text-gray-700">{user.display_name}</span>
       )}
+      <ThemeSwitcher />
       <button
         type="button"
         onClick={handleLogout}
