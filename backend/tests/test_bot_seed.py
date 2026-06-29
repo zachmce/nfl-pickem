@@ -43,7 +43,7 @@ class BotSeedTests(unittest.TestCase):
         return list(
             session.exec(
                 select(User).where(
-                    User.display_name.in_([name for name, _ in BOT_ACCOUNTS])
+                    User.display_name.in_([name for name, *_ in BOT_ACCOUNTS])
                 )
             ).all()
         )
@@ -59,19 +59,19 @@ class BotSeedTests(unittest.TestCase):
         self.assertGreaterEqual(len(BOT_ACCOUNTS), 4)
 
     def test_each_bot_is_clearly_labeled(self) -> None:
-        for display_name, _ in BOT_ACCOUNTS:
+        for display_name, *_ in BOT_ACCOUNTS:
             self.assertTrue(
                 display_name.startswith("bot_"),
                 f"{display_name!r} is not clearly a demo/bot account",
             )
         # Display names must be unique (the natural key the seeder owns).
-        names = [name for name, _ in BOT_ACCOUNTS]
+        names = [name for name, *_ in BOT_ACCOUNTS]
         self.assertEqual(len(names), len(set(names)))
 
     def test_credentials_verify_via_auth(self) -> None:
         with Session(self.engine) as session:
             seed_bots(session)
-            for display_name, plaintext in BOT_ACCOUNTS:
+            for display_name, plaintext, _discord_id in BOT_ACCOUNTS:
                 user = session.exec(
                     select(User).where(User.display_name == display_name)
                 ).one()
@@ -84,10 +84,18 @@ class BotSeedTests(unittest.TestCase):
     def test_bot_fields_are_canonical(self) -> None:
         with Session(self.engine) as session:
             seed_bots(session)
+            # Each bot carries its deterministic small-int discord_id (1..5) so
+            # the one-null-discord_id invariant leaves only the bootstrap admin
+            # null; bots are never protected.
+            expected_ids = {name: did for name, _pw, did in BOT_ACCOUNTS}
             for user in self._bots(session):
                 self.assertTrue(user.is_active)
                 self.assertFalse(user.is_admin)
-                self.assertIsNone(user.discord_id)
+                self.assertFalse(user.is_protected)
+                self.assertEqual(user.discord_id, expected_ids[user.display_name])
+            # All bot discord_ids are distinct.
+            ids = [u.discord_id for u in self._bots(session)]
+            self.assertEqual(len(ids), len(set(ids)))
 
     def test_seed_is_idempotent(self) -> None:
         with Session(self.engine) as session:

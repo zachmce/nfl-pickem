@@ -77,12 +77,19 @@ class AdminApiTests(unittest.TestCase):
         pw = hash_password("correct horse battery staple")
         with Session(self.engine) as session:
             # Two admins (so revoke/delete happy paths do NOT trip last-admin) and
-            # two plain members.
-            admin = User(display_name="admin", password_hash=pw, is_admin=True, is_active=True)
-            admin2 = User(display_name="admin2", password_hash=pw, is_admin=True, is_active=True)
+            # two plain members. Each carries a distinct discord_id: the
+            # one-null-discord_id invariant (260629-n59) caps NULL discord_ids at
+            # one, so these fixtures must NOT all leave discord_id null.
+            admin = User(
+                display_name="admin", password_hash=pw, is_admin=True,
+                is_active=True, discord_id=1001,
+            )
+            admin2 = User(
+                display_name="admin2", password_hash=pw, is_admin=True,
+                is_active=True, discord_id=1002,
+            )
             # member carries a Discord identity (avatar hash present) so the
-            # list response exposes a non-null discord_avatar_hash; everyone else
-            # leaves it null (web-origin / no custom avatar).
+            # list response exposes a non-null discord_avatar_hash.
             member = User(
                 display_name="member",
                 password_hash=pw,
@@ -91,7 +98,10 @@ class AdminApiTests(unittest.TestCase):
                 discord_id=7777,
                 discord_avatar_hash="memberavatarhash",
             )
-            member2 = User(display_name="member2", password_hash=pw, is_admin=False, is_active=True)
+            member2 = User(
+                display_name="member2", password_hash=pw, is_admin=False,
+                is_active=True, discord_id=1003,
+            )
             session.add_all([admin, admin2, member, member2])
             session.commit()
             for u in (admin, admin2, member, member2):
@@ -392,11 +402,18 @@ class AdminLastAdminGuardTests(unittest.TestCase):
         )
         SQLModel.metadata.create_all(self.engine)
         self.pw = hash_password("correct horse battery staple")
+        # Monotonic source of distinct non-null discord_ids: the one-null
+        # invariant (260629-n59) caps NULL discord_ids at one, so every fixture
+        # user gets a distinct id unless the caller passes one explicitly.
+        self._next_discord_id = 9000
 
     def tearDown(self) -> None:
         self.engine.dispose()
 
     def _add(self, **kwargs) -> int:
+        if "discord_id" not in kwargs:
+            self._next_discord_id += 1
+            kwargs["discord_id"] = self._next_discord_id
         with Session(self.engine) as session:
             u = User(password_hash=self.pw, **kwargs)
             session.add(u)

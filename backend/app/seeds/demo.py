@@ -53,7 +53,7 @@ from app.services.refresh import refresh_games
 
 # The bot display_names that participate in the demo (the keys shared by
 # BOT_ACCOUNTS and BOT_PICKS) — used by purge to scope the bot-User deletion.
-BOT_NAMES: frozenset[str] = frozenset(name for name, _pw in BOT_ACCOUNTS)
+BOT_NAMES: frozenset[str] = frozenset(name for name, *_ in BOT_ACCOUNTS)
 
 
 def _season(session: Session) -> int:

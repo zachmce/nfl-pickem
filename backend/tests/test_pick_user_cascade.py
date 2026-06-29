@@ -111,8 +111,10 @@ class PickUserCascadeTests(unittest.TestCase):
             self.game_id = game.id
 
             # --- Two users (password_hash None is valid per the model) -------
-            user_a = User(display_name="userA", is_active=True)
-            user_b = User(display_name="userB", is_active=True)
+            # Distinct discord_ids: the one-null-discord_id invariant (260629-n59)
+            # caps NULL discord_ids at one.
+            user_a = User(display_name="userA", is_active=True, discord_id=1)
+            user_b = User(display_name="userB", is_active=True, discord_id=2)
             session.add_all([user_a, user_b])
             session.commit()
             session.refresh(user_a)
@@ -160,7 +162,7 @@ class PickUserCascadeTests(unittest.TestCase):
     def test_delete_user_without_picks_still_deletes(self) -> None:
         """A pick-less user deletes cleanly, affecting nothing else."""
         with Session(self.engine) as session:
-            user_c = User(display_name="userC", is_active=True)
+            user_c = User(display_name="userC", is_active=True, discord_id=3)
             session.add(user_c)
             session.commit()
             session.refresh(user_c)

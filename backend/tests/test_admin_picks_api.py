@@ -88,9 +88,11 @@ class AdminPicksApiTests(unittest.TestCase):
         now = datetime.now(timezone.utc)
         pw = hash_password("correct horse battery staple")
         with Session(self.engine) as session:
-            admin = User(display_name="admin", password_hash=pw, is_admin=True, is_active=True)
-            member = User(display_name="member", password_hash=pw, is_admin=False, is_active=True)
-            target = User(display_name="target", password_hash=pw, is_admin=False, is_active=True)
+            # Distinct discord_ids: the one-null-discord_id invariant (260629-n59)
+            # caps NULL discord_ids at one.
+            admin = User(display_name="admin", password_hash=pw, is_admin=True, is_active=True, discord_id=1)
+            member = User(display_name="member", password_hash=pw, is_admin=False, is_active=True, discord_id=2)
+            target = User(display_name="target", password_hash=pw, is_admin=False, is_active=True, discord_id=3)
             session.add_all([admin, member, target])
             session.commit()
             for u in (admin, member, target):

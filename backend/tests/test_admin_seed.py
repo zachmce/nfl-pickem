@@ -62,6 +62,9 @@ class AdminSeedTests(unittest.TestCase):
             self.assertTrue(user.is_admin)
             self.assertTrue(user.is_active)
             self.assertIsNone(user.discord_id)
+            # The bootstrap admin is the break-glass account: protected so the web
+            # admin service can never delete / demote / deactivate it.
+            self.assertTrue(user.is_protected)
             self.assertIsNotNone(user.password_hash)
             # A real argon2 hash: verifies the right password, rejects a wrong one.
             self.assertTrue(verify_password(user.password_hash, "pw-secret-1"))

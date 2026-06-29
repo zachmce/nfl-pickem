@@ -67,8 +67,12 @@ def seed_admin(
       row's ``password_hash`` is left untouched.
 
     The created user is canonical: ``is_admin=True``, ``is_active=True``,
-    ``discord_id=None``, ``password_hash`` produced by
-    :func:`app.services.auth.hash_password` (argon2id).
+    ``discord_id=None``, ``is_protected=True`` (the break-glass marker so the web
+    admin service can never delete / demote / deactivate this account), and
+    ``password_hash`` produced by :func:`app.services.auth.hash_password`
+    (argon2id). NOTE: an existing bootstrap-admin row that predates the
+    ``is_protected`` column is handled by migration 0012's backfill, NOT here —
+    this seed never mutates an existing row (T-39u-01/02).
     """
     if username is None or password is None:
         # Lazy import keeps the module import side-effect-free (no Settings build
@@ -103,6 +107,7 @@ def seed_admin(
             is_admin=True,
             is_active=True,
             discord_id=None,
+            is_protected=True,
         )
     )
     session.commit()

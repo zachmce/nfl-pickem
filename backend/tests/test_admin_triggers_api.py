@@ -58,11 +58,15 @@ class AdminTriggersApiTests(unittest.TestCase):
 
         pw = hash_password("correct horse battery staple")
         with Session(self.engine) as session:
+            # Distinct discord_ids: the one-null-discord_id invariant (260629-n59)
+            # caps NULL discord_ids at one.
             admin = User(
-                display_name="admin", password_hash=pw, is_admin=True, is_active=True
+                display_name="admin", password_hash=pw, is_admin=True, is_active=True,
+                discord_id=1,
             )
             member = User(
-                display_name="member", password_hash=pw, is_admin=False, is_active=True
+                display_name="member", password_hash=pw, is_admin=False, is_active=True,
+                discord_id=2,
             )
             session.add_all([admin, member])
             session.commit()

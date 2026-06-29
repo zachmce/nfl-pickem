@@ -146,7 +146,7 @@ class DemoDriverTests(unittest.TestCase):
             names = {
                 u.display_name for u in session.exec(select(User)).all()
             }
-            for display_name, _pw in BOT_ACCOUNTS:
+            for display_name, *_ in BOT_ACCOUNTS:
                 self.assertIn(display_name, names)
 
     def test_source_factory_is_injectable(self) -> None:

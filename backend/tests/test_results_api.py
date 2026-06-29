@@ -151,9 +151,12 @@ class ResultsTests(unittest.TestCase):
 
             # --- Users -------------------------------------------------------
             pw = hash_password("correct horse battery staple")
-            user_a = User(display_name="alice", password_hash=pw, is_active=True)
-            user_b = User(display_name="bob", password_hash=pw, is_active=True)
-            user_c = User(display_name="carol", password_hash=pw, is_active=True)
+            # Distinct discord_ids: the one-null-discord_id invariant (260629-n59)
+            # caps NULL discord_ids at one, so multi-user fixtures must not all
+            # leave discord_id null.
+            user_a = User(display_name="alice", password_hash=pw, is_active=True, discord_id=1)
+            user_b = User(display_name="bob", password_hash=pw, is_active=True, discord_id=2)
+            user_c = User(display_name="carol", password_hash=pw, is_active=True, discord_id=3)
             session.add_all([user_a, user_b, user_c])
             session.commit()
             session.refresh(user_a)
@@ -334,8 +337,13 @@ class ResultsTests(unittest.TestCase):
         # The identity map is keyed by the unique display_name and carries the
         # avatar-identity fields for every standing row.
         self.assertEqual(set(identities), {"alice", "bob", "carol"})
+        # The fixture users carry distinct discord_ids (the one-null invariant,
+        # 260629-n59) but no avatar hash — the identity map surfaces both. What
+        # matters for this row's rendering is the absent avatar_hash (initials
+        # fallback); the ids are the fixture's deterministic 1/2/3.
+        expected_ids = {"alice": 1, "bob": 2, "carol": 3}
         for name in ("alice", "bob", "carol"):
-            self.assertIsNone(identities[name].discord_id)
+            self.assertEqual(identities[name].discord_id, expected_ids[name])
             self.assertIsNone(identities[name].discord_avatar_hash)
 
     def test_season_standings_excludes_users_with_no_picks(self) -> None:
@@ -691,7 +699,10 @@ class ResultsTests(unittest.TestCase):
         self.assertEqual(alice["discord_id"], "4242")
         self.assertEqual(alice["discord_avatar_hash"], "abc123hash")
         bob = next(r for r in results if r["display_name"] == "bob")
-        self.assertIsNone(bob["discord_id"])
+        # bob keeps the fixture's deterministic discord_id (2 -> "2" on the wire,
+        # snowflake-as-string) but has NO avatar hash — the per-row avatar still
+        # falls back to initials.
+        self.assertEqual(bob["discord_id"], "2")
         self.assertIsNone(bob["discord_avatar_hash"])
 
     def test_standings_http_ordering_with_tiebreak(self) -> None:
@@ -743,13 +754,18 @@ class ResultsTests(unittest.TestCase):
         self.assertNotIn("user_id", rows[0])
         # weekly_scores is keyed by week number (JSON stringifies int keys).
         self.assertEqual(rows[0]["weekly_scores"], {str(WEEK): 3})
-        # Avatar identity threads through per-row: alice has a hash, the others
-        # (no Discord identity) report null for both avatar fields. discord_id is
-        # serialized as a STRING on the wire (snowflake precision).
+        # Avatar identity threads through per-row: alice has a custom hash; the
+        # others carry the fixture's deterministic discord_ids (the one-null
+        # invariant, 260629-n59) but NO avatar hash, so they fall back to
+        # initials. discord_id is serialized as a STRING on the wire (snowflake
+        # precision).
         self.assertEqual(rows[0]["discord_id"], "9001")
         self.assertEqual(rows[0]["discord_avatar_hash"], "deadbeefhash")
+        expected_other_ids = {"bob": "2", "carol": "3"}
         for other in rows[1:]:
-            self.assertIsNone(other["discord_id"])
+            self.assertEqual(
+                other["discord_id"], expected_other_ids[other["display_name"]]
+            )
             self.assertIsNone(other["discord_avatar_hash"])
 
 

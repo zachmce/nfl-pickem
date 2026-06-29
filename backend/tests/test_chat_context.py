@@ -140,8 +140,10 @@ class ChatContextTests(unittest.TestCase):
             self.game_total_id = game_total.id
 
             pw = hash_password("correct horse battery staple")
-            user_a = User(display_name="alice", password_hash=pw, is_active=True)
-            user_b = User(display_name="bob", password_hash=pw, is_active=True)
+            # Distinct discord_ids: the one-null-discord_id invariant (260629-n59)
+            # caps NULL discord_ids at one.
+            user_a = User(display_name="alice", password_hash=pw, is_active=True, discord_id=1)
+            user_b = User(display_name="bob", password_hash=pw, is_active=True, discord_id=2)
             session.add_all([user_a, user_b])
             session.commit()
             session.refresh(user_a)

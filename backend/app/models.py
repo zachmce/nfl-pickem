@@ -49,6 +49,30 @@ class PickResult(str, Enum):
 class User(SQLModel, table=True):
     __tablename__: ClassVar[str] = "users"
 
+    # The plain ``unique=True`` on the ``discord_id`` Column keeps every NON-null
+    # discord_id distinct, but SQL UNIQUE treats NULLs as distinct so it does NOT
+    # cap the number of null rows. This partial unique index adds the
+    # at-most-one-NULL guarantee (the lone null is the web break-glass admin). It
+    # is declared at the MODEL level (not only in the migration) so the SQLite
+    # ``create_all`` test DB enforces "one null" too — mirror of the dialect-kwarg
+    # pattern already used by ``Pick.uq_pick_user_week_type_base`` below.
+    #
+    # The indexed EXPRESSION is the constant ``1`` (not the ``discord_id`` column):
+    # within the filtered set ``discord_id IS NULL`` is always true, and a UNIQUE
+    # index over the *column* would still treat each NULL as distinct (NULLs are
+    # never equal) on BOTH SQLite and Postgres, so a column index would not cap
+    # them. Indexing a constant makes every qualifying row collide on the same
+    # key, enforcing at-most-one.
+    __table_args__ = (
+        sa.Index(
+            "uq_users_one_null_discord_id",
+            sa.text("1"),
+            unique=True,
+            postgresql_where=sa.text("discord_id IS NULL"),
+            sqlite_where=sa.text("discord_id IS NULL"),
+        ),
+    )
+
     id: int | None = Field(default=None, primary_key=True)
     discord_id: int | None = Field(
         sa_column=Column(BigInteger, nullable=True, unique=True, index=True),
@@ -67,6 +91,13 @@ class User(SQLModel, table=True):
     display_name: str = Field(max_length=100, unique=True)
     is_admin: bool = Field(default=False)
     is_active: bool = Field(default=False)
+    # The break-glass marker: True ONLY for the bootstrap seed admin (the lone
+    # NULL-discord_id account). A protected row can never be deleted / demoted /
+    # deactivated by the web admin service, so the system can never be locked out
+    # of admin. Set at seed-time create (admins.py) AND at migrate-time backfill
+    # (0012); read by the admin-service guards and surfaced through
+    # AdminUserRow -> AdminUserRead -> the AdminPage row disable.
+    is_protected: bool = Field(default=False)
     created_at: datetime = Field(sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False), default_factory=sa.func.now)
 
 

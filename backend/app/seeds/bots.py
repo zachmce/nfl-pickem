@@ -28,6 +28,15 @@ ordinary non-admin users (``is_admin=False``) — they carry no elevated rights 
 are intended for the disposable demo DB, not production. The passwords are static,
 low-value, demo-only credentials (no real-user data).
 
+Each bot also gets a DETERMINISTIC small-int ``discord_id`` (1..5, positional)
+rather than NULL: the one-null-discord_id invariant (the lone null is reserved
+for the bootstrap break-glass admin) requires every other row to carry a distinct
+id. These fake single-digit ids are collision-proof against real ~10^17 Discord
+snowflakes and inert to the guild sweep (which matches only real members). The
+one cosmetic side effect (accepted): the admin table's "Web vs Discord" origin
+badge (derived from ``discord_id !== null``) now labels the bots as "Discord";
+bots have no ``avatar_hash`` so the ``<Avatar>`` still renders initials.
+
 Run it from the ``backend/`` directory::
 
     cd backend
@@ -45,18 +54,20 @@ from sqlmodel import Session, select
 from app.models import User
 from app.services.auth import hash_password
 
-# Static demo/bot roster: (display_name, password). Five bots for richer
-# standings. display_name is the unique natural key the seed upserts on and is
-# clearly demo-labeled (``bot_`` prefix). Passwords are static, low-value,
+# Static demo/bot roster: (display_name, password, discord_id). Five bots for
+# richer standings. display_name is the unique natural key the seed upserts on and
+# is clearly demo-labeled (``bot_`` prefix). Passwords are static, low-value,
 # demo-only credentials (documented in the module docstring; never real-user
-# data). These names MUST match the keys in
-# ``app.seeds.data.bot_picks_2025.BOT_PICKS``.
-BOT_ACCOUNTS: tuple[tuple[str, str], ...] = (
-    ("bot_alice", "demo-alice-2025"),
-    ("bot_bob", "demo-bob-2025"),
-    ("bot_carol", "demo-carol-2025"),
-    ("bot_dave", "demo-dave-2025"),
-    ("bot_erin", "demo-erin-2025"),
+# data). discord_id is a DETERMINISTIC small int (1..5) so the bots satisfy the
+# one-null-discord_id invariant (only the bootstrap admin stays null) — these fake
+# ids are collision-proof vs real ~10^17 snowflakes. These names MUST match the
+# keys in ``app.seeds.data.bot_picks_2025.BOT_PICKS``.
+BOT_ACCOUNTS: tuple[tuple[str, str, int], ...] = (
+    ("bot_alice", "demo-alice-2025", 1),
+    ("bot_bob", "demo-bob-2025", 2),
+    ("bot_carol", "demo-carol-2025", 3),
+    ("bot_dave", "demo-dave-2025", 4),
+    ("bot_erin", "demo-erin-2025", 5),
 )
 
 
@@ -67,14 +78,15 @@ def seed_bots(session: Session) -> int:
     ``display_name`` (the stable natural key the seeder owns, never the surrogate
     PK). If absent, insert a new row whose ``password_hash`` is produced by
     :func:`app.services.auth.hash_password` (argon2id — never a hand-rolled hash),
-    with ``is_active=True``, ``is_admin=False`` and ``discord_id=None``. If
-    present, re-assert the canonical ``is_active`` / ``is_admin`` flags but do
-    **not** re-hash the password (hashing is nondeterministic; re-hashing on rerun
-    would dirty idempotency). Commits once at the end.
+    with ``is_active=True``, ``is_admin=False`` and the deterministic small-int
+    ``discord_id``. If present, re-assert the canonical ``is_active`` /
+    ``is_admin`` flags AND the deterministic ``discord_id`` but do **not** re-hash
+    the password (hashing is nondeterministic; re-hashing on rerun would dirty
+    idempotency). Commits once at the end.
 
     Returns the number of bot accounts processed (N).
     """
-    for display_name, password in BOT_ACCOUNTS:
+    for display_name, password, discord_id in BOT_ACCOUNTS:
         existing = session.exec(
             select(User).where(User.display_name == display_name)
         ).first()
@@ -85,13 +97,14 @@ def seed_bots(session: Session) -> int:
                     password_hash=hash_password(password),
                     is_active=True,
                     is_admin=False,
-                    discord_id=None,
+                    discord_id=discord_id,
                 )
             )
         else:
             # Correct-on-rerun (mirrors teams.py), but never re-hash the password.
             existing.is_active = True
             existing.is_admin = False
+            existing.discord_id = discord_id
             session.add(existing)
 
     session.commit()

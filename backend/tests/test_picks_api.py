@@ -204,15 +204,19 @@ class PicksApiTests(unittest.TestCase):
 
             # --- Users --------------------------------------------------------
             pw = hash_password("correct horse battery staple")
+            # Distinct discord_ids: the one-null-discord_id invariant (260629-n59)
+            # caps NULL discord_ids at one.
             user_a = User(
                 display_name="userA",
                 password_hash=pw,
                 is_active=True,
+                discord_id=1,
             )
             user_b = User(
                 display_name="userB",
                 password_hash=pw,
                 is_active=True,
+                discord_id=2,
             )
             session.add_all([user_a, user_b])
             session.commit()

@@ -126,7 +126,7 @@ class BotPicksDatasetTests(unittest.TestCase):
 
         self.assertEqual(
             set(BOT_PICKS.keys()),
-            {name for name, _ in BOT_ACCOUNTS},
+            {name for name, *_ in BOT_ACCOUNTS},
         )
 
 

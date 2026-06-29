@@ -77,7 +77,7 @@ from app.services.scoring import score_week
 
 # The bot display_names that participate in the walkthrough (the keys shared by
 # BOT_ACCOUNTS and BOT_PICKS). Computed once, not re-derived per call.
-BOT_NAMES: frozenset[str] = frozenset(name for name, _pw in BOT_ACCOUNTS)
+BOT_NAMES: frozenset[str] = frozenset(name for name, *_ in BOT_ACCOUNTS)
 
 # Default per-week set for the walkthrough — the full odds-bearing season. Every
 # fixture game now carries odds (272/272 post-jt0 backfill), so all 18 weeks are
