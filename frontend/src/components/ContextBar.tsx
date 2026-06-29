@@ -19,8 +19,8 @@ type Status = "loading" | "ok" | "error";
 const STATE_LABEL: Record<WindowState, string> = {
   not_yet_open: "not yet open",
   open: "open",
-  locked: "locked",
-  closed: "closed",
+  locked: "locked — games underway",
+  closed: "closed — week final",
 };
 
 function readableState(state: WindowState): string {

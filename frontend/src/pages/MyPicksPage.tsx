@@ -78,8 +78,8 @@ const BASE_SLOTS: PickType[] = [
 
 const WINDOW_BANNER: Record<Exclude<WindowState, "open">, string> = {
   not_yet_open: "This week's pick window hasn't opened yet — picks are read-only.",
-  locked: "This week is locked — picks can no longer be changed.",
-  closed: "This week is closed — picks can no longer be changed.",
+  locked: "Picks are locked — games are underway.",
+  closed: "This week is final.",
 };
 
 /** Format an ISO kickoff like ContextBar.friendlyTime; tolerate null/invalid. */
