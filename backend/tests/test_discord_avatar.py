@@ -278,6 +278,8 @@ class DiscordIdSnowflakePrecisionTests(unittest.TestCase):
         self.assertGreater(self.SNOWFLAKE, 2**53)
 
     def test_user_read_serializes_snowflake_to_exact_string(self) -> None:
+        from datetime import datetime, timezone
+
         read = UserRead(
             id=1,
             discord_id=self.SNOWFLAKE,
@@ -285,6 +287,7 @@ class DiscordIdSnowflakePrecisionTests(unittest.TestCase):
             display_name="snowflake_user",
             is_admin=False,
             is_active=True,
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         )
         dumped = read.model_dump(mode="json")
         self.assertEqual(dumped["discord_id"], self.SNOWFLAKE_STR)
@@ -334,6 +337,8 @@ class DiscordIdSnowflakePrecisionTests(unittest.TestCase):
 
     def test_none_discord_id_serializes_to_null(self) -> None:
         # The web-bootstrap admin / web-origin accounts carry no snowflake.
+        from datetime import datetime, timezone
+
         read = UserRead(
             id=1,
             discord_id=None,
@@ -341,6 +346,7 @@ class DiscordIdSnowflakePrecisionTests(unittest.TestCase):
             display_name="web_admin",
             is_admin=True,
             is_active=True,
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         )
         self.assertIsNone(read.model_dump(mode="json")["discord_id"])
 
