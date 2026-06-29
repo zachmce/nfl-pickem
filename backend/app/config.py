@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     discord_chat_channel: str | None = None
     # REG-07 DM password-change pointer — where the bot tells users to log in.
     app_base_url: str = "http://localhost:5173"
+    # Cadence (minutes) of the bot's guild avatar sweep, which upserts every
+    # member's current Discord avatar hash keyed by discord_id (default hourly).
+    # The sweep ALSO runs once at startup (the loop's first tick, after ready), so
+    # this only controls the steady-state refresh interval. Plain int with a
+    # default — NOT in the _empty_str_to_none validator (str|None fields only).
+    discord_avatar_sweep_minutes: int = 60
 
     # Local OpenAI-compatible LLM for the pickem-chat personality layer (260627-nef).
     # All three must be set for the feature to engage; ANY left None disables it (the

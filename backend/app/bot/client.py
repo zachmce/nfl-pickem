@@ -26,6 +26,7 @@ import discord
 import structlog
 from discord.ext import commands, tasks
 
+from app.bot import db_bridge
 from app.config import get_settings
 from app.logging_config import configure_logging
 
@@ -78,6 +79,10 @@ class PickemBot(commands.Bot):
         # Start the gateway-aware heartbeat loop.
         self._heartbeat_loop.start()
 
+        # Start the guild avatar sweep loop. Its before_loop waits until ready so
+        # the first tick (the "on startup" sweep) iterates a populated member cache.
+        self._avatar_sweep_loop.start()
+
         # Start the Redis event subscriber as a fire-and-forget background task.
         # It must NOT block setup_hook; one bad event never kills the loop (the
         # subscriber is resilient per-message). Keep a reference so close() can
@@ -108,9 +113,46 @@ class PickemBot(commands.Bot):
     async def _heartbeat_before(self) -> None:
         await self.wait_until_ready()
 
+    @tasks.loop(minutes=get_settings().discord_avatar_sweep_minutes)
+    async def _avatar_sweep_loop(self) -> None:
+        """Upsert every guild member's current Discord avatar hash, keyed by id.
+
+        Runs once at startup (first tick after ready) and every
+        ``discord_avatar_sweep_minutes`` thereafter. Resolves the configured guild
+        from the local cache via ``get_guild``; on a cache miss it skips this tick
+        (the next tick after the cache warms covers it) rather than fetching per
+        tick. Iterates ``guild.members`` (the ``members`` privileged intent is
+        already enabled in main()), computing ``member.avatar.key`` (None for a
+        default avatar) and upserting through db_bridge.
+
+        Best-effort: the whole sweep is wrapped so one bad tick logs a warning and
+        never kills the loop (mirrors the team-emoji posture).
+        """
+        try:
+            guild = self.get_guild(get_settings().discord_guild_id)
+            if guild is None:
+                # Cache not warm yet — skip; a later tick will cover it.
+                logger.warning("avatar_sweep_guild_cache_miss")
+                return
+            swept = 0
+            for member in guild.members:
+                avatar_hash = member.avatar.key if member.avatar else None
+                await db_bridge.upsert_avatar_hash_async(member.id, avatar_hash)
+                swept += 1
+            logger.info("avatar_sweep_complete", swept=swept)
+        except Exception:
+            logger.warning("avatar_sweep_failed", exc_info=True)
+
+    @_avatar_sweep_loop.before_loop
+    async def _avatar_sweep_before(self) -> None:
+        # Wait until ready so the member cache is populated AND the startup tick
+        # iterates real members (this is the "on startup" sweep).
+        await self.wait_until_ready()
+
     async def close(self) -> None:
-        """Cancel background tasks on close (heartbeat loop + event subscriber)."""
+        """Cancel background tasks on close (heartbeat loop + avatar sweep + event subscriber)."""
         self._heartbeat_loop.cancel()
+        self._avatar_sweep_loop.cancel()
         task = getattr(self, "_notifier_task", None)
         if task is not None:
             task.cancel()
