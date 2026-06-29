@@ -177,12 +177,21 @@ def _derive_safe_username(session: Session, discord_handle: str, discord_id: int
     )
 
 
-def provision_user(session: Session, discord_id: int, discord_handle: str) -> tuple[int, str, str]:
+def provision_user(
+    session: Session,
+    discord_id: int,
+    discord_handle: str,
+    avatar_hash: str | None = None,
+) -> tuple[int, str, str]:
     """Create a new pick'em account for a Discord user.
 
     Raises ValueError if discord_id already has an account.
     Returns (user_id, display_name, plain_password) — the plain_password is
     returned exactly once for the bot to DM; only the Argon2 hash is persisted.
+
+    ``avatar_hash`` is the invoking member's Discord avatar hash captured inline at
+    register time (None when the member has only a default avatar) so a brand-new
+    account has its hash before the next sweep runs.
 
     is_active=True is set explicitly — the model default is False.
     IntegrityError on 23505 is caught and translated to ValueError to handle
@@ -202,6 +211,7 @@ def provision_user(session: Session, discord_id: int, discord_handle: str) -> tu
         discord_id=discord_id,
         display_name=display_name,
         password_hash=password_hash,
+        discord_avatar_hash=avatar_hash,
         is_active=True,  # MUST be explicit — model default is False
         created_at=datetime.now(UTC),
     )
@@ -250,6 +260,35 @@ def reset_password_for_discord(session: Session, discord_id: int) -> str:
     session.commit()
     logger.info("password_reset_discord", user_id=user.id, discord_id=discord_id)
     return plain
+
+
+def upsert_avatar_hash_by_discord_id(
+    session: Session, discord_id: int, avatar_hash: str | None
+) -> bool:
+    """Set the Discord avatar hash on an existing row keyed by discord_id.
+
+    Returns True when a row matched and was updated (committed in place), False
+    when no row matches that discord_id — NO raise: the bot sweep visits guild
+    members who may not have registered, so a miss is an ordinary no-op.
+
+    Setting ``avatar_hash`` to None clears the column (e.g. a member who removed
+    their custom avatar). The hash itself is NOT logged (treated as benign but
+    not noise-worthy); a discord_id + changed bool is fine.
+    """
+    user: User | None = session.exec(
+        select(User).where(User.discord_id == discord_id)
+    ).one_or_none()
+    if user is None:
+        return False
+    user.discord_avatar_hash = avatar_hash
+    session.add(user)
+    session.commit()
+    logger.info(
+        "avatar_hash_upserted",
+        discord_id=discord_id,
+        has_avatar=avatar_hash is not None,
+    )
+    return True
 
 
 def deactivate_user_by_discord_id(session: Session, discord_id: int) -> None:

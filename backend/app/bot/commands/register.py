@@ -88,9 +88,12 @@ class RegistrationCog(commands.Cog):
             )
             return
 
-        # Provision the account (commits internally)
+        # Provision the account (commits internally). Capture the invoking
+        # member's avatar hash inline — interaction.user.avatar is None when the
+        # user has only a default avatar; .key is the bare hash we persist.
+        avatar_hash = interaction.user.avatar.key if interaction.user.avatar else None
         user_id, display_name, plain = await db_bridge.provision_user_async(
-            interaction.user.id, str(interaction.user)
+            interaction.user.id, str(interaction.user), avatar_hash
         )
 
         # DM the temp password with app_base_url framing

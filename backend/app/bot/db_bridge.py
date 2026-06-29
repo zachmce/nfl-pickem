@@ -37,19 +37,24 @@ from app.services.auth import (
     reactivate_user_by_discord_id,
     reset_password_for_discord,
     revoke_admin_by_discord_id,
+    upsert_avatar_hash_by_discord_id,
 )
 
 
-async def provision_user_async(discord_id: int, discord_handle: str) -> tuple[int, str, str]:
+async def provision_user_async(
+    discord_id: int, discord_handle: str, avatar_hash: str | None = None
+) -> tuple[int, str, str]:
     """Async wrapper: runs provision_user() in a thread via task_session().
 
-    Returns (user_id, display_name, plain_password).
+    ``avatar_hash`` is the invoking member's Discord avatar hash (None for a
+    default avatar), captured inline so a new account has its hash before the
+    first sweep tick. Returns (user_id, display_name, plain_password).
     Raises ValueError if discord_id already has an account.
     """
 
     def _sync() -> tuple[int, str, str]:
         with task_session() as session:
-            result = provision_user(session, discord_id, discord_handle)
+            result = provision_user(session, discord_id, discord_handle, avatar_hash)
             # provision_user COMMITS internally, so this publish is post-commit by
             # construction. Best-effort pickem-logger notice carrying ONLY the
             # returned display_name (result[1]) — NEVER the returned plain_password
@@ -72,6 +77,22 @@ async def reset_password_async(discord_id: int) -> str:
     def _sync() -> str:
         with task_session() as session:
             return reset_password_for_discord(session, discord_id)
+
+    return await asyncio.to_thread(_sync)
+
+
+async def upsert_avatar_hash_async(discord_id: int, avatar_hash: str | None) -> bool:
+    """Async wrapper: runs upsert_avatar_hash_by_discord_id() in a thread.
+
+    Sets (or clears, when avatar_hash is None) the Discord avatar hash on the row
+    keyed by discord_id. Returns True if a row matched and was updated, False when
+    no account exists for that discord_id (the sweep visits members who may not
+    have registered) — never raises on a miss. Plain bool out only; Discord-free.
+    """
+
+    def _sync() -> bool:
+        with task_session() as session:
+            return upsert_avatar_hash_by_discord_id(session, discord_id, avatar_hash)
 
     return await asyncio.to_thread(_sync)
 

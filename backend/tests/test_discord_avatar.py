@@ -23,10 +23,11 @@ import unittest
 from pathlib import Path
 
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models import User
 from app.schemas.auth import UserRead
+from app.services.auth import provision_user, upsert_avatar_hash_by_discord_id
 
 
 class DiscordAvatarModelTests(unittest.TestCase):
@@ -191,6 +192,68 @@ class Migration0011AvatarHashTest(unittest.TestCase):
         module = _load_migration_0011()
         self.assertEqual(module.revision, "0011")
         self.assertEqual(module.down_revision, "0010")
+
+
+class ProvisionAndUpsertAvatarTests(unittest.TestCase):
+    """Task 2 — capture at register + service upsert/clear/no-op."""
+
+    def setUp(self) -> None:
+        self.engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        SQLModel.metadata.create_all(self.engine)
+
+    def tearDown(self) -> None:
+        self.engine.dispose()
+
+    def _session(self) -> Session:
+        return Session(self.engine)
+
+    def _get_user(self, session: Session, discord_id: int) -> User:
+        user = session.exec(
+            select(User).where(User.discord_id == discord_id)
+        ).one_or_none()
+        assert user is not None
+        return user
+
+    def test_provision_user_persists_avatar_hash(self) -> None:
+        with self._session() as session:
+            user_id, _name, _plain = provision_user(
+                session, 100, "AvatarUser", avatar_hash="cafef00d"
+            )
+            user = session.get(User, user_id)
+            assert user is not None
+            self.assertEqual(user.discord_avatar_hash, "cafef00d")
+
+    def test_provision_user_without_avatar_hash_leaves_null(self) -> None:
+        with self._session() as session:
+            user_id, _name, _plain = provision_user(session, 101, "NoAvatarUser")
+            user = session.get(User, user_id)
+            assert user is not None
+            self.assertIsNone(user.discord_avatar_hash)
+
+    def test_upsert_updates_existing_row(self) -> None:
+        with self._session() as session:
+            provision_user(session, 102, "ToUpdate")
+            changed = upsert_avatar_hash_by_discord_id(session, 102, "newhash123")
+            self.assertTrue(changed)
+            self.assertEqual(
+                self._get_user(session, 102).discord_avatar_hash, "newhash123"
+            )
+
+    def test_upsert_clears_to_none(self) -> None:
+        with self._session() as session:
+            provision_user(session, 103, "ToClear", avatar_hash="willbecleared")
+            changed = upsert_avatar_hash_by_discord_id(session, 103, None)
+            self.assertTrue(changed)
+            self.assertIsNone(self._get_user(session, 103).discord_avatar_hash)
+
+    def test_upsert_unknown_discord_id_is_noop_returns_false(self) -> None:
+        with self._session() as session:
+            changed = upsert_avatar_hash_by_discord_id(session, 999999, "orphan")
+            self.assertFalse(changed)
 
 
 if __name__ == "__main__":
