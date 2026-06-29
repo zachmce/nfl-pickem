@@ -46,6 +46,7 @@ import {
 } from "../lib/picks";
 import type { AdminMiscGrade } from "../lib/admin";
 import { useAuth } from "../auth/useAuth";
+import Avatar from "../components/Avatar";
 import { useAdminPickEditor } from "./useAdminPickEditor";
 import type { PicksBySlot } from "./useMyPicks";
 
@@ -713,10 +714,21 @@ function UserRow({
     <>
       <tr className="border-b border-border last:border-0">
         <td className="px-4 py-3 font-medium text-fg">
-          {row.display_name}
-          {isSelf && (
-            <span className="ml-2 text-xs font-normal text-fg-muted">(you)</span>
-          )}
+          <span className="flex items-center gap-2">
+            <Avatar
+              discordId={row.discord_id}
+              avatarHash={row.discord_avatar_hash}
+              displayName={row.display_name}
+            />
+            <span>
+              {row.display_name}
+              {isSelf && (
+                <span className="ml-2 text-xs font-normal text-fg-muted">
+                  (you)
+                </span>
+              )}
+            </span>
+          </span>
         </td>
         <td className="px-4 py-3 text-fg-muted">
           {row.discord_id !== null ? "Discord" : "Web"}

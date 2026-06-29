@@ -11,6 +11,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/useAuth";
 import ThemeSwitcher from "../theme/ThemeSwitcher";
+import Avatar from "./Avatar";
 import { WeekChip } from "./ContextBar";
 
 interface NavItem {
@@ -71,7 +72,14 @@ export default function Header() {
   const userMenu = (
     <div className="flex items-center gap-3">
       {user && (
-        <span className="text-sm text-fg-muted">{user.display_name}</span>
+        <span className="flex items-center gap-2">
+          <Avatar
+            discordId={user.discord_id}
+            avatarHash={user.discord_avatar_hash}
+            displayName={user.display_name}
+          />
+          <span className="text-sm text-fg-muted">{user.display_name}</span>
+        </span>
       )}
       <ThemeSwitcher />
       <button

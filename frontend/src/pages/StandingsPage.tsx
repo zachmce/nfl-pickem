@@ -23,6 +23,7 @@
  *     of them throw.
  */
 import { useAuth } from "../auth/useAuth";
+import Avatar from "../components/Avatar";
 import type { SeasonStandingRow } from "../lib/results";
 import { EMPTY_STANDINGS, ERROR_STANDINGS, LOADING_STANDINGS } from "../lib/strings";
 import { useStandings } from "./useStandings";
@@ -174,13 +175,21 @@ export default function StandingsPage() {
                   <td className="px-3 py-2 text-right font-semibold tabular-nums text-fg">
                     {row.season_total}
                   </td>
-                  <td
-                    className={[
-                      "px-3 py-2 text-left",
-                      isMe ? "font-semibold text-accent" : "text-fg",
-                    ].join(" ")}
-                  >
-                    {row.display_name}
+                  <td className="px-3 py-2 text-left">
+                    <span className="flex items-center gap-2">
+                      <Avatar
+                        discordId={row.discord_id}
+                        avatarHash={row.discord_avatar_hash}
+                        displayName={row.display_name}
+                      />
+                      <span
+                        className={
+                          isMe ? "font-semibold text-accent" : "text-fg"
+                        }
+                      >
+                        {row.display_name}
+                      </span>
+                    </span>
                   </td>
                   {weeks.map((w) => {
                     const future = w > liveThroughWeek;

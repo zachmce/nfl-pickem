@@ -19,6 +19,7 @@
  * server already redacted the entries).
  */
 import { useAuth } from "../auth/useAuth";
+import Avatar from "../components/Avatar";
 import type { PickType, SlateGame } from "../lib/picks";
 import type { UserWeekResult, WeekResultPickRead } from "../lib/results";
 import { EMPTY_WEEKLY, ERROR_WEEKLY, LOADING_WEEKLY } from "../lib/strings";
@@ -162,16 +163,25 @@ function UserCard({
           isMe ? "bg-accent-bg" : "bg-surface-raised",
         ].join(" ")}
       >
-        <span
-          className={[
-            "font-semibold",
-            isMe ? "text-accent" : "text-fg",
-          ].join(" ")}
-        >
-          {result.display_name}
-          {isMe && (
-            <span className="ml-2 text-xs font-normal text-accent">(you)</span>
-          )}
+        <span className="flex items-center gap-2">
+          <Avatar
+            discordId={result.discord_id}
+            avatarHash={result.discord_avatar_hash}
+            displayName={result.display_name}
+          />
+          <span
+            className={[
+              "font-semibold",
+              isMe ? "text-accent" : "text-fg",
+            ].join(" ")}
+          >
+            {result.display_name}
+            {isMe && (
+              <span className="ml-2 text-xs font-normal text-accent">
+                (you)
+              </span>
+            )}
+          </span>
         </span>
         <span className="tabular-nums text-sm font-semibold text-fg">
           {result.weekly_score} pts
