@@ -104,3 +104,18 @@
   --color-warning-solid: #d99a2b; /* amber that reads as a fill on dark */
   --color-on-warning: #1a1206; /* deep brown-black for contrast */
 }
+
+/*
+ * Base document colors. Some text never carried an explicit color utility —
+ * page headings (h1) and the team-name spans relied on the browser-default
+ * black, which there was no class for the token migration (or its grep gate) to
+ * catch. Invisible on the dark surface. Anchoring the document base to the
+ * surface/fg tokens makes all uninstrumented/inherited text + the root
+ * background flip with the theme; elements with explicit text-* utilities still
+ * win. (Light fg = gray-900, a sub-pixel shift from pure black that aligns these
+ * with the rest of the body copy.)
+ */
+html {
+  background-color: var(--color-surface);
+  color: var(--color-fg);
+}
