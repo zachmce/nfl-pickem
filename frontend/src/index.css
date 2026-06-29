@@ -1,1 +1,66 @@
 @import "tailwindcss";
+
+/*
+ * Manual dark-mode toggle (Tailwind v4).
+ *
+ * A `.dark` class on <html> beats `prefers-color-scheme` because the variant
+ * scopes to `.dark` (and its descendants) rather than the media query. The theme
+ * provider and the no-flash inline script in index.html both apply/remove this
+ * class; the @theme + .dark remap below are the single source of truth for every
+ * semantic color value.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Semantic token layer (Option B per notes/dark-mode-strategy.md).
+ *
+ * ~8-10 named roles become real Tailwind color utilities (bg-surface, text-fg,
+ * border-border, text-danger-fg, bg-danger-bg, …). Light values are derived from
+ * the palette the shell used before the migration:
+ *   surface         = white            (page / header background)
+ *   surface-raised  = gray-50          (cards, the context bar)
+ *   fg              = gray-900         (primary text / brand)
+ *   fg-muted        = gray-600/700     (secondary text, inactive nav)
+ *   border          = gray-200/300     (hairlines, button borders)
+ *   accent          = blue-700         (active nav, links, chip text)
+ *   accent-bg       = blue-50          (chip tint)
+ *   danger/success/warning  = saturated -fg text + a soft -bg tint
+ */
+@theme {
+  --color-surface: #ffffff;
+  --color-surface-raised: #f9fafb; /* gray-50 */
+  --color-fg: #111827; /* gray-900 */
+  --color-fg-muted: #4b5563; /* gray-600 */
+  --color-border: #e5e7eb; /* gray-200 */
+  --color-accent: #1d4ed8; /* blue-700 */
+  --color-accent-bg: #eff6ff; /* blue-50 */
+
+  --color-danger-fg: #b91c1c; /* red-700 */
+  --color-danger-bg: #fef2f2; /* red-50 */
+  --color-success-fg: #15803d; /* green-700 */
+  --color-success-bg: #f0fdf4; /* green-50 */
+  --color-warning-fg: #b45309; /* amber-700 */
+  --color-warning-bg: #fffbeb; /* amber-50 */
+}
+
+/*
+ * Dark remap — hand-picked values (decision 5), NOT a mechanical darken.
+ * Status tints get deep, desaturated backgrounds that read on a dark page with
+ * legible status text.
+ */
+.dark {
+  --color-surface: #0b0f17; /* near-black page */
+  --color-surface-raised: #151b26; /* a touch lighter for raised chrome */
+  --color-fg: #e5e7eb; /* gray-200 */
+  --color-fg-muted: #9ca3af; /* gray-400 */
+  --color-border: #2a3342; /* low-contrast dark gray */
+  --color-accent: #60a5fa; /* brighter blue for dark contrast (blue-400) */
+  --color-accent-bg: #1e293b; /* slate-800 tint behind the chip */
+
+  --color-danger-fg: #fca5a5; /* red-300 */
+  --color-danger-bg: #3a1414; /* deep desaturated red */
+  --color-success-fg: #86efac; /* green-300 */
+  --color-success-bg: #0f2a1a; /* deep desaturated green */
+  --color-warning-fg: #fcd34d; /* amber-300 */
+  --color-warning-bg: #2e2410; /* deep desaturated amber */
+}

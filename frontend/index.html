@@ -4,6 +4,26 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NFL Pick'em</title>
+    <script>
+      // No-flash theme bootstrap: apply .dark on <html> BEFORE React paints so
+      // dark-mode users never see a white flash. Reads the same localStorage key
+      // ('theme') and the same rule the ThemeProvider uses, so there is no reflow
+      // after mount. Wrapped in try/catch so a storage exception never blocks paint.
+      (function () {
+        try {
+          var stored = localStorage.getItem("theme");
+          var prefersDark = window.matchMedia(
+            "(prefers-color-scheme: dark)",
+          ).matches;
+          var dark =
+            stored === "dark" ||
+            ((stored === "system" || stored === null) && prefersDark);
+          document.documentElement.classList.toggle("dark", dark);
+        } catch (e) {
+          /* ignore — leave light as the safe default */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
