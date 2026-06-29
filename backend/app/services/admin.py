@@ -20,9 +20,20 @@ Guards (locked decisions in .planning/notes/admin-area-design.md):
 
 Every rejection raises ``ValueError`` whose FIRST whitespace-delimited token is a
 STABLE machine code (``cannot_act_on_self``, ``user_not_found``, ``already_inactive``,
-``already_active``, ``already_admin``, ``not_admin``, ``last_admin``) so the router
-(:mod:`app.api.admin`) can split it off and map it to a typed exception with a
-``reason=`` field, exactly the way the bot reuses the human message.
+``already_active``, ``already_admin``, ``not_admin``, ``last_admin``, ``protected``)
+so the router (:mod:`app.api.admin`) can split it off and map it to a typed
+exception with a ``reason=`` field, exactly the way the bot reuses the human
+message. (``protected`` needs no router change: ``_raise_for_service_error`` maps
+every non-``user_not_found`` code to a 409 ConflictError, which is correct here.)
+
+The ``protected`` code guards the bootstrap break-glass admin (``is_protected``,
+the lone NULL-discord_id account): it can never be deleted, demoted, or
+deactivated, so the system can never be locked out of admin. The guard fires in
+``delete_user`` / ``revoke_admin`` / ``deactivate_user`` — the three locking
+actions — but NOT in ``grant_admin`` / ``reactivate_user`` (which cannot strand
+the system). It is checked AFTER the missing-user/self guards but BEFORE the
+last-admin count, so a protected row reports ``protected`` rather than
+``last_admin``.
 
 The caller id is a PARAMETER only — the service never reads request state, so the
 acting identity always comes from the verified session at the router (no IDOR).
@@ -61,6 +72,10 @@ class AdminUserRow:
     discord_avatar_hash: str | None
     is_admin: bool
     is_active: bool
+    # The break-glass marker (the bootstrap admin). When True, the UI disables the
+    # locking-direction controls (Deactivate / Revoke admin / Delete) mirroring
+    # the server-side ``protected`` guard.
+    is_protected: bool
     created_at: datetime
     pick_count: int
 
@@ -88,6 +103,7 @@ def _row_for(session: Session, user: User, counts: dict[int, int] | None = None)
         discord_avatar_hash=user.discord_avatar_hash,
         is_admin=user.is_admin,
         is_active=user.is_active,
+        is_protected=user.is_protected,
         created_at=user.created_at,
         pick_count=counts.get(user.id, 0),
     )
@@ -128,6 +144,10 @@ def deactivate_user(session: Session, caller_id: int, user_id: int) -> AdminUser
     if caller_id == user_id:
         raise ValueError("cannot_act_on_self: cannot deactivate your own account")
     user = _get_user_or_raise(session, user_id)
+    # Protected guard BEFORE the last-admin count so the break-glass admin reports
+    # "protected" rather than "last_admin".
+    if user.is_protected:
+        raise ValueError("protected: the bootstrap admin cannot be deactivated")
     if not user.is_active:
         raise ValueError("already_inactive: account is already deactivated")
     # Last-admin guard counts ACTIVE admins: deactivating the only active admin
@@ -181,6 +201,10 @@ def revoke_admin(session: Session, caller_id: int, user_id: int) -> AdminUserRow
     if caller_id == user_id:
         raise ValueError("cannot_act_on_self: cannot remove your own admin access")
     user = _get_user_or_raise(session, user_id)
+    # Protected guard BEFORE the last-admin count so the break-glass admin reports
+    # "protected" rather than "last_admin".
+    if user.is_protected:
+        raise ValueError("protected: the bootstrap admin cannot be demoted")
     if not user.is_admin:
         raise ValueError("not_admin: target user is not an admin")
     if _count_admins(session) == 1:
@@ -205,6 +229,10 @@ def delete_user(session: Session, caller_id: int, user_id: int) -> None:
     if caller_id == user_id:
         raise ValueError("cannot_act_on_self: cannot delete your own account")
     user = _get_user_or_raise(session, user_id)
+    # Protected guard BEFORE the last-admin count so the break-glass admin reports
+    # "protected" rather than "last_admin".
+    if user.is_protected:
+        raise ValueError("protected: the bootstrap admin cannot be deleted")
     if user.is_admin and _count_admins(session) == 1:
         raise ValueError("last_admin: cannot delete the only remaining admin")
 

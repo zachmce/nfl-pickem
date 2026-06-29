@@ -386,14 +386,22 @@ def get_account_by_discord_id(session: Session, discord_id: int) -> str | None:
 
 
 def is_admin_by_discord_id(session: Session, discord_id: int) -> bool:
-    """Return True only when a row with that discord_id has is_admin=True.
+    """Return True only when a row with that discord_id is is_admin AND is_active.
 
-    Gates on existence + is_admin ONLY — NOT is_active: a deactivated admin can
-    still authorize admin commands. The NULL-discord_id seed admin is unreachable
-    here by design — that row's discord_id never equals any integer discord_id.
+    Gates on existence + ``is_admin`` AND ``is_active``: a DEACTIVATED admin loses
+    admin authority here (an inactive admin cannot log in via the web either, so
+    Discord-side admin authority must match). This requires the formal break-glass
+    floor (the protected NULL-discord_id seed admin, decision 4 of
+    .planning/notes/admin-hardening-pre-stakeholder.md): the prior justification
+    "deactivated admins are intentionally still authorized" is gone now that the
+    break-glass account guarantees recovery via the web path.
+
+    The NULL-discord_id break-glass seed admin is unreachable here by design — its
+    discord_id never equals any integer discord_id; it is reached only via the web
+    path, not this Discord gate.
     """
     user: User | None = session.exec(select(User).where(User.discord_id == discord_id)).one_or_none()
-    return bool(user is not None and user.is_admin)
+    return bool(user is not None and user.is_admin and user.is_active)
 
 
 def delete_user_by_id(session: Session, user_id: int) -> None:

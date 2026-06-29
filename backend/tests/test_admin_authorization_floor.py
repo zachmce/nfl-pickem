@@ -129,5 +129,130 @@ class OneNullDiscordIdTests(_FloorTestBase):
             self.assertEqual(nulls[0].display_name, "root_admin")
 
 
+# --------------------------------------------------------------------------- #
+# DECISION-3 — protected-row service guards (delete / revoke / deactivate)
+# --------------------------------------------------------------------------- #
+class ProtectedRowGuardTests(_FloorTestBase):
+    """delete / revoke / deactivate refuse a protected row with "protected".
+
+    grant / reactivate are NOT guarded (they cannot strand the system). The
+    service treats ``caller_id`` as a pure parameter, so a synthetic distinct
+    caller exercises the protected branch without tripping the self-guard.
+    """
+
+    CALLER = 10_000_000
+
+    def _add(self, **kwargs) -> int:
+        with Session(self.engine) as session:
+            user = User(**kwargs)
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+            assert user.id is not None
+            return user.id
+
+    @staticmethod
+    def _leading_token(exc: ValueError) -> str:
+        # Codes are formatted "code: human message"; the stable token is the
+        # leading whitespace-delimited word with its trailing colon stripped.
+        return str(exc.args[0]).split()[0].rstrip(":")
+
+    def test_delete_protected_raises(self) -> None:
+        # A second admin exists so the last-admin guard does NOT mask "protected".
+        protected = self._add(
+            display_name="bootstrap", discord_id=None,
+            is_admin=True, is_active=True, is_protected=True,
+        )
+        self._add(display_name="other", discord_id=1, is_admin=True, is_active=True)
+        with Session(self.engine) as session:
+            with self.assertRaises(ValueError) as ctx:
+                admin_service.delete_user(session, caller_id=self.CALLER, user_id=protected)
+            self.assertEqual(self._leading_token(ctx.exception), "protected")
+            self.assertIsNotNone(session.get(User, protected))
+
+    def test_revoke_protected_raises(self) -> None:
+        protected = self._add(
+            display_name="bootstrap", discord_id=None,
+            is_admin=True, is_active=True, is_protected=True,
+        )
+        self._add(display_name="other", discord_id=1, is_admin=True, is_active=True)
+        with Session(self.engine) as session:
+            with self.assertRaises(ValueError) as ctx:
+                admin_service.revoke_admin(session, caller_id=self.CALLER, user_id=protected)
+            self.assertEqual(self._leading_token(ctx.exception), "protected")
+            self.assertTrue(session.get(User, protected).is_admin)
+
+    def test_deactivate_protected_raises(self) -> None:
+        protected = self._add(
+            display_name="bootstrap", discord_id=None,
+            is_admin=True, is_active=True, is_protected=True,
+        )
+        self._add(display_name="other", discord_id=1, is_admin=True, is_active=True)
+        with Session(self.engine) as session:
+            with self.assertRaises(ValueError) as ctx:
+                admin_service.deactivate_user(session, caller_id=self.CALLER, user_id=protected)
+            self.assertEqual(self._leading_token(ctx.exception), "protected")
+            self.assertTrue(session.get(User, protected).is_active)
+
+    def test_grant_and_reactivate_protected_allowed(self) -> None:
+        # grant_admin on an already-admin protected row raises ONLY "already_admin"
+        # (proves the protected guard is ABSENT in grant); reactivate of an
+        # inactive protected row succeeds (proves protected does not block it).
+        protected_admin = self._add(
+            display_name="bootstrap", discord_id=None,
+            is_admin=True, is_active=True, is_protected=True,
+        )
+        with Session(self.engine) as session:
+            with self.assertRaises(ValueError) as ctx:
+                admin_service.grant_admin(session, user_id=protected_admin)
+            self.assertEqual(self._leading_token(ctx.exception), "already_admin")
+
+        inactive_protected = self._add(
+            display_name="bootstrap_inactive", discord_id=2,
+            is_admin=True, is_active=False, is_protected=True,
+        )
+        with Session(self.engine) as session:
+            row = admin_service.reactivate_user(session, user_id=inactive_protected)
+            self.assertTrue(row.is_active)
+
+
+# --------------------------------------------------------------------------- #
+# DECISION-4 — Discord admin gate requires is_active
+# --------------------------------------------------------------------------- #
+class DiscordActiveGateTests(_FloorTestBase):
+    """is_admin_by_discord_id requires is_admin AND is_active."""
+
+    def test_is_admin_by_discord_id_requires_active(self) -> None:
+        with Session(self.engine) as session:
+            user = User(
+                display_name="discord_admin", discord_id=99,
+                is_admin=True, is_active=False,
+            )
+            session.add(user)
+            session.commit()
+            # Deactivated admin -> not authorized.
+            self.assertFalse(is_admin_by_discord_id(session, 99))
+            # Reactivate -> authorized.
+            user.is_active = True
+            session.add(user)
+            session.commit()
+            self.assertTrue(is_admin_by_discord_id(session, 99))
+
+    def test_bot_admin_command_refuses_deactivated(self) -> None:
+        # The bot admin path (app/bot/db_bridge.py is_admin_async) is a thin
+        # wrapper over is_admin_by_discord_id run in a thread; exercising the gate
+        # directly with the SAME call the bridge makes avoids async test machinery
+        # while proving the bot path refuses a deactivated admin.
+        with Session(self.engine) as session:
+            session.add(
+                User(
+                    display_name="bot_gated_admin", discord_id=123,
+                    is_admin=True, is_active=False,
+                )
+            )
+            session.commit()
+            self.assertFalse(is_admin_by_discord_id(session, 123))
+
+
 if __name__ == "__main__":
     unittest.main()
