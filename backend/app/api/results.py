@@ -70,8 +70,11 @@ def read_standings(
     Ordering is ``(-season_total, display_name)`` as produced by
     :func:`app.services.standings.season_standings`.
     """
-    standings = season_standings(session, season=season)
+    standings, identities = season_standings(session, season=season)
     complete = season_is_complete(session, season=season)
     return SeasonStandingsResponse.from_standings(
-        season=season, standings=standings, season_complete=complete
+        season=season,
+        standings=standings,
+        season_complete=complete,
+        identities=identities,
     )

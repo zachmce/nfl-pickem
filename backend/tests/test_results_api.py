@@ -207,6 +207,18 @@ class ResultsTests(unittest.TestCase):
             assert pick.id is not None
             return pick.id
 
+    def _set_discord_identity(
+        self, user_id: int, *, discord_id: int | None, avatar_hash: str | None
+    ) -> None:
+        """Set a user's Discord avatar identity (discord_id + avatar hash)."""
+        with self._session() as session:
+            user = session.get(User, user_id)
+            assert user is not None
+            user.discord_id = discord_id
+            user.discord_avatar_hash = avatar_hash
+            session.add(user)
+            session.commit()
+
     def _open_the_window(self) -> None:
         """Push EVERY week-1 game's kickoff into the future so the window is OPEN.
 
@@ -310,7 +322,7 @@ class ResultsTests(unittest.TestCase):
         )
 
         with self._session() as session:
-            standings = season_standings(session, season=SEASON)
+            standings, identities = season_standings(session, season=SEASON)
 
         names = [r.display_name for r in standings.results]
         totals = [r.season_total for r in standings.results]
@@ -319,6 +331,12 @@ class ResultsTests(unittest.TestCase):
         # alice's per-week score is the FINAL week-1 total.
         alice = standings.results[0]
         self.assertEqual(alice.weekly_scores, {WEEK: 3})
+        # The identity map is keyed by the unique display_name and carries the
+        # avatar-identity fields for every standing row.
+        self.assertEqual(set(identities), {"alice", "bob", "carol"})
+        for name in ("alice", "bob", "carol"):
+            self.assertIsNone(identities[name].discord_id)
+            self.assertIsNone(identities[name].discord_avatar_hash)
 
     def test_season_standings_excludes_users_with_no_picks(self) -> None:
         """A user with zero picks in the season does not appear at all."""
@@ -328,7 +346,7 @@ class ResultsTests(unittest.TestCase):
             pick_type=PickType.FAVORITE_COVER,
         )
         with self._session() as session:
-            standings = season_standings(session, season=SEASON)
+            standings, _ = season_standings(session, season=SEASON)
         self.assertEqual([r.display_name for r in standings.results], ["alice"])
 
     def test_season_is_complete_all_final(self) -> None:
@@ -640,6 +658,11 @@ class ResultsTests(unittest.TestCase):
             game_id=self.game_total_id,
             pick_type=PickType.OVER,
         )
+        # Give alice a Discord identity so the row carries a real hash; bob has
+        # none, so his row must report null avatar fields.
+        self._set_discord_identity(
+            self.user_a_id, discord_id=4242, avatar_hash="abc123hash"
+        )
 
         # carol (who did not pick) can still read the shared scoreboard.
         resp = self.client.get(
@@ -663,6 +686,12 @@ class ResultsTests(unittest.TestCase):
         for p in alice["picks"]:
             self.assertIn(p["outcome"], {o.value for o in GradeOutcome})
             self.assertNotEqual(p["outcome"], GradeOutcome.UNGRADEABLE.value)
+        # Avatar identity threads through per-row: alice has a hash, bob null.
+        self.assertEqual(alice["discord_id"], 4242)
+        self.assertEqual(alice["discord_avatar_hash"], "abc123hash")
+        bob = next(r for r in results if r["display_name"] == "bob")
+        self.assertIsNone(bob["discord_id"])
+        self.assertIsNone(bob["discord_avatar_hash"])
 
     def test_standings_http_ordering_with_tiebreak(self) -> None:
         """GET /api/results/standings ranks all users by (-total, name).
@@ -690,6 +719,10 @@ class ResultsTests(unittest.TestCase):
             game_id=self.game_fav_id,
             pick_type=PickType.FAVORITE_COVER,
         )
+        # alice gets a Discord identity (hash present); bob/carol stay null.
+        self._set_discord_identity(
+            self.user_a_id, discord_id=9001, avatar_hash="deadbeefhash"
+        )
 
         resp = self.client.get(
             "/api/results/standings",
@@ -709,6 +742,13 @@ class ResultsTests(unittest.TestCase):
         self.assertNotIn("user_id", rows[0])
         # weekly_scores is keyed by week number (JSON stringifies int keys).
         self.assertEqual(rows[0]["weekly_scores"], {str(WEEK): 3})
+        # Avatar identity threads through per-row: alice has a hash, the others
+        # (no Discord identity) report null for both avatar fields.
+        self.assertEqual(rows[0]["discord_id"], 9001)
+        self.assertEqual(rows[0]["discord_avatar_hash"], "deadbeefhash")
+        for other in rows[1:]:
+            self.assertIsNone(other["discord_id"])
+            self.assertIsNone(other["discord_avatar_hash"])
 
 
 if __name__ == "__main__":

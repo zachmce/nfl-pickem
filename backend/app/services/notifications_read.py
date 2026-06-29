@@ -207,7 +207,7 @@ def get_recap_context(session: Session, season: int, week: int) -> dict:
         for r in week_results(session, season=season, week=week, caller_user_id=None)
     ]
 
-    standings_results = season_standings(session, season=season).results
+    standings_results = season_standings(session, season=season)[0].results
     leader_total = standings_results[0].season_total if standings_results else 0
     standings = [
         {
@@ -455,7 +455,7 @@ def get_roster_complete_context(
     services (no completion math re-implemented). Never returns outstanding names
     or pick content.
     """
-    standings_results = season_standings(session, season=season).results
+    standings_results = season_standings(session, season=season)[0].results
     rank: int | None = None
     season_total = 0
     for idx, r in enumerate(standings_results, start=1):
@@ -514,7 +514,7 @@ def get_leaders_context(session: Session, season: int) -> dict:
 
     Display_name + integers only. Pure read; never raises on an empty season.
     """
-    results = season_standings(session, season=season).results
+    results = season_standings(session, season=season)[0].results
     if not results:
         return {
             "leader": None,

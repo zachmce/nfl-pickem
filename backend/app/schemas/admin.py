@@ -33,6 +33,10 @@ class AdminUserRead(BaseModel):
     id: int
     display_name: str
     discord_id: int | None
+    # Discord avatar hash (mirrors AdminUserRow). None for web-origin / seeded
+    # accounts or Discord users without a custom avatar; the admin table builds
+    # the CDN avatar URL from this and falls back to initials.
+    discord_avatar_hash: str | None
     is_admin: bool
     is_active: bool
     created_at: datetime
@@ -45,6 +49,7 @@ class AdminUserRead(BaseModel):
             id=row.id,
             display_name=row.display_name,
             discord_id=row.discord_id,
+            discord_avatar_hash=row.discord_avatar_hash,
             is_admin=row.is_admin,
             is_active=row.is_active,
             created_at=row.created_at,

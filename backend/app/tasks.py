@@ -125,7 +125,7 @@ def _publish_refresh_chat_edges(session: Session, result) -> None:
     if season is None:
         return  # ambiguous season — skip the season-scoped recap (lossy is fine)
 
-    season_leaders = season_standings(session, season=season)
+    season_leaders, _ = season_standings(session, season=season)
     leader = season_leaders.results[0] if season_leaders.results else None
     for week in result.recap_weeks:
         week_winners = week_results(session, season=season, week=week)

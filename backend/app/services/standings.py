@@ -85,12 +85,16 @@ class UserWeekResult:
     score is taken from ``score_week`` directly, the per-pick points from
     ``grade_pick``, so they are consistent by construction. ``user_id`` is
     deliberately ABSENT (display_name only) matching the read-side privacy
-    posture of ``PickRead``.
+    posture of ``PickRead``. ``discord_id`` + ``discord_avatar_hash`` carry the
+    avatar identity (both ``None`` when the user has no Discord avatar) so the
+    frontend can build a CDN avatar URL — ``user_id`` stays omitted.
     """
 
     display_name: str
     weekly_score: int
     picks: tuple[WeekResultPick, ...]
+    discord_id: int | None = None
+    discord_avatar_hash: str | None = None
 
 
 def _as_aware(dt: datetime | None) -> datetime | None:
@@ -128,7 +132,23 @@ def _season_week_ids(session: Session, *, season: int) -> dict[int, int]:
     }
 
 
-def season_standings(session: Session, *, season: int) -> Standings:
+@dataclass(frozen=True)
+class UserIdentity:
+    """Avatar-identity fields for one user, looked up alongside display_name.
+
+    Used to thread ``discord_id`` + ``discord_avatar_hash`` through the read
+    paths without mutating the demo oracle ``BotSeasonResult``. ``display_name``
+    is unique on the ``User`` model, so standings can join this map by name.
+    """
+
+    display_name: str
+    discord_id: int | None
+    discord_avatar_hash: str | None
+
+
+def season_standings(
+    session: Session, *, season: int
+) -> tuple[Standings, dict[str, UserIdentity]]:
     """Cumulative season standings over ALL users with picks in ``season``.
 
     Derives the user set from the distinct ``user_id`` of ``Pick`` rows in the
@@ -140,6 +160,14 @@ def season_standings(session: Session, *, season: int) -> Standings:
     :class:`~app.demo.oracle.BotSeasonResult`. Returns a
     :class:`~app.demo.oracle.Standings` ordered by ``(-season_total,
     display_name)``.
+
+    Returns a ``(Standings, identities_by_display_name)`` 2-tuple: the second
+    element maps each row's unique ``display_name`` to its
+    :class:`UserIdentity` (``discord_id`` + ``discord_avatar_hash``) so the
+    response schema can attach avatar identity per row WITHOUT adding fields to
+    the demo oracle ``BotSeasonResult`` (the ``actual == expected`` proof
+    dataclass must stay byte-identical). There is exactly one caller
+    (:func:`app.api.results.read_standings`).
 
     Pure read: opens no transaction state of its own, writes nothing.
     """
@@ -162,7 +190,7 @@ def season_standings(session: Session, *, season: int) -> Standings:
             pick
         )
 
-    display_names = _display_names_for(session, user_ids=picks_by_user.keys())
+    identities = _identities_for(session, user_ids=picks_by_user.keys())
 
     results: list[BotSeasonResult] = []
     for user_id, weeks in picks_by_user.items():
@@ -172,14 +200,17 @@ def season_standings(session: Session, *, season: int) -> Standings:
         }
         results.append(
             BotSeasonResult(
-                display_name=display_names[user_id],
+                display_name=identities[user_id].display_name,
                 weekly_scores=weekly_scores,
                 season_total=sum(weekly_scores.values()),
             )
         )
 
     results.sort(key=lambda r: (-r.season_total, r.display_name))
-    return Standings(results=tuple(results))
+    identities_by_display_name = {
+        identity.display_name: identity for identity in identities.values()
+    }
+    return Standings(results=tuple(results)), identities_by_display_name
 
 
 def season_is_complete(session: Session, *, season: int) -> bool:
@@ -280,7 +311,7 @@ def week_results(
     for pick in session.exec(select(Pick).where(Pick.week_id == week_id)).all():
         picks_by_user.setdefault(pick.user_id, []).append(pick)
 
-    display_names = _display_names_for(session, user_ids=picks_by_user.keys())
+    identities = _identities_for(session, user_ids=picks_by_user.keys())
 
     results: list[UserWeekResult] = []
     for user_id, picks in picks_by_user.items():
@@ -307,14 +338,17 @@ def week_results(
                     misc_text=pick.misc_text,
                 )
             )
+        identity = identities[user_id]
         results.append(
             UserWeekResult(
-                display_name=display_names[user_id],
+                display_name=identity.display_name,
                 # Score over the user's FULL persisted picks (NOT the gated
                 # subset) so redaction never changes the score — taken from the
                 # scorer directly so nothing is re-derived.
                 weekly_score=score_week(games_by_pk, picks),
                 picks=tuple(graded),
+                discord_id=identity.discord_id,
+                discord_avatar_hash=identity.discord_avatar_hash,
             )
         )
 
@@ -322,13 +356,23 @@ def week_results(
     return results
 
 
-def _display_names_for(session: Session, *, user_ids) -> dict[int, str]:
-    """Look up ``{User.id: display_name}`` for the given user ids (one query)."""
+def _identities_for(session: Session, *, user_ids) -> dict[int, UserIdentity]:
+    """Look up ``{User.id: UserIdentity}`` for the given user ids (one query).
+
+    Reads ``display_name`` plus the avatar-identity attributes (``discord_id``,
+    ``discord_avatar_hash``) off the already-loaded ``User`` rows — the same
+    single ``select(User).where(User.id.in_(ids))`` as before, just reading the
+    extra columns. Feeds both ``season_standings`` and ``week_results``.
+    """
     ids = set(user_ids)
     if not ids:
         return {}
     return {
-        u.id: u.display_name
+        u.id: UserIdentity(
+            display_name=u.display_name,
+            discord_id=u.discord_id,
+            discord_avatar_hash=u.discord_avatar_hash,
+        )
         for u in session.exec(select(User).where(User.id.in_(ids))).all()
         if u.id is not None
     }

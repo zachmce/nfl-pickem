@@ -58,6 +58,7 @@ class AdminUserRow:
     id: int
     display_name: str
     discord_id: int | None
+    discord_avatar_hash: str | None
     is_admin: bool
     is_active: bool
     created_at: datetime
@@ -84,6 +85,7 @@ def _row_for(session: Session, user: User, counts: dict[int, int] | None = None)
         id=user.id,
         display_name=user.display_name,
         discord_id=user.discord_id,
+        discord_avatar_hash=user.discord_avatar_hash,
         is_admin=user.is_admin,
         is_active=user.is_active,
         created_at=user.created_at,

@@ -30,6 +30,12 @@ export interface AdminUser {
   id: number;
   display_name: string;
   discord_id: number | null;
+  /**
+   * Discord avatar hash (mirrors backend AdminUserRead). Null for web-origin /
+   * seeded accounts or Discord users without a custom avatar; the `<Avatar>`
+   * component builds the CDN URL from this + `discord_id`, else initials.
+   */
+  discord_avatar_hash: string | null;
   is_admin: boolean;
   is_active: boolean;
   created_at: string;

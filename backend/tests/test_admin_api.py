@@ -80,7 +80,17 @@ class AdminApiTests(unittest.TestCase):
             # two plain members.
             admin = User(display_name="admin", password_hash=pw, is_admin=True, is_active=True)
             admin2 = User(display_name="admin2", password_hash=pw, is_admin=True, is_active=True)
-            member = User(display_name="member", password_hash=pw, is_admin=False, is_active=True)
+            # member carries a Discord identity (avatar hash present) so the
+            # list response exposes a non-null discord_avatar_hash; everyone else
+            # leaves it null (web-origin / no custom avatar).
+            member = User(
+                display_name="member",
+                password_hash=pw,
+                is_admin=False,
+                is_active=True,
+                discord_id=7777,
+                discord_avatar_hash="memberavatarhash",
+            )
             member2 = User(display_name="member2", password_hash=pw, is_admin=False, is_active=True)
             session.add_all([admin, admin2, member, member2])
             session.commit()
@@ -194,8 +204,22 @@ class AdminApiTests(unittest.TestCase):
         self.assertEqual(by_id[self.member2_id]["pick_count"], 0)
         for u in users:
             self.assertNotIn("password_hash", u)
-        for field in ("id", "display_name", "discord_id", "is_admin", "is_active", "created_at"):
+        for field in (
+            "id",
+            "display_name",
+            "discord_id",
+            "discord_avatar_hash",
+            "is_admin",
+            "is_active",
+            "created_at",
+        ):
             self.assertIn(field, by_id[self.admin_id])
+        # member has a seeded avatar hash; the others (no Discord identity) null.
+        self.assertEqual(
+            by_id[self.member_id]["discord_avatar_hash"], "memberavatarhash"
+        )
+        self.assertIsNone(by_id[self.admin_id]["discord_avatar_hash"])
+        self.assertIsNone(by_id[self.member2_id]["discord_avatar_hash"])
 
     # -- action happy paths (pinned 200 AdminUserRead / 204 contract) ------
 

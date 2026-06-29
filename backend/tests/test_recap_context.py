@@ -203,7 +203,7 @@ class GetRecapContextTests(unittest.TestCase):
     def test_season_standings_carry_rank_and_gap_to_leader(self) -> None:
         with self._session() as session:
             ctx = get_recap_context(session, SEASON, WEEK)
-            expected = season_standings(session, season=SEASON).results
+            expected = season_standings(session, season=SEASON)[0].results
 
         standings = ctx["season_standings"]
         self.assertEqual(len(standings), len(expected))

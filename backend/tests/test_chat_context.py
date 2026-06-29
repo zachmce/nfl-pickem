@@ -301,7 +301,7 @@ class ChatContextTests(unittest.TestCase):
     def test_roster_complete_reports_rank_and_total(self) -> None:
         with self._session() as session:
             ctx = get_roster_complete_context(session, SEASON, WEEK, actor="alice")
-            standings = season_standings(session, season=SEASON).results
+            standings = season_standings(session, season=SEASON)[0].results
         by_name = {r.display_name: r for r in standings}
         self.assertEqual(ctx["actor"], "alice")
         self.assertEqual(ctx["season_total"], by_name["alice"].season_total)
@@ -385,7 +385,7 @@ class ChatContextTests(unittest.TestCase):
     def test_leaders_reports_leader_and_runner_up(self) -> None:
         with self._session() as session:
             ctx = get_leaders_context(session, SEASON)
-            standings = season_standings(session, season=SEASON).results
+            standings = season_standings(session, season=SEASON)[0].results
         self.assertEqual(ctx["leader"], standings[0].display_name)
         self.assertEqual(ctx["leader_total"], standings[0].season_total)
         self.assertEqual(ctx["runner_up"], standings[1].display_name)
