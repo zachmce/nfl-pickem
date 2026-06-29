@@ -42,6 +42,7 @@ from app.exceptions import NotFoundError
 from app.models import Game, GameStatus, User
 from app.schemas.current_week import CurrentWeekResponse, PickWindowState
 from app.services.pick_window import PickWindow, compute_window, is_pick_open
+from app.services.standings import season_is_complete
 
 router = APIRouter(prefix="/api/current-week", tags=["current-week"])
 
@@ -146,9 +147,12 @@ def read_current_week(
         all_final = all(g.status == GameStatus.FINAL for g in by_week[chosen_week])
         state = PickWindowState.CLOSED if all_final else PickWindowState.LOCKED
 
+    complete = season_is_complete(session, season=season)
+
     return CurrentWeekResponse(
         season=season,
         week=chosen_week,
         window_state=state,
         window_closes_at=window.close_at,
+        season_complete=complete,
     )

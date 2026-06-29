@@ -47,3 +47,4 @@ class CurrentWeekResponse(BaseModel):
     week: int
     window_state: PickWindowState
     window_closes_at: datetime
+    season_complete: bool
