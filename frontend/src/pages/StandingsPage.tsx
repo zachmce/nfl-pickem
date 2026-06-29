@@ -24,6 +24,7 @@
  */
 import { useAuth } from "../auth/useAuth";
 import type { SeasonStandingRow } from "../lib/results";
+import { EMPTY_STANDINGS, ERROR_STANDINGS, LOADING_STANDINGS } from "../lib/strings";
 import { useStandings } from "./useStandings";
 
 /** NFL regular season length — the matrix always shows at least W1..W18. */
@@ -90,7 +91,7 @@ export default function StandingsPage() {
     return (
       <div>
         <h1 className="text-2xl font-bold">Standings</h1>
-        <p className="mt-2 text-gray-500">Loading the season scoreboard…</p>
+        <p className="mt-2 text-gray-500">{LOADING_STANDINGS}</p>
       </div>
     );
   }
@@ -99,9 +100,7 @@ export default function StandingsPage() {
     return (
       <div>
         <h1 className="text-2xl font-bold">Standings</h1>
-        <p className="mt-2 text-gray-600">
-          Couldn't load the standings. Please try again later.
-        </p>
+        <p className="mt-2 text-gray-600">{ERROR_STANDINGS}</p>
       </div>
     );
   }
@@ -121,10 +120,7 @@ export default function StandingsPage() {
             <p className="mt-1 text-sm text-gray-500">{seasonLabel}</p>
           )}
         </header>
-        <p className="text-gray-500">
-          No scores have been posted yet — the scoreboard will fill in once the
-          season is underway.
-        </p>
+        <p className="text-gray-500">{EMPTY_STANDINGS}</p>
       </div>
     );
   }

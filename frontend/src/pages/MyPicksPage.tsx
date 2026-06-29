@@ -20,6 +20,7 @@ import { useState } from "react";
 import { errorKey, slotKey, type PickItem, type PickType, type SlateGame } from "../lib/picks";
 import type { WindowState } from "../lib/currentWeek";
 import { formatLocalDateTime } from "../lib/datetime";
+import { ERROR_MY_PICKS, LOADING_MY_PICKS } from "../lib/strings";
 import { teamLogoUrl } from "../lib/teamLogos";
 import { useMyPicks, type PicksBySlot } from "./useMyPicks";
 
@@ -180,7 +181,7 @@ export default function MyPicksPage() {
     return (
       <div>
         <h1 className="text-2xl font-bold">My Picks</h1>
-        <p className="mt-2 text-gray-500">Loading your picks…</p>
+        <p className="mt-2 text-gray-500">{LOADING_MY_PICKS}</p>
       </div>
     );
   }
@@ -189,9 +190,7 @@ export default function MyPicksPage() {
     return (
       <div>
         <h1 className="text-2xl font-bold">My Picks</h1>
-        <p className="mt-2 text-gray-600">
-          Couldn't load this week's picks. Please try again later.
-        </p>
+        <p className="mt-2 text-gray-600">{ERROR_MY_PICKS}</p>
       </div>
     );
   }

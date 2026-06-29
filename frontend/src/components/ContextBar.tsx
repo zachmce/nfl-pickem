@@ -14,6 +14,7 @@ import {
   type WindowState,
 } from "../lib/currentWeek";
 import { formatLocalDateTime } from "../lib/datetime";
+import { ERROR_WEEK_STATUS, LOADING_WEEK_STATUS } from "../lib/strings";
 
 type Status = "loading" | "ok" | "error";
 
@@ -78,8 +79,8 @@ export default function ContextBar() {
   const { data, status } = useCurrentWeek();
 
   let content: string;
-  if (status === "loading") content = "Loading week…";
-  else if (status === "error" || !data) content = "Week status unavailable";
+  if (status === "loading") content = LOADING_WEEK_STATUS;
+  else if (status === "error" || !data) content = ERROR_WEEK_STATUS;
   else if (data.season_complete) {
     // Season-over: no "closes" clause (the close date is now in the past and
     // reads nonsensically). Decision #4 of the site-consistency pass.

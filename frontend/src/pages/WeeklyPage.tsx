@@ -21,6 +21,7 @@
 import { useAuth } from "../auth/useAuth";
 import type { PickType, SlateGame } from "../lib/picks";
 import type { UserWeekResult, WeekResultPickRead } from "../lib/results";
+import { EMPTY_WEEKLY, ERROR_WEEKLY, LOADING_WEEKLY } from "../lib/strings";
 import { useWeekly } from "./useWeekly";
 
 /** Tailwind accent classes for each GradeOutcome string (UNGRADEABLE = neutral). */
@@ -209,7 +210,7 @@ export default function WeeklyPage() {
     return (
       <div>
         <h1 className="text-2xl font-bold">Weekly</h1>
-        <p className="mt-2 text-gray-500">Loading this week's picks…</p>
+        <p className="mt-2 text-gray-500">{LOADING_WEEKLY}</p>
       </div>
     );
   }
@@ -218,9 +219,7 @@ export default function WeeklyPage() {
     return (
       <div>
         <h1 className="text-2xl font-bold">Weekly</h1>
-        <p className="mt-2 text-gray-600">
-          Couldn't load the weekly results. Please try again later.
-        </p>
+        <p className="mt-2 text-gray-600">{ERROR_WEEKLY}</p>
       </div>
     );
   }
@@ -262,9 +261,7 @@ export default function WeeklyPage() {
       </header>
 
       {results.length === 0 ? (
-        <p className="text-gray-500">
-          No picks have been made for this week yet.
-        </p>
+        <p className="text-gray-500">{EMPTY_WEEKLY}</p>
       ) : (
         <div className="space-y-4">
           {results.map((result, i) => {

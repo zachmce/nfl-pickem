@@ -28,6 +28,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { CalendarGame, CalendarResponse } from "../lib/calendar";
 import { getCalendar } from "../lib/calendar";
 import { formatLocalDateTime } from "../lib/datetime";
+import { EMPTY_CALENDAR, ERROR_CALENDAR, LOADING_CALENDAR } from "../lib/strings";
 
 const ET_TIME_ZONE = "America/New_York";
 
@@ -221,15 +222,13 @@ export default function CalendarPage() {
       </header>
 
       {status === "loading" && (
-        <p className="text-gray-500">Loading the schedule…</p>
+        <p className="text-gray-500">{LOADING_CALENDAR}</p>
       )}
       {status === "error" && (
-        <p className="text-gray-600">
-          Couldn't load the calendar. Please try again later.
-        </p>
+        <p className="text-gray-600">{ERROR_CALENDAR}</p>
       )}
       {status === "ok" && gamesByDay.size === 0 && (
-        <p className="text-gray-500">No games scheduled this month.</p>
+        <p className="text-gray-500">{EMPTY_CALENDAR}</p>
       )}
 
       <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
