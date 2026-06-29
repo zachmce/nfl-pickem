@@ -18,6 +18,8 @@ export interface UserRead {
   display_name: string;
   is_admin: boolean;
   is_active: boolean;
+  /** Account join date as an ISO timestamp string (mirrors backend created_at). */
+  created_at: string;
 }
 
 /** Thrown on a non-2xx response; carries the HTTP status so callers can branch (e.g. 401). */

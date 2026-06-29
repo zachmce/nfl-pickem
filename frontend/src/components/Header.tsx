@@ -82,6 +82,13 @@ export default function Header() {
         </span>
       )}
       <ThemeSwitcher />
+      <NavLink
+        to="/profile"
+        onClick={() => setOpen(false)}
+        className="rounded border border-border bg-surface px-3 py-1 text-sm font-medium text-fg-muted hover:bg-surface-raised"
+      >
+        Profile
+      </NavLink>
       <button
         type="button"
         onClick={handleLogout}

@@ -14,6 +14,7 @@ import AdminPage from "./pages/AdminPage";
 import CalendarPage from "./pages/CalendarPage";
 import LoginPage from "./pages/LoginPage";
 import MyPicksPage from "./pages/MyPicksPage";
+import ProfilePage from "./pages/ProfilePage";
 import RulesPage from "./pages/RulesPage";
 import StandingsPage from "./pages/StandingsPage";
 import WeeklyPage from "./pages/WeeklyPage";
@@ -34,6 +35,7 @@ export const router = createBrowserRouter([
           { path: "weekly", element: <WeeklyPage /> },
           { path: "calendar", element: <CalendarPage /> },
           { path: "rules", element: <RulesPage /> },
+          { path: "profile", element: <ProfilePage /> },
           {
             element: <RequireAdmin />,
             children: [{ path: "admin", element: <AdminPage /> }],
