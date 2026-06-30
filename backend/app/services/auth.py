@@ -9,6 +9,7 @@ import structlog
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -393,9 +394,26 @@ def revoke_admin_by_discord_id(
 ) -> None:
     """Revoke admin privileges from a user by Discord ID.
 
-    Self-demote guard: raises ValueError when caller_discord_id == target_discord_id.
-    The 'demote last admin' guard is explicitly deferred. Only the self-demote rail
-    is implemented. Raises ValueError if target has no account or is not an admin.
+    Guard set, in order (mirrors the web ``admin.revoke_admin`` path so both
+    surfaces behave identically):
+
+    1. Self-demote — raises ValueError when caller_discord_id == target_discord_id.
+    2. Missing-account — raises ValueError when no row matches target_discord_id.
+    3. Not-admin — raises ValueError when the target is not currently an admin.
+    4. Last-admin — raises ``ValueError("last_admin: ...")`` (stable leading code,
+       byte-identical message to the web path) when the target is the only
+       ``is_admin=True`` row, refusing to strand the system with zero admins.
+
+    The last-admin count includes ALL ``is_admin=True`` rows regardless of
+    ``is_active`` — matching the web ``revoke_admin`` semantics (its
+    ``_count_admins`` default is ``active_only=False``) so both surfaces report
+    identically.
+
+    No protected guard is needed here: the break-glass protected admin has a NULL
+    ``discord_id``, so it is unreachable via this discord_id-keyed path by design
+    (no integer ``target_discord_id`` ever matches NULL). The count query is
+    replicated inline rather than imported from ``app.services.admin`` to keep the
+    auth->admin module boundary one-directional and avoid a circular import.
     """
     # Self-demote guard — checked BEFORE the DB lookup.
     if caller_discord_id == target_discord_id:
@@ -408,6 +426,15 @@ def revoke_admin_by_discord_id(
         raise ValueError(f"No account found for discord_id {target_discord_id}")
     if not user.is_admin:
         raise ValueError("Target user is not an admin")
+    # Last-admin guard — count ALL is_admin=True rows (no is_active filter),
+    # mirroring the web admin._count_admins default. Replicated inline (not
+    # imported from app.services.admin) to keep the auth->admin boundary
+    # one-directional and avoid a circular import.
+    admin_count = session.exec(
+        select(func.count(User.id)).where(User.is_admin == True)  # noqa: E712
+    ).one()
+    if admin_count == 1:
+        raise ValueError("last_admin: cannot remove the only remaining admin")
 
     user.is_admin = False
     session.add(user)
