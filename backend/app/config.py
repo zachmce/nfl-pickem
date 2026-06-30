@@ -1,13 +1,26 @@
 from functools import lru_cache
+from typing import Literal
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Single source of truth for the DEV-ONLY session-signing key. Referenced both as
+# the secret_key field default AND by the production fail-closed validator below,
+# so the validator's equality check can never drift from the actual default.
+_DEV_SECRET_KEY = "dev-only-insecure-secret-key-change-me-in-production"
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
+
+    # Deploy environment indicator (env APP_ENV) and the fail-closed trigger.
+    # The default MUST stay non-production so dev/demo/test boot byte-for-byte
+    # unchanged: the _prod_fail_closed validator below is a strict no-op unless
+    # this equals "production". On the real server set APP_ENV=production to
+    # activate the guard that refuses to boot on insecure dev defaults.
+    app_env: Literal["development", "test", "staging", "production"] = "development"
 
     # Postgres
     postgres_user: str = "pickem"
@@ -22,7 +35,7 @@ class Settings(BaseSettings):
     # Auth: session-cookie signing (itsdangerous). The default is a DEV-ONLY
     # placeholder so the local stack runs out of the box — ALWAYS override
     # SECRET_KEY in .env for any non-local deployment.
-    secret_key: str = "dev-only-insecure-secret-key-change-me-in-production"
+    secret_key: str = _DEV_SECRET_KEY
     session_cookie_name: str = "session"
     session_max_age_days: int = 30
     # Set True in prod (HTTPS) so the session cookie is only sent over TLS.
@@ -100,6 +113,75 @@ class Settings(BaseSettings):
         if isinstance(v, str) and v.strip() == "":
             return None
         return v
+
+    @model_validator(mode="after")
+    def _prod_fail_closed(self) -> "Settings":
+        """Refuse to boot a production deploy that still carries insecure dev defaults.
+
+        This is the fail-closed mechanism for the go-live cutover: ``config.py``
+        ships DEV DEFAULTS (a placeholder ``SECRET_KEY``, plaintext-OK cookies, a
+        localhost CORS origin) so the local stack runs out of the box — but nothing
+        otherwise stops those defaults reaching production. Because
+        ``settings = get_settings()`` runs at import time, a ``ValueError`` raised
+        here aborts the import and the process refuses to start.
+
+        STRICT NO-OP outside production: when ``app_env != "production"`` (the
+        default ``development``, plus ``test``/``staging``) this returns ``self``
+        immediately, so EVERY existing dev/demo/test code path is byte-for-byte
+        unchanged. Only ``app_env == "production"`` activates the checks below.
+
+        ALL failing checks are collected into one actionable message (we do not
+        raise on the first) so an operator fixing config sees every problem and the
+        exact env var to set for each, in a single boot attempt.
+        """
+        if self.app_env != "production":
+            return self
+
+        failures: list[str] = []
+
+        # Session-signing key: reject the shared dev default (T-lkf-01) and any key
+        # too short to be a real random secret. Compared against _DEV_SECRET_KEY so
+        # the check can never drift from the actual field default.
+        if self.secret_key == _DEV_SECRET_KEY or len(self.secret_key) < 32:
+            failures.append(
+                "SECRET_KEY is the insecure dev default or too short (<32 chars); "
+                "set a real random SECRET_KEY"
+            )
+
+        # Cookies must be HTTPS-only in production (T-lkf-02).
+        if not self.session_cookie_secure:
+            failures.append(
+                "SESSION_COOKIE_SECURE must be true in production (HTTPS-only "
+                "cookies); set SESSION_COOKIE_SECURE=true"
+            )
+
+        # Never serve demo data in production (T-lkf-03; belt-and-suspenders with
+        # the existing PROD-LEAK-GUARD source seam).
+        if self.is_demo_data:
+            failures.append(
+                "IS_DEMO_DATA must be false in production (never serve demo data); "
+                "set IS_DEMO_DATA=false"
+            )
+
+        # CORS origins must be real and non-localhost (T-lkf-04). Empty list or any
+        # localhost/127.0.0.1 entry is rejected.
+        if not self.cors_allowed_origins or any(
+            "localhost" in origin or "127.0.0.1" in origin
+            for origin in self.cors_allowed_origins
+        ):
+            failures.append(
+                "CORS_ALLOWED_ORIGINS must list real non-localhost origins; "
+                "set CORS_ALLOWED_ORIGINS"
+            )
+
+        if failures:
+            bullets = "\n".join(f"  - {f}" for f in failures)
+            raise ValueError(
+                "Refusing to start: APP_ENV=production but insecure configuration "
+                f"detected:\n{bullets}"
+            )
+
+        return self
 
     @property
     def database_url(self) -> str:
