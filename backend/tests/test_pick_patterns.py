@@ -32,15 +32,16 @@ class ScanStreakTests(unittest.TestCase):
         those opponents do NOT form their own 3-week run.
         """
         history = [
-            _key(5, "KC", "OVER"), _key(5, "DEN", "OVER"),
-            _key(4, "KC", "OVER"), _key(4, "LV", "OVER"),
-            _key(3, "KC", "OVER"), _key(3, "SF", "OVER"),
+            _key(5, "KC", "OVER"),
+            _key(5, "DEN", "OVER"),
+            _key(4, "KC", "OVER"),
+            _key(4, "LV", "OVER"),
+            _key(3, "KC", "OVER"),
+            _key(3, "SF", "OVER"),
         ]
         slate = [_key(5, "KC", "OVER"), _key(5, "DEN", "OVER")]
         fact = scan_streak(5, slate, history)
-        self.assertEqual(
-            fact, {"team_abbr": "KC", "side": "OVER", "streak_weeks": 3}
-        )
+        self.assertEqual(fact, {"team_abbr": "KC", "side": "OVER", "streak_weeks": 3})
 
     def test_spread_streak_same_team(self) -> None:
         history = [
@@ -50,9 +51,7 @@ class ScanStreakTests(unittest.TestCase):
         ]
         slate = [_key(5, "KC", "FAVORITE")]
         fact = scan_streak(5, slate, history)
-        self.assertEqual(
-            fact, {"team_abbr": "KC", "side": "FAVORITE", "streak_weeks": 3}
-        )
+        self.assertEqual(fact, {"team_abbr": "KC", "side": "FAVORITE", "streak_weeks": 3})
 
     def test_streak_of_two_is_below_threshold(self) -> None:
         history = [_key(5, "KC", "FAVORITE"), _key(4, "KC", "FAVORITE")]
@@ -95,29 +94,31 @@ class ScanStreakTests(unittest.TestCase):
     def test_two_qualifying_streaks_returns_longer(self) -> None:
         """KC FAVORITE runs 4 weeks; SF UNDER runs 3 — the longer (KC) wins."""
         history = [
-            _key(5, "KC", "FAVORITE"), _key(5, "SF", "UNDER"),
-            _key(4, "KC", "FAVORITE"), _key(4, "SF", "UNDER"),
-            _key(3, "KC", "FAVORITE"), _key(3, "SF", "UNDER"),
+            _key(5, "KC", "FAVORITE"),
+            _key(5, "SF", "UNDER"),
+            _key(4, "KC", "FAVORITE"),
+            _key(4, "SF", "UNDER"),
+            _key(3, "KC", "FAVORITE"),
+            _key(3, "SF", "UNDER"),
             _key(2, "KC", "FAVORITE"),
         ]
         slate = [_key(5, "KC", "FAVORITE"), _key(5, "SF", "UNDER")]
         fact = scan_streak(5, slate, history)
-        self.assertEqual(
-            fact, {"team_abbr": "KC", "side": "FAVORITE", "streak_weeks": 4}
-        )
+        self.assertEqual(fact, {"team_abbr": "KC", "side": "FAVORITE", "streak_weeks": 4})
 
     def test_equal_length_streaks_tie_break_alphabetical(self) -> None:
         """Two 3-week streaks of equal length -> alphabetical team_abbr (KC<SF)."""
         history = [
-            _key(5, "SF", "UNDER"), _key(5, "KC", "FAVORITE"),
-            _key(4, "SF", "UNDER"), _key(4, "KC", "FAVORITE"),
-            _key(3, "SF", "UNDER"), _key(3, "KC", "FAVORITE"),
+            _key(5, "SF", "UNDER"),
+            _key(5, "KC", "FAVORITE"),
+            _key(4, "SF", "UNDER"),
+            _key(4, "KC", "FAVORITE"),
+            _key(3, "SF", "UNDER"),
+            _key(3, "KC", "FAVORITE"),
         ]
         slate = [_key(5, "SF", "UNDER"), _key(5, "KC", "FAVORITE")]
         fact = scan_streak(5, slate, history)
-        self.assertEqual(
-            fact, {"team_abbr": "KC", "side": "FAVORITE", "streak_weeks": 3}
-        )
+        self.assertEqual(fact, {"team_abbr": "KC", "side": "FAVORITE", "streak_weeks": 3})
 
     def test_streak_key_must_be_present_in_target_slate(self) -> None:
         """A run in history that the player did NOT re-pick this week is ignored.

@@ -70,11 +70,11 @@ class AdminPicksApiTests(unittest.TestCase):
     member_id: int
     target_id: int
     week_id: int
-    game_open_id: int      # future kickoff, spread+total (open window)
-    game_total_id: int     # future kickoff, totals (open window)
-    game_pickem_id: int    # future kickoff, true pick'em (spread ineligible)
-    game_locked_id: int    # PAST kickoff, IN_PROGRESS (closed window / locked)
-    game_final_id: int     # PAST kickoff, FINAL
+    game_open_id: int  # future kickoff, spread+total (open window)
+    game_total_id: int  # future kickoff, totals (open window)
+    game_pickem_id: int  # future kickoff, true pick'em (spread ineligible)
+    game_locked_id: int  # PAST kickoff, IN_PROGRESS (closed window / locked)
+    game_final_id: int  # PAST kickoff, FINAL
 
     def setUp(self) -> None:
         self.engine = create_engine(
@@ -90,9 +90,23 @@ class AdminPicksApiTests(unittest.TestCase):
         with Session(self.engine) as session:
             # Distinct discord_ids: the one-null-discord_id invariant (260629-n59)
             # caps NULL discord_ids at one.
-            admin = User(display_name="admin", password_hash=pw, is_admin=True, is_active=True, discord_id=1)
-            member = User(display_name="member", password_hash=pw, is_admin=False, is_active=True, discord_id=2)
-            target = User(display_name="target", password_hash=pw, is_admin=False, is_active=True, discord_id=3)
+            admin = User(
+                display_name="admin", password_hash=pw, is_admin=True, is_active=True, discord_id=1
+            )
+            member = User(
+                display_name="member",
+                password_hash=pw,
+                is_admin=False,
+                is_active=True,
+                discord_id=2,
+            )
+            target = User(
+                display_name="target",
+                password_hash=pw,
+                is_admin=False,
+                is_active=True,
+                discord_id=3,
+            )
             session.add_all([admin, member, target])
             session.commit()
             for u in (admin, member, target):
@@ -121,27 +135,46 @@ class AdminPicksApiTests(unittest.TestCase):
             self.week_id = week.id
 
             game_open = Game(
-                espn_event_id=1001, week_id=week.id, season=SEASON, week=WEEK,
-                home_team_id=tid[0], away_team_id=tid[1],
-                kickoff_at=now + _FUTURE, status=GameStatus.SCHEDULED,
-                spread=Decimal("3.5"), total=Decimal("44.5"),
-                favorite_team_id=tid[0], underdog_team_id=tid[1],
+                espn_event_id=1001,
+                week_id=week.id,
+                season=SEASON,
+                week=WEEK,
+                home_team_id=tid[0],
+                away_team_id=tid[1],
+                kickoff_at=now + _FUTURE,
+                status=GameStatus.SCHEDULED,
+                spread=Decimal("3.5"),
+                total=Decimal("44.5"),
+                favorite_team_id=tid[0],
+                underdog_team_id=tid[1],
             )
             game_total = Game(
-                espn_event_id=1002, week_id=week.id, season=SEASON, week=WEEK,
-                home_team_id=tid[2], away_team_id=tid[3],
+                espn_event_id=1002,
+                week_id=week.id,
+                season=SEASON,
+                week=WEEK,
+                home_team_id=tid[2],
+                away_team_id=tid[3],
                 kickoff_at=now + _FUTURE + timedelta(hours=3),
                 status=GameStatus.SCHEDULED,
-                spread=Decimal("6.5"), total=Decimal("41.0"),
-                favorite_team_id=tid[2], underdog_team_id=tid[3],
+                spread=Decimal("6.5"),
+                total=Decimal("41.0"),
+                favorite_team_id=tid[2],
+                underdog_team_id=tid[3],
             )
             game_pickem = Game(
-                espn_event_id=1003, week_id=week.id, season=SEASON, week=WEEK,
-                home_team_id=tid[4], away_team_id=tid[5],
+                espn_event_id=1003,
+                week_id=week.id,
+                season=SEASON,
+                week=WEEK,
+                home_team_id=tid[4],
+                away_team_id=tid[5],
                 kickoff_at=now + _FUTURE + timedelta(hours=6),
                 status=GameStatus.SCHEDULED,
-                spread=Decimal("0.0"), total=Decimal("48.0"),
-                favorite_team_id=None, underdog_team_id=None,
+                spread=Decimal("0.0"),
+                total=Decimal("48.0"),
+                favorite_team_id=None,
+                underdog_team_id=None,
             )
             session.add_all([game_open, game_total, game_pickem])
 
@@ -152,11 +185,18 @@ class AdminPicksApiTests(unittest.TestCase):
             session.refresh(locked_week)
             self.locked_week_id = locked_week.id
             game_locked = Game(
-                espn_event_id=2001, week_id=locked_week.id, season=SEASON, week=WEEK + 1,
-                home_team_id=tid[6], away_team_id=tid[7],
-                kickoff_at=now - _PAST, status=GameStatus.IN_PROGRESS,
-                spread=Decimal("2.5"), total=Decimal("40.0"),
-                favorite_team_id=tid[6], underdog_team_id=tid[7],
+                espn_event_id=2001,
+                week_id=locked_week.id,
+                season=SEASON,
+                week=WEEK + 1,
+                home_team_id=tid[6],
+                away_team_id=tid[7],
+                kickoff_at=now - _PAST,
+                status=GameStatus.IN_PROGRESS,
+                spread=Decimal("2.5"),
+                total=Decimal("40.0"),
+                favorite_team_id=tid[6],
+                underdog_team_id=tid[7],
             )
             session.add(game_locked)
 
@@ -167,11 +207,18 @@ class AdminPicksApiTests(unittest.TestCase):
             session.refresh(final_week)
             self.final_week_id = final_week.id
             game_final = Game(
-                espn_event_id=3001, week_id=final_week.id, season=SEASON, week=WEEK + 2,
-                home_team_id=tid[8], away_team_id=tid[9],
-                kickoff_at=now - _PAST, status=GameStatus.FINAL,
-                spread=Decimal("4.0"), total=Decimal("45.0"),
-                favorite_team_id=tid[8], underdog_team_id=tid[9],
+                espn_event_id=3001,
+                week_id=final_week.id,
+                season=SEASON,
+                week=WEEK + 2,
+                home_team_id=tid[8],
+                away_team_id=tid[9],
+                kickoff_at=now - _PAST,
+                status=GameStatus.FINAL,
+                spread=Decimal("4.0"),
+                total=Decimal("45.0"),
+                favorite_team_id=tid[8],
+                underdog_team_id=tid[9],
             )
             session.add(game_final)
             session.commit()
@@ -217,9 +264,7 @@ class AdminPicksApiTests(unittest.TestCase):
         with self._session() as session:
             return list(
                 session.exec(
-                    select(Pick).where(
-                        Pick.user_id == user_id, Pick.week_id == week_id
-                    )
+                    select(Pick).where(Pick.user_id == user_id, Pick.week_id == week_id)
                 ).all()
             )
 
@@ -228,13 +273,21 @@ class AdminPicksApiTests(unittest.TestCase):
             return list(session.exec(select(PickEditAudit)).all())
 
     def _seed_pick(
-        self, *, user_id: int, game_id: int, week_id: int,
-        pick_type: PickType, is_mortal_lock: bool = False,
+        self,
+        *,
+        user_id: int,
+        game_id: int,
+        week_id: int,
+        pick_type: PickType,
+        is_mortal_lock: bool = False,
     ) -> int:
         with self._session() as session:
             pick = Pick(
-                user_id=user_id, game_id=game_id, week_id=week_id,
-                pick_type=pick_type, is_mortal_lock=is_mortal_lock,
+                user_id=user_id,
+                game_id=game_id,
+                week_id=week_id,
+                pick_type=pick_type,
+                is_mortal_lock=is_mortal_lock,
             )
             session.add(pick)
             session.commit()
@@ -256,19 +309,28 @@ class AdminPicksApiTests(unittest.TestCase):
             headers=self._cookie_auth_headers(as_user),
         )
 
-    def _delete(self, user_id: int, *, season: int, week: int, pick_type: str,
-                is_mortal_lock: bool, as_user: int):
+    def _delete(
+        self,
+        user_id: int,
+        *,
+        season: int,
+        week: int,
+        pick_type: str,
+        is_mortal_lock: bool,
+        as_user: int,
+    ):
         return self.client.delete(
             f"/api/admin/users/{user_id}/picks",
             params={
-                "season": season, "week": week,
-                "pick_type": pick_type, "is_mortal_lock": is_mortal_lock,
+                "season": season,
+                "week": week,
+                "pick_type": pick_type,
+                "is_mortal_lock": is_mortal_lock,
             },
             headers=self._cookie_auth_headers(as_user),
         )
 
-    def _grade(self, user_id: int, *, season: int, week: int, body: dict,
-               as_user: int):
+    def _grade(self, user_id: int, *, season: int, week: int, body: dict, as_user: int):
         return self.client.put(
             f"/api/admin/users/{user_id}/picks/misc-grade",
             params={"season": season, "week": week},
@@ -281,7 +343,9 @@ class AdminPicksApiTests(unittest.TestCase):
     def test_add_pick_when_absent(self) -> None:
         """PUT a pick the target does not have -> 200, row created."""
         resp = self._put(
-            self.target_id, season=SEASON, week=WEEK,
+            self.target_id,
+            season=SEASON,
+            week=WEEK,
             body={"game_id": self.game_open_id, "pick_type": "FAVORITE_COVER"},
             as_user=self.admin_id,
         )
@@ -296,11 +360,15 @@ class AdminPicksApiTests(unittest.TestCase):
     def test_change_existing_pick_upserts_not_duplicates(self) -> None:
         """PUT the same slot a different game -> 200; one row, game_id updated."""
         self._seed_pick(
-            user_id=self.target_id, game_id=self.game_open_id,
-            week_id=self.week_id, pick_type=PickType.OVER,
+            user_id=self.target_id,
+            game_id=self.game_open_id,
+            week_id=self.week_id,
+            pick_type=PickType.OVER,
         )
         resp = self._put(
-            self.target_id, season=SEASON, week=WEEK,
+            self.target_id,
+            season=SEASON,
+            week=WEEK,
             body={"game_id": self.game_total_id, "pick_type": "OVER"},
             as_user=self.admin_id,
         )
@@ -312,12 +380,18 @@ class AdminPicksApiTests(unittest.TestCase):
     def test_clear_existing_pick(self) -> None:
         """DELETE an existing slot -> 204; row gone."""
         self._seed_pick(
-            user_id=self.target_id, game_id=self.game_open_id,
-            week_id=self.week_id, pick_type=PickType.FAVORITE_COVER,
+            user_id=self.target_id,
+            game_id=self.game_open_id,
+            week_id=self.week_id,
+            pick_type=PickType.FAVORITE_COVER,
         )
         resp = self._delete(
-            self.target_id, season=SEASON, week=WEEK,
-            pick_type="FAVORITE_COVER", is_mortal_lock=False, as_user=self.admin_id,
+            self.target_id,
+            season=SEASON,
+            week=WEEK,
+            pick_type="FAVORITE_COVER",
+            is_mortal_lock=False,
+            as_user=self.admin_id,
         )
         self.assertEqual(resp.status_code, 204, resp.text)
         self.assertEqual(self._picks_for(self.target_id, self.week_id), [])
@@ -325,9 +399,14 @@ class AdminPicksApiTests(unittest.TestCase):
     def test_set_and_clear_mortal_lock(self) -> None:
         """PUT is_mortal_lock=true -> 200; DELETE is_mortal_lock=true -> 204."""
         put = self._put(
-            self.target_id, season=SEASON, week=WEEK,
-            body={"game_id": self.game_open_id, "pick_type": "FAVORITE_COVER",
-                  "is_mortal_lock": True},
+            self.target_id,
+            season=SEASON,
+            week=WEEK,
+            body={
+                "game_id": self.game_open_id,
+                "pick_type": "FAVORITE_COVER",
+                "is_mortal_lock": True,
+            },
             as_user=self.admin_id,
         )
         self.assertEqual(put.status_code, 200, put.text)
@@ -337,8 +416,12 @@ class AdminPicksApiTests(unittest.TestCase):
         self.assertTrue(rows[0].is_mortal_lock)
 
         delete = self._delete(
-            self.target_id, season=SEASON, week=WEEK,
-            pick_type="FAVORITE_COVER", is_mortal_lock=True, as_user=self.admin_id,
+            self.target_id,
+            season=SEASON,
+            week=WEEK,
+            pick_type="FAVORITE_COVER",
+            is_mortal_lock=True,
+            as_user=self.admin_id,
         )
         self.assertEqual(delete.status_code, 204, delete.text)
         self.assertEqual(self._picks_for(self.target_id, self.week_id), [])
@@ -348,11 +431,15 @@ class AdminPicksApiTests(unittest.TestCase):
     def test_roster_contradiction_still_rejected_409(self) -> None:
         """A same-game contradiction is STILL 409 on the admin path; no write."""
         self._seed_pick(
-            user_id=self.target_id, game_id=self.game_open_id,
-            week_id=self.week_id, pick_type=PickType.FAVORITE_COVER,
+            user_id=self.target_id,
+            game_id=self.game_open_id,
+            week_id=self.week_id,
+            pick_type=PickType.FAVORITE_COVER,
         )
         resp = self._put(
-            self.target_id, season=SEASON, week=WEEK,
+            self.target_id,
+            season=SEASON,
+            week=WEEK,
             body={"game_id": self.game_open_id, "pick_type": "UNDERDOG_COVER"},
             as_user=self.admin_id,
         )
@@ -366,14 +453,17 @@ class AdminPicksApiTests(unittest.TestCase):
     def test_roster_second_mortal_lock_still_rejected_409(self) -> None:
         """A 2nd mortal lock is STILL 409 on the admin path; no write."""
         self._seed_pick(
-            user_id=self.target_id, game_id=self.game_open_id,
-            week_id=self.week_id, pick_type=PickType.FAVORITE_COVER,
+            user_id=self.target_id,
+            game_id=self.game_open_id,
+            week_id=self.week_id,
+            pick_type=PickType.FAVORITE_COVER,
             is_mortal_lock=True,
         )
         resp = self._put(
-            self.target_id, season=SEASON, week=WEEK,
-            body={"game_id": self.game_total_id, "pick_type": "OVER",
-                  "is_mortal_lock": True},
+            self.target_id,
+            season=SEASON,
+            week=WEEK,
+            body={"game_id": self.game_total_id, "pick_type": "OVER", "is_mortal_lock": True},
             as_user=self.admin_id,
         )
         self.assertEqual(resp.status_code, 409, resp.text)
@@ -385,7 +475,9 @@ class AdminPicksApiTests(unittest.TestCase):
     def test_pickem_spread_ineligible_still_rejected_422(self) -> None:
         """A spread pick on a true pick'em is STILL 422 on the admin path."""
         resp = self._put(
-            self.target_id, season=SEASON, week=WEEK,
+            self.target_id,
+            season=SEASON,
+            week=WEEK,
             body={"game_id": self.game_pickem_id, "pick_type": "FAVORITE_COVER"},
             as_user=self.admin_id,
         )
@@ -403,7 +495,9 @@ class AdminPicksApiTests(unittest.TestCase):
         contrast) — proving the admin path bypasses window/lock.
         """
         resp = self._put(
-            self.target_id, season=SEASON, week=WEEK + 1,
+            self.target_id,
+            season=SEASON,
+            week=WEEK + 1,
             body={"game_id": self.game_locked_id, "pick_type": "FAVORITE_COVER"},
             as_user=self.admin_id,
         )
@@ -415,9 +509,11 @@ class AdminPicksApiTests(unittest.TestCase):
         # Contrast: the user-facing path rejects the SAME pick (window closed).
         user_resp = self.client.post(
             "/api/picks",
-            json={"season": SEASON, "week": WEEK + 1,
-                  "picks": [{"game_id": self.game_locked_id,
-                             "pick_type": "UNDER"}]},
+            json={
+                "season": SEASON,
+                "week": WEEK + 1,
+                "picks": [{"game_id": self.game_locked_id, "pick_type": "UNDER"}],
+            },
             headers=self._cookie_auth_headers(self.target_id),
         )
         self.assertEqual(user_resp.status_code, 409, user_resp.text)
@@ -429,7 +525,9 @@ class AdminPicksApiTests(unittest.TestCase):
     def test_admin_set_succeeds_on_final_game(self) -> None:
         """PUT succeeds (200) on a FINAL game (past kickoff, status FINAL)."""
         resp = self._put(
-            self.target_id, season=SEASON, week=WEEK + 2,
+            self.target_id,
+            season=SEASON,
+            week=WEEK + 2,
             body={"game_id": self.game_final_id, "pick_type": "FAVORITE_COVER"},
             as_user=self.admin_id,
         )
@@ -443,9 +541,10 @@ class AdminPicksApiTests(unittest.TestCase):
     def test_audit_row_written_on_set_final_game(self) -> None:
         """A successful set on the FINAL game writes one audit row, final=True."""
         resp = self._put(
-            self.target_id, season=SEASON, week=WEEK + 2,
-            body={"game_id": self.game_final_id, "pick_type": "OVER",
-                  "is_mortal_lock": False},
+            self.target_id,
+            season=SEASON,
+            week=WEEK + 2,
+            body={"game_id": self.game_final_id, "pick_type": "OVER", "is_mortal_lock": False},
             as_user=self.admin_id,
         )
         self.assertEqual(resp.status_code, 200, resp.text)
@@ -465,12 +564,18 @@ class AdminPicksApiTests(unittest.TestCase):
     def test_audit_row_written_on_clear(self) -> None:
         """A clear writes one action='clear' row, before_existed True, after None."""
         self._seed_pick(
-            user_id=self.target_id, game_id=self.game_open_id,
-            week_id=self.week_id, pick_type=PickType.FAVORITE_COVER,
+            user_id=self.target_id,
+            game_id=self.game_open_id,
+            week_id=self.week_id,
+            pick_type=PickType.FAVORITE_COVER,
         )
         resp = self._delete(
-            self.target_id, season=SEASON, week=WEEK,
-            pick_type="FAVORITE_COVER", is_mortal_lock=False, as_user=self.admin_id,
+            self.target_id,
+            season=SEASON,
+            week=WEEK,
+            pick_type="FAVORITE_COVER",
+            is_mortal_lock=False,
+            as_user=self.admin_id,
         )
         self.assertEqual(resp.status_code, 204, resp.text)
         audits = self._audits()
@@ -499,7 +604,9 @@ class AdminPicksApiTests(unittest.TestCase):
         target FK cascade.
         """
         resp = self._put(
-            self.target_id, season=SEASON, week=WEEK,
+            self.target_id,
+            season=SEASON,
+            week=WEEK,
             body={"game_id": self.game_open_id, "pick_type": "FAVORITE_COVER"},
             as_user=self.admin_id,
         )
@@ -525,7 +632,9 @@ class AdminPicksApiTests(unittest.TestCase):
         as ``admin_user_id`` (not the target) still removes the audit row.
         """
         resp = self._put(
-            self.target_id, season=SEASON, week=WEEK,
+            self.target_id,
+            season=SEASON,
+            week=WEEK,
             body={"game_id": self.game_open_id, "pick_type": "FAVORITE_COVER"},
             as_user=self.admin_id,
         )
@@ -551,7 +660,9 @@ class AdminPicksApiTests(unittest.TestCase):
         row is written.
         """
         resp = self._put(
-            999999, season=SEASON, week=WEEK,
+            999999,
+            season=SEASON,
+            week=WEEK,
             body={"game_id": self.game_open_id, "pick_type": "FAVORITE_COVER"},
             as_user=self.admin_id,
         )
@@ -563,8 +674,11 @@ class AdminPicksApiTests(unittest.TestCase):
     def test_clear_missing_user_404(self) -> None:
         """DELETE a slot for a non-existent target_user_id -> 404 (user_not_found)."""
         resp = self._delete(
-            999999, season=SEASON, week=WEEK,
-            pick_type="FAVORITE_COVER", is_mortal_lock=False,
+            999999,
+            season=SEASON,
+            week=WEEK,
+            pick_type="FAVORITE_COVER",
+            is_mortal_lock=False,
             as_user=self.admin_id,
         )
         self.assertEqual(resp.status_code, 404, resp.text)
@@ -574,8 +688,11 @@ class AdminPicksApiTests(unittest.TestCase):
     def test_grade_missing_user_404(self) -> None:
         """PUT misc-grade for a non-existent target_user_id -> 404 (user_not_found)."""
         resp = self._grade(
-            999999, season=SEASON, week=WEEK,
-            body={"result": "WIN", "points": 3}, as_user=self.admin_id,
+            999999,
+            season=SEASON,
+            week=WEEK,
+            body={"result": "WIN", "points": 3},
+            as_user=self.admin_id,
         )
         self.assertEqual(resp.status_code, 404, resp.text)
         err = self._assert_envelope(resp.json())
@@ -586,8 +703,10 @@ class AdminPicksApiTests(unittest.TestCase):
     def test_get_returns_target_user_picks(self) -> None:
         """GET returns the PATH user's roster for the week."""
         self._seed_pick(
-            user_id=self.target_id, game_id=self.game_open_id,
-            week_id=self.week_id, pick_type=PickType.FAVORITE_COVER,
+            user_id=self.target_id,
+            game_id=self.game_open_id,
+            week_id=self.week_id,
+            pick_type=PickType.FAVORITE_COVER,
         )
         resp = self.client.get(
             f"/api/admin/users/{self.target_id}/picks",
@@ -612,7 +731,9 @@ class AdminPicksApiTests(unittest.TestCase):
         self._assert_envelope(get.json())
 
         put = self._put(
-            self.target_id, season=SEASON, week=WEEK,
+            self.target_id,
+            season=SEASON,
+            week=WEEK,
             body={"game_id": self.game_open_id, "pick_type": "FAVORITE_COVER"},
             as_user=self.member_id,
         )
@@ -620,8 +741,12 @@ class AdminPicksApiTests(unittest.TestCase):
         self._assert_envelope(put.json())
 
         delete = self._delete(
-            self.target_id, season=SEASON, week=WEEK,
-            pick_type="FAVORITE_COVER", is_mortal_lock=False, as_user=self.member_id,
+            self.target_id,
+            season=SEASON,
+            week=WEEK,
+            pick_type="FAVORITE_COVER",
+            is_mortal_lock=False,
+            as_user=self.member_id,
         )
         self.assertEqual(delete.status_code, 403, delete.text)
         self._assert_envelope(delete.json())
@@ -648,12 +773,15 @@ class AdminPicksApiTests(unittest.TestCase):
         self._clear_auth()
         delete = self.client.delete(
             f"/api/admin/users/{self.target_id}/picks",
-            params={"season": SEASON, "week": WEEK,
-                    "pick_type": "FAVORITE_COVER", "is_mortal_lock": False},
+            params={
+                "season": SEASON,
+                "week": WEEK,
+                "pick_type": "FAVORITE_COVER",
+                "is_mortal_lock": False,
+            },
         )
         self.assertEqual(delete.status_code, 401, delete.text)
         self._assert_envelope(delete.json())
-
 
     # -- MISC retroactive create + grade -----------------------------------
 
@@ -664,9 +792,14 @@ class AdminPicksApiTests(unittest.TestCase):
         with the right admin/target and game_was_final.
         """
         resp = self._put(
-            self.target_id, season=SEASON, week=WEEK + 2,
-            body={"game_id": self.game_final_id, "pick_type": "MISC",
-                  "misc_text": "Mahomes throws for 400 yards"},
+            self.target_id,
+            season=SEASON,
+            week=WEEK + 2,
+            body={
+                "game_id": self.game_final_id,
+                "pick_type": "MISC",
+                "misc_text": "Mahomes throws for 400 yards",
+            },
             as_user=self.admin_id,
         )
         self.assertEqual(resp.status_code, 200, resp.text)
@@ -694,16 +827,20 @@ class AdminPicksApiTests(unittest.TestCase):
         """
         # Retroactive create first (writes audit #1).
         self._put(
-            self.target_id, season=SEASON, week=WEEK + 2,
-            body={"game_id": self.game_final_id, "pick_type": "MISC",
-                  "misc_text": "a prediction"},
+            self.target_id,
+            season=SEASON,
+            week=WEEK + 2,
+            body={"game_id": self.game_final_id, "pick_type": "MISC", "misc_text": "a prediction"},
             as_user=self.admin_id,
         )
         self.assertEqual(len(self._audits()), 1)
 
         resp = self._grade(
-            self.target_id, season=SEASON, week=WEEK + 2,
-            body={"result": "WIN", "points": 3}, as_user=self.admin_id,
+            self.target_id,
+            season=SEASON,
+            week=WEEK + 2,
+            body={"result": "WIN", "points": 3},
+            as_user=self.admin_id,
         )
         self.assertEqual(resp.status_code, 200, resp.text)
         body = resp.json()
@@ -729,18 +866,24 @@ class AdminPicksApiTests(unittest.TestCase):
         """
         # Retroactive create on the FINAL (closed-window) week, then grade WIN.
         self._put(
-            self.target_id, season=SEASON, week=WEEK + 2,
-            body={"game_id": self.game_final_id, "pick_type": "MISC",
-                  "misc_text": "Mahomes throws 4 TDs"},
+            self.target_id,
+            season=SEASON,
+            week=WEEK + 2,
+            body={
+                "game_id": self.game_final_id,
+                "pick_type": "MISC",
+                "misc_text": "Mahomes throws 4 TDs",
+            },
             as_user=self.admin_id,
         )
         captured: list[dict] = []
-        with mock.patch(
-            "app.api.admin.publish_event", side_effect=captured.append
-        ):
+        with mock.patch("app.api.admin.publish_event", side_effect=captured.append):
             resp = self._grade(
-                self.target_id, season=SEASON, week=WEEK + 2,
-                body={"result": "WIN", "points": 3}, as_user=self.admin_id,
+                self.target_id,
+                season=SEASON,
+                week=WEEK + 2,
+                body={"result": "WIN", "points": 3},
+                as_user=self.admin_id,
             )
         self.assertEqual(resp.status_code, 200, resp.text)
 
@@ -763,18 +906,24 @@ class AdminPicksApiTests(unittest.TestCase):
         """
         # Retroactive create on the OPEN-window base week, then grade LOSS.
         self._put(
-            self.target_id, season=SEASON, week=WEEK,
-            body={"game_id": self.game_open_id, "pick_type": "MISC",
-                  "misc_text": "a bold prediction"},
+            self.target_id,
+            season=SEASON,
+            week=WEEK,
+            body={
+                "game_id": self.game_open_id,
+                "pick_type": "MISC",
+                "misc_text": "a bold prediction",
+            },
             as_user=self.admin_id,
         )
         captured: list[dict] = []
-        with mock.patch(
-            "app.api.admin.publish_event", side_effect=captured.append
-        ):
+        with mock.patch("app.api.admin.publish_event", side_effect=captured.append):
             resp = self._grade(
-                self.target_id, season=SEASON, week=WEEK,
-                body={"result": "LOSS", "points": -1}, as_user=self.admin_id,
+                self.target_id,
+                season=SEASON,
+                week=WEEK,
+                body={"result": "LOSS", "points": -1},
+                as_user=self.admin_id,
             )
         # The grade itself still succeeds and persists.
         self.assertEqual(resp.status_code, 200, resp.text)
@@ -796,14 +945,18 @@ class AdminPicksApiTests(unittest.TestCase):
         Proves the auto-grade path does NOT overwrite the stored MISC grade.
         """
         self._put(
-            self.target_id, season=SEASON, week=WEEK + 2,
-            body={"game_id": self.game_final_id, "pick_type": "MISC",
-                  "misc_text": "a prediction"},
+            self.target_id,
+            season=SEASON,
+            week=WEEK + 2,
+            body={"game_id": self.game_final_id, "pick_type": "MISC", "misc_text": "a prediction"},
             as_user=self.admin_id,
         )
         self._grade(
-            self.target_id, season=SEASON, week=WEEK + 2,
-            body={"result": "WIN", "points": 3}, as_user=self.admin_id,
+            self.target_id,
+            season=SEASON,
+            week=WEEK + 2,
+            body={"result": "WIN", "points": 3},
+            as_user=self.admin_id,
         )
 
         # Recompute the week server-side (the recompute-on-read path).
@@ -823,14 +976,18 @@ class AdminPicksApiTests(unittest.TestCase):
     def test_grade_pending_rejected_422(self) -> None:
         """Grading with result=PENDING -> 422 (misc_grade_must_decide)."""
         self._put(
-            self.target_id, season=SEASON, week=WEEK + 2,
-            body={"game_id": self.game_final_id, "pick_type": "MISC",
-                  "misc_text": "a prediction"},
+            self.target_id,
+            season=SEASON,
+            week=WEEK + 2,
+            body={"game_id": self.game_final_id, "pick_type": "MISC", "misc_text": "a prediction"},
             as_user=self.admin_id,
         )
         resp = self._grade(
-            self.target_id, season=SEASON, week=WEEK + 2,
-            body={"result": "PENDING", "points": 0}, as_user=self.admin_id,
+            self.target_id,
+            season=SEASON,
+            week=WEEK + 2,
+            body={"result": "PENDING", "points": 0},
+            as_user=self.admin_id,
         )
         self.assertEqual(resp.status_code, 422, resp.text)
         err = self._assert_envelope(resp.json())
@@ -839,8 +996,11 @@ class AdminPicksApiTests(unittest.TestCase):
     def test_grade_missing_pick_404(self) -> None:
         """Grading when the user has no MISC pick -> 404 (pick_not_found)."""
         resp = self._grade(
-            self.target_id, season=SEASON, week=WEEK + 2,
-            body={"result": "WIN", "points": 3}, as_user=self.admin_id,
+            self.target_id,
+            season=SEASON,
+            week=WEEK + 2,
+            body={"result": "WIN", "points": 3},
+            as_user=self.admin_id,
         )
         self.assertEqual(resp.status_code, 404, resp.text)
         err = self._assert_envelope(resp.json())
@@ -849,8 +1009,11 @@ class AdminPicksApiTests(unittest.TestCase):
     def test_grade_non_admin_forbidden_403(self) -> None:
         """The grade endpoint rejects a non-admin member -> 403."""
         resp = self._grade(
-            self.target_id, season=SEASON, week=WEEK + 2,
-            body={"result": "WIN", "points": 3}, as_user=self.member_id,
+            self.target_id,
+            season=SEASON,
+            week=WEEK + 2,
+            body={"result": "WIN", "points": 3},
+            as_user=self.member_id,
         )
         self.assertEqual(resp.status_code, 403, resp.text)
         self._assert_envelope(resp.json())

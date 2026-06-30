@@ -113,7 +113,9 @@ class ResetPasswordCog(commands.Cog):
         error: app_commands.AppCommandError,
     ) -> None:
         """Cog-level error sink — maps errors to ephemeral user-facing replies."""
-        if isinstance(error, app_commands.CommandInvokeError) and isinstance(error.original, ValueError):
+        if isinstance(error, app_commands.CommandInvokeError) and isinstance(
+            error.original, ValueError
+        ):
             msg = str(error.original)
         elif isinstance(error, ValueError):
             msg = str(error)

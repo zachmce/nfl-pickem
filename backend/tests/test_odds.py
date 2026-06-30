@@ -228,9 +228,7 @@ class ReconcileOddsWriteTests(unittest.TestCase):
             import_fixture_2025(session)
             # Reset week 1 odds so we can prove the reconciler WRITES them.
             for g in session.exec(
-                select(Game).where(
-                    Game.season == self.season, Game.week == 1
-                )
+                select(Game).where(Game.season == self.season, Game.week == 1)
             ).all():
                 g.status = GameStatus.SCHEDULED
                 g.home_score = None
@@ -259,9 +257,7 @@ class ReconcileOddsWriteTests(unittest.TestCase):
             tmap = _team_map(session)
             fav_espn, dog_espn = self._two_team_ids(session)
             row = session.exec(
-                select(Game).where(
-                    Game.season == self.season, Game.week == 1
-                )
+                select(Game).where(Game.season == self.season, Game.week == 1)
             ).first()
             src = ScoreboardOdds(
                 provider="DraftKings",
@@ -286,9 +282,7 @@ class ReconcileOddsWriteTests(unittest.TestCase):
             tmap = _team_map(session)
             fav_espn, dog_espn = self._two_team_ids(session)
             row = session.exec(
-                select(Game).where(
-                    Game.season == self.season, Game.week == 1
-                )
+                select(Game).where(Game.season == self.season, Game.week == 1)
             ).first()
             reconcile_odds(
                 row,
@@ -330,9 +324,7 @@ class ReconcileOddsWriteTests(unittest.TestCase):
             tmap = _team_map(session)
             fav_espn, dog_espn = self._two_team_ids(session)
             row = session.exec(
-                select(Game).where(
-                    Game.season == self.season, Game.week == 1
-                )
+                select(Game).where(Game.season == self.season, Game.week == 1)
             ).first()
             wrote = reconcile_odds(
                 row,
@@ -357,9 +349,7 @@ class ReconcileOddsWriteTests(unittest.TestCase):
             tmap = _team_map(session)
             fav_espn, dog_espn = self._two_team_ids(session)
             row = session.exec(
-                select(Game).where(
-                    Game.season == self.season, Game.week == 1
-                )
+                select(Game).where(Game.season == self.season, Game.week == 1)
             ).first()
             src = ScoreboardOdds(
                 provider="DraftKings",
@@ -378,9 +368,7 @@ class ReconcileOddsWriteTests(unittest.TestCase):
             tmap = _team_map(session)
             fav_espn, dog_espn = self._two_team_ids(session)
             row = session.exec(
-                select(Game).where(
-                    Game.season == self.season, Game.week == 1
-                )
+                select(Game).where(Game.season == self.season, Game.week == 1)
             ).first()
             reconcile_odds(
                 row,
@@ -406,9 +394,7 @@ class ReconcileOddsWriteTests(unittest.TestCase):
             tmap = _team_map(session)
             fav_espn, dog_espn = self._two_team_ids(session)
             row = session.exec(
-                select(Game).where(
-                    Game.season == self.season, Game.week == 1
-                )
+                select(Game).where(Game.season == self.season, Game.week == 1)
             ).first()
             reconcile_odds(
                 row,
@@ -439,9 +425,7 @@ class ReconcileOddsWriteTests(unittest.TestCase):
         with Session(self.engine) as session:
             tmap = _team_map(session)
             row = session.exec(
-                select(Game).where(
-                    Game.season == self.season, Game.week == 1
-                )
+                select(Game).where(Game.season == self.season, Game.week == 1)
             ).first()
             # A fav/dog id not in the team map: the fav/dog write is skipped, not
             # a crash. spread/total still apply.
@@ -490,9 +474,7 @@ class ReconcileWeekAndNeedyTests(unittest.TestCase):
         self.engine.dispose()
 
     def _week1_event_and_kickoff(self, session: Session) -> tuple[int, datetime]:
-        row = session.exec(
-            select(Game).where(Game.season == self.season, Game.week == 1)
-        ).first()
+        row = session.exec(select(Game).where(Game.season == self.season, Game.week == 1)).first()
         ko = row.kickoff_at
         if ko.tzinfo is None:
             ko = ko.replace(tzinfo=timezone.utc)
@@ -503,23 +485,17 @@ class ReconcileWeekAndNeedyTests(unittest.TestCase):
             all_games = list(session.exec(select(Game)).all())
             week_rows = {
                 w.week: w
-                for w in session.exec(
-                    select(Week).where(Week.season == self.season)
-                ).all()
+                for w in session.exec(select(Week).where(Week.season == self.season)).all()
             }
             from app.services.refresh import group_games_by_week
 
             by_week = group_games_by_week(all_games)
-            needy = odds_needy_weeks(
-                by_week, week_rows, now=self.now_open
-            )
+            needy = odds_needy_weeks(by_week, week_rows, now=self.now_open)
             self.assertIn((self.season, 1), set(needy))
 
             # Freeze week 1 explicitly -> excluded from needy.
             week_rows[1].lines_frozen = True
-            needy_after = odds_needy_weeks(
-                by_week, week_rows, now=self.now_open
-            )
+            needy_after = odds_needy_weeks(by_week, week_rows, now=self.now_open)
             self.assertNotIn((self.season, 1), set(needy_after))
 
     def test_reconcile_week_writes_then_freeze_stops_updates(self) -> None:
@@ -530,16 +506,10 @@ class ReconcileWeekAndNeedyTests(unittest.TestCase):
             fav_espn, dog_espn = teams[0].espn_team_id, teams[1].espn_team_id
 
             week_games = list(
-                session.exec(
-                    select(Game).where(
-                        Game.season == self.season, Game.week == 1
-                    )
-                ).all()
+                session.exec(select(Game).where(Game.season == self.season, Game.week == 1)).all()
             )
             week_row = session.exec(
-                select(Week).where(
-                    Week.season == self.season, Week.week == 1
-                )
+                select(Week).where(Week.season == self.season, Week.week == 1)
             ).first()
 
             src = _MovingLineSource(
@@ -569,9 +539,7 @@ class ReconcileWeekAndNeedyTests(unittest.TestCase):
             self.assertEqual(result.games_updated, 1)
             session.commit()
 
-            target = session.exec(
-                select(Game).where(Game.espn_event_id == event_id)
-            ).first()
+            target = session.exec(select(Game).where(Game.espn_event_id == event_id)).first()
             self.assertEqual(target.spread, Decimal("3.5"))
 
             # Now FREEZE the week and MOVE the line -> the row must NOT change.
@@ -597,9 +565,7 @@ class ReconcileWeekAndNeedyTests(unittest.TestCase):
             self.assertEqual(result2.games_updated, 0)
             self.assertIn(1, [w for _s, w in result2.frozen_weeks])
             session.commit()
-            target2 = session.exec(
-                select(Game).where(Game.espn_event_id == event_id)
-            ).first()
+            target2 = session.exec(select(Game).where(Game.espn_event_id == event_id)).first()
             # Frozen: keeps its earlier value (3.5), not the moved 7.5.
             self.assertEqual(target2.spread, Decimal("3.5"))
 
@@ -622,22 +588,16 @@ class ReconcileWeekAndNeedyTests(unittest.TestCase):
                 ),
                 kickoff=kickoff,
             )
-            result = reconcile_odds_games(
-                session, src, now=self.now_open, team_map=tmap
-            )
+            result = reconcile_odds_games(session, src, now=self.now_open, team_map=tmap)
             self.assertIsInstance(result, OddsResult)
             self.assertGreaterEqual(result.games_updated, 1)
             session.commit()
 
-            target = session.exec(
-                select(Game).where(Game.espn_event_id == event_id)
-            ).first()
+            target = session.exec(select(Game).where(Game.espn_event_id == event_id)).first()
             self.assertEqual(target.spread, Decimal("3.5"))
 
             # Idempotent: a second identical run dirties nothing.
-            second = reconcile_odds_games(
-                session, src, now=self.now_open, team_map=tmap
-            )
+            second = reconcile_odds_games(session, src, now=self.now_open, team_map=tmap)
             self.assertEqual(second.games_updated, 0)
             self.assertFalse(session.dirty, session.dirty)
             self.assertFalse(session.new, session.new)
@@ -662,9 +622,7 @@ class ReconcileWeekAndNeedyTests(unittest.TestCase):
                 ),
                 kickoff=kickoff,
             )
-            result = reconcile_odds_games(
-                session, src, now=self.now_open, team_map=tmap
-            )
+            result = reconcile_odds_games(session, src, now=self.now_open, team_map=tmap)
             self.assertEqual(result.games_updated, 0)
 
 

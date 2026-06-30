@@ -88,9 +88,7 @@ def seed_admin(
         logger.info("admin_seed_skipped", reason="credentials unset")
         return False
 
-    existing = session.exec(
-        select(User).where(User.display_name == username)
-    ).first()
+    existing = session.exec(select(User).where(User.display_name == username)).first()
     if existing is not None:
         # Never touch an existing row's password_hash / is_admin (T-39u-01/02).
         logger.info(

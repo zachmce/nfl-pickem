@@ -61,11 +61,17 @@ class AdminTriggersApiTests(unittest.TestCase):
             # Distinct discord_ids: the one-null-discord_id invariant (260629-n59)
             # caps NULL discord_ids at one.
             admin = User(
-                display_name="admin", password_hash=pw, is_admin=True, is_active=True,
+                display_name="admin",
+                password_hash=pw,
+                is_admin=True,
+                is_active=True,
                 discord_id=1,
             )
             member = User(
-                display_name="member", password_hash=pw, is_admin=False, is_active=True,
+                display_name="member",
+                password_hash=pw,
+                is_admin=False,
+                is_active=True,
                 discord_id=2,
             )
             session.add_all([admin, member])
@@ -173,18 +179,14 @@ class AdminTriggersApiTests(unittest.TestCase):
 
     def test_ingest_season_anonymous_unauthorized(self) -> None:
         self._clear_auth()
-        resp = self.client.post(
-            "/api/admin/ingest-season", json={"season": 2026}
-        )
+        resp = self.client.post("/api/admin/ingest-season", json={"season": 2026})
         self.assertEqual(resp.status_code, 401, resp.text)
         self._assert_envelope(resp.json())
         self.assertEqual(self.fake_ingest.calls, [])
 
     def test_freeze_week_anonymous_unauthorized(self) -> None:
         self._clear_auth()
-        resp = self.client.post(
-            "/api/admin/freeze-week", json={"season": 2026, "week": 3}
-        )
+        resp = self.client.post("/api/admin/freeze-week", json={"season": 2026, "week": 3})
         self.assertEqual(resp.status_code, 401, resp.text)
         self._assert_envelope(resp.json())
         self.assertEqual(self.fake_freeze.calls, [])

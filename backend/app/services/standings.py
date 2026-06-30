@@ -169,9 +169,7 @@ class UserIdentity:
     discord_avatar_hash: str | None
 
 
-def season_standings(
-    session: Session, *, season: int
-) -> tuple[Standings, dict[str, UserIdentity]]:
+def season_standings(session: Session, *, season: int) -> tuple[Standings, dict[str, UserIdentity]]:
     """Cumulative season standings over ALL users with picks in ``season``.
 
     Derives the user set from the distinct ``user_id`` of ``Pick`` rows in the
@@ -196,8 +194,7 @@ def season_standings(
     """
     games_by_pk = _season_games_by_pk(session, season=season)
     week_id_to_number = {
-        week_id: number
-        for number, week_id in _season_week_ids(session, season=season).items()
+        week_id: number for number, week_id in _season_week_ids(session, season=season).items()
     }
     season_week_ids = set(week_id_to_number)
 
@@ -209,9 +206,7 @@ def season_standings(
         week_number = week_id_to_number.get(pick.week_id)
         if week_number is None:  # pick outside this season's weeks
             continue
-        picks_by_user.setdefault(pick.user_id, {}).setdefault(week_number, []).append(
-            pick
-        )
+        picks_by_user.setdefault(pick.user_id, {}).setdefault(week_number, []).append(pick)
 
     identities = _identities_for(session, user_ids=picks_by_user.keys())
 
@@ -250,15 +245,11 @@ def season_is_complete(session: Session, *, season: int) -> bool:
     objects — it reads only the bare existence of (a) any game and (b) any
     non-FINAL game for the season.
     """
-    any_game = session.exec(
-        select(Game.id).where(Game.season == season).limit(1)
-    ).first()
+    any_game = session.exec(select(Game.id).where(Game.season == season).limit(1)).first()
     if any_game is None:
         return False
     any_non_final = session.exec(
-        select(Game.id)
-        .where(Game.season == season, Game.status != GameStatus.FINAL)
-        .limit(1)
+        select(Game.id).where(Game.season == season, Game.status != GameStatus.FINAL).limit(1)
     ).first()
     return any_non_final is None
 

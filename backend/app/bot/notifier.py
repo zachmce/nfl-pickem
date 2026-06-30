@@ -107,7 +107,9 @@ def _render(event: dict) -> str | None:
     if etype == "admin.pick_set":
         return f"admin set {event.get('target')} · Week {event.get('week')} · {event.get('detail')}"
     if etype == "admin.pick_cleared":
-        return f"admin cleared {event.get('target')} · Week {event.get('week')} · {event.get('slot')}"
+        return (
+            f"admin cleared {event.get('target')} · Week {event.get('week')} · {event.get('slot')}"
+        )
     if etype == "player.registered":
         return f"new player: {event.get('actor')}"
     if etype == "ingest.season":
@@ -162,7 +164,7 @@ def render_chat(event: dict) -> str | None:
         # Signed points: a positive shows a leading plus, a negative its sign.
         return (
             f"Week {event.get('week')} MISC graded — {event.get('actor')}'s call "
-            f"\"{event.get('prediction')}\" was {event.get('verdict')} "
+            f'"{event.get("prediction")}" was {event.get("verdict")} '
             f"({event.get('points'):+d})."
         )
     return None
@@ -265,9 +267,7 @@ async def run_notifier(client) -> None:
                     if channel is not None:
                         # Mention hygiene (T-t5u-04): suppress @everyone/@here/role
                         # pings so LLM-authored chat text can never ping the server.
-                        await channel.send(
-                            line, allowed_mentions=discord.AllowedMentions.none()
-                        )
+                        await channel.send(line, allowed_mentions=discord.AllowedMentions.none())
                         # ADDITIVE pickem-chat personality layer (260627-nef):
                         # AFTER the existing deterministic lock line, on a
                         # window.closed event ONLY, post one personality line per

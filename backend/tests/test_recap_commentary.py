@@ -46,9 +46,7 @@ _CTX = {
 
 
 def _event():
-    return week_recap_event(
-        week=3, winner="alice", winner_score=9, leader="alice", leader_score=30
-    )
+    return week_recap_event(week=3, winner="alice", winner_score=9, leader="alice", leader_score=30)
 
 
 def _phrase_returns(value):

@@ -60,9 +60,7 @@ class ResultsOracleTests(unittest.TestCase):
                 self.assertEqual(r.season_total, sum(r.weekly_scores.values()))
 
             # Ordered by (-season_total, display_name).
-            ordered = sorted(
-                standings.results, key=lambda r: (-r.season_total, r.display_name)
-            )
+            ordered = sorted(standings.results, key=lambda r: (-r.season_total, r.display_name))
             self.assertEqual(list(standings.results), ordered)
 
     def test_delegates_to_score_week(self) -> None:

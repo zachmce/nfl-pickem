@@ -85,9 +85,7 @@ def seed_teams(session: Session) -> int:
     Returns the number of canonical teams processed (32).
     """
     for espn_team_id, abbreviation, display_name in NFL_TEAMS:
-        existing = session.exec(
-            select(Team).where(Team.espn_team_id == espn_team_id)
-        ).first()
+        existing = session.exec(select(Team).where(Team.espn_team_id == espn_team_id)).first()
         if existing is None:
             session.add(
                 Team(

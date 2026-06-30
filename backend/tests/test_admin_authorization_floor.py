@@ -90,9 +90,7 @@ class OneNullDiscordIdTests(_FloorTestBase):
         with Session(self.engine) as session:
             seed_bots(session)
             expected = {name: did for name, _pw, did in BOT_ACCOUNTS}
-            rows = session.exec(
-                select(User).where(User.display_name.in_(list(expected)))
-            ).all()
+            rows = session.exec(select(User).where(User.display_name.in_(list(expected)))).all()
             self.assertEqual(len(rows), len(BOT_ACCOUNTS))
             for row in rows:
                 self.assertEqual(row.discord_id, expected[row.display_name])
@@ -102,9 +100,7 @@ class OneNullDiscordIdTests(_FloorTestBase):
 
             # Rerun is idempotent: same ids, no new rows.
             seed_bots(session)
-            rerun = session.exec(
-                select(User).where(User.display_name.in_(list(expected)))
-            ).all()
+            rerun = session.exec(select(User).where(User.display_name.in_(list(expected)))).all()
             self.assertEqual(len(rerun), len(BOT_ACCOUNTS))
             for row in rerun:
                 self.assertEqual(row.discord_id, expected[row.display_name])
@@ -112,9 +108,7 @@ class OneNullDiscordIdTests(_FloorTestBase):
     def test_seed_admin_protected_and_null(self) -> None:
         with Session(self.engine) as session:
             seed_admin(session, username="root_admin", password="pw-secret-1")
-            user = session.exec(
-                select(User).where(User.display_name == "root_admin")
-            ).one()
+            user = session.exec(select(User).where(User.display_name == "root_admin")).one()
             self.assertIsNone(user.discord_id)
             self.assertTrue(user.is_protected)
 
@@ -122,9 +116,7 @@ class OneNullDiscordIdTests(_FloorTestBase):
         with Session(self.engine) as session:
             seed_admin(session, username="root_admin", password="pw-secret-1")
             seed_bots(session)
-            nulls = session.exec(
-                select(User).where(User.discord_id.is_(None))
-            ).all()
+            nulls = session.exec(select(User).where(User.discord_id.is_(None))).all()
             self.assertEqual(len(nulls), 1)
             self.assertEqual(nulls[0].display_name, "root_admin")
 
@@ -160,8 +152,11 @@ class ProtectedRowGuardTests(_FloorTestBase):
     def test_delete_protected_raises(self) -> None:
         # A second admin exists so the last-admin guard does NOT mask "protected".
         protected = self._add(
-            display_name="bootstrap", discord_id=None,
-            is_admin=True, is_active=True, is_protected=True,
+            display_name="bootstrap",
+            discord_id=None,
+            is_admin=True,
+            is_active=True,
+            is_protected=True,
         )
         self._add(display_name="other", discord_id=1, is_admin=True, is_active=True)
         with Session(self.engine) as session:
@@ -172,8 +167,11 @@ class ProtectedRowGuardTests(_FloorTestBase):
 
     def test_revoke_protected_raises(self) -> None:
         protected = self._add(
-            display_name="bootstrap", discord_id=None,
-            is_admin=True, is_active=True, is_protected=True,
+            display_name="bootstrap",
+            discord_id=None,
+            is_admin=True,
+            is_active=True,
+            is_protected=True,
         )
         self._add(display_name="other", discord_id=1, is_admin=True, is_active=True)
         with Session(self.engine) as session:
@@ -184,8 +182,11 @@ class ProtectedRowGuardTests(_FloorTestBase):
 
     def test_deactivate_protected_raises(self) -> None:
         protected = self._add(
-            display_name="bootstrap", discord_id=None,
-            is_admin=True, is_active=True, is_protected=True,
+            display_name="bootstrap",
+            discord_id=None,
+            is_admin=True,
+            is_active=True,
+            is_protected=True,
         )
         self._add(display_name="other", discord_id=1, is_admin=True, is_active=True)
         with Session(self.engine) as session:
@@ -199,8 +200,11 @@ class ProtectedRowGuardTests(_FloorTestBase):
         # (proves the protected guard is ABSENT in grant); reactivate of an
         # inactive protected row succeeds (proves protected does not block it).
         protected_admin = self._add(
-            display_name="bootstrap", discord_id=None,
-            is_admin=True, is_active=True, is_protected=True,
+            display_name="bootstrap",
+            discord_id=None,
+            is_admin=True,
+            is_active=True,
+            is_protected=True,
         )
         with Session(self.engine) as session:
             with self.assertRaises(ValueError) as ctx:
@@ -208,8 +212,11 @@ class ProtectedRowGuardTests(_FloorTestBase):
             self.assertEqual(self._leading_token(ctx.exception), "already_admin")
 
         inactive_protected = self._add(
-            display_name="bootstrap_inactive", discord_id=2,
-            is_admin=True, is_active=False, is_protected=True,
+            display_name="bootstrap_inactive",
+            discord_id=2,
+            is_admin=True,
+            is_active=False,
+            is_protected=True,
         )
         with Session(self.engine) as session:
             row = admin_service.reactivate_user(session, user_id=inactive_protected)
@@ -225,8 +232,10 @@ class DiscordActiveGateTests(_FloorTestBase):
     def test_is_admin_by_discord_id_requires_active(self) -> None:
         with Session(self.engine) as session:
             user = User(
-                display_name="discord_admin", discord_id=99,
-                is_admin=True, is_active=False,
+                display_name="discord_admin",
+                discord_id=99,
+                is_admin=True,
+                is_active=False,
             )
             session.add(user)
             session.commit()
@@ -246,8 +255,10 @@ class DiscordActiveGateTests(_FloorTestBase):
         with Session(self.engine) as session:
             session.add(
                 User(
-                    display_name="bot_gated_admin", discord_id=123,
-                    is_admin=True, is_active=False,
+                    display_name="bot_gated_admin",
+                    discord_id=123,
+                    is_admin=True,
+                    is_active=False,
                 )
             )
             session.commit()

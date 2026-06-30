@@ -168,9 +168,7 @@ def setup(session: Session) -> None:
 def _bot_users(session: Session) -> dict[str, User]:
     """Map each walkthrough bot's ``display_name`` -> its persisted ``User``."""
     return {
-        u.display_name: u
-        for u in session.exec(select(User)).all()
-        if u.display_name in BOT_NAMES
+        u.display_name: u for u in session.exec(select(User)).all() if u.display_name in BOT_NAMES
     }
 
 
@@ -191,9 +189,7 @@ def _submit_week_picks(
     swallowed.
     """
     week_games = list(
-        session.exec(
-            select(Game).where(Game.season == season, Game.week == week)
-        ).all()
+        session.exec(select(Game).where(Game.season == season, Game.week == week)).all()
     )
     event_to_id = _event_id_to_game_id(week_games)
 
@@ -220,9 +216,7 @@ def _submit_week_picks(
         session.commit()
 
 
-def compute_db_standings(
-    session: Session, *, season: int, weeks: Sequence[int]
-) -> Standings:
+def compute_db_standings(session: Session, *, season: int, weeks: Sequence[int]) -> Standings:
     """Build ACTUAL standings from PERSISTED DB rows (the integration side).
 
     Loads the walkthrough bots, their persisted ``Pick`` rows for ``weeks``, and
@@ -259,9 +253,7 @@ def compute_db_standings(
                 continue
             picks = list(
                 session.exec(
-                    select(Pick).where(
-                        Pick.user_id == user.id, Pick.week_id == week_id
-                    )
+                    select(Pick).where(Pick.user_id == user.id, Pick.week_id == week_id)
                 ).all()
             )
             if not picks:
@@ -347,9 +339,7 @@ def run_walkthrough(
         # (4) Compare cumulative DB-sourced standings (weeks 1..N) to the oracle.
         completed.append(week)
         actual = compute_db_standings(session, season=season, weeks=completed)
-        all_games = list(
-            session.exec(select(Game).where(Game.season == season)).all()
-        )
+        all_games = list(session.exec(select(Game).where(Game.season == season)).all())
         for g in all_games:
             g.kickoff_at = _as_aware(g.kickoff_at)
         expected = _oracle_for_weeks(all_games, completed)
@@ -358,9 +348,7 @@ def run_walkthrough(
         if actual != expected:
             passed = False
             if assert_oracle:
-                raise WalkthroughAssertionError(
-                    week=week, actual=actual, expected=expected
-                )
+                raise WalkthroughAssertionError(week=week, actual=actual, expected=expected)
 
     return WalkthroughResult(snapshots=snapshots, passed=passed)
 
@@ -369,7 +357,5 @@ def _season(session: Session) -> int:
     """Resolve the single season present in the seeded Game rows."""
     seasons = {g.season for g in session.exec(select(Game)).all()}
     if len(seasons) != 1:
-        raise ValueError(
-            f"expected exactly one season in the demo DB, found {sorted(seasons)}"
-        )
+        raise ValueError(f"expected exactly one season in the demo DB, found {sorted(seasons)}")
     return next(iter(seasons))

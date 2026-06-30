@@ -49,17 +49,13 @@ class MiscTextBoundsTests(unittest.TestCase):
 
     def test_pick_item_misc_text_over_bound_rejected(self) -> None:
         with self.assertRaises(ValidationError):
-            PickItem(
-                game_id=1, pick_type=PickType.MISC, misc_text="x" * (MISC_TEXT_MAX + 1)
-            )
+            PickItem(game_id=1, pick_type=PickType.MISC, misc_text="x" * (MISC_TEXT_MAX + 1))
 
     def test_pick_item_misc_text_none_ok(self) -> None:
         PickItem(game_id=1, pick_type=PickType.FAVORITE_COVER, misc_text=None)
 
     def test_admin_set_misc_text_at_bound_ok(self) -> None:
-        AdminPickSetRequest(
-            game_id=1, pick_type=PickType.MISC, misc_text="y" * MISC_TEXT_MAX
-        )
+        AdminPickSetRequest(game_id=1, pick_type=PickType.MISC, misc_text="y" * MISC_TEXT_MAX)
 
     def test_admin_set_misc_text_over_bound_rejected(self) -> None:
         with self.assertRaises(ValidationError):

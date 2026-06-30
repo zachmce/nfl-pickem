@@ -109,7 +109,9 @@ def token(
     not use this — it uses POST /login (cookie). 401 on bad/inactive credentials.
     """
     try:
-        user = login_user(session, UserLoginRequest(display_name=form.username, password=form.password))
+        user = login_user(
+            session, UserLoginRequest(display_name=form.username, password=form.password)
+        )
     except ValueError as exc:
         raise InvalidCredentialsError() from exc
     if not user.is_active:

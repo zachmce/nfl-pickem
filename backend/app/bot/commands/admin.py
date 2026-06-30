@@ -112,7 +112,9 @@ class AdminCog(commands.Cog):
         CommandInvokeError wrapping a ValueError (e.g. self-demote guard, target
         not found) is surfaced as the service message. Never leaks a traceback.
         """
-        if isinstance(error, app_commands.CommandInvokeError) and isinstance(error.original, ValueError):
+        if isinstance(error, app_commands.CommandInvokeError) and isinstance(
+            error.original, ValueError
+        ):
             msg = str(error.original)
         elif isinstance(error, ValueError):
             msg = str(error)

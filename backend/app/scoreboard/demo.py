@@ -188,9 +188,7 @@ class Demo2025Source:
             if fixture_kickoff is None:
                 continue
             effective_kickoff = fixture_kickoff + self._offset
-            status, reveal_score = derive_status(
-                effective_kickoff, now, duration=self._duration
-            )
+            status, reveal_score = derive_status(effective_kickoff, now, duration=self._duration)
             home_raw = raw.get("home", {})
             away_raw = raw.get("away", {})
             home_score = home_raw.get("score") if reveal_score else None

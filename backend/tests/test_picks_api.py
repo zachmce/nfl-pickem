@@ -250,9 +250,7 @@ class PicksApiTests(unittest.TestCase):
         with self._session() as session:
             return list(
                 session.exec(
-                    select(Pick).where(
-                        Pick.user_id == user_id, Pick.week_id == week_id
-                    )
+                    select(Pick).where(Pick.user_id == user_id, Pick.week_id == week_id)
                 ).all()
             )
 
@@ -351,9 +349,7 @@ class PicksApiTests(unittest.TestCase):
             json={
                 "season": SEASON,
                 "week": WEEK + 1,
-                "picks": [
-                    {"game_id": self.game_locked_id, "pick_type": "FAVORITE_COVER"}
-                ],
+                "picks": [{"game_id": self.game_locked_id, "pick_type": "FAVORITE_COVER"}],
             },
             headers=headers,
         )
@@ -594,18 +590,14 @@ class PicksApiTests(unittest.TestCase):
             json={
                 "season": SEASON,
                 "week": WEEK,
-                "picks": [
-                    {"game_id": self.game_spread_id, "pick_type": "FAVORITE_COVER"}
-                ],
+                "picks": [{"game_id": self.game_spread_id, "pick_type": "FAVORITE_COVER"}],
             },
         )
         self.assertEqual(post.status_code, 401, post.text)
         self._assert_envelope(post.json())
 
         self._clear_auth()
-        get = self.client.get(
-            "/api/picks", params={"season": SEASON, "week": WEEK}
-        )
+        get = self.client.get("/api/picks", params={"season": SEASON, "week": WEEK})
         self.assertEqual(get.status_code, 401, get.text)
         self._assert_envelope(get.json())
 
@@ -622,9 +614,7 @@ class PicksApiTests(unittest.TestCase):
             json={
                 "season": SEASON,
                 "week": WEEK,
-                "picks": [
-                    {"game_id": self.game_spread_id, "pick_type": "FAVORITE_COVER"}
-                ],
+                "picks": [{"game_id": self.game_spread_id, "pick_type": "FAVORITE_COVER"}],
             },
             headers=headers,
         )
@@ -673,9 +663,7 @@ class PicksApiTests(unittest.TestCase):
             json={
                 "season": SEASON,
                 "week": WEEK + 1,
-                "picks": [
-                    {"game_id": self.game_locked_id, "pick_type": "FAVORITE_COVER"}
-                ],
+                "picks": [{"game_id": self.game_locked_id, "pick_type": "FAVORITE_COVER"}],
             },
             headers=headers,
         )
@@ -921,8 +909,7 @@ class PicksApiTests(unittest.TestCase):
             json={
                 "season": SEASON,
                 "week": WEEK,
-                "picks": [{"game_id": self.game_total_id, "pick_type": "MISC",
-                           "misc_text": "   "}],
+                "picks": [{"game_id": self.game_total_id, "pick_type": "MISC", "misc_text": "   "}],
             },
             headers=headers,
         )
@@ -939,8 +926,13 @@ class PicksApiTests(unittest.TestCase):
             json={
                 "season": SEASON,
                 "week": WEEK,
-                "picks": [{"game_id": self.game_total_id, "pick_type": "OVER",
-                           "misc_text": "should not be here"}],
+                "picks": [
+                    {
+                        "game_id": self.game_total_id,
+                        "pick_type": "OVER",
+                        "misc_text": "should not be here",
+                    }
+                ],
             },
             headers=headers,
         )
@@ -957,8 +949,14 @@ class PicksApiTests(unittest.TestCase):
             json={
                 "season": SEASON,
                 "week": WEEK,
-                "picks": [{"game_id": self.game_total_id, "pick_type": "MISC",
-                           "misc_text": "a prediction", "is_mortal_lock": True}],
+                "picks": [
+                    {
+                        "game_id": self.game_total_id,
+                        "pick_type": "MISC",
+                        "misc_text": "a prediction",
+                        "is_mortal_lock": True,
+                    }
+                ],
             },
             headers=headers,
         )
@@ -985,9 +983,7 @@ class PicksApiTests(unittest.TestCase):
         # Give the seeded MISC its text directly (seed helper omits it).
         with self._session() as session:
             row = session.exec(
-                select(Pick).where(
-                    Pick.user_id == self.user_a_id, Pick.pick_type == PickType.MISC
-                )
+                select(Pick).where(Pick.user_id == self.user_a_id, Pick.pick_type == PickType.MISC)
             ).first()
             row.misc_text = "first prediction"
             session.add(row)
@@ -1001,8 +997,13 @@ class PicksApiTests(unittest.TestCase):
             json={
                 "season": SEASON,
                 "week": WEEK,
-                "picks": [{"game_id": self.game_spread_id, "pick_type": "MISC",
-                           "misc_text": "second prediction"}],
+                "picks": [
+                    {
+                        "game_id": self.game_spread_id,
+                        "pick_type": "MISC",
+                        "misc_text": "second prediction",
+                    }
+                ],
             },
             headers=headers,
         )
@@ -1018,8 +1019,13 @@ class PicksApiTests(unittest.TestCase):
             json={
                 "season": SEASON,
                 "week": WEEK,
-                "picks": [{"game_id": self.game_total_id, "pick_type": "MISC",
-                           "misc_text": "third prediction"}],
+                "picks": [
+                    {
+                        "game_id": self.game_total_id,
+                        "pick_type": "MISC",
+                        "misc_text": "third prediction",
+                    }
+                ],
             },
             headers=headers,
         )
@@ -1109,9 +1115,7 @@ class PicksApiTests(unittest.TestCase):
 
         recorded: list[dict] = []
         headers = self._cookie_auth_headers(self.user_a_id)
-        with mock.patch(
-            "app.api.picks.publish_event", side_effect=recorded.append
-        ):
+        with mock.patch("app.api.picks.publish_event", side_effect=recorded.append):
             resp = self.client.post(
                 "/api/picks",
                 json={
@@ -1165,9 +1169,7 @@ class PicksApiTests(unittest.TestCase):
 
         recorded: list[dict] = []
         headers = self._cookie_auth_headers(self.user_a_id)
-        with mock.patch(
-            "app.api.picks.publish_event", side_effect=recorded.append
-        ):
+        with mock.patch("app.api.picks.publish_event", side_effect=recorded.append):
             resp = self.client.post(
                 "/api/picks",
                 json={
@@ -1298,17 +1300,13 @@ class PicksApiTests(unittest.TestCase):
         """A submit that does NOT complete a full standard card fires none."""
         recorded: list[dict] = []
         headers = self._cookie_auth_headers(self.user_a_id)
-        with mock.patch(
-            "app.api.picks.publish_event", side_effect=recorded.append
-        ):
+        with mock.patch("app.api.picks.publish_event", side_effect=recorded.append):
             resp = self.client.post(
                 "/api/picks",
                 json={
                     "season": SEASON,
                     "week": WEEK,
-                    "picks": [
-                        {"game_id": self.game_total_id, "pick_type": "OVER"}
-                    ],
+                    "picks": [{"game_id": self.game_total_id, "pick_type": "OVER"}],
                 },
                 headers=headers,
             )
@@ -1377,10 +1375,9 @@ class PicksApiTests(unittest.TestCase):
         recorded: list[dict] = []
         headers = self._cookie_auth_headers(self.user_a_id)
         # First claim succeeds, second is suppressed — mirrors the ~5-min window.
-        with mock.patch(
-            "app.api.picks.publish_event", side_effect=recorded.append
-        ), mock.patch(
-            "app.api.picks.claim_cooldown", side_effect=[True, False]
+        with (
+            mock.patch("app.api.picks.publish_event", side_effect=recorded.append),
+            mock.patch("app.api.picks.claim_cooldown", side_effect=[True, False]),
         ):
             # Submit 1: move FAVORITE_COVER onto the fresh game — roster stays
             # complete, so roster.complete fires once.
@@ -1389,9 +1386,7 @@ class PicksApiTests(unittest.TestCase):
                 json={
                     "season": SEASON,
                     "week": WEEK,
-                    "picks": [
-                        {"game_id": move_game_id, "pick_type": "FAVORITE_COVER"}
-                    ],
+                    "picks": [{"game_id": move_game_id, "pick_type": "FAVORITE_COVER"}],
                 },
                 headers=headers,
             )
@@ -1403,9 +1398,7 @@ class PicksApiTests(unittest.TestCase):
                 json={
                     "season": SEASON,
                     "week": WEEK,
-                    "picks": [
-                        {"game_id": self.game_spread_id, "pick_type": "FAVORITE_COVER"}
-                    ],
+                    "picks": [{"game_id": self.game_spread_id, "pick_type": "FAVORITE_COVER"}],
                 },
                 headers=headers,
             )
@@ -1454,9 +1447,7 @@ class PicksApiTests(unittest.TestCase):
 
         recorded: list[dict] = []
         headers = self._cookie_auth_headers(self.user_a_id)
-        with mock.patch(
-            "app.api.picks.publish_event", side_effect=recorded.append
-        ):
+        with mock.patch("app.api.picks.publish_event", side_effect=recorded.append):
             resp = self.client.post(
                 "/api/picks",
                 json={
@@ -1485,10 +1476,9 @@ class PicksApiTests(unittest.TestCase):
         secret = "Mahomes throws for 400 yards and it snows"
         recorded: list[dict] = []
         headers = self._cookie_auth_headers(self.user_a_id)
-        with mock.patch(
-            "app.api.picks.publish_event", side_effect=recorded.append
-        ), mock.patch(
-            "app.api.picks.claim_cooldown", return_value=True
+        with (
+            mock.patch("app.api.picks.publish_event", side_effect=recorded.append),
+            mock.patch("app.api.picks.claim_cooldown", return_value=True),
         ):
             resp = self.client.post(
                 "/api/picks",
@@ -1531,9 +1521,7 @@ class PicksApiTests(unittest.TestCase):
         )
         with self._session() as session:
             row = session.exec(
-                select(Pick).where(
-                    Pick.user_id == self.user_a_id, Pick.pick_type == PickType.MISC
-                )
+                select(Pick).where(Pick.user_id == self.user_a_id, Pick.pick_type == PickType.MISC)
             ).first()
             row.misc_text = "first prediction"
             session.add(row)
@@ -1542,10 +1530,9 @@ class PicksApiTests(unittest.TestCase):
         recorded: list[dict] = []
         headers = self._cookie_auth_headers(self.user_a_id)
         # First claim True (fires), second False (suppressed) — same window.
-        with mock.patch(
-            "app.api.picks.publish_event", side_effect=recorded.append
-        ), mock.patch(
-            "app.api.picks.claim_cooldown", side_effect=[True, False]
+        with (
+            mock.patch("app.api.picks.publish_event", side_effect=recorded.append),
+            mock.patch("app.api.picks.claim_cooldown", side_effect=[True, False]),
         ):
             resp1 = self.client.post(
                 "/api/picks",

@@ -146,9 +146,7 @@ def freeze_week(
     if now is None:
         now = datetime.now(timezone.utc)
 
-    week_row = session.exec(
-        select(Week).where(Week.season == season, Week.week == week)
-    ).first()
+    week_row = session.exec(select(Week).where(Week.season == season, Week.week == week)).first()
     if week_row is None:
         raise ValueError(
             f"week_not_found: no Week row for (season={season}, week={week}); "
@@ -169,9 +167,7 @@ def freeze_week(
         )
 
     week_games = list(
-        session.exec(
-            select(Game).where(Game.season == season, Game.week == week)
-        ).all()
+        session.exec(select(Game).where(Game.season == season, Game.week == week)).all()
     )
 
     team_map = _build_team_map(session)

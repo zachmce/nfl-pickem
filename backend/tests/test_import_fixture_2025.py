@@ -71,9 +71,7 @@ class FixtureImporterTests(unittest.TestCase):
     # -- helpers -----------------------------------------------------------
 
     def _team_id_by_espn(self, session: Session, espn_team_id: int) -> int:
-        team = session.exec(
-            select(Team).where(Team.espn_team_id == espn_team_id)
-        ).first()
+        team = session.exec(select(Team).where(Team.espn_team_id == espn_team_id)).first()
         assert team is not None, f"team espn_team_id={espn_team_id} missing"
         return team.id
 
@@ -105,18 +103,12 @@ class FixtureImporterTests(unittest.TestCase):
             import_fixture_2025(session)
 
             game = session.exec(
-                select(Game).where(
-                    Game.espn_event_id == int(sample["espn_event_id"])
-                )
+                select(Game).where(Game.espn_event_id == int(sample["espn_event_id"]))
             ).first()
             self.assertIsNotNone(game)
 
-            expected_home = self._team_id_by_espn(
-                session, int(sample["home"]["team_id"])
-            )
-            expected_away = self._team_id_by_espn(
-                session, int(sample["away"]["team_id"])
-            )
+            expected_home = self._team_id_by_espn(session, int(sample["home"]["team_id"]))
+            expected_away = self._team_id_by_espn(session, int(sample["away"]["team_id"]))
             self.assertEqual(game.home_team_id, expected_home)
             self.assertEqual(game.away_team_id, expected_away)
             self.assertEqual(game.home_score, sample["home"]["score"])
@@ -130,9 +122,7 @@ class FixtureImporterTests(unittest.TestCase):
             import_fixture_2025(session)
 
             game = session.exec(
-                select(Game).where(
-                    Game.espn_event_id == int(sample["espn_event_id"])
-                )
+                select(Game).where(Game.espn_event_id == int(sample["espn_event_id"]))
             ).first()
             self.assertIsNotNone(game)
 
@@ -142,12 +132,8 @@ class FixtureImporterTests(unittest.TestCase):
             self.assertEqual(game.spread, Decimal(str(abs(odds["spread"]))))
             self.assertEqual(game.total, Decimal(str(odds["total"])))
 
-            expected_fav = self._team_id_by_espn(
-                session, int(odds["favorite_team_id"])
-            )
-            expected_dog = self._team_id_by_espn(
-                session, int(odds["underdog_team_id"])
-            )
+            expected_fav = self._team_id_by_espn(session, int(odds["favorite_team_id"]))
+            expected_dog = self._team_id_by_espn(session, int(odds["underdog_team_id"]))
             self.assertEqual(game.favorite_team_id, expected_fav)
             self.assertEqual(game.underdog_team_id, expected_dog)
 

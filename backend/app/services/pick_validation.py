@@ -180,9 +180,7 @@ def _contradict(type_a: PickType, type_b: PickType) -> bool:
     return frozenset({type_a, type_b}) in _CONTRADICTORY_PAIRS
 
 
-def validate_roster(
-    picks: Iterable[Pick], games_by_id: dict[int, Game]
-) -> ValidationResult:
+def validate_roster(picks: Iterable[Pick], games_by_id: dict[int, Game]) -> ValidationResult:
     """Validate a whole roster of picks for legality.
 
     Detects, across the provided picks:
@@ -240,10 +238,7 @@ def validate_roster(
                     violations.append(
                         Violation(
                             code=ViolationCode.DUPLICATE_PICK,
-                            message=(
-                                f"Duplicate {a.pick_type.value} picks on game "
-                                f"{game_id}."
-                            ),
+                            message=(f"Duplicate {a.pick_type.value} picks on game {game_id}."),
                             picks=(a, b),
                         )
                     )
@@ -289,10 +284,7 @@ def validate_roster(
         violations.append(
             Violation(
                 code=ViolationCode.MULTIPLE_MORTAL_LOCKS,
-                message=(
-                    f"A roster may have at most one mortal lock; found "
-                    f"{len(mortal_locks)}."
-                ),
+                message=(f"A roster may have at most one mortal lock; found {len(mortal_locks)}."),
                 picks=tuple(mortal_locks),
             )
         )

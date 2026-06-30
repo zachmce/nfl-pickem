@@ -28,6 +28,7 @@ does not drop the shared enum" comment.
 > Note: on this machine the interpreter is ``python3`` (there is no bare
 > ``python`` on ``PATH``); use the venv interpreter ``.venv/bin/python``.
 """
+
 from collections.abc import Sequence
 
 from alembic import op

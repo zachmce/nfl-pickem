@@ -106,9 +106,7 @@ class RefreshResult:
     games_updated: int = 0
     windows_stamped: int = 0
     failed_weeks: tuple[tuple[int, int], ...] = field(default_factory=tuple)
-    finalized_games: tuple[tuple[int, str, str, int, int], ...] = field(
-        default_factory=tuple
-    )
+    finalized_games: tuple[tuple[int, str, str, int, int], ...] = field(default_factory=tuple)
     windows_opened: tuple[int, ...] = field(default_factory=tuple)
     windows_closed: tuple[int, ...] = field(default_factory=tuple)
     recap_weeks: tuple[int, ...] = field(default_factory=tuple)
@@ -139,9 +137,7 @@ def needy_weeks(
     computation through here so they can never drift.
     """
     return sorted(
-        key
-        for key, rows in by_week.items()
-        if any(r.status != GameStatus.FINAL for r in rows)
+        key for key, rows in by_week.items() if any(r.status != GameStatus.FINAL for r in rows)
     )
 
 
@@ -189,11 +185,7 @@ def _team_abbr_map(session: Session) -> dict[int, str]:
     payload — carrying display strings only, never team ids in the published
     event.
     """
-    return {
-        t.id: t.abbreviation
-        for t in session.exec(select(Team)).all()
-        if t.id is not None
-    }
+    return {t.id: t.abbreviation for t in session.exec(select(Team)).all() if t.id is not None}
 
 
 def _week_open_states(
@@ -252,9 +244,7 @@ def _reconcile_game(row: Game, src: ScoreboardGame) -> bool:
         row.status = src.status
         changed = True
 
-    if src.kickoff_at is not None and _as_aware(row.kickoff_at) != _as_aware(
-        src.kickoff_at
-    ):
+    if src.kickoff_at is not None and _as_aware(row.kickoff_at) != _as_aware(src.kickoff_at):
         row.kickoff_at = src.kickoff_at
         changed = True
 
@@ -370,10 +360,7 @@ def refresh_games(
 
         # Persisted Week rows, indexed by week number.
         week_rows = {
-            wr.week: wr
-            for wr in session.exec(
-                select(Week).where(Week.season == season)
-            ).all()
+            wr.week: wr for wr in session.exec(select(Week).where(Week.season == season)).all()
         }
 
         for idx, wk in enumerate(season_weeks):
@@ -382,9 +369,7 @@ def refresh_games(
                 continue
 
             this_games = weeks_by_number[wk]
-            prev_games = (
-                weeks_by_number[season_weeks[idx - 1]] if idx > 0 else None
-            )
+            prev_games = weeks_by_number[season_weeks[idx - 1]] if idx > 0 else None
 
             # closes_at: always derivable from this week's kickoffs.
             try:
@@ -405,13 +390,9 @@ def refresh_games(
 
             # opens_at for THIS week is stamped only once the PREVIOUS week is
             # fully FINAL. Week 1 (idx 0) has no predecessor -> stays None.
-            if prev_games is not None and all(
-                r.status == GameStatus.FINAL for r in prev_games
-            ):
+            if prev_games is not None and all(r.status == GameStatus.FINAL for r in prev_games):
                 open_at = window.open_at
-                if open_at is not None and _as_aware(
-                    week_row.window_opens_at
-                ) != open_at:
+                if open_at is not None and _as_aware(week_row.window_opens_at) != open_at:
                     week_row.window_opens_at = open_at
                     session.add(week_row)
                     windows_stamped += 1

@@ -128,9 +128,7 @@ def _normalized_game(game: Game) -> Game:
 
 def _resolve_week(session: Session, season: int, week: int) -> Week:
     """Load the Week row for ``{season, week}`` or raise :class:`NotFoundError`."""
-    row = session.exec(
-        select(Week).where(Week.season == season, Week.week == week)
-    ).first()
+    row = session.exec(select(Week).where(Week.season == season, Week.week == week)).first()
     if row is None:
         raise NotFoundError(
             f"No week {week} for season {season}.",
@@ -141,16 +139,10 @@ def _resolve_week(session: Session, season: int, week: int) -> Week:
 
 def _load_week_games(session: Session, season: int, week: int) -> list[Game]:
     """All Game rows for ``{season, week}`` (live rows, not normalized copies)."""
-    return list(
-        session.exec(
-            select(Game).where(Game.season == season, Game.week == week)
-        ).all()
-    )
+    return list(session.exec(select(Game).where(Game.season == season, Game.week == week)).all())
 
 
-def read_picks(
-    session: Session, *, user_id: int, season: int, week: int
-) -> list[Pick]:
+def read_picks(session: Session, *, user_id: int, season: int, week: int) -> list[Pick]:
     """Return ONLY ``user_id``'s Pick rows for ``{season, week}``.
 
     Scoped to the caller by construction — there is no parameter to ask for
@@ -160,11 +152,7 @@ def read_picks(
     """
     week_row = _resolve_week(session, season, week)
     return list(
-        session.exec(
-            select(Pick).where(
-                Pick.user_id == user_id, Pick.week_id == week_row.id
-            )
-        ).all()
+        session.exec(select(Pick).where(Pick.user_id == user_id, Pick.week_id == week_row.id)).all()
     )
 
 
@@ -183,9 +171,7 @@ _BASE_PICK_TYPES: frozenset[PickType] = frozenset(
 )
 
 
-def main_picks_complete(
-    session: Session, *, user_id: int, season: int, week: int
-) -> bool:
+def main_picks_complete(session: Session, *, user_id: int, season: int, week: int) -> bool:
     """Whether ``user_id`` holds a FULL standard card for ``{season, week}``.
 
     A pure READ (no commit): loads the user's week picks via :func:`read_picks`
@@ -200,9 +186,7 @@ def main_picks_complete(
     """
     picks = read_picks(session, user_id=user_id, season=season, week=week)
     present_base = {
-        p.pick_type
-        for p in picks
-        if not p.is_mortal_lock and p.pick_type in _BASE_PICK_TYPES
+        p.pick_type for p in picks if not p.is_mortal_lock and p.pick_type in _BASE_PICK_TYPES
     }
     has_mortal_lock = any(p.is_mortal_lock for p in picks)
     return present_base == _BASE_PICK_TYPES and has_mortal_lock
@@ -278,8 +262,7 @@ def clear_pick(
     if matched_pick is None:
         lock_label = " (mortal lock)" if is_mortal_lock else ""
         raise NotFoundError(
-            f"No {pick_type.value}{lock_label} pick to clear for season "
-            f"{season} week {week}.",
+            f"No {pick_type.value}{lock_label} pick to clear for season {season} week {week}.",
             reason="pick_not_found",
         )
 
@@ -368,8 +351,7 @@ def submit_picks(
                 )
         elif text:
             raise ValidationError(
-                f"misc_text is only allowed on a MISC pick, not "
-                f"{item.pick_type.value}.",
+                f"misc_text is only allowed on a MISC pick, not {item.pick_type.value}.",
                 reason="misc_text_not_allowed",
             )
 
@@ -385,11 +367,7 @@ def submit_picks(
     # picks for the week, accumulating accepted picks so the batch is checked
     # against itself too. Use normalized games for pick'em eligibility.
     existing = list(
-        session.exec(
-            select(Pick).where(
-                Pick.user_id == user_id, Pick.week_id == week_row.id
-            )
-        ).all()
+        session.exec(select(Pick).where(Pick.user_id == user_id, Pick.week_id == week_row.id)).all()
     )
     accepted: list[Pick] = list(existing)
     persisted: list[Pick] = []
@@ -431,9 +409,7 @@ def submit_picks(
     return persisted
 
 
-def _find_replaceable_base_slot(
-    accepted: list[Pick], item: PickItem
-) -> Pick | None:
+def _find_replaceable_base_slot(accepted: list[Pick], item: PickItem) -> Pick | None:
     """Find an existing OWN non-lock pick this item should replace (upsert), if any.
 
     A replace applies to a non-mortal-lock slot of the same ``pick_type`` as the

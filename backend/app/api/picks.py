@@ -133,13 +133,9 @@ def submit(
         # cooldown is fail-open and publish_event swallows, so it stays
         # post-commit + best-effort.
         if pick.pick_type is PickType.MISC:
-            misc_key = (
-                f"pickem:misc_picked_cd:{payload.season}:{payload.week}:{user.id}"
-            )
+            misc_key = f"pickem:misc_picked_cd:{payload.season}:{payload.week}:{user.id}"
             if claim_cooldown(misc_key, COOLDOWN_TTL_SECONDS):
-                publish_event(
-                    misc_picked_event(actor=user.display_name, week=payload.week)
-                )
+                publish_event(misc_picked_event(actor=user.display_name, week=payload.week))
 
     # QT-3 pickem-CHAT: when THIS submit results in the user holding their full
     # standard card for the week — all four base bet types plus a mortal lock —
@@ -151,16 +147,10 @@ def submit(
     # does NOT re-post the roster line (260628-itg). A submit that leaves the card
     # incomplete fires none; the cooldown is fail-open so a Redis hiccup can never
     # suppress the milestone.
-    if main_picks_complete(
-        session, user_id=user.id, season=payload.season, week=payload.week
-    ):
-        roster_key = (
-            f"pickem:roster_complete_cd:{payload.season}:{payload.week}:{user.id}"
-        )
+    if main_picks_complete(session, user_id=user.id, season=payload.season, week=payload.week):
+        roster_key = f"pickem:roster_complete_cd:{payload.season}:{payload.week}:{user.id}"
         if claim_cooldown(roster_key, COOLDOWN_TTL_SECONDS):
-            publish_event(
-                roster_complete_event(actor=user.display_name, week=payload.week)
-            )
+            publish_event(roster_complete_event(actor=user.display_name, week=payload.week))
     return [PickRead.from_orm_pick(p) for p in picks]
 
 
@@ -240,7 +230,5 @@ def clear(
         home_abbr=None,
         away_abbr=None,
     )
-    publish_event(
-        pick_cleared_event(actor=user.display_name, week=week, detail=detail)
-    )
+    publish_event(pick_cleared_event(actor=user.display_name, week=week, detail=detail))
     return None

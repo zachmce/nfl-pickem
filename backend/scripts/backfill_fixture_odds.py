@@ -137,10 +137,7 @@ def select_odds_item_permissive(odds_response: Any) -> dict[str, Any] | None:
         # Preference 2: ESPN BET by id (string or int), usable line required.
         if (
             id_fallback is None
-            and (
-                provider_id == ESPN_BET_PROVIDER_ID
-                or provider_id == str(ESPN_BET_PROVIDER_ID)
-            )
+            and (provider_id == ESPN_BET_PROVIDER_ID or provider_id == str(ESPN_BET_PROVIDER_ID))
             and _odds_item_is_usable(item)
         ):
             id_fallback = item
@@ -407,21 +404,16 @@ def main(argv: list[str] | None = None) -> int:
         file=sys.stderr,
     )
     if report.filled_by_provider:
-        providers = ", ".join(
-            f"{name}: {n}" for name, n in report.filled_by_provider.most_common()
-        )
+        providers = ", ".join(f"{name}: {n}" for name, n in report.filled_by_provider.most_common())
         print(f"[done] filled by provider: {providers}", file=sys.stderr)
     if report.filled_by_week:
-        weeks = ", ".join(
-            f"wk{wk}: {n}" for wk, n in sorted(report.filled_by_week.items())
-        )
+        weeks = ", ".join(f"wk{wk}: {n}" for wk, n in sorted(report.filled_by_week.items()))
         print(f"[done] filled by week: {weeks}", file=sys.stderr)
     if report.still_null:
         print("[done] STILL NULL (no usable line found):", file=sys.stderr)
         for entry in report.still_null:
             print(
-                f"    event {entry['espn_event_id']} "
-                f"(wk{entry['week']}, {entry['matchup']})",
+                f"    event {entry['espn_event_id']} (wk{entry['week']}, {entry['matchup']})",
                 file=sys.stderr,
             )
 

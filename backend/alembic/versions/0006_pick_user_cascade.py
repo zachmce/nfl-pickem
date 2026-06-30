@@ -19,6 +19,7 @@ Downgrade reverses it: drop the cascade FK and recreate the plain NO ACTION FK
 under the same name. No table/enum/index changes in either direction — only this
 one constraint is swapped.
 """
+
 from collections.abc import Sequence
 
 from alembic import op

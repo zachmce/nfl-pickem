@@ -153,9 +153,7 @@ class PickUserCascadeTests(unittest.TestCase):
             session.delete(user_a)
             session.commit()  # must NOT raise a FK violation
 
-            orphans = session.exec(
-                select(Pick).where(Pick.user_id == self.user_a_id)
-            ).all()
+            orphans = session.exec(select(Pick).where(Pick.user_id == self.user_a_id)).all()
             self.assertEqual(orphans, [], "user_a's picks should be cascade-deleted")
             self.assertIsNone(session.get(User, self.user_a_id))
 
@@ -182,9 +180,7 @@ class PickUserCascadeTests(unittest.TestCase):
     def test_unrelated_users_picks_untouched(self) -> None:
         """Deleting user_a leaves user_b's pick(s) intact and unchanged."""
         with Session(self.engine) as session:
-            before = session.exec(
-                select(Pick).where(Pick.user_id == self.user_b_id)
-            ).all()
+            before = session.exec(select(Pick).where(Pick.user_id == self.user_b_id)).all()
             before_ids = sorted(p.id for p in before)
             self.assertTrue(before_ids, "fixture should give user_b a pick")
 
@@ -192,9 +188,7 @@ class PickUserCascadeTests(unittest.TestCase):
             session.delete(user_a)
             session.commit()
 
-            after = session.exec(
-                select(Pick).where(Pick.user_id == self.user_b_id)
-            ).all()
+            after = session.exec(select(Pick).where(Pick.user_id == self.user_b_id)).all()
             after_ids = sorted(p.id for p in after)
             self.assertEqual(after_ids, before_ids, "user_b's picks must be untouched")
 

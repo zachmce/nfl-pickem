@@ -87,9 +87,7 @@ def seed_bots(session: Session) -> int:
     Returns the number of bot accounts processed (N).
     """
     for display_name, password, discord_id in BOT_ACCOUNTS:
-        existing = session.exec(
-            select(User).where(User.display_name == display_name)
-        ).first()
+        existing = session.exec(select(User).where(User.display_name == display_name)).first()
         if existing is None:
             session.add(
                 User(

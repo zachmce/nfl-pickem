@@ -43,6 +43,7 @@ index, and by this migration only on the live Postgres path.
 to restore the NULL discord_ids: the fake ids are intentional and
 irreversible-by-design.
 """
+
 from collections.abc import Sequence
 
 from alembic import op
@@ -86,9 +87,7 @@ def upgrade() -> None:
     admin_username = settings.default_admin_username
     if admin_username:
         op.execute(
-            users.update()
-            .where(users.c.display_name == admin_username)
-            .values(is_protected=True)
+            users.update().where(users.c.display_name == admin_username).values(is_protected=True)
         )
 
     # 3. Backfill deterministic small-int fake discord_ids for every remaining
@@ -103,9 +102,7 @@ def upgrade() -> None:
         .order_by(users.c.id)
     ).fetchall()
     for fake_id, (user_id,) in enumerate(null_ids, start=1):
-        conn.execute(
-            users.update().where(users.c.id == user_id).values(discord_id=fake_id)
-        )
+        conn.execute(users.update().where(users.c.id == user_id).values(discord_id=fake_id))
 
     # 4. Now that at most one NULL remains (the protected admin), enforce it.
     #    The indexed EXPRESSION is the constant ``1`` (not the ``discord_id``

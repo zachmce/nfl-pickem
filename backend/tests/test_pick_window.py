@@ -93,9 +93,7 @@ class ComputeWindowTests(unittest.TestCase):
         ]
         week = [_game(kickoff_at=_dt(2025, 9, 14, 17, 0), game_id=1)]
         window = compute_window(week, prev)
-        self.assertEqual(
-            window.open_at, _dt(2025, 9, 8, 0, 20) + DEFAULT_GAME_DURATION
-        )
+        self.assertEqual(window.open_at, _dt(2025, 9, 8, 0, 20) + DEFAULT_GAME_DURATION)
 
     def test_returns_pickwindow_instance(self) -> None:
         week = [_game(kickoff_at=_dt(2025, 9, 14, 17, 0), game_id=1)]
@@ -116,9 +114,7 @@ class IsPickOpenBoundaryTests(unittest.TestCase):
     """Half-open window: includes open_at, excludes close_at."""
 
     def setUp(self) -> None:
-        self.window = PickWindow(
-            open_at=_dt(2025, 9, 9, 0, 0), close_at=_dt(2025, 9, 14, 17, 0)
-        )
+        self.window = PickWindow(open_at=_dt(2025, 9, 9, 0, 0), close_at=_dt(2025, 9, 14, 17, 0))
 
     def test_before_open_is_closed(self) -> None:
         self.assertFalse(is_pick_open(self.window, _dt(2025, 9, 8, 23, 59)))
@@ -247,12 +243,8 @@ class GroundTruthRealSeasonTests(unittest.TestCase):
             seed_teams(session)
             import_fixture_2025(session)
 
-            week1 = session.exec(
-                select(Game).where(Game.season == 2025, Game.week == 1)
-            ).all()
-            week2 = session.exec(
-                select(Game).where(Game.season == 2025, Game.week == 2)
-            ).all()
+            week1 = session.exec(select(Game).where(Game.season == 2025, Game.week == 1)).all()
+            week2 = session.exec(select(Game).where(Game.season == 2025, Game.week == 2)).all()
             self.assertTrue(week1, "no week-1 games imported")
             self.assertTrue(week2, "no week-2 games imported")
 

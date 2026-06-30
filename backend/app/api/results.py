@@ -50,12 +50,8 @@ def read_week(
     member sees every user's graded picks and weekly score. An empty/unknown
     week yields an empty ``results`` list (a pure read, never a 404).
     """
-    results = week_results(
-        session, season=season, week=week, caller_user_id=user.id
-    )
-    return WeekResultsResponse.from_results(
-        season=season, week=week, results=results
-    )
+    results = week_results(session, season=season, week=week, caller_user_id=user.id)
+    return WeekResultsResponse.from_results(season=season, week=week, results=results)
 
 
 @router.get("/standings", response_model=SeasonStandingsResponse)

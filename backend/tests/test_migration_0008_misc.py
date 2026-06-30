@@ -31,10 +31,7 @@ from pathlib import Path
 
 def _load_migration_0008():
     path = (
-        Path(__file__).resolve().parent.parent
-        / "alembic"
-        / "versions"
-        / "0008_misc_pick_type.py"
+        Path(__file__).resolve().parent.parent / "alembic" / "versions" / "0008_misc_pick_type.py"
     )
     spec = importlib.util.spec_from_file_location("migration_0008", path)
     module = importlib.util.module_from_spec(spec)
@@ -66,9 +63,7 @@ class Migration0008MiscTest(unittest.TestCase):
             add_columns.append((table_name, column))
             return None
 
-        ctx = MigrationContext.configure(
-            dialect_name="postgresql", opts={"as_sql": True}
-        )
+        ctx = MigrationContext.configure(dialect_name="postgresql", opts={"as_sql": True})
         Operations.execute = capture_execute  # type: ignore[assignment]
         Operations.add_column = capture_add_column  # type: ignore[assignment]
         try:
@@ -111,7 +106,8 @@ class Migration0008MiscTest(unittest.TestCase):
             if table == "pick" and col.name == "misc_text"
         ]
         self.assertEqual(
-            len(matched), 1,
+            len(matched),
+            1,
             "0008 must add exactly one misc_text column to the pick table.",
         )
         _, col = matched[0]

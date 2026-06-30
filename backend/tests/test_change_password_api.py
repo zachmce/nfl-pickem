@@ -226,9 +226,7 @@ class ChangePasswordApiTests(unittest.TestCase):
 
     def test_me_exposes_created_at_and_no_password_hash(self) -> None:
         """GET /api/auth/me returns created_at and never leaks password_hash."""
-        resp = self.client.get(
-            "/api/auth/me", headers=self._bearer_headers(self.user_id)
-        )
+        resp = self.client.get("/api/auth/me", headers=self._bearer_headers(self.user_id))
         self.assertEqual(resp.status_code, 200, resp.text)
         body = resp.json()
         self.assertIn("created_at", body)

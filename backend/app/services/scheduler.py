@@ -165,6 +165,7 @@ SCORES_JOB = PollingJob(
     reconcile=_scores_reconcile,
 )
 
+
 def _odds_needy(by_week: GroupedRows, **kwargs: Any) -> list[WeekKey]:
     """The odds job's needy predicate: not-yet-frozen weeks with games.
 

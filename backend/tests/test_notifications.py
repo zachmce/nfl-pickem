@@ -199,9 +199,7 @@ class AdminPickEventBuilderTests(unittest.TestCase):
         self.assertEqual(event["target"], "alice")
         self.assertEqual(event["week"], 3)
         self.assertEqual(event["detail"], "Favorite (KC)")
-        self.assertEqual(
-            set(event.keys()), {"v", "type", "targets", "target", "week", "detail"}
-        )
+        self.assertEqual(set(event.keys()), {"v", "type", "targets", "target", "week", "detail"})
 
     def test_admin_pick_cleared_shape(self) -> None:
         event = admin_pick_cleared_event(target="alice", week=3, slot="FAVORITE_COVER")
@@ -210,9 +208,7 @@ class AdminPickEventBuilderTests(unittest.TestCase):
         self.assertEqual(event["target"], "alice")
         self.assertEqual(event["week"], 3)
         self.assertEqual(event["slot"], "FAVORITE_COVER")
-        self.assertEqual(
-            set(event.keys()), {"v", "type", "targets", "target", "week", "slot"}
-        )
+        self.assertEqual(set(event.keys()), {"v", "type", "targets", "target", "week", "slot"})
 
 
 class PlayerRegisteredEventBuilderTests(unittest.TestCase):
@@ -381,15 +377,9 @@ class ChatEventBuilderTests(unittest.TestCase):
             roster_complete_event(actor="a", week=1),
             window_opened_event(week=1),
             window_closed_event(week=1),
-            game_final_event(
-                week=1, away_abbr="A", home_abbr="B", away_score=0, home_score=0
-            ),
-            week_recap_event(
-                week=1, winner="a", winner_score=0, leader="b", leader_score=0
-            ),
-            misc_graded_event(
-                actor="a", week=1, prediction="p", verdict="correct", points=1
-            ),
+            game_final_event(week=1, away_abbr="A", home_abbr="B", away_score=0, home_score=0),
+            week_recap_event(week=1, winner="a", winner_score=0, leader="b", leader_score=0),
+            misc_graded_event(actor="a", week=1, prediction="p", verdict="correct", points=1),
         ]
         for event in events:
             self.assertEqual(event["targets"], ["chat"])
@@ -496,9 +486,7 @@ class ClaimCooldownTests(unittest.TestCase):
         self.assertTrue(all(c[2] is True and c[3] == 300 for c in fake.calls))
 
     def test_fail_open_when_set_raises(self) -> None:
-        with patch.object(
-            notifications, "_redis_client", return_value=_BoomSetRedis()
-        ):
+        with patch.object(notifications, "_redis_client", return_value=_BoomSetRedis()):
             # FAIL-OPEN: returns True, never raises.
             self.assertTrue(claim_cooldown("pickem:cd:k", 300))
 

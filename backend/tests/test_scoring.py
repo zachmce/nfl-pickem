@@ -99,37 +99,62 @@ class GradeSpreadTests(unittest.TestCase):
 
     def test_favorite_cover_win(self) -> None:
         # Favorite (home) wins by 10 vs a 3.5 line -> covered.
-        game = _game(home_score=30, away_score=20, spread=Decimal("3.5"),
-                     favorite_team_id=HOME, underdog_team_id=AWAY)
+        game = _game(
+            home_score=30,
+            away_score=20,
+            spread=Decimal("3.5"),
+            favorite_team_id=HOME,
+            underdog_team_id=AWAY,
+        )
         res = grade_pick(game, _pick(PickType.FAVORITE_COVER))
         self.assertEqual(res, GradeResult(GradeOutcome.WIN, 1))
 
     def test_favorite_cover_loss(self) -> None:
         # Favorite wins by only 2 vs a 3.5 line -> did not cover.
-        game = _game(home_score=22, away_score=20, spread=Decimal("3.5"),
-                     favorite_team_id=HOME, underdog_team_id=AWAY)
+        game = _game(
+            home_score=22,
+            away_score=20,
+            spread=Decimal("3.5"),
+            favorite_team_id=HOME,
+            underdog_team_id=AWAY,
+        )
         res = grade_pick(game, _pick(PickType.FAVORITE_COVER))
         self.assertEqual(res, GradeResult(GradeOutcome.LOSS, 0))
 
     def test_underdog_cover_win(self) -> None:
         # Favorite wins by only 2 vs a 3.5 line -> underdog covers.
-        game = _game(home_score=22, away_score=20, spread=Decimal("3.5"),
-                     favorite_team_id=HOME, underdog_team_id=AWAY)
+        game = _game(
+            home_score=22,
+            away_score=20,
+            spread=Decimal("3.5"),
+            favorite_team_id=HOME,
+            underdog_team_id=AWAY,
+        )
         res = grade_pick(game, _pick(PickType.UNDERDOG_COVER))
         self.assertEqual(res, GradeResult(GradeOutcome.WIN, 1))
 
     def test_underdog_cover_loss(self) -> None:
         # Favorite covers comfortably -> underdog pick loses.
-        game = _game(home_score=30, away_score=20, spread=Decimal("3.5"),
-                     favorite_team_id=HOME, underdog_team_id=AWAY)
+        game = _game(
+            home_score=30,
+            away_score=20,
+            spread=Decimal("3.5"),
+            favorite_team_id=HOME,
+            underdog_team_id=AWAY,
+        )
         res = grade_pick(game, _pick(PickType.UNDERDOG_COVER))
         self.assertEqual(res, GradeResult(GradeOutcome.LOSS, 0))
 
     def test_favorite_is_away_team(self) -> None:
         # Direction must follow favorite_team_id, not home/away. Away favored by
         # 7 line; away wins by 10 -> covers.
-        game = _game(home_score=14, away_score=24, spread=Decimal("7.0"),
-                     favorite_team_id=AWAY, underdog_team_id=HOME)
+        game = _game(
+            home_score=14,
+            away_score=24,
+            spread=Decimal("7.0"),
+            favorite_team_id=AWAY,
+            underdog_team_id=HOME,
+        )
         # Favorite margin = 24 - 14 = 10 > 7 -> favorite covers.
         self.assertEqual(
             grade_pick(game, _pick(PickType.FAVORITE_COVER)).outcome,
@@ -142,8 +167,13 @@ class GradeSpreadTests(unittest.TestCase):
 
     def test_spread_exact_push(self) -> None:
         # Favorite wins by exactly 3 vs a 3.0 line -> PUSH, zero points.
-        game = _game(home_score=23, away_score=20, spread=Decimal("3.0"),
-                     favorite_team_id=HOME, underdog_team_id=AWAY)
+        game = _game(
+            home_score=23,
+            away_score=20,
+            spread=Decimal("3.0"),
+            favorite_team_id=HOME,
+            underdog_team_id=AWAY,
+        )
         self.assertEqual(
             grade_pick(game, _pick(PickType.FAVORITE_COVER)),
             GradeResult(GradeOutcome.PUSH, 0),
@@ -154,8 +184,13 @@ class GradeSpreadTests(unittest.TestCase):
         )
 
     def test_spread_push_zero_even_for_mortal_lock(self) -> None:
-        game = _game(home_score=23, away_score=20, spread=Decimal("3.0"),
-                     favorite_team_id=HOME, underdog_team_id=AWAY)
+        game = _game(
+            home_score=23,
+            away_score=20,
+            spread=Decimal("3.0"),
+            favorite_team_id=HOME,
+            underdog_team_id=AWAY,
+        )
         res = grade_pick(game, _pick(PickType.FAVORITE_COVER, is_mortal_lock=True))
         self.assertEqual(res, GradeResult(GradeOutcome.PUSH, 0))
 
@@ -208,14 +243,24 @@ class MortalLockTests(unittest.TestCase):
     """Mortal lock scoring: +2 on a win, -1 on a loss."""
 
     def test_mortal_lock_win_scores_plus_two(self) -> None:
-        game = _game(home_score=30, away_score=20, spread=Decimal("3.5"),
-                     favorite_team_id=HOME, underdog_team_id=AWAY)
+        game = _game(
+            home_score=30,
+            away_score=20,
+            spread=Decimal("3.5"),
+            favorite_team_id=HOME,
+            underdog_team_id=AWAY,
+        )
         res = grade_pick(game, _pick(PickType.FAVORITE_COVER, is_mortal_lock=True))
         self.assertEqual(res, GradeResult(GradeOutcome.WIN, 2))
 
     def test_mortal_lock_loss_scores_minus_one(self) -> None:
-        game = _game(home_score=22, away_score=20, spread=Decimal("3.5"),
-                     favorite_team_id=HOME, underdog_team_id=AWAY)
+        game = _game(
+            home_score=22,
+            away_score=20,
+            spread=Decimal("3.5"),
+            favorite_team_id=HOME,
+            underdog_team_id=AWAY,
+        )
         res = grade_pick(game, _pick(PickType.FAVORITE_COVER, is_mortal_lock=True))
         self.assertEqual(res, GradeResult(GradeOutcome.LOSS, -1))
 
@@ -224,9 +269,14 @@ class PickemAndTotalIneligibilityTests(unittest.TestCase):
     """True pick'em: spread picks ineligible, Over/Under still grade."""
 
     def test_pickem_spread_zero_makes_spread_picks_ineligible(self) -> None:
-        game = _game(home_score=24, away_score=20, spread=Decimal("0"),
-                     favorite_team_id=None, underdog_team_id=None,
-                     total=Decimal("44.5"))
+        game = _game(
+            home_score=24,
+            away_score=20,
+            spread=Decimal("0"),
+            favorite_team_id=None,
+            underdog_team_id=None,
+            total=Decimal("44.5"),
+        )
         self.assertEqual(
             grade_pick(game, _pick(PickType.FAVORITE_COVER)),
             GradeResult(GradeOutcome.INELIGIBLE, 0),
@@ -237,9 +287,14 @@ class PickemAndTotalIneligibilityTests(unittest.TestCase):
         )
 
     def test_pickem_none_spread_makes_spread_picks_ineligible(self) -> None:
-        game = _game(home_score=24, away_score=20, spread=None,
-                     favorite_team_id=None, underdog_team_id=None,
-                     total=Decimal("44.5"))
+        game = _game(
+            home_score=24,
+            away_score=20,
+            spread=None,
+            favorite_team_id=None,
+            underdog_team_id=None,
+            total=Decimal("44.5"),
+        )
         self.assertEqual(
             grade_pick(game, _pick(PickType.UNDERDOG_COVER)).outcome,
             GradeOutcome.INELIGIBLE,
@@ -247,24 +302,30 @@ class PickemAndTotalIneligibilityTests(unittest.TestCase):
 
     def test_pickem_over_under_still_grade(self) -> None:
         # combined 44 < 44.5 -> UNDER wins, OVER loses, even on a pick'em.
-        game = _game(home_score=24, away_score=20, spread=Decimal("0"),
-                     favorite_team_id=None, underdog_team_id=None,
-                     total=Decimal("44.5"))
-        self.assertEqual(
-            grade_pick(game, _pick(PickType.UNDER)).outcome, GradeOutcome.WIN
+        game = _game(
+            home_score=24,
+            away_score=20,
+            spread=Decimal("0"),
+            favorite_team_id=None,
+            underdog_team_id=None,
+            total=Decimal("44.5"),
         )
-        self.assertEqual(
-            grade_pick(game, _pick(PickType.OVER)).outcome, GradeOutcome.LOSS
-        )
+        self.assertEqual(grade_pick(game, _pick(PickType.UNDER)).outcome, GradeOutcome.WIN)
+        self.assertEqual(grade_pick(game, _pick(PickType.OVER)).outcome, GradeOutcome.LOSS)
 
     def test_total_none_makes_over_under_ineligible(self) -> None:
         # No total posted at the frozen line -> OVER/UNDER void to 0 (the
         # _total_outcome None branch). Load-bearing for the odds line-at-lock
         # policy: a total that never posted (or vanished before freeze) must not
         # grade as a loss. See .planning/notes/scheduled-tasks-and-odds-freeze.md.
-        game = _game(home_score=24, away_score=20, total=None,
-                     spread=Decimal("3.5"), favorite_team_id=HOME,
-                     underdog_team_id=AWAY)
+        game = _game(
+            home_score=24,
+            away_score=20,
+            total=None,
+            spread=Decimal("3.5"),
+            favorite_team_id=HOME,
+            underdog_team_id=AWAY,
+        )
         self.assertEqual(
             grade_pick(game, _pick(PickType.OVER)),
             GradeResult(GradeOutcome.INELIGIBLE, 0),
@@ -279,9 +340,14 @@ class PickemAndTotalIneligibilityTests(unittest.TestCase):
         # is the line-at-lock guarantee: if a pick's type is ineligible at the
         # frozen line (here a pick'em spread), it is a no-action void, not a
         # loss. See .planning/notes/scheduled-tasks-and-odds-freeze.md.
-        game = _game(home_score=24, away_score=20, spread=Decimal("0"),
-                     favorite_team_id=None, underdog_team_id=None,
-                     total=Decimal("44.5"))
+        game = _game(
+            home_score=24,
+            away_score=20,
+            spread=Decimal("0"),
+            favorite_team_id=None,
+            underdog_team_id=None,
+            total=Decimal("44.5"),
+        )
         self.assertEqual(
             grade_pick(game, _pick(PickType.FAVORITE_COVER, is_mortal_lock=True)),
             GradeResult(GradeOutcome.INELIGIBLE, 0),
@@ -292,26 +358,31 @@ class UngradeableTests(unittest.TestCase):
     """Non-final or missing-score games are ungradeable, never wrong."""
 
     def test_scheduled_game_is_ungradeable(self) -> None:
-        game = _game(home_score=None, away_score=None,
-                     status=GameStatus.SCHEDULED, spread=Decimal("3.5"),
-                     favorite_team_id=HOME, underdog_team_id=AWAY,
-                     total=Decimal("44.5"))
+        game = _game(
+            home_score=None,
+            away_score=None,
+            status=GameStatus.SCHEDULED,
+            spread=Decimal("3.5"),
+            favorite_team_id=HOME,
+            underdog_team_id=AWAY,
+            total=Decimal("44.5"),
+        )
         self.assertEqual(
             grade_pick(game, _pick(PickType.FAVORITE_COVER)),
             GradeResult(GradeOutcome.UNGRADEABLE, 0),
         )
 
     def test_final_game_with_missing_score_is_ungradeable(self) -> None:
-        game = _game(home_score=24, away_score=None, status=GameStatus.FINAL,
-                     total=Decimal("44.5"))
+        game = _game(home_score=24, away_score=None, status=GameStatus.FINAL, total=Decimal("44.5"))
         self.assertEqual(
             grade_pick(game, _pick(PickType.OVER)),
             GradeResult(GradeOutcome.UNGRADEABLE, 0),
         )
 
     def test_ungradeable_zero_even_for_mortal_lock(self) -> None:
-        game = _game(home_score=None, away_score=None,
-                     status=GameStatus.IN_PROGRESS, total=Decimal("44.5"))
+        game = _game(
+            home_score=None, away_score=None, status=GameStatus.IN_PROGRESS, total=Decimal("44.5")
+        )
         res = grade_pick(game, _pick(PickType.OVER, is_mortal_lock=True))
         self.assertEqual(res, GradeResult(GradeOutcome.UNGRADEABLE, 0))
 
@@ -322,19 +393,32 @@ class ScoreWeekTests(unittest.TestCase):
     def test_max_win_week_totals_six(self) -> None:
         # 4 correct base picks (+1 each) on 4 distinct games + a correct mortal
         # lock (+2) = 6, the maximum.
-        g_fav = _game(game_id=1, home_score=30, away_score=20,
-                      spread=Decimal("3.5"), favorite_team_id=HOME,
-                      underdog_team_id=AWAY)
-        g_dog = _game(game_id=2, home_score=22, away_score=20,
-                      spread=Decimal("3.5"), favorite_team_id=HOME,
-                      underdog_team_id=AWAY)
-        g_over = _game(game_id=3, home_score=30, away_score=21,
-                       total=Decimal("44.5"))
-        g_under = _game(game_id=4, home_score=10, away_score=13,
-                        total=Decimal("44.5"))
-        g_lock = _game(game_id=5, home_score=30, away_score=20,
-                       spread=Decimal("3.5"), favorite_team_id=HOME,
-                       underdog_team_id=AWAY)
+        g_fav = _game(
+            game_id=1,
+            home_score=30,
+            away_score=20,
+            spread=Decimal("3.5"),
+            favorite_team_id=HOME,
+            underdog_team_id=AWAY,
+        )
+        g_dog = _game(
+            game_id=2,
+            home_score=22,
+            away_score=20,
+            spread=Decimal("3.5"),
+            favorite_team_id=HOME,
+            underdog_team_id=AWAY,
+        )
+        g_over = _game(game_id=3, home_score=30, away_score=21, total=Decimal("44.5"))
+        g_under = _game(game_id=4, home_score=10, away_score=13, total=Decimal("44.5"))
+        g_lock = _game(
+            game_id=5,
+            home_score=30,
+            away_score=20,
+            spread=Decimal("3.5"),
+            favorite_team_id=HOME,
+            underdog_team_id=AWAY,
+        )
         games_by_id = {g.id: g for g in (g_fav, g_dog, g_over, g_under, g_lock)}
         picks = [
             _pick(PickType.FAVORITE_COVER, game_id=1),
@@ -346,19 +430,28 @@ class ScoreWeekTests(unittest.TestCase):
         self.assertEqual(score_week(games_by_id, picks), 6)
 
     def test_lone_losing_mortal_lock_totals_minus_one(self) -> None:
-        g = _game(game_id=5, home_score=22, away_score=20,
-                  spread=Decimal("3.5"), favorite_team_id=HOME,
-                  underdog_team_id=AWAY)
+        g = _game(
+            game_id=5,
+            home_score=22,
+            away_score=20,
+            spread=Decimal("3.5"),
+            favorite_team_id=HOME,
+            underdog_team_id=AWAY,
+        )
         picks = [_pick(PickType.FAVORITE_COVER, is_mortal_lock=True, game_id=5)]
         self.assertEqual(score_week({g.id: g}, picks), -1)
 
     def test_partial_week_sums_only_present_picks(self) -> None:
         # Only 2 correct base picks present -> 2; absent slots contribute nothing.
-        g1 = _game(game_id=1, home_score=30, away_score=20,
-                   spread=Decimal("3.5"), favorite_team_id=HOME,
-                   underdog_team_id=AWAY)
-        g2 = _game(game_id=3, home_score=30, away_score=21,
-                   total=Decimal("44.5"))
+        g1 = _game(
+            game_id=1,
+            home_score=30,
+            away_score=20,
+            spread=Decimal("3.5"),
+            favorite_team_id=HOME,
+            underdog_team_id=AWAY,
+        )
+        g2 = _game(game_id=3, home_score=30, away_score=21, total=Decimal("44.5"))
         picks = [
             _pick(PickType.FAVORITE_COVER, game_id=1),
             _pick(PickType.OVER, game_id=3),
@@ -401,8 +494,12 @@ class GradeMiscPassthroughTests(unittest.TestCase):
         # A true pick'em with NO total: every auto-graded branch would void to 0
         # here, so a non-zero MISC result proves the passthrough fired instead.
         return _game(
-            home_score=21, away_score=20, status=GameStatus.FINAL,
-            spread=Decimal("0"), favorite_team_id=None, underdog_team_id=None,
+            home_score=21,
+            away_score=20,
+            status=GameStatus.FINAL,
+            spread=Decimal("0"),
+            favorite_team_id=None,
+            underdog_team_id=None,
             total=None,
         )
 
@@ -413,9 +510,13 @@ class GradeMiscPassthroughTests(unittest.TestCase):
 
     def test_misc_win_independent_of_game_score_and_status(self) -> None:
         # Even on a SCHEDULED game (no score yet) the admin grade still flows.
-        game = _game(home_score=None, away_score=None,
-                     status=GameStatus.SCHEDULED, total=None,
-                     spread=Decimal("0"))
+        game = _game(
+            home_score=None,
+            away_score=None,
+            status=GameStatus.SCHEDULED,
+            total=None,
+            spread=Decimal("0"),
+        )
         res = grade_pick(game, _misc_pick(result=PickResult.WIN, points=5))
         self.assertEqual(res, GradeResult(GradeOutcome.WIN, 5))
 
@@ -445,11 +546,15 @@ class GradeMiscPassthroughTests(unittest.TestCase):
         # Two correct base picks (+1 each) plus a graded MISC (+3) = 5. A
         # recompute over the graded MISC keeps the admin points (not 0): this is
         # the "auto-grade never overwrites the stored MISC grade" guarantee.
-        g_fav = _game(game_id=1, home_score=30, away_score=20,
-                      spread=Decimal("3.5"), favorite_team_id=HOME,
-                      underdog_team_id=AWAY)
-        g_over = _game(game_id=3, home_score=30, away_score=21,
-                       total=Decimal("44.5"))
+        g_fav = _game(
+            game_id=1,
+            home_score=30,
+            away_score=20,
+            spread=Decimal("3.5"),
+            favorite_team_id=HOME,
+            underdog_team_id=AWAY,
+        )
+        g_over = _game(game_id=3, home_score=30, away_score=21, total=Decimal("44.5"))
         g_misc = self._ungradeable_misc_game()
         g_misc.id = 7
         games_by_id = {1: g_fav, 3: g_over, 7: g_misc}

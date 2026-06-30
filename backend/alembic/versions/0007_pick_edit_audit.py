@@ -22,6 +22,7 @@ immutable); 0013 is the forward correction. See 0013 for the rationale.
 ``downgrade()`` drops only the table — it does NOT drop the shared ``picktype``
 enum, which predates this migration (0004 owns it).
 """
+
 from collections.abc import Sequence
 
 from alembic import op
@@ -77,19 +78,23 @@ def upgrade() -> None:
         # so deleting a user removes their audit rows. Left unchanged here —
         # history is immutable; 0013 is the forward correction.
         sa.ForeignKeyConstraint(
-            ["admin_user_id"], ["users.id"],
+            ["admin_user_id"],
+            ["users.id"],
             name="fk_pick_edit_audit_admin_user_id_users",
         ),
         sa.ForeignKeyConstraint(
-            ["target_user_id"], ["users.id"],
+            ["target_user_id"],
+            ["users.id"],
             name="fk_pick_edit_audit_target_user_id_users",
         ),
         sa.ForeignKeyConstraint(
-            ["game_id"], ["game.id"],
+            ["game_id"],
+            ["game.id"],
             name="fk_pick_edit_audit_game_id_game",
         ),
         sa.ForeignKeyConstraint(
-            ["week_id"], ["week.id"],
+            ["week_id"],
+            ["week.id"],
             name="fk_pick_edit_audit_week_id_week",
         ),
     )

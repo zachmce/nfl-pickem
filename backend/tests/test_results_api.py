@@ -162,11 +162,7 @@ class ResultsTests(unittest.TestCase):
             session.refresh(user_a)
             session.refresh(user_b)
             session.refresh(user_c)
-            assert (
-                user_a.id is not None
-                and user_b.id is not None
-                and user_c.id is not None
-            )
+            assert user_a.id is not None and user_b.id is not None and user_c.id is not None
             self.user_a_id = user_a.id
             self.user_b_id = user_b.id
             self.user_c_id = user_c.id
@@ -235,9 +231,7 @@ class ResultsTests(unittest.TestCase):
         """
         future = datetime.now(timezone.utc) + timedelta(days=2)
         with self._session() as session:
-            games = list(
-                session.exec(select(Game).where(Game.week_id == self.week_id)).all()
-            )
+            games = list(session.exec(select(Game).where(Game.week_id == self.week_id)).all())
             for offset, game in enumerate(games):
                 game.kickoff_at = future + timedelta(hours=offset)
                 session.add(game)
@@ -369,9 +363,7 @@ class ResultsTests(unittest.TestCase):
         complete even though every other game is FINAL.
         """
         with self._session() as session:
-            game = session.exec(
-                select(Game).where(Game.id == self.game_fav_id)
-            ).one()
+            game = session.exec(select(Game).where(Game.id == self.game_fav_id)).one()
             game.status = GameStatus.IN_PROGRESS
             session.add(game)
             session.commit()
@@ -435,9 +427,7 @@ class ResultsTests(unittest.TestCase):
         # alice's UNDER mortal lock won (+2); the FAVORITE_COVER won (+1).
         outcomes = {p.pick_type: (p.outcome, p.points) for p in alice.picks}
         self.assertEqual(outcomes[PickType.UNDER], (GradeOutcome.WIN.value, 2))
-        self.assertEqual(
-            outcomes[PickType.FAVORITE_COVER], (GradeOutcome.WIN.value, 1)
-        )
+        self.assertEqual(outcomes[PickType.FAVORITE_COVER], (GradeOutcome.WIN.value, 1))
         # bob's OVER lost on a FINAL game -> LOSS, 0 points.
         bob = results[1]
         self.assertEqual(bob.weekly_score, 0)
@@ -478,9 +468,7 @@ class ResultsTests(unittest.TestCase):
         )
 
         with self._session() as session:
-            results = week_results(
-                session, season=SEASON, week=WEEK, caller_user_id=self.user_a_id
-            )
+            results = week_results(session, season=SEASON, week=WEEK, caller_user_id=self.user_a_id)
 
         bob = self._picks_for(results, "bob")
         self.assertEqual(bob.picks, ())  # other user's picks hidden while open
@@ -501,9 +489,7 @@ class ResultsTests(unittest.TestCase):
         )
 
         with self._session() as session:
-            results = week_results(
-                session, season=SEASON, week=WEEK, caller_user_id=self.user_a_id
-            )
+            results = week_results(session, season=SEASON, week=WEEK, caller_user_id=self.user_a_id)
 
         bob = self._picks_for(results, "bob")
         self.assertIn(self.game_fav_id, {p.game_id for p in bob.picks})
@@ -525,9 +511,7 @@ class ResultsTests(unittest.TestCase):
         )
 
         with self._session() as session:
-            results = week_results(
-                session, season=SEASON, week=WEEK, caller_user_id=self.user_a_id
-            )
+            results = week_results(session, season=SEASON, week=WEEK, caller_user_id=self.user_a_id)
 
         bob = self._picks_for(results, "bob")
         self.assertIn(future_game_id, {p.game_id for p in bob.picks})
@@ -547,9 +531,7 @@ class ResultsTests(unittest.TestCase):
         )
 
         with self._session() as session:
-            results = week_results(
-                session, season=SEASON, week=WEEK, caller_user_id=self.user_a_id
-            )
+            results = week_results(session, season=SEASON, week=WEEK, caller_user_id=self.user_a_id)
 
         alice = self._picks_for(results, "alice")
         self.assertIn(future_game_id, {p.game_id for p in alice.picks})
@@ -574,9 +556,7 @@ class ResultsTests(unittest.TestCase):
         )
 
         with self._session() as session:
-            results = week_results(
-                session, season=SEASON, week=WEEK, caller_user_id=self.user_a_id
-            )
+            results = week_results(session, season=SEASON, week=WEEK, caller_user_id=self.user_a_id)
             from app.services.standings import _season_games_by_pk
 
             games_by_pk = _season_games_by_pk(session, season=SEASON)
@@ -632,9 +612,7 @@ class ResultsTests(unittest.TestCase):
     def test_unauthenticated_week_and_standings_rejected_401(self) -> None:
         """Unauthenticated GETs to both endpoints -> 401 envelope."""
         self._clear_auth()
-        wk = self.client.get(
-            "/api/results/week", params={"season": SEASON, "week": WEEK}
-        )
+        wk = self.client.get("/api/results/week", params={"season": SEASON, "week": WEEK})
         self.assertEqual(wk.status_code, 401, wk.text)
         self._assert_envelope(wk.json())
 
@@ -668,9 +646,7 @@ class ResultsTests(unittest.TestCase):
         )
         # Give alice a Discord identity so the row carries a real hash; bob has
         # none, so his row must report null avatar fields.
-        self._set_discord_identity(
-            self.user_a_id, discord_id=4242, avatar_hash="abc123hash"
-        )
+        self._set_discord_identity(self.user_a_id, discord_id=4242, avatar_hash="abc123hash")
 
         # carol (who did not pick) can still read the shared scoreboard.
         resp = self.client.get(
@@ -688,9 +664,7 @@ class ResultsTests(unittest.TestCase):
         self.assertNotIn("user_id", results[0])
         alice = results[0]
         self.assertEqual(alice["weekly_score"], 3)
-        self.assertEqual(
-            alice["weekly_score"], sum(p["points"] for p in alice["picks"])
-        )
+        self.assertEqual(alice["weekly_score"], sum(p["points"] for p in alice["picks"]))
         for p in alice["picks"]:
             self.assertIn(p["outcome"], {o.value for o in GradeOutcome})
             self.assertNotEqual(p["outcome"], GradeOutcome.UNGRADEABLE.value)
@@ -732,9 +706,7 @@ class ResultsTests(unittest.TestCase):
             pick_type=PickType.FAVORITE_COVER,
         )
         # alice gets a Discord identity (hash present); bob/carol stay null.
-        self._set_discord_identity(
-            self.user_a_id, discord_id=9001, avatar_hash="deadbeefhash"
-        )
+        self._set_discord_identity(self.user_a_id, discord_id=9001, avatar_hash="deadbeefhash")
 
         resp = self.client.get(
             "/api/results/standings",
@@ -747,9 +719,7 @@ class ResultsTests(unittest.TestCase):
         # setUp seeds two FINAL games (no non-FINAL game) -> season complete.
         self.assertTrue(body["season_complete"])
         rows = body["standings"]
-        self.assertEqual(
-            [r["display_name"] for r in rows], ["alice", "bob", "carol"]
-        )
+        self.assertEqual([r["display_name"] for r in rows], ["alice", "bob", "carol"])
         self.assertEqual([r["season_total"] for r in rows], [3, 1, 1])
         self.assertNotIn("user_id", rows[0])
         # weekly_scores is keyed by week number (JSON stringifies int keys).
@@ -763,9 +733,7 @@ class ResultsTests(unittest.TestCase):
         self.assertEqual(rows[0]["discord_avatar_hash"], "deadbeefhash")
         expected_other_ids = {"bob": "2", "carol": "3"}
         for other in rows[1:]:
-            self.assertEqual(
-                other["discord_id"], expected_other_ids[other["display_name"]]
-            )
+            self.assertEqual(other["discord_id"], expected_other_ids[other["display_name"]])
             self.assertIsNone(other["discord_avatar_hash"])
 
 

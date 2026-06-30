@@ -72,8 +72,7 @@ ABBR_TO_NICKNAME: dict[str, str] = {
 # word: "Vikings", "Commanders", "49ers"). A digit-leading nickname ("49ers") is
 # unchanged by capitalize-first, which is correct.
 _NICKNAME_CAPITALIZED: dict[str, str] = {
-    abbr: nickname[:1].upper() + nickname[1:]
-    for abbr, nickname in ABBR_TO_NICKNAME.items()
+    abbr: nickname[:1].upper() + nickname[1:] for abbr, nickname in ABBR_TO_NICKNAME.items()
 }
 
 # Module-level mutable cache: lowercased emoji-name -> "<:name:id>" string.
@@ -178,7 +177,7 @@ def decorate_team_logos(text: str, *, logo_map: dict[str, str] | None = None) ->
             logo = targets[tok]
             # Skip if this token is ALREADY followed by its logo (don't double
             # decorate a line that was decorated upstream or hand-authored).
-            trailing = match.string[match.end():]
+            trailing = match.string[match.end() :]
             if trailing[: len(logo) + 1] == f" {logo}":
                 return tok
             return f"{tok} {logo}"

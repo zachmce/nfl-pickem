@@ -57,22 +57,16 @@ def seed_bot_picks(
 
     # Resolve bots by display_name -> User (only those present in BOT_PICKS).
     users_by_name = {
-        u.display_name: u
-        for u in session.exec(select(User)).all()
-        if u.display_name in BOT_PICKS
+        u.display_name: u for u in session.exec(select(User)).all() if u.display_name in BOT_PICKS
     }
     bot_user_ids = [u.id for u in users_by_name.values() if u.id is not None]
 
     # (season, week) -> week_id.
-    week_ids = {
-        w.week: w.id
-        for w in session.exec(select(Week).where(Week.season == season)).all()
-    }
+    week_ids = {w.week: w.id for w in session.exec(select(Week).where(Week.season == season)).all()}
 
     # espn_event_id -> Game.id for the season.
     event_to_game = {
-        g.espn_event_id: g.id
-        for g in session.exec(select(Game).where(Game.season == season)).all()
+        g.espn_event_id: g.id for g in session.exec(select(Game).where(Game.season == season)).all()
     }
 
     for name, user in users_by_name.items():
@@ -89,9 +83,7 @@ def seed_bot_picks(
             existing_slots = {
                 (p.pick_type, p.is_mortal_lock)
                 for p in session.exec(
-                    select(Pick).where(
-                        Pick.user_id == user.id, Pick.week_id == week_id
-                    )
+                    select(Pick).where(Pick.user_id == user.id, Pick.week_id == week_id)
                 ).all()
             }
 
@@ -119,10 +111,4 @@ def seed_bot_picks(
 
     if not bot_user_ids:
         return 0
-    return len(
-        list(
-            session.exec(
-                select(Pick).where(Pick.user_id.in_(bot_user_ids))
-            ).all()
-        )
-    )
+    return len(list(session.exec(select(Pick).where(Pick.user_id.in_(bot_user_ids))).all()))

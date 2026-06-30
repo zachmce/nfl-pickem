@@ -155,8 +155,7 @@ class PgMigrationSmokeTest(unittest.TestCase):
             # Fail loudly instead of hanging if a prior test ever leaves a lock.
             c.execute("SET lock_timeout = '10s'")
             c.execute(
-                "TRUNCATE pick_edit_audit, pick, game, week, team, users "
-                "RESTART IDENTITY CASCADE"
+                "TRUNCATE pick_edit_audit, pick, game, week, team, users RESTART IDENTITY CASCADE"
             )
             c.commit()
 
@@ -181,8 +180,7 @@ class PgMigrationSmokeTest(unittest.TestCase):
 
     def _insert_week(self, cur, *, season: int, week: int) -> int:
         cur.execute(
-            "INSERT INTO week (season, week, lines_frozen) VALUES (%s, %s, false) "
-            "RETURNING id",
+            "INSERT INTO week (season, week, lines_frozen) VALUES (%s, %s, false) RETURNING id",
             (season, week),
         )
         return cur.fetchone()[0]
@@ -213,9 +211,7 @@ class PgMigrationSmokeTest(unittest.TestCase):
         heads = _alembic(["heads"], self.child_env)
         self.assertEqual(heads.returncode, 0, heads.stderr)
         head_lines = [ln for ln in heads.stdout.splitlines() if ln.strip()]
-        self.assertEqual(
-            len(head_lines), 1, f"expected exactly one head, got: {heads.stdout!r}"
-        )
+        self.assertEqual(len(head_lines), 1, f"expected exactly one head, got: {heads.stdout!r}")
         self.assertIn(EXPECTED_HEAD, heads.stdout, heads.stdout)
 
         current = _alembic(["current"], self.child_env)
@@ -251,9 +247,7 @@ class PgMigrationSmokeTest(unittest.TestCase):
             home = self._insert_team(cur, espn_team_id=1, abbr="AAA")
             away = self._insert_team(cur, espn_team_id=2, abbr="BBB")
             week_id = self._insert_week(cur, season=2025, week=1)
-            game_id = self._insert_game(
-                cur, week_id=week_id, home=home, away=away, espn=900001
-            )
+            game_id = self._insert_game(cur, week_id=week_id, home=home, away=away, espn=900001)
             cur.execute(
                 "INSERT INTO pick_edit_audit (admin_user_id, target_user_id, game_id, "
                 "week_id, action, before_existed, game_was_final, created_at) "
@@ -280,9 +274,7 @@ class PgMigrationSmokeTest(unittest.TestCase):
             home = self._insert_team(cur, espn_team_id=3, abbr="CCC")
             away = self._insert_team(cur, espn_team_id=4, abbr="DDD")
             week_id = self._insert_week(cur, season=2025, week=2)
-            game_id = self._insert_game(
-                cur, week_id=week_id, home=home, away=away, espn=900002
-            )
+            game_id = self._insert_game(cur, week_id=week_id, home=home, away=away, espn=900002)
             self._insert_pick(cur, user_id=user, game_id=game_id, week_id=week_id)
             self.conn.commit()
 
@@ -299,12 +291,8 @@ class PgMigrationSmokeTest(unittest.TestCase):
     def test_invariant_e_picktype_enum_single_with_labels(self) -> None:
         """`picktype` enum exists exactly once with the five expected labels."""
         with self.conn.cursor() as cur:
-            cur.execute(
-                "SELECT count(*) FROM pg_type WHERE typname = 'picktype'"
-            )
-            self.assertEqual(
-                cur.fetchone()[0], 1, "picktype enum must exist exactly once"
-            )
+            cur.execute("SELECT count(*) FROM pg_type WHERE typname = 'picktype'")
+            self.assertEqual(cur.fetchone()[0], 1, "picktype enum must exist exactly once")
             cur.execute(
                 "SELECT enumlabel FROM pg_enum e "
                 "JOIN pg_type t ON t.oid = e.enumtypid "

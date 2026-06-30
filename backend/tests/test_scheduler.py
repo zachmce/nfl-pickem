@@ -78,22 +78,14 @@ class _FailingWeekSource:
 
 def _scores_job() -> scheduler.PollingJob:
     """The single registered scores job (fail loud if the registry shape drifts)."""
-    jobs = [
-        j
-        for j in scheduler.POLLING_JOBS
-        if j.beat_name == "refresh-games-poller"
-    ]
+    jobs = [j for j in scheduler.POLLING_JOBS if j.beat_name == "refresh-games-poller"]
     assert len(jobs) == 1, f"expected exactly one scores job, got {jobs}"
     return jobs[0]
 
 
 def _odds_job() -> scheduler.PollingJob:
     """The single registered odds job (fail loud if the registry shape drifts)."""
-    jobs = [
-        j
-        for j in scheduler.POLLING_JOBS
-        if j.beat_name == "refresh-odds-poller"
-    ]
+    jobs = [j for j in scheduler.POLLING_JOBS if j.beat_name == "refresh-odds-poller"]
     assert len(jobs) == 1, f"expected exactly one odds job, got {jobs}"
     return jobs[0]
 
@@ -127,16 +119,12 @@ class SchedulerRegistryTests(unittest.TestCase):
         # ONE home in celery_app (mirrors the scores single-home invariant).
         from app.celery_app import REFRESH_ODDS_INTERVAL_SECONDS
 
-        self.assertEqual(
-            _odds_job().schedule_seconds, REFRESH_ODDS_INTERVAL_SECONDS
-        )
+        self.assertEqual(_odds_job().schedule_seconds, REFRESH_ODDS_INTERVAL_SECONDS)
 
     def test_scores_cadence_still_has_one_home_in_celery_app(self) -> None:
         from app.celery_app import REFRESH_GAMES_INTERVAL_SECONDS
 
-        self.assertEqual(
-            _scores_job().schedule_seconds, REFRESH_GAMES_INTERVAL_SECONDS
-        )
+        self.assertEqual(_scores_job().schedule_seconds, REFRESH_GAMES_INTERVAL_SECONDS)
 
     def test_beat_schedule_has_both_entries_scores_unchanged(self) -> None:
         from app.celery_app import (
@@ -190,11 +178,7 @@ class SchedulerNeedyPredicateTests(unittest.TestCase):
         job = _scores_job()
         with Session(self.engine) as session:
             # Mark week 1 fully FINAL up front; the rest stay SCHEDULED (needy).
-            wk1 = session.exec(
-                select(Game).where(
-                    Game.season == self.season, Game.week == 1
-                )
-            ).all()
+            wk1 = session.exec(select(Game).where(Game.season == self.season, Game.week == 1)).all()
             for g in wk1:
                 g.status = GameStatus.FINAL
                 g.home_score = 0
@@ -202,9 +186,7 @@ class SchedulerNeedyPredicateTests(unittest.TestCase):
                 session.add(g)
             session.commit()
 
-            by_week = group_games_by_week(
-                list(session.exec(select(Game)).all())
-            )
+            by_week = group_games_by_week(list(session.exec(select(Game)).all()))
             needy = job.needy(by_week)
 
             needy_set = set(needy)
@@ -225,9 +207,7 @@ class SchedulerNeedyPredicateTests(unittest.TestCase):
                 session.add(g)
             session.commit()
 
-            by_week = group_games_by_week(
-                list(session.exec(select(Game)).all())
-            )
+            by_week = group_games_by_week(list(session.exec(select(Game)).all()))
             self.assertEqual(job.needy(by_week), [])
 
 
@@ -256,9 +236,7 @@ class SchedulerFetchHelperTests(unittest.TestCase):
             self.assertIsInstance(fetched[key], list)
 
     def test_per_week_fetch_error_is_recorded_not_raised(self) -> None:
-        failing = _FailingWeekSource(
-            Demo2025Source(offset=FUTURE_OFFSET), fail=(self.season, 2)
-        )
+        failing = _FailingWeekSource(Demo2025Source(offset=FUTURE_OFFSET), fail=(self.season, 2))
         weeks = [(self.season, 1), (self.season, 2), (self.season, 3)]
 
         # The failing week is recorded, not raised, and other weeks still fetch.

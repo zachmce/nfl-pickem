@@ -83,9 +83,7 @@ def _games_by_event_index(games: list[Game]) -> dict[int, Game]:
     return {g.espn_event_id: g for g in games}
 
 
-def _picks_for_week(
-    bot_picks: list[BotPick], games_by_event: dict[int, Game]
-) -> list[Pick]:
+def _picks_for_week(bot_picks: list[BotPick], games_by_event: dict[int, Game]) -> list[Pick]:
     """Materialize transient ``Pick`` instances from dataset records.
 
     Resolves each record's stable ``espn_event_id`` to the real seeded ``Game``

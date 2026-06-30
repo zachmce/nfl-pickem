@@ -11,6 +11,7 @@ worker/beat process read to rebuild the SAME ``Demo2025Source(offset)``. Kept
 tiny and fully reversible so the demo footprint is cleanly purgeable before
 go-live (PROD-LEAK-GUARD).
 """
+
 from collections.abc import Sequence
 
 from alembic import op

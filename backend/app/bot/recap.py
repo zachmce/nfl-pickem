@@ -48,9 +48,7 @@ RECAP_GUARD = (
 # composes with the ACTIVE voice resolved via the db_bridge seam; this constant is
 # the unset/default composition (active voice == sarcastic) so callers/tests that
 # reference RECAP_PROMPT still see the default prompt.
-RECAP_PROMPT = compose_prompt(
-    PERSONALITIES[DEFAULT_PERSONALITY_ID], RECAP_ROLE, RECAP_GUARD
-)
+RECAP_PROMPT = compose_prompt(PERSONALITIES[DEFAULT_PERSONALITY_ID], RECAP_ROLE, RECAP_GUARD)
 
 
 async def _recap_context(week: int) -> dict:

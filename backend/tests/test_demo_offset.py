@@ -130,14 +130,11 @@ class WindowOpenPositioningTests(unittest.TestCase):
             prev_games = source.fetch_week(SEASON, target_week - 1)
             self.assertTrue(prev_games)
             for g in prev_games:
-                status, _ = derive_status(
-                    g.kickoff_at, datetime.now(timezone.utc)
-                )
+                status, _ = derive_status(g.kickoff_at, datetime.now(timezone.utc))
                 self.assertEqual(
                     status,
                     GameStatus.FINAL,
-                    f"prev week {target_week - 1} game {g.espn_event_id} "
-                    "not FINAL",
+                    f"prev week {target_week - 1} game {g.espn_event_id} not FINAL",
                 )
 
         # compute_window + is_pick_open over the positioned weeks report OPEN.
@@ -158,11 +155,7 @@ class WindowOpenPositioningTests(unittest.TestCase):
                 for sg in scoreboard_games
             ]
 
-        prev = (
-            _to_games(source.fetch_week(SEASON, target_week - 1))
-            if target_week > 1
-            else None
-        )
+        prev = _to_games(source.fetch_week(SEASON, target_week - 1)) if target_week > 1 else None
         window = compute_window(_to_games(target_games), prev)
         self.assertTrue(
             is_pick_open(window, datetime.now(timezone.utc)),
@@ -197,9 +190,7 @@ class AllFinalPositioningTests(unittest.TestCase):
         games = source.fetch_week(SEASON, target_week)
         self.assertTrue(games)
         for g in games:
-            status, reveal = derive_status(
-                g.kickoff_at, datetime.now(timezone.utc)
-            )
+            status, reveal = derive_status(g.kickoff_at, datetime.now(timezone.utc))
             self.assertEqual(
                 status,
                 GameStatus.FINAL,

@@ -277,11 +277,7 @@ class SlotModelTests(unittest.TestCase):
         p1 = _pick(PickType.UNDER, game_id=1)
         p2 = _pick(PickType.UNDER, game_id=2)
         result = validate_roster([p1, p2], _games_by_id(g1, g2))
-        dup = next(
-            v
-            for v in result.violations
-            if v.code is ViolationCode.DUPLICATE_BASE_TYPE
-        )
+        dup = next(v for v in result.violations if v.code is ViolationCode.DUPLICATE_BASE_TYPE)
         self.assertIn(p1, dup.picks)
         self.assertIn(p2, dup.picks)
 
@@ -409,9 +405,7 @@ class FirstPickPrecedenceTests(unittest.TestCase):
 
     def test_new_spread_on_pickem_rejected(self) -> None:
         g = _pickem_game(game_id=1)
-        result = check_new_pick(
-            _pick(PickType.FAVORITE_COVER, game_id=1), [], _games_by_id(g)
-        )
+        result = check_new_pick(_pick(PickType.FAVORITE_COVER, game_id=1), [], _games_by_id(g))
         self.assertFalse(result.ok)
         self.assertIn(ViolationCode.PICKEM_SPREAD_INELIGIBLE, _codes(result))
 

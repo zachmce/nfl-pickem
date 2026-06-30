@@ -131,9 +131,7 @@ def admin_set_pick(
     # self-conflict — it is a replacement).
     existing = list(
         session.exec(
-            select(Pick).where(
-                Pick.user_id == target_user_id, Pick.week_id == week_row.id
-            )
+            select(Pick).where(Pick.user_id == target_user_id, Pick.week_id == week_row.id)
         ).all()
     )
     if before_row is not None:
@@ -241,8 +239,7 @@ def admin_clear_pick(
     if matched is None:
         lock_label = " (mortal lock)" if is_mortal_lock else ""
         raise NotFoundError(
-            f"No {pick_type.value}{lock_label} pick to clear for season "
-            f"{season} week {week}.",
+            f"No {pick_type.value}{lock_label} pick to clear for season {season} week {week}.",
             reason="pick_not_found",
         )
 

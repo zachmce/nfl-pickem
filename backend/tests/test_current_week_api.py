@@ -153,9 +153,7 @@ class CurrentWeekTests(unittest.TestCase):
         return err
 
     def _get(self) -> object:
-        return self.client.get(
-            "/api/current-week", headers=self._bearer_headers(self.user_id)
-        )
+        return self.client.get("/api/current-week", headers=self._bearer_headers(self.user_id))
 
     # -- auth --------------------------------------------------------------
 
@@ -264,9 +262,7 @@ class CurrentWeekTests(unittest.TestCase):
         body = resp.json()
         self.assertEqual(body["week"], 2)
         self.assertEqual(body["window_state"], "open")
-        self.assertEqual(
-            _aware(datetime.fromisoformat(body["window_closes_at"])), wk2_first
-        )
+        self.assertEqual(_aware(datetime.fromisoformat(body["window_closes_at"])), wk2_first)
 
     def test_demo_like_shift(self) -> None:
         """Kickoffs shifted into the FUTURE (simulating the demo time-shift),
@@ -328,9 +324,7 @@ class CurrentWeekTests(unittest.TestCase):
         self.assertEqual(body["week"], 1)
         # Window state + close time reflect the chosen season's week only.
         self.assertEqual(body["window_state"], "open")
-        self.assertEqual(
-            _aware(datetime.fromisoformat(body["window_closes_at"])), wk1_first
-        )
+        self.assertEqual(_aware(datetime.fromisoformat(body["window_closes_at"])), wk1_first)
         # The 2025 week has a future SCHEDULED kickoff -> season not complete.
         self.assertIs(body["season_complete"], False)
 

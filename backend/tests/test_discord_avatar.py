@@ -67,9 +67,7 @@ class DiscordAvatarModelTests(unittest.TestCase):
             session.add(user)
             session.commit()
             session.refresh(user)
-            self.assertEqual(
-                user.discord_avatar_hash, "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
-            )
+            self.assertEqual(user.discord_avatar_hash, "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4")
 
     def test_user_read_serializes_avatar_hash(self) -> None:
         with self._session() as session:
@@ -143,9 +141,7 @@ class Migration0011AvatarHashTest(unittest.TestCase):
             executes.append(str(sqltext))
             return None
 
-        ctx = MigrationContext.configure(
-            dialect_name="postgresql", opts={"as_sql": True}
-        )
+        ctx = MigrationContext.configure(dialect_name="postgresql", opts={"as_sql": True})
         Operations.add_column = capture_add_column  # type: ignore[assignment]
         Operations.drop_column = capture_drop_column  # type: ignore[assignment]
         Operations.execute = capture_execute  # type: ignore[assignment]
@@ -167,7 +163,8 @@ class Migration0011AvatarHashTest(unittest.TestCase):
             if table == "users" and col.name == "discord_avatar_hash"
         ]
         self.assertEqual(
-            len(matched), 1,
+            len(matched),
+            1,
             "0011 must add exactly one discord_avatar_hash column to users.",
         )
         _, col = matched[0]
@@ -214,9 +211,7 @@ class ProvisionAndUpsertAvatarTests(unittest.TestCase):
         return Session(self.engine)
 
     def _get_user(self, session: Session, discord_id: int) -> User:
-        user = session.exec(
-            select(User).where(User.discord_id == discord_id)
-        ).one_or_none()
+        user = session.exec(select(User).where(User.discord_id == discord_id)).one_or_none()
         assert user is not None
         return user
 
@@ -241,9 +236,7 @@ class ProvisionAndUpsertAvatarTests(unittest.TestCase):
             provision_user(session, 102, "ToUpdate")
             changed = upsert_avatar_hash_by_discord_id(session, 102, "newhash123")
             self.assertTrue(changed)
-            self.assertEqual(
-                self._get_user(session, 102).discord_avatar_hash, "newhash123"
-            )
+            self.assertEqual(self._get_user(session, 102).discord_avatar_hash, "newhash123")
 
     def test_upsert_clears_to_none(self) -> None:
         with self._session() as session:

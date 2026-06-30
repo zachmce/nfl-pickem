@@ -120,9 +120,7 @@ class RenderTests(unittest.TestCase):
 
     def test_render_admin_pick_cleared(self) -> None:
         event = admin_pick_cleared_event(target="alice", week=3, slot="FAVORITE_COVER")
-        self.assertEqual(
-            _render(event), "admin cleared alice · Week 3 · FAVORITE_COVER"
-        )
+        self.assertEqual(_render(event), "admin cleared alice · Week 3 · FAVORITE_COVER")
 
     def test_render_player_registered(self) -> None:
         self.assertEqual(_render(player_registered_event("newbie")), "new player: newbie")
@@ -173,9 +171,7 @@ class RenderChatTests(unittest.TestCase):
 
     def test_render_game_final(self) -> None:
         line = render_chat(
-            game_final_event(
-                week=3, away_abbr="LAC", home_abbr="KC", away_score=20, home_score=27
-            )
+            game_final_event(week=3, away_abbr="LAC", home_abbr="KC", away_score=20, home_score=27)
         )
         self.assertIsNotNone(line)
         self.assertIn("KC", line)
@@ -185,9 +181,7 @@ class RenderChatTests(unittest.TestCase):
 
     def test_render_week_recap(self) -> None:
         line = render_chat(
-            week_recap_event(
-                week=3, winner="Carol", winner_score=6, leader="Dave", leader_score=18
-            )
+            week_recap_event(week=3, winner="Carol", winner_score=6, leader="Dave", leader_score=18)
         )
         self.assertIsNotNone(line)
         self.assertIn("Carol", line)
@@ -425,9 +419,11 @@ class RunNotifierEmbellishTests(unittest.IsolatedAsyncioTestCase):
             return redis_client
 
         if isinstance(phrase_value, BaseException):
+
             async def _phrase(fact_text, *, system_prompt):
                 raise phrase_value
         else:
+
             async def _phrase(fact_text, *, system_prompt):
                 return phrase_value
 
@@ -707,9 +703,7 @@ class RunNotifierDecorateTests(unittest.IsolatedAsyncioTestCase):
         event = window_closed_event(week=3)
         frame = {"type": "message", "data": json.dumps(event)}
 
-        with mock.patch(
-            "app.bot.commentary.build_lock_commentary", _commentary
-        ):
+        with mock.patch("app.bot.commentary.build_lock_commentary", _commentary):
             subscribe_frame = {"type": "subscribe", "data": 1}
             logger_channel = _SendableChannel(id=123, name="pickem-logger")
             chat_channel = _SendableChannel(id=456, name="pickem-chat")

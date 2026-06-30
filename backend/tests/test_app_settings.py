@@ -52,33 +52,23 @@ class AppSettingsServiceTests(unittest.TestCase):
             # Update in place — no second row for the same key.
             app_settings.set_setting(session, "k", "v2")
             self.assertEqual(app_settings.get_setting(session, "k"), "v2")
-            rows = session.exec(
-                select(AppSetting).where(AppSetting.setting_key == "k")
-            ).all()
+            rows = session.exec(select(AppSetting).where(AppSetting.setting_key == "k")).all()
             self.assertEqual(len(rows), 1, "upsert must keep exactly one row per key")
 
     # -- bot-personality wrappers -----------------------------------------
 
     def test_get_bot_personality_defaults_to_sarcastic_when_unset(self) -> None:
         with self._session() as session:
-            self.assertEqual(
-                app_settings.get_bot_personality(session), DEFAULT_PERSONALITY_ID
-            )
+            self.assertEqual(app_settings.get_bot_personality(session), DEFAULT_PERSONALITY_ID)
 
     def test_get_bot_personality_defaults_when_blank(self) -> None:
         with self._session() as session:
-            app_settings.set_setting(
-                session, app_settings.BOT_PERSONALITY_KEY, "   "
-            )
-            self.assertEqual(
-                app_settings.get_bot_personality(session), DEFAULT_PERSONALITY_ID
-            )
+            app_settings.set_setting(session, app_settings.BOT_PERSONALITY_KEY, "   ")
+            self.assertEqual(app_settings.get_bot_personality(session), DEFAULT_PERSONALITY_ID)
 
     def test_set_bot_personality_persists_valid_id(self) -> None:
         # Pick a non-default valid id so the round-trip is meaningful.
-        target = next(
-            pid for pid in available_personality_ids() if pid != DEFAULT_PERSONALITY_ID
-        )
+        target = next(pid for pid in available_personality_ids() if pid != DEFAULT_PERSONALITY_ID)
         with self._session() as session:
             returned = app_settings.set_bot_personality(session, target)
             self.assertEqual(returned, target)
@@ -90,9 +80,7 @@ class AppSettingsServiceTests(unittest.TestCase):
                 app_settings.set_bot_personality(session, "totally_made_up")
             self.assertTrue(str(ctx.exception).startswith("unknown_personality"))
             # The rejected write left no setting behind -> still the default.
-            self.assertEqual(
-                app_settings.get_bot_personality(session), DEFAULT_PERSONALITY_ID
-            )
+            self.assertEqual(app_settings.get_bot_personality(session), DEFAULT_PERSONALITY_ID)
 
 
 if __name__ == "__main__":

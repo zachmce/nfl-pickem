@@ -103,11 +103,7 @@ def read_calendar(
     end = to_start + timedelta(days=1)  # exclusive: covers the whole `to` day
 
     games = list(
-        session.exec(
-            select(Game).where(
-                Game.kickoff_at >= start, Game.kickoff_at < end
-            )
-        ).all()
+        session.exec(select(Game).where(Game.kickoff_at >= start, Game.kickoff_at < end)).all()
     )
 
     # Resolve referenced teams in one query (no N+1), keyed by id.
@@ -143,6 +139,4 @@ def read_calendar(
             )
         )
 
-    return CalendarResponse.from_games(
-        from_date=from_, to_date=to, games=calendar_games
-    )
+    return CalendarResponse.from_games(from_date=from_, to_date=to, games=calendar_games)

@@ -185,16 +185,28 @@ class SlateTests(unittest.TestCase):
         later = now + timedelta(days=2)
         earlier = now + timedelta(days=1)
         self._add_game(
-            week_id=wk_id, week=1, espn_event_id=1002, kickoff_at=later,
-            home_team_id=self.tid[2], away_team_id=self.tid[3],
-            spread=Decimal("3.5"), total=Decimal("44.5"),
-            favorite_team_id=self.tid[2], underdog_team_id=self.tid[3],
+            week_id=wk_id,
+            week=1,
+            espn_event_id=1002,
+            kickoff_at=later,
+            home_team_id=self.tid[2],
+            away_team_id=self.tid[3],
+            spread=Decimal("3.5"),
+            total=Decimal("44.5"),
+            favorite_team_id=self.tid[2],
+            underdog_team_id=self.tid[3],
         )
         self._add_game(
-            week_id=wk_id, week=1, espn_event_id=1001, kickoff_at=earlier,
-            home_team_id=self.tid[0], away_team_id=self.tid[1],
-            spread=Decimal("7.0"), total=Decimal("48.0"),
-            favorite_team_id=self.tid[0], underdog_team_id=self.tid[1],
+            week_id=wk_id,
+            week=1,
+            espn_event_id=1001,
+            kickoff_at=earlier,
+            home_team_id=self.tid[0],
+            away_team_id=self.tid[1],
+            spread=Decimal("7.0"),
+            total=Decimal("48.0"),
+            favorite_team_id=self.tid[0],
+            underdog_team_id=self.tid[1],
         )
 
         resp = self._get(1)
@@ -226,11 +238,16 @@ class SlateTests(unittest.TestCase):
         now = datetime.now(timezone.utc)
         wk_id = self._seed_week_row(1)
         self._add_game(
-            week_id=wk_id, week=1, espn_event_id=1001,
+            week_id=wk_id,
+            week=1,
+            espn_event_id=1001,
             kickoff_at=now + timedelta(days=1),
-            home_team_id=self.tid[0], away_team_id=self.tid[1],
-            spread=Decimal("3.5"), total=Decimal("44.5"),
-            favorite_team_id=self.tid[0], underdog_team_id=self.tid[1],
+            home_team_id=self.tid[0],
+            away_team_id=self.tid[1],
+            spread=Decimal("3.5"),
+            total=Decimal("44.5"),
+            favorite_team_id=self.tid[0],
+            underdog_team_id=self.tid[1],
         )
 
         resp = self._get(1)
@@ -246,11 +263,16 @@ class SlateTests(unittest.TestCase):
         now = datetime.now(timezone.utc)
         wk_id = self._seed_week_row(1)
         self._add_game(
-            week_id=wk_id, week=1, espn_event_id=1001,
+            week_id=wk_id,
+            week=1,
+            espn_event_id=1001,
             kickoff_at=now + timedelta(days=1),
-            home_team_id=self.tid[0], away_team_id=self.tid[1],
-            spread=Decimal("3.5"), total=None,
-            favorite_team_id=self.tid[0], underdog_team_id=self.tid[1],
+            home_team_id=self.tid[0],
+            away_team_id=self.tid[1],
+            spread=Decimal("3.5"),
+            total=None,
+            favorite_team_id=self.tid[0],
+            underdog_team_id=self.tid[1],
         )
 
         resp = self._get(1)
@@ -269,11 +291,16 @@ class SlateTests(unittest.TestCase):
         now = datetime.now(timezone.utc)
         wk_id = self._seed_week_row(1)
         self._add_game(
-            week_id=wk_id, week=1, espn_event_id=1001,
+            week_id=wk_id,
+            week=1,
+            espn_event_id=1001,
             kickoff_at=now + timedelta(days=1),
-            home_team_id=self.tid[0], away_team_id=self.tid[1],
-            spread=None, total=Decimal("44.5"),
-            favorite_team_id=None, underdog_team_id=None,
+            home_team_id=self.tid[0],
+            away_team_id=self.tid[1],
+            spread=None,
+            total=Decimal("44.5"),
+            favorite_team_id=None,
+            underdog_team_id=None,
         )
 
         resp = self._get(1)
@@ -294,21 +321,28 @@ class SlateTests(unittest.TestCase):
         past = now - timedelta(hours=2)
         future = now + timedelta(days=1)
         self._add_game(
-            week_id=wk_id, week=1, espn_event_id=1001, kickoff_at=past,
-            home_team_id=self.tid[0], away_team_id=self.tid[1],
+            week_id=wk_id,
+            week=1,
+            espn_event_id=1001,
+            kickoff_at=past,
+            home_team_id=self.tid[0],
+            away_team_id=self.tid[1],
             status=GameStatus.IN_PROGRESS,
         )
         self._add_game(
-            week_id=wk_id, week=1, espn_event_id=1002, kickoff_at=future,
-            home_team_id=self.tid[2], away_team_id=self.tid[3],
+            week_id=wk_id,
+            week=1,
+            espn_event_id=1002,
+            kickoff_at=future,
+            home_team_id=self.tid[2],
+            away_team_id=self.tid[3],
         )
 
         resp = self._get(1)
         self.assertEqual(resp.status_code, 200, resp.text)
         games = resp.json()["games"]
         locked_by_event = {
-            _aware(datetime.fromisoformat(g["kickoff_at"])): g["locked"]
-            for g in games
+            _aware(datetime.fromisoformat(g["kickoff_at"])): g["locked"] for g in games
         }
         self.assertTrue(locked_by_event[past])
         self.assertFalse(locked_by_event[future])
@@ -321,14 +355,20 @@ class SlateTests(unittest.TestCase):
         now = datetime.now(timezone.utc)
         wk_id = self._seed_week_row(1)
         self._add_game(
-            week_id=wk_id, week=1, espn_event_id=1001,
+            week_id=wk_id,
+            week=1,
+            espn_event_id=1001,
             kickoff_at=now + timedelta(days=1),
-            home_team_id=self.tid[0], away_team_id=self.tid[1],
+            home_team_id=self.tid[0],
+            away_team_id=self.tid[1],
         )
         self._add_game(
-            week_id=wk_id, week=1, espn_event_id=1002,
+            week_id=wk_id,
+            week=1,
+            espn_event_id=1002,
             kickoff_at=now + timedelta(days=2),
-            home_team_id=self.tid[2], away_team_id=self.tid[3],
+            home_team_id=self.tid[2],
+            away_team_id=self.tid[3],
         )
 
         resp = self._get(1)
@@ -367,11 +407,16 @@ class SlateTests(unittest.TestCase):
         # Kickoff far in the future so freeze_at (min noon-ET-Wed, earliest
         # kickoff) is still ahead of real now -> not yet frozen.
         self._add_game(
-            week_id=wk_id, week=1, espn_event_id=1001,
+            week_id=wk_id,
+            week=1,
+            espn_event_id=1001,
             kickoff_at=now + timedelta(days=14),
-            home_team_id=self.tid[0], away_team_id=self.tid[1],
-            spread=Decimal("3.5"), total=Decimal("44.5"),
-            favorite_team_id=self.tid[0], underdog_team_id=self.tid[1],
+            home_team_id=self.tid[0],
+            away_team_id=self.tid[1],
+            spread=Decimal("3.5"),
+            total=Decimal("44.5"),
+            favorite_team_id=self.tid[0],
+            underdog_team_id=self.tid[1],
         )
 
         resp = self._get(1)
@@ -390,11 +435,16 @@ class SlateTests(unittest.TestCase):
         now = datetime.now(timezone.utc)
         wk_id = self._seed_week_row(1, lines_frozen=True)
         self._add_game(
-            week_id=wk_id, week=1, espn_event_id=1001,
+            week_id=wk_id,
+            week=1,
+            espn_event_id=1001,
             kickoff_at=now + timedelta(days=14),
-            home_team_id=self.tid[0], away_team_id=self.tid[1],
-            spread=Decimal("3.5"), total=Decimal("44.5"),
-            favorite_team_id=self.tid[0], underdog_team_id=self.tid[1],
+            home_team_id=self.tid[0],
+            away_team_id=self.tid[1],
+            spread=Decimal("3.5"),
+            total=Decimal("44.5"),
+            favorite_team_id=self.tid[0],
+            underdog_team_id=self.tid[1],
         )
 
         resp = self._get(1)
@@ -430,9 +480,7 @@ class SlateTests(unittest.TestCase):
 
         for pt in (PickType.OVER, PickType.UNDER):
             with self.subTest(pick_type=pt):
-                pick = Pick(
-                    user_id=self.user_id, game_id=1, week_id=1, pick_type=pt
-                )
+                pick = Pick(user_id=self.user_id, game_id=1, week_id=1, pick_type=pt)
                 roster_result = validate_roster([pick], games_by_id)
                 self.assertNotIn(
                     ViolationCode.PICKEM_SPREAD_INELIGIBLE,

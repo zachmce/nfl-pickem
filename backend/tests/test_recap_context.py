@@ -187,10 +187,7 @@ class GetRecapContextTests(unittest.TestCase):
 
         self.assertEqual(
             ctx["weekly_scores"],
-            [
-                {"display_name": r.display_name, "weekly_score": r.weekly_score}
-                for r in expected
-            ],
+            [{"display_name": r.display_name, "weekly_score": r.weekly_score} for r in expected],
         )
         # Ordering is high->low (week_results already orders by -weekly_score).
         scores = [row["weekly_score"] for row in ctx["weekly_scores"]]

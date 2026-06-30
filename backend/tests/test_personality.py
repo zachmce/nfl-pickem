@@ -41,7 +41,10 @@ from app.services import app_settings
 _EVENT_PARTS = {
     "window.opened": (chat_personality._WINDOW_OPENED_ROLE, chat_personality._FACTS_FIRST_GUARD),
     "game.final": (chat_personality._GAME_FINAL_ROLE, chat_personality._FACTS_FIRST_GUARD),
-    "roster.complete": (chat_personality._ROSTER_COMPLETE_ROLE, chat_personality._FACTS_FIRST_GUARD),
+    "roster.complete": (
+        chat_personality._ROSTER_COMPLETE_ROLE,
+        chat_personality._FACTS_FIRST_GUARD,
+    ),
     "misc.graded": (chat_personality._MISC_GRADED_ROLE, chat_personality._FACTS_FIRST_GUARD),
     "week.recap": (recap.RECAP_ROLE, recap.RECAP_GUARD),
     "repeated.pick": (llm_client.REPEATED_PICK_ROLE, llm_client.REPEATED_PICK_GUARD),
@@ -66,8 +69,7 @@ def _composed(personality_id: str) -> dict[str, str]:
     """Compose every event's system prompt under one personality's voice."""
     voice = voice_for(personality_id)
     return {
-        event: compose_prompt(voice, role, guard)
-        for event, (role, guard) in _EVENT_PARTS.items()
+        event: compose_prompt(voice, role, guard) for event, (role, guard) in _EVENT_PARTS.items()
     }
 
 
@@ -95,12 +97,9 @@ class GuardInvariantAcrossPersonalitiesTests(unittest.TestCase):
         # personality — only the leading voice differs.
         for event, (role, guard) in _EVENT_PARTS.items():
             tails = {
-                _composed(pid)[event][len(voice_for(pid)) :]
-                for pid in available_personality_ids()
+                _composed(pid)[event][len(voice_for(pid)) :] for pid in available_personality_ids()
             }
-            self.assertEqual(
-                len(tails), 1, f"{event} invariant tail differs across personalities"
-            )
+            self.assertEqual(len(tails), 1, f"{event} invariant tail differs across personalities")
 
 
 class LeakAndVerdictClauseSurviveTests(unittest.TestCase):
@@ -137,9 +136,7 @@ class SwapChangesVoiceNotGuardTests(unittest.TestCase):
             # The composed prompts differ (different voice)...
             self.assertNotEqual(prompt_a, prompt_b)
             # ...but the tail after each voice is identical (same role + guard).
-            self.assertEqual(
-                prompt_a[len(voice_for(a)) :], prompt_b[len(voice_for(b)) :]
-            )
+            self.assertEqual(prompt_a[len(voice_for(a)) :], prompt_b[len(voice_for(b)) :])
 
     def test_guard_text_is_never_inside_any_voice_preamble(self) -> None:
         # No voice preamble may carry guard/clause text — the guard lives only in
@@ -167,9 +164,7 @@ class DefaultFallbackTests(unittest.TestCase):
 
     def test_get_bot_personality_unset_is_sarcastic(self) -> None:
         with Session(self.engine) as session:
-            self.assertEqual(
-                app_settings.get_bot_personality(session), DEFAULT_PERSONALITY_ID
-            )
+            self.assertEqual(app_settings.get_bot_personality(session), DEFAULT_PERSONALITY_ID)
 
     def test_voice_for_unset_resolves_to_sarcastic_voice(self) -> None:
         self.assertEqual(voice_for(None), PERSONALITIES["sarcastic"])

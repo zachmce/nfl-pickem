@@ -196,9 +196,7 @@ class ChatContextTests(unittest.TestCase):
 
     def test_game_final_resolves_game_and_echoes_scores(self) -> None:
         with self._session() as session:
-            ctx = get_game_final_context(
-                session, SEASON, WEEK, away_abbr="LAC", home_abbr="KC"
-            )
+            ctx = get_game_final_context(session, SEASON, WEEK, away_abbr="LAC", home_abbr="KC")
         self.assertTrue(ctx["found"])
         self.assertEqual(ctx["away"], "LAC")
         self.assertEqual(ctx["home"], "KC")
@@ -208,9 +206,7 @@ class ChatContextTests(unittest.TestCase):
     def test_game_final_spread_result_matches_scoring(self) -> None:
         # KC favored by 3.5 wins by 7 -> favorite covers (per scoring._spread_outcome).
         with self._session() as session:
-            ctx = get_game_final_context(
-                session, SEASON, WEEK, away_abbr="LAC", home_abbr="KC"
-            )
+            ctx = get_game_final_context(session, SEASON, WEEK, away_abbr="LAC", home_abbr="KC")
         spread = ctx["spread_result"]
         self.assertIsNotNone(spread)
         self.assertEqual(spread["favorite_abbr"], "KC")
@@ -220,9 +216,7 @@ class ChatContextTests(unittest.TestCase):
     def test_game_final_underdog_cover_is_did_cover_false(self) -> None:
         # SF favored by 6.5 wins by 6 -> favorite did NOT cover.
         with self._session() as session:
-            ctx = get_game_final_context(
-                session, SEASON, WEEK, away_abbr="SEA", home_abbr="SF"
-            )
+            ctx = get_game_final_context(session, SEASON, WEEK, away_abbr="SEA", home_abbr="SF")
         spread = ctx["spread_result"]
         self.assertEqual(spread["favorite_abbr"], "SF")
         self.assertFalse(spread["did_cover"])
@@ -230,9 +224,7 @@ class ChatContextTests(unittest.TestCase):
     def test_game_final_total_result_matches_scoring(self) -> None:
         # KC game combined 41 vs total 44.5 -> UNDER (went_over False).
         with self._session() as session:
-            ctx = get_game_final_context(
-                session, SEASON, WEEK, away_abbr="LAC", home_abbr="KC"
-            )
+            ctx = get_game_final_context(session, SEASON, WEEK, away_abbr="LAC", home_abbr="KC")
         total = ctx["total_result"]
         self.assertIsNotNone(total)
         self.assertEqual(Decimal(str(total["total"])), Decimal("44.5"))
@@ -243,9 +235,7 @@ class ChatContextTests(unittest.TestCase):
         # UNDERDOG_COVER BUSTS — both must surface as impacts, graded via the
         # scoring engine, named by display_name only.
         with self._session() as session:
-            ctx = get_game_final_context(
-                session, SEASON, WEEK, away_abbr="LAC", home_abbr="KC"
-            )
+            ctx = get_game_final_context(session, SEASON, WEEK, away_abbr="LAC", home_abbr="KC")
         impacts = ctx["pick_impacts"]
         by_name = {i["display_name"]: i for i in impacts}
         self.assertIn("alice", by_name)
@@ -266,26 +256,18 @@ class ChatContextTests(unittest.TestCase):
         from sqlmodel import select
 
         with self._session() as session:
-            ctx = get_game_final_context(
-                session, SEASON, WEEK, away_abbr="LAC", home_abbr="KC"
-            )
+            ctx = get_game_final_context(session, SEASON, WEEK, away_abbr="LAC", home_abbr="KC")
             game = session.get(Game, self.game_fav_id)
-            orm_picks = session.exec(
-                select(Pick).where(Pick.game_id == self.game_fav_id)
-            ).all()
+            orm_picks = session.exec(select(Pick).where(Pick.game_id == self.game_fav_id)).all()
             names = {self.user_a_id: "alice", self.user_b_id: "bob"}
-            expected = {
-                names[p.user_id]: grade_pick(game, p).outcome.value for p in orm_picks
-            }
+            expected = {names[p.user_id]: grade_pick(game, p).outcome.value for p in orm_picks}
 
         for impact in ctx["pick_impacts"]:
             self.assertEqual(impact["outcome"], expected[impact["display_name"]])
 
     def test_game_final_unknown_abbrs_return_not_found(self) -> None:
         with self._session() as session:
-            ctx = get_game_final_context(
-                session, SEASON, WEEK, away_abbr="ZZZ", home_abbr="YYY"
-            )
+            ctx = get_game_final_context(session, SEASON, WEEK, away_abbr="ZZZ", home_abbr="YYY")
         self.assertFalse(ctx["found"])
         self.assertIsNone(ctx["spread_result"])
         self.assertIsNone(ctx["total_result"])
@@ -319,9 +301,7 @@ class ChatContextTests(unittest.TestCase):
         self.assertEqual(ctx["total_players"], 2)
         self.assertEqual(ctx["completed_count"], 0)
         self.assertEqual(ctx["outstanding_count"], 2)
-        self.assertEqual(
-            ctx["outstanding_count"], ctx["total_players"] - ctx["completed_count"]
-        )
+        self.assertEqual(ctx["outstanding_count"], ctx["total_players"] - ctx["completed_count"])
 
     def test_roster_complete_counts_a_full_roster(self) -> None:
         # Give bob all four BASE slots; with his existing mortal lock that makes a
@@ -329,9 +309,7 @@ class ChatContextTests(unittest.TestCase):
         from sqlmodel import select
 
         with self._session() as session:
-            bob = session.exec(
-                select(User).where(User.display_name == "bob")
-            ).one()
+            bob = session.exec(select(User).where(User.display_name == "bob")).one()
             # bob already has UNDERDOG_COVER(ML) on KC + OVER on SF — the mortal
             # lock that the full-standard-card predicate also requires. Add the
             # three missing base types so his base set is {FAV, UNDERDOG, OVER,
@@ -392,9 +370,7 @@ class ChatContextTests(unittest.TestCase):
         self.assertEqual(ctx["leader_total"], standings[0].season_total)
         self.assertEqual(ctx["runner_up"], standings[1].display_name)
         self.assertEqual(ctx["runner_up_total"], standings[1].season_total)
-        self.assertEqual(
-            ctx["gap"], standings[0].season_total - standings[1].season_total
-        )
+        self.assertEqual(ctx["gap"], standings[0].season_total - standings[1].season_total)
 
     def test_leaders_empty_season_has_none_leader(self) -> None:
         with self._session() as session:
@@ -410,9 +386,7 @@ class ChatContextTests(unittest.TestCase):
             game_ctx = get_game_final_context(
                 session, SEASON, WEEK, away_abbr="LAC", home_abbr="KC"
             )
-            roster_ctx = get_roster_complete_context(
-                session, SEASON, WEEK, actor="alice"
-            )
+            roster_ctx = get_roster_complete_context(session, SEASON, WEEK, actor="alice")
             leaders_ctx = get_leaders_context(session, SEASON)
         self.assertNotIn("user_id", _walk(game_ctx))
         self.assertNotIn("user_id", _walk(roster_ctx))

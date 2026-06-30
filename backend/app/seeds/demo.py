@@ -59,9 +59,7 @@ def _season(session: Session) -> int:
     """Resolve the single season present in the seeded Game rows (mirrors driver)."""
     seasons = {g.season for g in session.exec(select(Game)).all()}
     if len(seasons) != 1:
-        raise ValueError(
-            f"expected exactly one season in the demo DB, found {sorted(seasons)}"
-        )
+        raise ValueError(f"expected exactly one season in the demo DB, found {sorted(seasons)}")
     return next(iter(seasons))
 
 

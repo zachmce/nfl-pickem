@@ -138,9 +138,7 @@ def compute_window(
     """
     current_kickoffs = _valid_kickoffs(week_games, "current-week")
     if not current_kickoffs:
-        raise ValueError(
-            "current week has no game with a kickoff to close the window on"
-        )
+        raise ValueError("current week has no game with a kickoff to close the window on")
     close_at = min(current_kickoffs)
 
     if prev_week_games is None:

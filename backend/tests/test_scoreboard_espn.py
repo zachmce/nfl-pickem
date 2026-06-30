@@ -155,9 +155,7 @@ def _payload(*events: dict) -> dict:
 
 class NormalizeScoreboardTest(unittest.TestCase):
     def test_scheduled_game_with_dk_odds(self) -> None:
-        games = normalize_scoreboard(
-            _payload(_scheduled_event_with_dk_odds()), season=2026, week=1
-        )
+        games = normalize_scoreboard(_payload(_scheduled_event_with_dk_odds()), season=2026, week=1)
         self.assertEqual(len(games), 1)
         game = games[0]
         self.assertEqual(game.espn_event_id, "401547001")
@@ -183,9 +181,7 @@ class NormalizeScoreboardTest(unittest.TestCase):
         self.assertEqual(game.odds.underdog_team_id, "17")
 
     def test_final_game_with_scores_no_odds(self) -> None:
-        games = normalize_scoreboard(
-            _payload(_final_event_no_odds()), season=2025, week=1
-        )
+        games = normalize_scoreboard(_payload(_final_event_no_odds()), season=2025, week=1)
         self.assertEqual(len(games), 1)
         game = games[0]
         self.assertEqual(game.status, GameStatus.FINAL)
@@ -196,9 +192,7 @@ class NormalizeScoreboardTest(unittest.TestCase):
         self.assertIsNone(game.odds)
 
     def test_status_mapping_by_state_in(self) -> None:
-        games = normalize_scoreboard(
-            _payload(_in_progress_event_by_state()), season=2026, week=1
-        )
+        games = normalize_scoreboard(_payload(_in_progress_event_by_state()), season=2026, week=1)
         self.assertEqual(games[0].status, GameStatus.IN_PROGRESS)
 
     def test_status_mapping_by_name_in_progress(self) -> None:
@@ -220,9 +214,7 @@ class NormalizeScoreboardTest(unittest.TestCase):
         )
         self.assertEqual(len(games), 2)
         self.assertEqual(normalize_scoreboard({}, season=2025, week=1), [])
-        self.assertEqual(
-            normalize_scoreboard({"events": "garbage"}, season=2025, week=1), []
-        )
+        self.assertEqual(normalize_scoreboard({"events": "garbage"}, season=2025, week=1), [])
 
 
 class ProviderSelectionTest(unittest.TestCase):
@@ -269,9 +261,7 @@ class NormalizeOddsDefensiveTest(unittest.TestCase):
     def test_captures_provider_id_from_selected_item(self) -> None:
         # The id is coerced to str and read from the SAME provider dict the
         # name comes from (the item select_odds_item chose).
-        odds = normalize_odds(
-            {"provider": {"id": 100, "name": "DraftKings"}, "spread": -3.5}
-        )
+        odds = normalize_odds({"provider": {"id": 100, "name": "DraftKings"}, "spread": -3.5})
         self.assertIsNotNone(odds)
         self.assertEqual(odds.provider, "DraftKings")
         self.assertEqual(odds.provider_id, "100")

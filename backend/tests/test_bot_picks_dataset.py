@@ -101,9 +101,7 @@ class BotPicksDatasetTests(unittest.TestCase):
         # wk2 + wk3).
         for display_name, weeks in BOT_PICKS.items():
             for week_number, bot_picks in weeks.items():
-                base_types = [
-                    bp.pick_type for bp in bot_picks if not bp.is_mortal_lock
-                ]
+                base_types = [bp.pick_type for bp in bot_picks if not bp.is_mortal_lock]
                 self.assertEqual(
                     len(base_types),
                     len(set(base_types)),

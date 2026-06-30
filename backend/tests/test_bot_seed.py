@@ -42,9 +42,7 @@ class BotSeedTests(unittest.TestCase):
     def _bots(self, session: Session) -> list[User]:
         return list(
             session.exec(
-                select(User).where(
-                    User.display_name.in_([name for name, *_ in BOT_ACCOUNTS])
-                )
+                select(User).where(User.display_name.in_([name for name, *_ in BOT_ACCOUNTS]))
             ).all()
         )
 
@@ -72,9 +70,7 @@ class BotSeedTests(unittest.TestCase):
         with Session(self.engine) as session:
             seed_bots(session)
             for display_name, plaintext, _discord_id in BOT_ACCOUNTS:
-                user = session.exec(
-                    select(User).where(User.display_name == display_name)
-                ).one()
+                user = session.exec(select(User).where(User.display_name == display_name)).one()
                 self.assertIsNotNone(user.password_hash)
                 # The stored hash must verify against the known plaintext...
                 self.assertTrue(verify_password(user.password_hash, plaintext))

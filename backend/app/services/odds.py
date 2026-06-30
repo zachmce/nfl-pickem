@@ -146,15 +146,11 @@ def _noon_et_wednesday_on_or_before(kickoff: datetime) -> datetime:
     # Days since the most recent Wednesday (0 if local day is Wednesday).
     days_since_wed = (local.weekday() - _WEDNESDAY) % 7
     wed_date = (local - timedelta(days=days_since_wed)).date()
-    noon_local = datetime.combine(
-        wed_date, time(hour=_FREEZE_HOUR), tzinfo=_FREEZE_TZ
-    )
+    noon_local = datetime.combine(wed_date, time(hour=_FREEZE_HOUR), tzinfo=_FREEZE_TZ)
     return noon_local.astimezone(timezone.utc)
 
 
-def _guard_freeze_at_le_pick_lock(
-    *, freeze: datetime, pick_lock: datetime
-) -> datetime:
+def _guard_freeze_at_le_pick_lock(*, freeze: datetime, pick_lock: datetime) -> datetime:
     """Fail-loud guard: ``freeze`` must be <= ``pick_lock``.
 
     ``min(..., pick_lock)`` makes this dormant for valid schedules; the guard
@@ -194,9 +190,7 @@ def freeze_at(
     )
     pick_lock = window.close_at
     noon_wed = _noon_et_wednesday_on_or_before(pick_lock)
-    return _guard_freeze_at_le_pick_lock(
-        freeze=min(noon_wed, pick_lock), pick_lock=pick_lock
-    )
+    return _guard_freeze_at_le_pick_lock(freeze=min(noon_wed, pick_lock), pick_lock=pick_lock)
 
 
 def is_odds_frozen(
@@ -221,9 +215,7 @@ def is_odds_frozen(
     return now >= freeze_at(week_games, prev_week_games)
 
 
-def _resolve_team_id(
-    team_map: dict[int, int], espn_team_id_str: str | None
-) -> int | None:
+def _resolve_team_id(team_map: dict[int, int], espn_team_id_str: str | None) -> int | None:
     """Resolve a source (string) espn team id to an int ``team.id`` FK.
 
     Mirrors ``fixture_2025._resolve_team`` but is POLL-SAFE: an unresolvable id
@@ -234,7 +226,7 @@ def _resolve_team_id(
         return None
     try:
         espn_team_id = int(espn_team_id_str)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return team_map.get(espn_team_id)
 
@@ -420,18 +412,14 @@ def reconcile_odds_games(
     if team_map is None:
         from app.models import Team
 
-        team_map = {
-            t.espn_team_id: t.id for t in session.exec(select(Team)).all()
-        }
+        team_map = {t.espn_team_id: t.id for t in session.exec(select(Team)).all()}
 
     by_week = group_games_by_week(all_games)
 
     seasons = {season for season, _ in by_week}
     week_rows_by_key: dict[WeekKey, Week] = {}
     for season in seasons:
-        for wr in session.exec(
-            select(Week).where(Week.season == season)
-        ).all():
+        for wr in session.exec(select(Week).where(Week.season == season)).all():
             week_rows_by_key[(wr.season, wr.week)] = wr
 
     needy = odds_needy_weeks(by_week, week_rows_by_key, now=now)

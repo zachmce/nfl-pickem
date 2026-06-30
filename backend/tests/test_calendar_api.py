@@ -169,26 +169,38 @@ class CalendarTests(unittest.TestCase):
         wk = self._seed_week_row(1)
         # One BEFORE the window.
         self._add_game(
-            week_id=wk, week=1, espn_event_id=1,
+            week_id=wk,
+            week=1,
+            espn_event_id=1,
             kickoff_at=datetime(2026, 8, 31, 18, 0, tzinfo=timezone.utc),
-            home_team_id=self.tid[0], away_team_id=self.tid[1],
+            home_team_id=self.tid[0],
+            away_team_id=self.tid[1],
         )
         # Two INSIDE the window, seeded OUT of kickoff order to prove the sort.
         self._add_game(
-            week_id=wk, week=1, espn_event_id=2,
+            week_id=wk,
+            week=1,
+            espn_event_id=2,
             kickoff_at=datetime(2026, 9, 12, 20, 0, tzinfo=timezone.utc),
-            home_team_id=self.tid[2], away_team_id=self.tid[3],
+            home_team_id=self.tid[2],
+            away_team_id=self.tid[3],
         )
         self._add_game(
-            week_id=wk, week=1, espn_event_id=3,
+            week_id=wk,
+            week=1,
+            espn_event_id=3,
             kickoff_at=datetime(2026, 9, 10, 17, 0, tzinfo=timezone.utc),
-            home_team_id=self.tid[0], away_team_id=self.tid[2],
+            home_team_id=self.tid[0],
+            away_team_id=self.tid[2],
         )
         # One AFTER the window.
         self._add_game(
-            week_id=wk, week=1, espn_event_id=4,
+            week_id=wk,
+            week=1,
+            espn_event_id=4,
             kickoff_at=datetime(2026, 10, 1, 18, 0, tzinfo=timezone.utc),
-            home_team_id=self.tid[1], away_team_id=self.tid[3],
+            home_team_id=self.tid[1],
+            away_team_id=self.tid[3],
         )
 
         resp = self._get("2026-09-01", "2026-09-30")
@@ -220,15 +232,23 @@ class CalendarTests(unittest.TestCase):
         a non-final game's scores are null."""
         wk = self._seed_week_row(1)
         self._add_game(
-            week_id=wk, week=1, espn_event_id=10,
+            week_id=wk,
+            week=1,
+            espn_event_id=10,
             kickoff_at=datetime(2026, 9, 5, 18, 0, tzinfo=timezone.utc),
-            home_team_id=self.tid[0], away_team_id=self.tid[1],
-            status=GameStatus.FINAL, home_score=33, away_score=8,
+            home_team_id=self.tid[0],
+            away_team_id=self.tid[1],
+            status=GameStatus.FINAL,
+            home_score=33,
+            away_score=8,
         )
         self._add_game(
-            week_id=wk, week=1, espn_event_id=11,
+            week_id=wk,
+            week=1,
+            espn_event_id=11,
             kickoff_at=datetime(2026, 9, 6, 18, 0, tzinfo=timezone.utc),
-            home_team_id=self.tid[2], away_team_id=self.tid[3],
+            home_team_id=self.tid[2],
+            away_team_id=self.tid[3],
             status=GameStatus.SCHEDULED,
         )
 
@@ -251,9 +271,12 @@ class CalendarTests(unittest.TestCase):
         """A game late on the `to` day itself IS included (end = to + 1 day)."""
         wk = self._seed_week_row(1)
         self._add_game(
-            week_id=wk, week=1, espn_event_id=20,
+            week_id=wk,
+            week=1,
+            espn_event_id=20,
             kickoff_at=datetime(2026, 9, 30, 23, 0, tzinfo=timezone.utc),
-            home_team_id=self.tid[0], away_team_id=self.tid[1],
+            home_team_id=self.tid[0],
+            away_team_id=self.tid[1],
         )
 
         resp = self._get("2026-09-01", "2026-09-30")
@@ -271,9 +294,12 @@ class CalendarTests(unittest.TestCase):
         """A window with no games -> 200 + games == [] (a pure read, never 404)."""
         wk = self._seed_week_row(1)
         self._add_game(
-            week_id=wk, week=1, espn_event_id=30,
+            week_id=wk,
+            week=1,
+            espn_event_id=30,
             kickoff_at=datetime(2026, 9, 5, 18, 0, tzinfo=timezone.utc),
-            home_team_id=self.tid[0], away_team_id=self.tid[1],
+            home_team_id=self.tid[0],
+            away_team_id=self.tid[1],
         )
 
         resp = self._get("2026-11-01", "2026-11-30")

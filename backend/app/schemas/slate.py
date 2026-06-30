@@ -91,6 +91,4 @@ class SlateResponse(BaseModel):
         the schema decoupled from ORM rows (mirrors
         :meth:`app.schemas.results.WeekResultsResponse.from_results`).
         """
-        return cls(
-            season=season, week=week, games=list(games), odds_frozen=odds_frozen
-        )
+        return cls(season=season, week=week, games=list(games), odds_frozen=odds_frozen)

@@ -31,10 +31,7 @@ from sqlalchemy.dialects import postgresql
 
 def _load_migration_0007():
     path = (
-        Path(__file__).resolve().parent.parent
-        / "alembic"
-        / "versions"
-        / "0007_pick_edit_audit.py"
+        Path(__file__).resolve().parent.parent / "alembic" / "versions" / "0007_pick_edit_audit.py"
     )
     spec = importlib.util.spec_from_file_location("migration_0007", path)
     module = importlib.util.module_from_spec(spec)
@@ -60,9 +57,7 @@ class Migration0007EnumTest(unittest.TestCase):
             # Do not actually emit DDL — we only want the constructed columns.
             return captured["table"]
 
-        ctx = MigrationContext.configure(
-            dialect_name="postgresql", opts={"as_sql": True}
-        )
+        ctx = MigrationContext.configure(dialect_name="postgresql", opts={"as_sql": True})
         Operations.create_table = capture_create_table  # type: ignore[assignment]
         try:
             with Operations.context(Operations(ctx)):

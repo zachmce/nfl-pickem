@@ -29,6 +29,7 @@ changes in either direction — only these two constraints are swapped.
 Downgrade reverses it: drop the cascade FKs and recreate the plain NO ACTION FKs
 under the same names.
 """
+
 from collections.abc import Sequence
 
 from alembic import op

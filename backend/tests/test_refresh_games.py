@@ -111,11 +111,7 @@ class RefreshGamesTests(unittest.TestCase):
 
     def _games_for_week(self, session: Session, week: int) -> list[Game]:
         return list(
-            session.exec(
-                select(Game).where(
-                    Game.season == self.season, Game.week == week
-                )
-            ).all()
+            session.exec(select(Game).where(Game.season == self.season, Game.week == week)).all()
         )
 
     def _week_row(self, session: Session, week: int) -> Week:
@@ -208,15 +204,11 @@ class RefreshGamesTests(unittest.TestCase):
             wk1 = self._week_row(session, 1)
             wk2 = self._week_row(session, 2)
 
-            self.assertEqual(
-                self._aware(wk1.window_closes_at), expected_close_wk1
-            )
+            self.assertEqual(self._aware(wk1.window_closes_at), expected_close_wk1)
             # Week 1 has no predecessor -> open stays None.
             self.assertIsNone(wk1.window_opens_at)
             # Week 1 is fully FINAL, so week 2's open is stamped.
-            self.assertEqual(
-                self._aware(wk2.window_opens_at), expected_open_wk2
-            )
+            self.assertEqual(self._aware(wk2.window_opens_at), expected_open_wk2)
 
     def test_window_stamping_is_idempotent(self) -> None:
         """Re-running does not re-stamp already-correct windows."""
@@ -284,8 +276,7 @@ class RefreshGamesTests(unittest.TestCase):
         with Session(self.engine) as session:
             # Capture the source's positioned week-1 kickoffs (by event id).
             positioned = {
-                sg.espn_event_id: sg.kickoff_at
-                for sg in source.fetch_week(self.season, 1)
+                sg.espn_event_id: sg.kickoff_at for sg in source.fetch_week(self.season, 1)
             }
             self.assertTrue(positioned)
 
@@ -377,9 +368,7 @@ class RefreshGamesTests(unittest.TestCase):
 
     def test_fetch_error_one_week_does_not_abort_others(self) -> None:
         """A ScoreboardFetchError on one week is recorded; others still update."""
-        failing = _FailingWeekSource(
-            Demo2025Source(offset=FINAL_OFFSET), fail=(self.season, 3)
-        )
+        failing = _FailingWeekSource(Demo2025Source(offset=FINAL_OFFSET), fail=(self.season, 3))
         with Session(self.engine) as session:
             result = refresh_games(session, failing)
             session.commit()
@@ -502,9 +491,7 @@ class RefreshEdgeDetectionTests(unittest.TestCase):
 
     def _games_for_week(self, session: Session, week: int) -> list[Game]:
         return list(
-            session.exec(
-                select(Game).where(Game.season == self.season, Game.week == week)
-            ).all()
+            session.exec(select(Game).where(Game.season == self.season, Game.week == week)).all()
         )
 
 
@@ -532,9 +519,7 @@ class RefreshWindowEdgeTests(unittest.TestCase):
                 ]
             )
             session.commit()
-            self.team_ids = [
-                t.id for t in session.exec(select(Team)).all() if t.id is not None
-            ]
+            self.team_ids = [t.id for t in session.exec(select(Team)).all() if t.id is not None]
 
     def tearDown(self) -> None:
         self.engine.dispose()

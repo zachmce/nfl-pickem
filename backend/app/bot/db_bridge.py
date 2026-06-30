@@ -253,9 +253,7 @@ async def get_recap_context_async(week: int) -> dict:
     return await asyncio.to_thread(_sync)
 
 
-async def get_game_final_context_async(
-    week: int, away_abbr: str, home_abbr: str
-) -> dict:
+async def get_game_final_context_async(week: int, away_abbr: str, home_abbr: str) -> dict:
     """Async wrapper: the display-only game.final context as a plain dict.
 
     Same posture as :func:`get_recap_context_async`: resolves the active season

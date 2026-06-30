@@ -85,9 +85,7 @@ def _pick_counts(session: Session) -> dict[int, int]:
 
     Users with zero picks are simply absent from the map; callers default to 0.
     """
-    rows = session.exec(
-        select(Pick.user_id, func.count(Pick.id)).group_by(Pick.user_id)
-    ).all()
+    rows = session.exec(select(Pick.user_id, func.count(Pick.id)).group_by(Pick.user_id)).all()
     return {user_id: count for user_id, count in rows}
 
 

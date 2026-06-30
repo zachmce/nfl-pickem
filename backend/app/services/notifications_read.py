@@ -70,18 +70,14 @@ def _pick_keys_for_weeks(
         return {}
 
     # Resolve the week-number -> week.id map for this season's requested weeks.
-    week_rows = session.exec(
-        select(Week).where(Week.season == season, Week.week.in_(weeks))
-    ).all()
+    week_rows = session.exec(select(Week).where(Week.season == season, Week.week.in_(weeks))).all()
     week_id_to_number = {w.id: w.week for w in week_rows if w.id is not None}
     if not week_id_to_number:
         return {}
 
     # Team abbreviation lookup (one query for the whole season's teams in play).
     abbr_by_team_id = {
-        t.id: t.abbreviation
-        for t in session.exec(select(Team)).all()
-        if t.id is not None
+        t.id: t.abbreviation for t in session.exec(select(Team)).all() if t.id is not None
     }
 
     games_by_id = {
@@ -90,9 +86,7 @@ def _pick_keys_for_weeks(
         if g.id is not None
     }
 
-    picks = session.exec(
-        select(Pick).where(Pick.week_id.in_(week_id_to_number.keys()))
-    ).all()
+    picks = session.exec(select(Pick).where(Pick.week_id.in_(week_id_to_number.keys()))).all()
 
     # Resolve display names for the users who actually picked (one query).
     user_ids = {p.user_id for p in picks}
@@ -338,11 +332,7 @@ def get_game_final_context(
     if len(games) != 1:  # unresolved or ambiguous -> caller falls back
         return _not_found_game_final()
     game = games[0]
-    if (
-        game.status is not GameStatus.FINAL
-        or game.home_score is None
-        or game.away_score is None
-    ):
+    if game.status is not GameStatus.FINAL or game.home_score is None or game.away_score is None:
         return _not_found_game_final()
 
     favorite_abbr = abbr_by_team_id.get(game.favorite_team_id)
@@ -426,9 +416,7 @@ def get_game_final_context(
     }
 
 
-def get_roster_complete_context(
-    session: Session, season: int, week: int, *, actor: str
-) -> dict:
+def get_roster_complete_context(session: Session, season: int, week: int, *, actor: str) -> dict:
     """Display-only context for a ``roster.complete`` chat line — COUNTS only.
 
     The roster.complete event fires while the week's pick window is OPEN, so the
@@ -472,9 +460,7 @@ def get_roster_complete_context(
     if season_week_ids:
         pool_user_ids = {
             p.user_id
-            for p in session.exec(
-                select(Pick).where(Pick.week_id.in_(season_week_ids))
-            ).all()
+            for p in session.exec(select(Pick).where(Pick.week_id.in_(season_week_ids))).all()
         }
     else:
         pool_user_ids = set()

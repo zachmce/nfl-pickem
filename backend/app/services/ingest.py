@@ -233,9 +233,7 @@ def ingest_season(
                 weeks_created += 1
 
             # 2. Upsert the Game on its unique espn_event_id.
-            game = session.exec(
-                select(Game).where(Game.espn_event_id == espn_event_id)
-            ).first()
+            game = session.exec(select(Game).where(Game.espn_event_id == espn_event_id)).first()
             if game is None:
                 game = Game(espn_event_id=espn_event_id)
                 session.add(game)
@@ -251,12 +249,8 @@ def ingest_season(
 
     session.commit()
 
-    weeks_present = len(
-        session.exec(select(Week).where(Week.season == season)).all()
-    )
-    games_present = len(
-        session.exec(select(Game).where(Game.season == season)).all()
-    )
+    weeks_present = len(session.exec(select(Week).where(Week.season == season)).all())
+    games_present = len(session.exec(select(Game).where(Game.season == season)).all())
     return IngestResult(
         weeks_present=weeks_present,
         games_present=games_present,

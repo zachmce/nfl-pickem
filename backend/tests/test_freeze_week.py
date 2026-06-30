@@ -142,15 +142,11 @@ class FreezeWeekTests(unittest.TestCase):
         self.engine.dispose()
 
     def _team_id(self, session: Session, espn_id: int) -> int:
-        team = session.exec(
-            select(Team).where(Team.espn_team_id == espn_id)
-        ).first()
+        team = session.exec(select(Team).where(Team.espn_team_id == espn_id)).first()
         assert team is not None
         return team.id
 
-    def _seed_week_and_games(
-        self, session: Session, *, with_odds: bool = False
-    ) -> None:
+    def _seed_week_and_games(self, session: Session, *, with_odds: bool = False) -> None:
         """Seed one Week (lines_frozen=False) + two odds-less Game rows."""
         week = Week(season=self.SEASON, week=self.WEEK)
         session.add(week)
@@ -189,9 +185,7 @@ class FreezeWeekTests(unittest.TestCase):
                     home="1",
                     away="2",
                     kickoff=_KICKOFF_1,
-                    odds=_odds(
-                        spread=-3.5, total=44.5, favorite="1", underdog="2"
-                    ),
+                    odds=_odds(spread=-3.5, total=44.5, favorite="1", underdog="2"),
                 ),
                 _game(
                     event_id="800002",
@@ -215,17 +209,13 @@ class FreezeWeekTests(unittest.TestCase):
 
     def _week_row(self, session: Session) -> Week:
         return session.exec(
-            select(Week).where(
-                Week.season == self.SEASON, Week.week == self.WEEK
-            )
+            select(Week).where(Week.season == self.SEASON, Week.week == self.WEEK)
         ).first()
 
     def _week_games(self, session: Session) -> list[Game]:
         return list(
             session.exec(
-                select(Game).where(
-                    Game.season == self.SEASON, Game.week == self.WEEK
-                )
+                select(Game).where(Game.season == self.SEASON, Game.week == self.WEEK)
             ).all()
         )
 
@@ -237,26 +227,18 @@ class FreezeWeekTests(unittest.TestCase):
             self._seed_week_and_games(session)
             source = self._source()
 
-            result = freeze_week(
-                session, source, self.SEASON, self.WEEK, now=FIXED_NOW
-            )
+            result = freeze_week(session, source, self.SEASON, self.WEEK, now=FIXED_NOW)
             self.assertIsInstance(result, FreezeResult)
             self.assertFalse(result.failed)
 
-            game1 = session.exec(
-                select(Game).where(Game.espn_event_id == 800001)
-            ).first()
+            game1 = session.exec(select(Game).where(Game.espn_event_id == 800001)).first()
             self.assertEqual(game1.odds_provider, "DraftKings")
             self.assertEqual(game1.odds_provider_id, "100")
             self.assertEqual(game1.spread, Decimal("3.5"))
             self.assertGreater(game1.spread, 0)
             self.assertEqual(game1.total, Decimal("44.5"))
-            self.assertEqual(
-                game1.favorite_team_id, self._team_id(session, 1)
-            )
-            self.assertEqual(
-                game1.underdog_team_id, self._team_id(session, 2)
-            )
+            self.assertEqual(game1.favorite_team_id, self._team_id(session, 1))
+            self.assertEqual(game1.underdog_team_id, self._team_id(session, 2))
             captured = game1.odds_captured_at
             if captured.tzinfo is None:
                 captured = captured.replace(tzinfo=timezone.utc)
@@ -276,22 +258,16 @@ class FreezeWeekTests(unittest.TestCase):
             # / computed freeze_at), the week is NOT frozen.
             week_row = self._week_row(session)
             week_games = self._week_games(session)
-            self.assertFalse(
-                is_odds_frozen(week_row, week_games, now=FIXED_NOW)
-            )
+            self.assertFalse(is_odds_frozen(week_row, week_games, now=FIXED_NOW))
 
-            freeze_week(
-                session, self._source(), self.SEASON, self.WEEK, now=FIXED_NOW
-            )
+            freeze_week(session, self._source(), self.SEASON, self.WEEK, now=FIXED_NOW)
 
             week_row = self._week_row(session)
             week_games = self._week_games(session)
             # Pick a now EARLIER than the computed freeze_at — still frozen,
             # ONLY because lines_frozen is set.
             earlier = FIXED_NOW - timedelta(days=1)
-            self.assertTrue(
-                is_odds_frozen(week_row, week_games, now=earlier)
-            )
+            self.assertTrue(is_odds_frozen(week_row, week_games, now=earlier))
 
     # -- (3) idempotent: second run, no dup rows, stays locked ------------
 
@@ -300,17 +276,11 @@ class FreezeWeekTests(unittest.TestCase):
             seed_teams(session)
             self._seed_week_and_games(session)
 
-            freeze_week(
-                session, self._source(), self.SEASON, self.WEEK, now=FIXED_NOW
-            )
-            r2 = freeze_week(
-                session, self._source(), self.SEASON, self.WEEK, now=FIXED_NOW
-            )
+            freeze_week(session, self._source(), self.SEASON, self.WEEK, now=FIXED_NOW)
+            r2 = freeze_week(session, self._source(), self.SEASON, self.WEEK, now=FIXED_NOW)
 
             self.assertEqual(len(self._week_games(session)), 2)
-            self.assertEqual(
-                len(session.exec(select(Week)).all()), 1
-            )
+            self.assertEqual(len(session.exec(select(Week)).all()), 1)
             week_row = self._week_row(session)
             self.assertTrue(week_row.lines_frozen)
             self.assertTrue(r2.already_frozen)
@@ -341,9 +311,7 @@ class FreezeWeekTests(unittest.TestCase):
             seed_teams(session)
             # No Week row seeded for (2026, 1).
             with self.assertRaises(ValueError) as ctx:
-                freeze_week(
-                    session, self._source(), self.SEASON, self.WEEK, now=FIXED_NOW
-                )
+                freeze_week(session, self._source(), self.SEASON, self.WEEK, now=FIXED_NOW)
             self.assertIn("week_not_found", str(ctx.exception))
 
     # -- (6) source-agnostic: no demo branch, no app.config import --------

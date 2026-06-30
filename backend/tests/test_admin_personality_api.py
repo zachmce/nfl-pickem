@@ -42,11 +42,17 @@ class AdminPersonalityApiTests(unittest.TestCase):
             # Distinct discord_ids: the one-null-discord_id invariant (260629-n59)
             # caps NULL discord_ids at one.
             admin = User(
-                display_name="admin", password_hash=pw, is_admin=True, is_active=True,
+                display_name="admin",
+                password_hash=pw,
+                is_admin=True,
+                is_active=True,
                 discord_id=1,
             )
             member = User(
-                display_name="member", password_hash=pw, is_admin=False, is_active=True,
+                display_name="member",
+                password_hash=pw,
+                is_admin=False,
+                is_active=True,
                 discord_id=2,
             )
             session.add_all([admin, member])
@@ -88,9 +94,7 @@ class AdminPersonalityApiTests(unittest.TestCase):
         return body["error"]
 
     def _non_default_id(self) -> str:
-        return next(
-            pid for pid in available_personality_ids() if pid != DEFAULT_PERSONALITY_ID
-        )
+        return next(pid for pid in available_personality_ids() if pid != DEFAULT_PERSONALITY_ID)
 
     # -- GET ---------------------------------------------------------------
 
@@ -130,9 +134,7 @@ class AdminPersonalityApiTests(unittest.TestCase):
             json={"personality_id": "made_up_voice"},
         )
         self.assertEqual(resp.status_code, 409, resp.text)
-        self.assertEqual(
-            self._assert_envelope(resp.json()).get("reason"), "unknown_personality"
-        )
+        self.assertEqual(self._assert_envelope(resp.json()).get("reason"), "unknown_personality")
 
     # -- 401 / 403 ---------------------------------------------------------
 
@@ -143,9 +145,7 @@ class AdminPersonalityApiTests(unittest.TestCase):
         self._assert_envelope(get.json())
 
         self._clear_auth()
-        post = self.client.post(
-            "/api/admin/bot-personality", json={"personality_id": "sarcastic"}
-        )
+        post = self.client.post("/api/admin/bot-personality", json={"personality_id": "sarcastic"})
         self.assertEqual(post.status_code, 401, post.text)
         self._assert_envelope(post.json())
 

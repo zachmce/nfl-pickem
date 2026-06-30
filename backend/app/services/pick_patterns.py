@@ -59,11 +59,7 @@ def scan_streak(
     """
     # The pairs eligible to streak are exactly those the player picked THIS week
     # (the run must end at target_week). Anything not in the slate cannot qualify.
-    target_pairs = {
-        (k["team_abbr"], k["side"])
-        for k in slate_keys
-        if k.get("week") == target_week
-    }
+    target_pairs = {(k["team_abbr"], k["side"]) for k in slate_keys if k.get("week") == target_week}
     if not target_pairs:
         return None
 

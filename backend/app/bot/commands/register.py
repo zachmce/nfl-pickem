@@ -131,7 +131,9 @@ class RegistrationCog(commands.Cog):
         """
         if isinstance(error, app_commands.CommandOnCooldown):
             msg = f"Slow down — try again in {error.retry_after:.0f}s."
-        elif isinstance(error, app_commands.CommandInvokeError) and isinstance(error.original, ValueError):
+        elif isinstance(error, app_commands.CommandInvokeError) and isinstance(
+            error.original, ValueError
+        ):
             msg = str(error.original)
         elif isinstance(error, ValueError):
             msg = str(error)

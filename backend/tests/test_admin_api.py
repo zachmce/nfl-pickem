@@ -81,12 +81,18 @@ class AdminApiTests(unittest.TestCase):
             # one-null-discord_id invariant (260629-n59) caps NULL discord_ids at
             # one, so these fixtures must NOT all leave discord_id null.
             admin = User(
-                display_name="admin", password_hash=pw, is_admin=True,
-                is_active=True, discord_id=1001,
+                display_name="admin",
+                password_hash=pw,
+                is_admin=True,
+                is_active=True,
+                discord_id=1001,
             )
             admin2 = User(
-                display_name="admin2", password_hash=pw, is_admin=True,
-                is_active=True, discord_id=1002,
+                display_name="admin2",
+                password_hash=pw,
+                is_admin=True,
+                is_active=True,
+                discord_id=1002,
             )
             # member carries a Discord identity (avatar hash present) so the
             # list response exposes a non-null discord_avatar_hash.
@@ -99,8 +105,11 @@ class AdminApiTests(unittest.TestCase):
                 discord_avatar_hash="memberavatarhash",
             )
             member2 = User(
-                display_name="member2", password_hash=pw, is_admin=False,
-                is_active=True, discord_id=1003,
+                display_name="member2",
+                password_hash=pw,
+                is_admin=False,
+                is_active=True,
+                discord_id=1003,
             )
             session.add_all([admin, admin2, member, member2])
             session.commit()
@@ -143,10 +152,15 @@ class AdminApiTests(unittest.TestCase):
             # member -> 2 picks (pick_count==2); member2 -> 0 (pick_count==0).
             session.add_all(
                 [
-                    Pick(user_id=member.id, game_id=game.id, week_id=week.id,
-                         pick_type=PickType.UNDERDOG_COVER),
-                    Pick(user_id=member.id, game_id=game.id, week_id=week.id,
-                         pick_type=PickType.OVER),
+                    Pick(
+                        user_id=member.id,
+                        game_id=game.id,
+                        week_id=week.id,
+                        pick_type=PickType.UNDERDOG_COVER,
+                    ),
+                    Pick(
+                        user_id=member.id, game_id=game.id, week_id=week.id, pick_type=PickType.OVER
+                    ),
                 ]
             )
             session.commit()
@@ -200,9 +214,7 @@ class AdminApiTests(unittest.TestCase):
 
     def test_list_users_returns_all_with_pick_count(self) -> None:
         """GET /users as admin -> 200, every user, correct pick_count, no hash."""
-        resp = self.client.get(
-            "/api/admin/users", headers=self._bearer_headers(self.admin_id)
-        )
+        resp = self.client.get("/api/admin/users", headers=self._bearer_headers(self.admin_id))
         self.assertEqual(resp.status_code, 200, resp.text)
         users = resp.json()["users"]
         by_id = {u["id"]: u for u in users}
@@ -225,9 +237,7 @@ class AdminApiTests(unittest.TestCase):
         ):
             self.assertIn(field, by_id[self.admin_id])
         # member has a seeded avatar hash; the others (no Discord identity) null.
-        self.assertEqual(
-            by_id[self.member_id]["discord_avatar_hash"], "memberavatarhash"
-        )
+        self.assertEqual(by_id[self.member_id]["discord_avatar_hash"], "memberavatarhash")
         self.assertIsNone(by_id[self.admin_id]["discord_avatar_hash"])
         self.assertIsNone(by_id[self.member2_id]["discord_avatar_hash"])
 
@@ -335,9 +345,7 @@ class AdminApiTests(unittest.TestCase):
     # -- 403 / 401 ---------------------------------------------------------
 
     def test_non_admin_forbidden_403(self) -> None:
-        get = self.client.get(
-            "/api/admin/users", headers=self._bearer_headers(self.member_id)
-        )
+        get = self.client.get("/api/admin/users", headers=self._bearer_headers(self.member_id))
         self.assertEqual(get.status_code, 403, get.text)
         self._assert_envelope(get.json())
 
@@ -364,9 +372,7 @@ class AdminApiTests(unittest.TestCase):
     def test_delete_cascades_user_picks(self) -> None:
         """Deleting member (who has 2 picks) -> 204 and the picks are gone."""
         with self._session() as session:
-            before = session.exec(
-                select(Pick).where(Pick.user_id == self.member_id)
-            ).all()
+            before = session.exec(select(Pick).where(Pick.user_id == self.member_id)).all()
             self.assertEqual(len(before), 2, "fixture should give member 2 picks")
 
         resp = self.client.delete(
@@ -377,9 +383,7 @@ class AdminApiTests(unittest.TestCase):
 
         with self._session() as session:
             self.assertIsNone(session.get(User, self.member_id))
-            orphans = session.exec(
-                select(Pick).where(Pick.user_id == self.member_id)
-            ).all()
+            orphans = session.exec(select(Pick).where(Pick.user_id == self.member_id)).all()
             self.assertEqual(orphans, [], "member's picks should be cascade-deleted")
 
 

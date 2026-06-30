@@ -107,14 +107,8 @@ def _print_narrated(result: WalkthroughResult) -> None:
         standings = result.snapshots[week]
         print(f"\n=== Standings after week {week} ===")
         for rank, r in enumerate(standings.results, start=1):
-            weekly = ", ".join(
-                f"wk{w}={r.weekly_scores[w]}"
-                for w in sorted(r.weekly_scores)
-            )
-            print(
-                f"  {rank}. {r.display_name:<12} "
-                f"season={r.season_total:<4} [{weekly}]"
-            )
+            weekly = ", ".join(f"wk{w}={r.weekly_scores[w]}" for w in sorted(r.weekly_scores))
+            print(f"  {rank}. {r.display_name:<12} season={r.season_total:<4} [{weekly}]")
 
 
 def _build_engine(demo_url: str):
@@ -134,8 +128,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         "--demo-db",
         default=os.environ.get(DEMO_DB_ENV),
         help=(
-            "explicit demo database URL (or set "
-            f"{DEMO_DB_ENV}). The prod database_url is rejected."
+            f"explicit demo database URL (or set {DEMO_DB_ENV}). The prod database_url is rejected."
         ),
     )
     parser.add_argument(
@@ -149,10 +142,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         type=int,
         nargs="+",
         default=list(DEFAULT_WEEKS),
-        help=(
-            "weeks to walk through (default: the full odds-bearing season, "
-            "weeks 1-18)"
-        ),
+        help=("weeks to walk through (default: the full odds-bearing season, weeks 1-18)"),
     )
     return parser.parse_args(argv)
 

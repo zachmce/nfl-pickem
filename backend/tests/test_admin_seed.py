@@ -39,26 +39,18 @@ class AdminSeedTests(unittest.TestCase):
         self.engine.dispose()
 
     def _admins(self, session: Session) -> list[User]:
-        return list(
-            session.exec(
-                select(User).where(User.display_name == "root_admin")
-            ).all()
-        )
+        return list(session.exec(select(User).where(User.display_name == "root_admin")).all())
 
     def test_creates_when_set_and_absent(self) -> None:
         with Session(self.engine) as session:
-            created = seed_admin(
-                session, username="root_admin", password="pw-secret-1"
-            )
+            created = seed_admin(session, username="root_admin", password="pw-secret-1")
             self.assertTrue(created)
             self.assertEqual(len(self._admins(session)), 1)
 
     def test_created_user_is_canonical(self) -> None:
         with Session(self.engine) as session:
             seed_admin(session, username="root_admin", password="pw-secret-1")
-            user = session.exec(
-                select(User).where(User.display_name == "root_admin")
-            ).one()
+            user = session.exec(select(User).where(User.display_name == "root_admin")).one()
             self.assertTrue(user.is_admin)
             self.assertTrue(user.is_active)
             self.assertIsNone(user.discord_id)
@@ -72,9 +64,7 @@ class AdminSeedTests(unittest.TestCase):
 
     def test_skips_when_username_unset(self) -> None:
         with Session(self.engine) as session:
-            created = seed_admin(
-                session, username=None, password="pw-secret-1"
-            )
+            created = seed_admin(session, username=None, password="pw-secret-1")
             self.assertFalse(created)
             self.assertEqual(len(self._admins(session)), 0)
 
@@ -86,30 +76,26 @@ class AdminSeedTests(unittest.TestCase):
 
     def test_skips_when_display_name_exists_no_overwrite(self) -> None:
         with Session(self.engine) as session:
-            self.assertTrue(
-                seed_admin(
-                    session, username="root_admin", password="pw-secret-1"
-                )
+            self.assertTrue(seed_admin(session, username="root_admin", password="pw-secret-1"))
+            original_hash = (
+                session.exec(select(User).where(User.display_name == "root_admin"))
+                .one()
+                .password_hash
             )
-            original_hash = session.exec(
-                select(User).where(User.display_name == "root_admin")
-            ).one().password_hash
 
             # Second run with a DIFFERENT password must skip and not overwrite.
-            created = seed_admin(
-                session, username="root_admin", password="a-different-password"
-            )
+            created = seed_admin(session, username="root_admin", password="a-different-password")
             self.assertFalse(created)
             self.assertEqual(len(self._admins(session)), 1)
 
-            stored_hash = session.exec(
-                select(User).where(User.display_name == "root_admin")
-            ).one().password_hash
+            stored_hash = (
+                session.exec(select(User).where(User.display_name == "root_admin"))
+                .one()
+                .password_hash
+            )
             self.assertEqual(stored_hash, original_hash)
             # The second password never took effect.
-            self.assertFalse(
-                verify_password(stored_hash, "a-different-password")
-            )
+            self.assertFalse(verify_password(stored_hash, "a-different-password"))
             self.assertTrue(verify_password(stored_hash, "pw-secret-1"))
 
 

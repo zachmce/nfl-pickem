@@ -98,9 +98,7 @@ class GradeResult:
 
 
 # Outcomes that never earn points, regardless of the mortal-lock flag.
-_ZERO_OUTCOMES = frozenset(
-    {GradeOutcome.PUSH, GradeOutcome.INELIGIBLE, GradeOutcome.UNGRADEABLE}
-)
+_ZERO_OUTCOMES = frozenset({GradeOutcome.PUSH, GradeOutcome.INELIGIBLE, GradeOutcome.UNGRADEABLE})
 
 _SPREAD_PICK_TYPES = frozenset({PickType.FAVORITE_COVER, PickType.UNDERDOG_COVER})
 
@@ -226,11 +224,7 @@ def grade_pick(game: Game, pick: Pick) -> GradeResult:
         # PENDING / ungraded MISC: scores nothing until an admin decides it.
         return GradeResult(GradeOutcome.UNGRADEABLE, 0)
 
-    if (
-        game.status is not GameStatus.FINAL
-        or game.home_score is None
-        or game.away_score is None
-    ):
+    if game.status is not GameStatus.FINAL or game.home_score is None or game.away_score is None:
         return GradeResult(GradeOutcome.UNGRADEABLE, 0)
 
     if pick.pick_type in _SPREAD_PICK_TYPES:
@@ -251,6 +245,4 @@ def score_week(games_by_id: dict[int, Game], picks: Iterable[Pick]) -> int:
     single-user week (≤ 4 base picks + ≤ 1 mortal lock) the result is bounded in
     ``[-1, 6]``.
     """
-    return sum(
-        grade_pick(games_by_id[pick.game_id], pick).points for pick in picks
-    )
+    return sum(grade_pick(games_by_id[pick.game_id], pick).points for pick in picks)

@@ -215,9 +215,7 @@ class EmbellishChatLeakSafeTests(unittest.TestCase):
             _run(chat_personality.embellish_chat(event))
         fact_lower = calls[0]["fact"].lower()
         for token in _PICK_TOKENS:
-            self.assertNotIn(
-                token, fact_lower, f"roster.complete fact leaked pick token: {token}"
-            )
+            self.assertNotIn(token, fact_lower, f"roster.complete fact leaked pick token: {token}")
 
 
 class EmbellishChatUnhandledTypesTests(unittest.TestCase):
@@ -351,8 +349,12 @@ class EmbellishChatEnrichedGameFinalTests(unittest.TestCase):
         event = game_final_event(
             week=3, away_abbr="LAC", home_abbr="KC", away_score=20, home_score=27
         )
-        not_found = {"found": False, "pick_impacts": [], "spread_result": None,
-                     "total_result": None}
+        not_found = {
+            "found": False,
+            "pick_impacts": [],
+            "spread_result": None,
+            "total_result": None,
+        }
         patcher, calls = _phrase_returns("x")
         with _ctx_seam("_game_final_context", not_found), patcher:
             out = _run(chat_personality.embellish_chat(event))
@@ -427,9 +429,7 @@ class EmbellishChatEnrichedRosterCompleteTests(unittest.TestCase):
             _run(chat_personality.embellish_chat(event))
         fact_lower = calls[0]["fact"].lower()
         for token in _PICK_TOKENS:
-            self.assertNotIn(
-                token, fact_lower, f"roster.complete fact leaked pick token: {token}"
-            )
+            self.assertNotIn(token, fact_lower, f"roster.complete fact leaked pick token: {token}")
 
     def test_roster_db_read_raise_falls_back_leak_safe(self) -> None:
         event = roster_complete_event(actor="Bob", week=3)
@@ -490,8 +490,13 @@ class EmbellishChatEnrichedWindowOpenedTests(unittest.TestCase):
 
     def test_window_opened_empty_leaders_uses_basic_fact(self) -> None:
         event = window_opened_event(week=3)
-        ctx = {"leader": None, "leader_total": 0, "runner_up": None,
-               "runner_up_total": None, "gap": None}
+        ctx = {
+            "leader": None,
+            "leader_total": 0,
+            "runner_up": None,
+            "runner_up_total": None,
+            "gap": None,
+        }
         patcher, calls = _phrase_returns("x")
         with _ctx_seam("_leaders_context", ctx), patcher:
             out = _run(chat_personality.embellish_chat(event))

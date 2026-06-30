@@ -58,9 +58,7 @@ from app.models import Game, GameStatus, Team, Week
 # regardless of the current working directory. This file lives at
 # ``backend/app/seeds/fixture_2025.py`` and the data ships alongside it at
 # ``backend/app/seeds/data/nfl_2025_regular_season.json``.
-FIXTURE_PATH: Path = (
-    Path(__file__).parent / "data" / "nfl_2025_regular_season.json"
-)
+FIXTURE_PATH: Path = Path(__file__).parent / "data" / "nfl_2025_regular_season.json"
 
 ODDS_PROVIDER = "ESPN BET"
 
@@ -123,10 +121,7 @@ def _load_fixture(path: Path) -> dict:
 
 def _build_team_map(session: Session) -> dict[int, int]:
     """Map ``espn_team_id`` (int) -> ``team.id`` for all seeded teams."""
-    return {
-        team.espn_team_id: team.id
-        for team in session.exec(select(Team)).all()
-    }
+    return {team.espn_team_id: team.id for team in session.exec(select(Team)).all()}
 
 
 def _resolve_team(team_map: dict[int, int], espn_team_id_str: str) -> int:
@@ -145,9 +140,7 @@ def _resolve_team(team_map: dict[int, int], espn_team_id_str: str) -> int:
     return team_id
 
 
-def import_fixture_2025(
-    session: Session, *, path: Path | None = None
-) -> ImportResult:
+def import_fixture_2025(session: Session, *, path: Path | None = None) -> ImportResult:
     """Idempotently import the 2025 NFL fixture into Week + Game rows.
 
     Reads the packaged season-data JSON (offline — no network), upserts one ``Week`` per
@@ -197,9 +190,7 @@ def import_fixture_2025(
         home_team_id = _resolve_team(team_map, raw["home"]["team_id"])
         away_team_id = _resolve_team(team_map, raw["away"]["team_id"])
 
-        game = session.exec(
-            select(Game).where(Game.espn_event_id == espn_event_id)
-        ).first()
+        game = session.exec(select(Game).where(Game.espn_event_id == espn_event_id)).first()
         if game is None:
             game = Game(espn_event_id=espn_event_id)
             session.add(game)
@@ -220,12 +211,8 @@ def import_fixture_2025(
             # Store positive magnitude; direction lives in favorite/underdog FKs.
             game.spread = Decimal(str(abs(odds["spread"])))
             game.total = Decimal(str(odds["total"]))
-            game.favorite_team_id = _resolve_team(
-                team_map, odds["favorite_team_id"]
-            )
-            game.underdog_team_id = _resolve_team(
-                team_map, odds["underdog_team_id"]
-            )
+            game.favorite_team_id = _resolve_team(team_map, odds["favorite_team_id"])
+            game.underdog_team_id = _resolve_team(team_map, odds["underdog_team_id"])
             game.odds_provider = ODDS_PROVIDER
             game.odds_frozen = True
             game.odds_captured_at = captured_at
@@ -253,10 +240,7 @@ def main() -> None:
 
     with task_session() as session:
         result = import_fixture_2025(session)
-    print(
-        f"Imported 2025 fixture: {result.week_count} weeks, "
-        f"{result.game_count} games."
-    )
+    print(f"Imported 2025 fixture: {result.week_count} weeks, {result.game_count} games.")
 
 
 if __name__ == "__main__":

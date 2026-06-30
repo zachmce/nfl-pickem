@@ -152,9 +152,7 @@ class PickEditAuditCascadeTests(unittest.TestCase):
             session.commit()  # must NOT raise a FK violation
 
             remaining = session.exec(select(PickEditAudit)).all()
-            self.assertEqual(
-                remaining, [], "the target's audit row should cascade away"
-            )
+            self.assertEqual(remaining, [], "the target's audit row should cascade away")
             self.assertIsNone(session.get(User, self.target_id))
 
     def test_delete_admin_user_cascades_audit(self) -> None:
@@ -166,9 +164,7 @@ class PickEditAuditCascadeTests(unittest.TestCase):
             session.commit()  # must NOT raise a FK violation
 
             remaining = session.exec(select(PickEditAudit)).all()
-            self.assertEqual(
-                remaining, [], "the admin's audit row should cascade away"
-            )
+            self.assertEqual(remaining, [], "the admin's audit row should cascade away")
             self.assertIsNone(session.get(User, self.admin_id))
 
 

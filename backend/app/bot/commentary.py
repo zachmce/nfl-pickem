@@ -36,8 +36,7 @@ def _fact_sentence(display_name: str, fact: dict) -> str:
     fallback. Carries only display-only fields (name, team_abbr, side, streak)."""
     side = fact["side"].lower()
     return (
-        f"{display_name} has taken {fact['team_abbr']} {side} "
-        f"{fact['streak_weeks']} weeks running."
+        f"{display_name} has taken {fact['team_abbr']} {side} {fact['streak_weeks']} weeks running."
     )
 
 
@@ -73,9 +72,7 @@ async def build_lock_commentary(week: int) -> list[str]:
             lines.append(phrased if phrased is not None else sentence)
         except Exception:
             # One bad player must never abort the batch.
-            logger.warning(
-                "commentary_player_failed", display_name=display_name, exc_info=True
-            )
+            logger.warning("commentary_player_failed", display_name=display_name, exc_info=True)
             continue
 
     return lines

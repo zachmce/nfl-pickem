@@ -122,9 +122,7 @@ def read_current_week(
     windows: dict[int, PickWindow] = {}
     for idx, wk in enumerate(week_numbers):
         this_games = _normalized(by_week[wk])
-        prev_games = (
-            _normalized(by_week[week_numbers[idx - 1]]) if idx > 0 else None
-        )
+        prev_games = _normalized(by_week[week_numbers[idx - 1]]) if idx > 0 else None
         try:
             windows[wk] = compute_window(this_games, prev_games)
         except ValueError:

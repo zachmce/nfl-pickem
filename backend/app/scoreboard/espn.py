@@ -92,13 +92,9 @@ def _http_get_json(url: str, timeout: float = DEFAULT_TIMEOUT) -> Any:
         with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
             body = response.read()
     except urllib.error.HTTPError as exc:
-        raise ScoreboardFetchError(
-            f"HTTP {exc.code} fetching {url}: {exc.reason}"
-        ) from exc
+        raise ScoreboardFetchError(f"HTTP {exc.code} fetching {url}: {exc.reason}") from exc
     except urllib.error.URLError as exc:
-        raise ScoreboardFetchError(
-            f"network error fetching {url}: {exc.reason}"
-        ) from exc
+        raise ScoreboardFetchError(f"network error fetching {url}: {exc.reason}") from exc
     return json.loads(body)
 
 
@@ -113,7 +109,7 @@ def _to_int_or_none(value: Any) -> int | None:
         return None
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 
@@ -123,7 +119,7 @@ def _to_float_or_none(value: Any) -> float | None:
         return None
     try:
         return float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 
@@ -271,9 +267,7 @@ def normalize_event(event: Any, season: int, week: int) -> ScoreboardGame | None
         return None
 
     competitions = event.get("competitions")
-    competition = (
-        competitions[0] if isinstance(competitions, list) and competitions else {}
-    )
+    competition = competitions[0] if isinstance(competitions, list) and competitions else {}
     competition = competition if isinstance(competition, dict) else {}
 
     kickoff = competition.get("date") or event.get("date")
@@ -314,9 +308,7 @@ def normalize_event(event: Any, season: int, week: int) -> ScoreboardGame | None
     )
 
 
-def normalize_scoreboard(
-    payload: Any, season: int, week: int
-) -> list[ScoreboardGame]:
+def normalize_scoreboard(payload: Any, season: int, week: int) -> list[ScoreboardGame]:
     """Normalize a parsed site-scoreboard dict into a list of games.
 
     Pure: takes the already-parsed JSON, returns normalized games. Skips any

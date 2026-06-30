@@ -180,9 +180,7 @@ def compute_offset(
         offset = (now + margin) - earliest
 
         if target_week > 1:
-            prev_kickoffs = _week_kickoffs(
-                weeks_kickoffs, target_week - 1, "previous"
-            )
+            prev_kickoffs = _week_kickoffs(weeks_kickoffs, target_week - 1, "previous")
             prev_latest_end = max(prev_kickoffs) + offset + GAME_DURATION
             if not prev_latest_end < now:
                 raise ValueError(

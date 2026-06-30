@@ -86,11 +86,7 @@ def read_slate(
     """
     now = datetime.now(timezone.utc)
 
-    games = list(
-        session.exec(
-            select(Game).where(Game.season == season, Game.week == week)
-        ).all()
-    )
+    games = list(session.exec(select(Game).where(Game.season == season, Game.week == week)).all())
 
     # Week-level computed freeze predicate. REUSE app.services.odds.is_odds_frozen
     # against the SAME real-clock now (no freeze math re-implemented; same posture

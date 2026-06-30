@@ -114,9 +114,7 @@ class IngestSeasonTests(unittest.TestCase):
         self.engine.dispose()
 
     def _team_id(self, session: Session, espn_id: int) -> int:
-        team = session.exec(
-            select(Team).where(Team.espn_team_id == espn_id)
-        ).first()
+        team = session.exec(select(Team).where(Team.espn_team_id == espn_id)).first()
         assert team is not None
         return team.id
 
@@ -143,9 +141,7 @@ class IngestSeasonTests(unittest.TestCase):
         )
         with Session(self.engine) as session:
             seed_teams(session)
-            result = ingest_season(
-                session, source, 2026, weeks=range(1, 3), now=FIXED_NOW
-            )
+            result = ingest_season(session, source, 2026, weeks=range(1, 3), now=FIXED_NOW)
 
             self.assertIsInstance(result, IngestResult)
             self.assertEqual(result.weeks_created, 1)
@@ -153,24 +149,16 @@ class IngestSeasonTests(unittest.TestCase):
             self.assertEqual(result.weeks_present, 1)
             self.assertEqual(result.games_present, 1)
 
-            week = session.exec(
-                select(Week).where(Week.season == 2026, Week.week == 1)
-            ).first()
+            week = session.exec(select(Week).where(Week.season == 2026, Week.week == 1)).first()
             self.assertIsNotNone(week)
 
-            game = session.exec(
-                select(Game).where(Game.espn_event_id == 900001)
-            ).first()
+            game = session.exec(select(Game).where(Game.espn_event_id == 900001)).first()
             self.assertIsNotNone(game)
             self.assertEqual(game.week_id, week.id)
             self.assertEqual(game.season, 2026)
             self.assertEqual(game.week, 1)
-            self.assertEqual(
-                game.home_team_id, self._team_id(session, 1)
-            )
-            self.assertEqual(
-                game.away_team_id, self._team_id(session, 2)
-            )
+            self.assertEqual(game.home_team_id, self._team_id(session, 1))
+            self.assertEqual(game.away_team_id, self._team_id(session, 2))
             self.assertEqual(game.status, GameStatus.FINAL)
             self.assertEqual(game.home_score, 24)
             self.assertEqual(game.away_score, 20)
@@ -207,13 +195,9 @@ class IngestSeasonTests(unittest.TestCase):
         )
         with Session(self.engine) as session:
             seed_teams(session)
-            ingest_season(
-                session, source, 2026, weeks=range(1, 2), now=FIXED_NOW
-            )
+            ingest_season(session, source, 2026, weeks=range(1, 2), now=FIXED_NOW)
 
-            game = session.exec(
-                select(Game).where(Game.espn_event_id == 900010)
-            ).first()
+            game = session.exec(select(Game).where(Game.espn_event_id == 900010)).first()
             self.assertIsNotNone(game)
             self.assertEqual(game.odds_provider, "DraftKings")
             self.assertEqual(game.odds_provider_id, "100")
@@ -221,12 +205,8 @@ class IngestSeasonTests(unittest.TestCase):
             self.assertEqual(game.spread, Decimal("3.5"))
             self.assertGreater(game.spread, 0)
             self.assertEqual(game.total, Decimal("44.5"))
-            self.assertEqual(
-                game.favorite_team_id, self._team_id(session, 1)
-            )
-            self.assertEqual(
-                game.underdog_team_id, self._team_id(session, 2)
-            )
+            self.assertEqual(game.favorite_team_id, self._team_id(session, 1))
+            self.assertEqual(game.underdog_team_id, self._team_id(session, 2))
             # ``DateTime(timezone=True)`` round-trips NAIVE on SQLite (Postgres
             # preserves tz), so compare tz-normalized — the stored instant is
             # ``now`` re-attached to UTC.
@@ -251,12 +231,8 @@ class IngestSeasonTests(unittest.TestCase):
         )
         with Session(self.engine) as session:
             seed_teams(session)
-            ingest_season(
-                session, source, 2026, weeks=range(1, 2), now=FIXED_NOW
-            )
-            game = session.exec(
-                select(Game).where(Game.espn_event_id == 900020)
-            ).first()
+            ingest_season(session, source, 2026, weeks=range(1, 2), now=FIXED_NOW)
+            game = session.exec(select(Game).where(Game.espn_event_id == 900020)).first()
             # The service persists whatever name+id it was handed — it never
             # re-selects DraftKings or hardcodes an id.
             self.assertEqual(game.odds_provider, "SomeOtherBook")
@@ -268,12 +244,8 @@ class IngestSeasonTests(unittest.TestCase):
         )
         with Session(self.engine) as session:
             seed_teams(session)
-            ingest_season(
-                session, source, 2026, weeks=range(1, 2), now=FIXED_NOW
-            )
-            game = session.exec(
-                select(Game).where(Game.espn_event_id == 900030)
-            ).first()
+            ingest_season(session, source, 2026, weeks=range(1, 2), now=FIXED_NOW)
+            game = session.exec(select(Game).where(Game.espn_event_id == 900030)).first()
             self.assertIsNone(game.spread)
             self.assertIsNone(game.total)
             self.assertIsNone(game.favorite_team_id)
@@ -334,30 +306,20 @@ class IngestSeasonTests(unittest.TestCase):
         )
         with Session(self.engine) as session:
             seed_teams(session)
-            r1 = ingest_season(
-                session, first, 2026, weeks=range(1, 2), now=FIXED_NOW
-            )
+            r1 = ingest_season(session, first, 2026, weeks=range(1, 2), now=FIXED_NOW)
             self.assertEqual(r1.games_created, 1)
 
-            r2 = ingest_season(
-                session, second, 2026, weeks=range(1, 2), now=FIXED_NOW
-            )
+            r2 = ingest_season(session, second, 2026, weeks=range(1, 2), now=FIXED_NOW)
             # No new rows on the re-run.
             self.assertEqual(r2.weeks_created, 0)
             self.assertEqual(r2.games_created, 0)
             self.assertEqual(r2.weeks_present, 1)
             self.assertEqual(r2.games_present, 1)
 
-            self.assertEqual(
-                len(session.exec(select(Week)).all()), 1
-            )
-            self.assertEqual(
-                len(session.exec(select(Game)).all()), 1
-            )
+            self.assertEqual(len(session.exec(select(Week)).all()), 1)
+            self.assertEqual(len(session.exec(select(Game)).all()), 1)
 
-            game = session.exec(
-                select(Game).where(Game.espn_event_id == 900040)
-            ).first()
+            game = session.exec(select(Game).where(Game.espn_event_id == 900040)).first()
             # None scores on the second run did NOT null the present values.
             self.assertEqual(game.home_score, 27)
             self.assertEqual(game.away_score, 13)
@@ -374,22 +336,16 @@ class IngestSeasonTests(unittest.TestCase):
         )
         with Session(self.engine) as session:
             seed_teams(session)
-            result = ingest_season(
-                session, source, 2026, weeks=range(1, 4), now=FIXED_NOW
-            )
+            result = ingest_season(session, source, 2026, weeks=range(1, 4), now=FIXED_NOW)
             # Week 2 raised -> recorded; weeks 1 and 3 still ingested.
             self.assertEqual(result.failed_weeks, ((2026, 2),))
             self.assertEqual(result.weeks_created, 2)
             self.assertEqual(result.games_created, 2)
             self.assertIsNotNone(
-                session.exec(
-                    select(Game).where(Game.espn_event_id == 900050)
-                ).first()
+                session.exec(select(Game).where(Game.espn_event_id == 900050)).first()
             )
             self.assertIsNotNone(
-                session.exec(
-                    select(Game).where(Game.espn_event_id == 900052)
-                ).first()
+                session.exec(select(Game).where(Game.espn_event_id == 900052)).first()
             )
 
     # -- unseeded team raises (no orphan FK) ------------------------------
@@ -402,9 +358,7 @@ class IngestSeasonTests(unittest.TestCase):
         with Session(self.engine) as session:
             seed_teams(session)
             with self.assertRaises(TeamsNotSeededError):
-                ingest_season(
-                    session, source, 2026, weeks=range(1, 2), now=FIXED_NOW
-                )
+                ingest_season(session, source, 2026, weeks=range(1, 2), now=FIXED_NOW)
 
 
 class IngestSeasonWrapperSummaryTests(unittest.TestCase):
@@ -434,9 +388,7 @@ class IngestSeasonWrapperSummaryTests(unittest.TestCase):
         )
         with Session(self.engine) as session:
             seed_teams(session)
-            result = ingest_season(
-                session, source, 2026, weeks=range(1, 3), now=FIXED_NOW
-            )
+            result = ingest_season(session, source, 2026, weeks=range(1, 3), now=FIXED_NOW)
 
         # Mirror ingest_season_task's summary construction exactly.
         summary = {

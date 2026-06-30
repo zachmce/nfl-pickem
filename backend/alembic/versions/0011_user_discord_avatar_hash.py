@@ -20,6 +20,7 @@ from the SQLModel metadata (``SQLModel.metadata.create_all``), so this column is
 exercised in tests via the new ``User.discord_avatar_hash`` model field, and by
 this migration only on the live Postgres path.
 """
+
 from collections.abc import Sequence
 
 from alembic import op

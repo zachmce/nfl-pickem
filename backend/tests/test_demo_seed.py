@@ -41,10 +41,7 @@ WEEKS = tuple(range(1, 19))
 
 def _expected_bot_pick_count() -> int:
     return sum(
-        len(recs)
-        for by_week in BOT_PICKS.values()
-        for w, recs in by_week.items()
-        if w in WEEKS
+        len(recs) for by_week in BOT_PICKS.values() for w, recs in by_week.items() if w in WEEKS
     )
 
 
@@ -84,9 +81,7 @@ class DemoSeedTests(unittest.TestCase):
         with Session(self.engine) as session:
             seed_demo(session, now=PINNED_NOW)
             season = self._season(session)
-            weeks = session.exec(
-                select(Week).where(Week.season == season)
-            ).all()
+            weeks = session.exec(select(Week).where(Week.season == season)).all()
             self.assertTrue(weeks)
             for w in weeks:
                 if w.week in WEEKS:
@@ -124,15 +119,11 @@ class DemoSeedTests(unittest.TestCase):
             seed_demo(session, now=PINNED_NOW)
             bot_names = list(BOT_PICKS.keys())
             self.assertEqual(len(bot_names), 5)
-            bot_users = session.exec(
-                select(User).where(User.display_name.in_(bot_names))
-            ).all()
+            bot_users = session.exec(select(User).where(User.display_name.in_(bot_names))).all()
             self.assertEqual(len(bot_users), 5)
 
             bot_ids = [u.id for u in bot_users]
-            picks = session.exec(
-                select(Pick).where(Pick.user_id.in_(bot_ids))
-            ).all()
+            picks = session.exec(select(Pick).where(Pick.user_id.in_(bot_ids))).all()
             self.assertEqual(len(picks), _expected_bot_pick_count())
             for p in picks:
                 self.assertEqual(p.result, PickResult.PENDING)
@@ -171,9 +162,7 @@ class DemoSeedTests(unittest.TestCase):
             self.assertEqual(load_demo_anchor(session), PINNED_NOW)
 
             def week1_earliest() -> datetime:
-                games = session.exec(
-                    select(Game).where(Game.season == 2025, Game.week == 1)
-                ).all()
+                games = session.exec(select(Game).where(Game.season == 2025, Game.week == 1)).all()
                 return min(
                     g.kickoff_at.replace(tzinfo=timezone.utc)
                     if g.kickoff_at.tzinfo is None

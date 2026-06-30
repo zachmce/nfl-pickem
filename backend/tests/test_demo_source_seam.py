@@ -55,9 +55,7 @@ class FlagOffTests(_SeamTestBase):
         # touched DemoState it would call session.exec and trip this guard.
         class _GuardSession:
             def exec(self, *_a, **_k):  # pragma: no cover - must not be called
-                raise AssertionError(
-                    "prod path must not read DemoState (PROD-LEAK-GUARD)"
-                )
+                raise AssertionError("prod path must not read DemoState (PROD-LEAK-GUARD)")
 
         source = default_scoreboard_source(_GuardSession())
         self.assertIsInstance(source, EspnScoreboardSource)

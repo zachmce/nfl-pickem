@@ -98,7 +98,9 @@ class User(SQLModel, table=True):
     # (0012); read by the admin-service guards and surfaced through
     # AdminUserRow -> AdminUserRead -> the AdminPage row disable.
     is_protected: bool = Field(default=False)
-    created_at: datetime = Field(sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False), default_factory=sa.func.now)
+    created_at: datetime = Field(
+        sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False), default_factory=sa.func.now
+    )
 
 
 class DemoState(SQLModel, table=True):
@@ -331,12 +333,8 @@ class PickEditAudit(SQLModel, table=True):
     # survives the user" decision (hardening note decision 6). No relationship is
     # declared on this table, so the column-level ondelete is what drives the
     # cascade (exactly as Pick.user_id does); no passive_deletes is needed.
-    admin_user_id: int = Field(
-        foreign_key="users.id", ondelete="CASCADE", nullable=False
-    )
-    target_user_id: int = Field(
-        foreign_key="users.id", ondelete="CASCADE", nullable=False
-    )
+    admin_user_id: int = Field(foreign_key="users.id", ondelete="CASCADE", nullable=False)
+    target_user_id: int = Field(foreign_key="users.id", ondelete="CASCADE", nullable=False)
     game_id: int = Field(foreign_key="game.id", nullable=False)
     week_id: int = Field(foreign_key="week.id", nullable=False)
     # "set" | "clear" — the override action that produced this row.

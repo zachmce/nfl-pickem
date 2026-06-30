@@ -36,9 +36,7 @@ BOT_PERSONALITY_KEY = "bot_personality"
 
 def get_setting(session: Session, key: str) -> str | None:
     """Return the stored value for ``key``, or ``None`` when no row exists."""
-    row = session.exec(
-        select(AppSetting).where(AppSetting.setting_key == key)
-    ).first()
+    row = session.exec(select(AppSetting).where(AppSetting.setting_key == key)).first()
     return row.setting_value if row is not None else None
 
 
@@ -48,9 +46,7 @@ def set_setting(session: Session, key: str, value: str) -> str:
     Inserts a new row when the key is absent; otherwise updates the existing
     row's value and bumps ``updated_at``. Commits the change.
     """
-    row = session.exec(
-        select(AppSetting).where(AppSetting.setting_key == key)
-    ).first()
+    row = session.exec(select(AppSetting).where(AppSetting.setting_key == key)).first()
     if row is None:
         row = AppSetting(setting_key=key, setting_value=value)
         session.add(row)
@@ -84,7 +80,5 @@ def set_bot_personality(session: Session, personality_id: str) -> str:
     ``bot_personality`` setting and returns it.
     """
     if personality_id not in available_personality_ids():
-        raise ValueError(
-            f"unknown_personality: {personality_id!r} is not a known personality"
-        )
+        raise ValueError(f"unknown_personality: {personality_id!r} is not a known personality")
     return set_setting(session, BOT_PERSONALITY_KEY, personality_id)

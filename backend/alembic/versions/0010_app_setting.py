@@ -11,6 +11,7 @@ key ``bot_personality``). No enum type is involved — the personality id is a
 free string validated against the registry in the service — so there is no
 PG-enum-reuse concern. Kept tiny and fully reversible.
 """
+
 from collections.abc import Sequence
 
 from alembic import op

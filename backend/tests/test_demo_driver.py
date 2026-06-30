@@ -70,9 +70,7 @@ class DemoDriverTests(unittest.TestCase):
     def test_walkthrough_persists_picks_and_matches_oracle(self) -> None:
         with Session(self.engine) as session:
             setup(session)
-            result = run_walkthrough(
-                session, weeks=WEEKS, assert_oracle=True
-            )
+            result = run_walkthrough(session, weeks=WEEKS, assert_oracle=True)
             self.assertTrue(result.passed)
 
             games = self._all_games(session)
@@ -86,10 +84,7 @@ class DemoDriverTests(unittest.TestCase):
             self.assertEqual(set(bots), set(BOT_PICKS))
 
             week_id_by_num = {
-                w.week: w.id
-                for w in session.exec(
-                    select(Week).where(Week.season == SEASON)
-                ).all()
+                w.week: w.id for w in session.exec(select(Week).where(Week.season == SEASON)).all()
             }
             for name, weeks in BOT_PICKS.items():
                 user = bots[name]
@@ -120,19 +115,13 @@ class DemoDriverTests(unittest.TestCase):
             setup(session)
             run_walkthrough(session, weeks=WEEKS, assert_oracle=True)
 
-            dave = session.exec(
-                select(User).where(User.display_name == "bot_dave")
-            ).first()
+            dave = session.exec(select(User).where(User.display_name == "bot_dave")).first()
             assert dave is not None
-            wk2 = session.exec(
-                select(Week).where(Week.season == SEASON, Week.week == 2)
-            ).first()
+            wk2 = session.exec(select(Week).where(Week.season == SEASON, Week.week == 2)).first()
             assert wk2 is not None
             picks = list(
                 session.exec(
-                    select(Pick).where(
-                        Pick.user_id == dave.id, Pick.week_id == wk2.id
-                    )
+                    select(Pick).where(Pick.user_id == dave.id, Pick.week_id == wk2.id)
                 ).all()
             )
             self.assertEqual(len(picks), 3)
@@ -143,9 +132,7 @@ class DemoDriverTests(unittest.TestCase):
         with Session(self.engine) as session:
             setup(session)
             run_walkthrough(session, weeks=(1,), assert_oracle=True)
-            names = {
-                u.display_name for u in session.exec(select(User)).all()
-            }
+            names = {u.display_name for u in session.exec(select(User)).all()}
             for display_name, *_ in BOT_ACCOUNTS:
                 self.assertIn(display_name, names)
 
@@ -190,9 +177,7 @@ class DemoCliGateTests(unittest.TestCase):
         self.assertEqual(require_demo_db(url, prod_url=self._PROD), url)
 
     def test_demo_url_is_stripped(self) -> None:
-        self.assertEqual(
-            require_demo_db("  sqlite://  ", prod_url=self._PROD), "sqlite://"
-        )
+        self.assertEqual(require_demo_db("  sqlite://  ", prod_url=self._PROD), "sqlite://")
 
 
 if __name__ == "__main__":

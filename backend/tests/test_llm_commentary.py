@@ -85,9 +85,7 @@ class PhrasePatternTests(unittest.TestCase):
         self.assertIn("chat_template_kwargs", body)
         self.assertEqual(body["chat_template_kwargs"]["enable_thinking"], False)
         # bearer auth + chat/completions endpoint + model wired through.
-        self.assertEqual(
-            _FakeAsyncClient.last_headers["Authorization"], "Bearer secret-key"
-        )
+        self.assertEqual(_FakeAsyncClient.last_headers["Authorization"], "Bearer secret-key")
         self.assertTrue(_FakeAsyncClient.last_url.endswith("/chat/completions"))
         self.assertEqual(body["model"], "gemma")
 
@@ -116,12 +114,15 @@ class PhrasePatternTests(unittest.TestCase):
 
     def test_unconfigured_returns_none_without_calling_http(self) -> None:
         """Missing any of the three LLM_* settings -> disabled, returns None."""
-        with mock.patch.multiple(
-            settings,
-            llm_api_server=None,
-            llm_api_model=None,
-            llm_api_key=None,
-        ), mock.patch.object(httpx, "AsyncClient", _FakeAsyncClient):
+        with (
+            mock.patch.multiple(
+                settings,
+                llm_api_server=None,
+                llm_api_model=None,
+                llm_api_key=None,
+            ),
+            mock.patch.object(httpx, "AsyncClient", _FakeAsyncClient),
+        ):
             out = _run(llm_client.phrase_pattern("fact"))
         self.assertIsNone(out)
 
@@ -137,9 +138,7 @@ class PhraseTests(unittest.TestCase):
         )
         with _configured(), mock.patch.object(httpx, "AsyncClient", _FakeAsyncClient):
             out = _run(
-                llm_client.phrase(
-                    "Week 3 picks are open", system_prompt="You are a hype bot"
-                )
+                llm_client.phrase("Week 3 picks are open", system_prompt="You are a hype bot")
             )
         self.assertEqual(out, "let's go! 🏈")
         body = _FakeAsyncClient.last_json
@@ -150,9 +149,7 @@ class PhraseTests(unittest.TestCase):
         # HARD RULE: enable_thinking must be False or content comes back empty.
         self.assertEqual(body["chat_template_kwargs"]["enable_thinking"], False)
         # bearer auth + chat/completions endpoint + model wired through.
-        self.assertEqual(
-            _FakeAsyncClient.last_headers["Authorization"], "Bearer secret-key"
-        )
+        self.assertEqual(_FakeAsyncClient.last_headers["Authorization"], "Bearer secret-key")
         self.assertTrue(_FakeAsyncClient.last_url.endswith("/chat/completions"))
         self.assertEqual(body["model"], "gemma")
 
@@ -180,12 +177,15 @@ class PhraseTests(unittest.TestCase):
         self.assertIsNone(out)
 
     def test_unconfigured_returns_none_without_calling_http(self) -> None:
-        with mock.patch.multiple(
-            settings,
-            llm_api_server=None,
-            llm_api_model=None,
-            llm_api_key=None,
-        ), mock.patch.object(httpx, "AsyncClient", _FakeAsyncClient):
+        with (
+            mock.patch.multiple(
+                settings,
+                llm_api_server=None,
+                llm_api_model=None,
+                llm_api_key=None,
+            ),
+            mock.patch.object(httpx, "AsyncClient", _FakeAsyncClient),
+        ):
             out = _run(llm_client.phrase("fact", system_prompt="prompt"))
         self.assertIsNone(out)
 
@@ -194,9 +194,7 @@ class ConfigLlmSettingsTests(unittest.TestCase):
     def test_blank_env_coerces_to_none(self) -> None:
         from app.config import Settings
 
-        s = Settings(
-            llm_api_server="", llm_api_model="  ", llm_api_key=""
-        )  # type: ignore[call-arg]
+        s = Settings(llm_api_server="", llm_api_model="  ", llm_api_key="")  # type: ignore[call-arg]
         self.assertIsNone(s.llm_api_server)
         self.assertIsNone(s.llm_api_model)
         self.assertIsNone(s.llm_api_key)

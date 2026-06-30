@@ -99,9 +99,7 @@ class SeedTeamsUpsertTests(unittest.TestCase):
 
             # Pick a known canonical record and corrupt its row in the db.
             espn_id, canon_abbr, canon_name = NFL_TEAMS[0]
-            stale = session.exec(
-                select(Team).where(Team.espn_team_id == espn_id)
-            ).first()
+            stale = session.exec(select(Team).where(Team.espn_team_id == espn_id)).first()
             assert stale is not None
             stale.abbreviation = "ZZZ"
             stale.display_name = "Stale Team Name"
@@ -110,9 +108,7 @@ class SeedTeamsUpsertTests(unittest.TestCase):
 
             seed_teams(session)
 
-            fixed = session.exec(
-                select(Team).where(Team.espn_team_id == espn_id)
-            ).first()
+            fixed = session.exec(select(Team).where(Team.espn_team_id == espn_id)).first()
             assert fixed is not None
             self.assertEqual(fixed.abbreviation, canon_abbr)
             self.assertEqual(fixed.display_name, canon_name)

@@ -60,9 +60,15 @@ async def csrf_dispatch(request: Request, call_next):
         if cookie_session and not has_bearer:
             cookie_token = request.cookies.get(CSRF_COOKIE_NAME)
             header_token = request.headers.get(CSRF_HEADER_NAME)
-            if not cookie_token or not header_token or not secrets.compare_digest(cookie_token, header_token):
+            if (
+                not cookie_token
+                or not header_token
+                or not secrets.compare_digest(cookie_token, header_token)
+            ):
                 return JSONResponse(
                     status_code=403,
-                    content={"error": {"code": "csrf_failed", "message": "CSRF token missing or invalid"}},
+                    content={
+                        "error": {"code": "csrf_failed", "message": "CSRF token missing or invalid"}
+                    },
                 )
     return await call_next(request)

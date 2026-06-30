@@ -37,7 +37,7 @@ def verify_password(stored_hash: str, plain: str) -> bool:
     """
     try:
         return _ph.verify(stored_hash, plain)
-    except (VerifyMismatchError, VerificationError, InvalidHashError):
+    except VerifyMismatchError, VerificationError, InvalidHashError:
         return False
 
 
@@ -56,7 +56,7 @@ def decode_session_cookie(token: str) -> int | None:
     try:
         data = _serializer().loads(token, max_age=s.session_max_age_days * 86400)
         return int(data["uid"])
-    except (BadSignature, SignatureExpired, KeyError, ValueError, TypeError):
+    except BadSignature, SignatureExpired, KeyError, ValueError, TypeError:
         return None
 
 
@@ -152,7 +152,9 @@ def _derive_safe_username(session: Session, discord_handle: str, discord_id: int
         base = f"user_{last6hex}"
 
     def _available(candidate: str) -> bool:
-        return session.exec(select(User).where(User.display_name == candidate)).one_or_none() is None
+        return (
+            session.exec(select(User).where(User.display_name == candidate)).one_or_none() is None
+        )
 
     candidate = base[:100]
     if _available(candidate):
@@ -226,7 +228,9 @@ def provision_user(
             # means this Discord user already has an account (concurrent /register
             # race). A display_name collision is a transient conflict that resolves
             # on retry.
-            constraint_name: str = getattr(getattr(e.orig, "diag", None), "constraint_name", "") or ""
+            constraint_name: str = (
+                getattr(getattr(e.orig, "diag", None), "constraint_name", "") or ""
+            )
             if "discord_id" in constraint_name:
                 raise ValueError("You already have a pick'em account — log in instead") from e
             raise ValueError("Username taken by concurrent registration — try again") from e
@@ -248,7 +252,9 @@ def reset_password_for_discord(session: Session, discord_id: int) -> str:
     Raises ValueError if discord_id has no account or if the account is
     deactivated. Returns plain_password (str) — returned once for the bot to DM.
     """
-    user: User | None = session.exec(select(User).where(User.discord_id == discord_id)).one_or_none()
+    user: User | None = session.exec(
+        select(User).where(User.discord_id == discord_id)
+    ).one_or_none()
     if user is None:
         raise ValueError(f"No account found for discord_id {discord_id}")
     if not user.is_active:
@@ -296,7 +302,9 @@ def deactivate_user_by_discord_id(session: Session, discord_id: int) -> None:
 
     Raises ValueError if discord_id has no account or is already deactivated.
     """
-    user: User | None = session.exec(select(User).where(User.discord_id == discord_id)).one_or_none()
+    user: User | None = session.exec(
+        select(User).where(User.discord_id == discord_id)
+    ).one_or_none()
     if user is None:
         raise ValueError(f"No account found for discord_id {discord_id}")
     if not user.is_active:
@@ -313,7 +321,9 @@ def reactivate_user_by_discord_id(session: Session, discord_id: int) -> None:
 
     Raises ValueError if discord_id has no account or is already active.
     """
-    user: User | None = session.exec(select(User).where(User.discord_id == discord_id)).one_or_none()
+    user: User | None = session.exec(
+        select(User).where(User.discord_id == discord_id)
+    ).one_or_none()
     if user is None:
         raise ValueError(f"No account found for discord_id {discord_id}")
     if user.is_active:
@@ -330,7 +340,9 @@ def grant_admin_by_discord_id(session: Session, discord_id: int) -> None:
 
     Raises ValueError if discord_id has no account or is already an admin.
     """
-    user: User | None = session.exec(select(User).where(User.discord_id == discord_id)).one_or_none()
+    user: User | None = session.exec(
+        select(User).where(User.discord_id == discord_id)
+    ).one_or_none()
     if user is None:
         raise ValueError(f"No account found for discord_id {discord_id}")
     if user.is_admin:
@@ -357,7 +369,9 @@ def revoke_admin_by_discord_id(
     if caller_discord_id == target_discord_id:
         raise ValueError("Cannot remove your own admin access")
 
-    user: User | None = session.exec(select(User).where(User.discord_id == target_discord_id)).one_or_none()
+    user: User | None = session.exec(
+        select(User).where(User.discord_id == target_discord_id)
+    ).one_or_none()
     if user is None:
         raise ValueError(f"No account found for discord_id {target_discord_id}")
     if not user.is_admin:
@@ -381,7 +395,9 @@ def get_account_by_discord_id(session: Session, discord_id: int) -> str | None:
     leak). Never raises. No is_active gate — the read path only needs to know
     whether an account exists.
     """
-    user: User | None = session.exec(select(User).where(User.discord_id == discord_id)).one_or_none()
+    user: User | None = session.exec(
+        select(User).where(User.discord_id == discord_id)
+    ).one_or_none()
     return user.display_name if user is not None else None
 
 
@@ -400,7 +416,9 @@ def is_admin_by_discord_id(session: Session, discord_id: int) -> bool:
     discord_id never equals any integer discord_id; it is reached only via the web
     path, not this Discord gate.
     """
-    user: User | None = session.exec(select(User).where(User.discord_id == discord_id)).one_or_none()
+    user: User | None = session.exec(
+        select(User).where(User.discord_id == discord_id)
+    ).one_or_none()
     return bool(user is not None and user.is_admin and user.is_active)
 
 

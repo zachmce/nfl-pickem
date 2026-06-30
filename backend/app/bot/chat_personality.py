@@ -141,9 +141,7 @@ async def _roster_complete_context(event: dict) -> dict:
     """Display-only roster.complete context for ``event`` via the db_bridge wrapper."""
     from app.bot.db_bridge import get_roster_complete_context_async
 
-    return await get_roster_complete_context_async(
-        event.get("week"), event.get("actor")
-    )
+    return await get_roster_complete_context_async(event.get("week"), event.get("actor"))
 
 
 async def _leaders_context(event: dict) -> dict:
@@ -182,9 +180,7 @@ def _basic_game_final_fact(event: dict) -> str:
     home_score = event.get("home_score")
     away_score = event.get("away_score")
     descriptor = _final_descriptor(home_score, away_score)
-    fact = (
-        f"Week {event.get('week')} final: {home} {home_score}, {away} {away_score}."
-    )
+    fact = f"Week {event.get('week')} final: {home} {home_score}, {away} {away_score}."
     if descriptor:
         fact = f"{fact} It was a {descriptor}."
     return fact
@@ -216,7 +212,7 @@ def _basic_misc_graded_fact(event: dict) -> str:
     """
     return (
         f"Week {event.get('week')}: {event.get('actor')}'s MISC prediction "
-        f"\"{event.get('prediction')}\" was graded {event.get('verdict')} "
+        f'"{event.get("prediction")}" was graded {event.get("verdict")} '
         f"for {event.get('points'):+d} points."
     )
 
@@ -233,10 +229,7 @@ def _basic_misc_picked_fact(event: dict) -> str:
     context (and no db read), and the prediction text is hidden until the window
     closes, so the fact STATES only that the player got their misc call in.
     """
-    return (
-        f"{event.get('actor')} just submitted their Week "
-        f"{event.get('week')} misc call."
-    )
+    return f"{event.get('actor')} just submitted their Week {event.get('week')} misc call."
 
 
 def _enriched_game_final_fact(event: dict, context: dict) -> str | None:
@@ -257,9 +250,7 @@ def _enriched_game_final_fact(event: dict, context: dict) -> str | None:
     away_score = context.get("away_score")
     descriptor = _final_descriptor(home_score, away_score)
 
-    parts = [
-        f"Week {event.get('week')} final: {home} {home_score}, {away} {away_score}."
-    ]
+    parts = [f"Week {event.get('week')} final: {home} {home_score}, {away} {away_score}."]
     if descriptor:
         parts.append(f"It was a {descriptor}.")
 
@@ -349,9 +340,7 @@ def _enriched_window_opened_fact(event: dict, context: dict) -> str | None:
         # A zero gap means they are CO-LEADERS — phrase it as a tie for the lead,
         # not "leader" + "runner-up is 0 back in second" (which reads as a false
         # first/second split and led the model to say "tied for second").
-        parts.append(
-            f"{leader} and {runner_up} are tied for the lead with {leader_total}."
-        )
+        parts.append(f"{leader} and {runner_up} are tied for the lead with {leader_total}.")
     else:
         parts.append(f"{leader} leads the season with {leader_total}.")
         if runner_up:
@@ -359,9 +348,7 @@ def _enriched_window_opened_fact(event: dict, context: dict) -> str | None:
     return " ".join(parts)
 
 
-async def _enriched_fact_and_prompt(
-    event: dict, active_voice: str
-) -> tuple[str, str] | None:
+async def _enriched_fact_and_prompt(event: dict, active_voice: str) -> tuple[str, str] | None:
     """Build the (fact, system_prompt) for a handled event, reading DB context.
 
     Reads the matching display-only context through the async seam, builds the
