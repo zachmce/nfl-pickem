@@ -35,7 +35,7 @@ from app.models import User
 from app.seeds.admins import seed_admin
 from app.seeds.bots import BOT_ACCOUNTS, seed_bots
 from app.services import admin as admin_service
-from app.services.auth import is_admin_by_discord_id
+from app.services.auth import is_admin_by_discord_id, revoke_admin_by_discord_id
 
 
 def _enable_sqlite_fks(dbapi_connection, _connection_record):  # noqa: ANN001
@@ -263,6 +263,73 @@ class DiscordActiveGateTests(_FloorTestBase):
             )
             session.commit()
             self.assertFalse(is_admin_by_discord_id(session, 123))
+
+
+# --------------------------------------------------------------------------- #
+# Discord revoke-admin last-admin guard (quick task 260630-p9y)
+# --------------------------------------------------------------------------- #
+class DiscordRevokeLastAdminTests(_FloorTestBase):
+    """``revoke_admin_by_discord_id`` refuses to demote the last admin.
+
+    Mirrors the web ``admin.revoke_admin`` last-admin guard so both surfaces
+    behave identically. The denominator counts ALL ``is_admin=True`` rows
+    regardless of ``is_active`` (web ``_count_admins`` default, active_only=False).
+
+    The break-glass protected admin (NULL ``discord_id``) is unreachable via this
+    discord_id-keyed function — no integer ``target_discord_id`` ever matches NULL
+    — so there is no protected case to test here (mirrors the docstring note).
+    A distinct ``caller_discord_id`` is used throughout so the self-demote guard
+    does NOT mask the last-admin guard under test.
+    """
+
+    def _add(self, **kwargs) -> int:
+        with Session(self.engine) as session:
+            user = User(**kwargs)
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+            assert user.id is not None
+            return user.id
+
+    @staticmethod
+    def _leading_token(exc: ValueError) -> str:
+        # Codes are formatted "code: human message"; the stable token is the
+        # leading whitespace-delimited word with its trailing colon stripped.
+        return str(exc.args[0]).split()[0].rstrip(":")
+
+    def test_revoke_last_admin_via_discord_raises(self) -> None:
+        # Exactly ONE admin -> revoking it must raise last_admin and leave it admin.
+        self._add(display_name="solo_admin", discord_id=500, is_admin=True, is_active=True)
+        with Session(self.engine) as session:
+            with self.assertRaises(ValueError) as ctx:
+                revoke_admin_by_discord_id(session, caller_discord_id=999, target_discord_id=500)
+            self.assertEqual(self._leading_token(ctx.exception), "last_admin")
+            # Guard fired BEFORE the mutation: target row is still an admin.
+            target = session.exec(select(User).where(User.discord_id == 500)).one()
+            self.assertTrue(target.is_admin)
+
+    def test_revoke_non_last_admin_via_discord_succeeds(self) -> None:
+        # TWO admins -> revoking one succeeds and demotes the target.
+        self._add(display_name="admin_a", discord_id=500, is_admin=True, is_active=True)
+        self._add(display_name="admin_b", discord_id=501, is_admin=True, is_active=True)
+        with Session(self.engine) as session:
+            revoke_admin_by_discord_id(session, caller_discord_id=999, target_discord_id=500)
+            target = session.exec(select(User).where(User.discord_id == 500)).one()
+            self.assertFalse(target.is_admin)
+
+    def test_revoke_non_last_admin_counts_inactive_admins(self) -> None:
+        # Denominator regression: the count includes is_active=False admins.
+        # One ACTIVE admin (500) + one INACTIVE admin (501, still is_admin=True)
+        # = two is_admin=True rows, so revoking the active admin 500 SUCCEEDS —
+        # the inactive admin still counts toward the last-admin denominator. This
+        # proves the count matches the web path's all-rows (not active-only)
+        # semantics.
+        self._add(display_name="active_admin", discord_id=500, is_admin=True, is_active=True)
+        self._add(display_name="inactive_admin", discord_id=501, is_admin=True, is_active=False)
+        with Session(self.engine) as session:
+            revoke_admin_by_discord_id(session, caller_discord_id=999, target_discord_id=500)
+            target = session.exec(select(User).where(User.discord_id == 500)).one()
+            self.assertFalse(target.is_admin)
 
 
 if __name__ == "__main__":
