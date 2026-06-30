@@ -1,6 +1,6 @@
 """Authenticated pick submission + read endpoints.
 
-Thin router mirroring :mod:`app.api.auth` / :mod:`app.api.proof`: it resolves the
+Thin router mirroring :mod:`app.api.auth`: it resolves the
 acting user from the verified session (NEVER the body), calls the pick-submission
 service, and shapes the response. All legality enforcement and the
 ViolationCode -> envelope mapping live in :mod:`app.services.pick_submission`; the
@@ -13,9 +13,9 @@ Security:
   (signed session cookie or bearer) — never from the request body, and there is
   no user parameter on either endpoint, so a user can only read/write their own
   picks (no IDOR). Unauthenticated requests are rejected 401 by the dependency.
-* The mutating POST works WITH the existing double-submit CSRF middleware exactly
-  as :func:`app.api.proof.echo` does (cookie auth requires ``X-CSRF-Token``;
-  bearer is exempt) — there is no CSRF special-casing here.
+* The mutating POST works WITH the existing double-submit CSRF middleware
+  (cookie auth requires ``X-CSRF-Token``; bearer is exempt) — there is no CSRF
+  special-casing here.
 """
 
 from __future__ import annotations

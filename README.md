@@ -67,8 +67,7 @@ weeks play out.
 | `pgadmin`  | pgAdmin 4 (local dev DB console, no-auth)          | 5050     |
 
 The `worker` runs `celery ... worker --beat`, so the `beat_schedule` (the
-`refresh_games` poller) fires on its cadence and the season unspools on its own —
-it is **not** a "ping" demo worker.
+`refresh_games` poller) fires on its cadence and the season unspools on its own.
 
 ```
 .
@@ -92,11 +91,6 @@ it is **not** a "ping" demo worker.
 ├── docker-compose.yml          dev stack
 └── docker-compose.prod.yml     prod override (nginx SPA)
 ```
-
-> Some ping / task-run / proof scaffolding from the original project skeleton is
-> still in the tree (`app/api/proof.py`, the `TaskRun` model, `POST /api/ping`).
-> It's vestigial — not part of the product — and is kept only so the early wiring
-> tests stay green.
 
 ### One DB access method everywhere
 
@@ -174,9 +168,6 @@ All routes are mounted under `/api`. The main feature routers:
 | `/api/calendar`     | season calendar                                             |
 | `/api/config`       | client-facing config                                        |
 | `/api/admin`        | player mgmt, per-user pick override, ingest-season, freeze-week, bot-personality |
-
-(The `/api/proof/*` and `/api/ping` / `/api/task-runs` endpoints are leftover
-scaffolding, not product features.)
 
 ## Authentication (cookie-based)
 

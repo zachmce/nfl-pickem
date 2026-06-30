@@ -7,10 +7,6 @@ Create Date: 2026-06-22 00:00:00.000000
 """
 from collections.abc import Sequence
 
-from alembic import op
-import sqlalchemy as sa
-import sqlmodel
-
 
 # revision identifiers, used by Alembic.
 revision: str = "0001_initial"
@@ -20,16 +16,12 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        "task_run",
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("message", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index(op.f("ix_task_run_message"), "task_run", ["message"], unique=False)
+    # No-op base revision. This migration originally created the `task_run`
+    # scaffold table (an early wiring-proof artifact); that table and its model
+    # were removed, so there is nothing to create here. The revision is kept as
+    # the base of the chain — later migrations depend on its id.
+    pass
 
 
 def downgrade() -> None:
-    op.drop_index(op.f("ix_task_run_message"), table_name="task_run")
-    op.drop_table("task_run")
+    pass

@@ -1,6 +1,6 @@
 """Authenticated results / season-scoreboard READ endpoints.
 
-A thin GET-only router mirroring :mod:`app.api.picks` / :mod:`app.api.proof`: it
+A thin GET-only router mirroring :mod:`app.api.picks`: it
 authenticates the caller, calls :mod:`app.services.standings`, and shapes the
 response. No scoring or ordering logic lives here — the service produces the
 ``score_week`` / ``grade_pick`` numbers and the ``(-season_total, display_name)``

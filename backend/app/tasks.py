@@ -2,8 +2,7 @@ from sqlmodel import Session
 
 from app.celery_app import celery_app
 from app.config import default_scoreboard_source
-from app.db import engine, task_session
-from app.models import TaskRun
+from app.db import task_session
 from app.services.freeze import freeze_week
 from app.services.ingest import ingest_season
 from app.services.notifications import (
@@ -17,20 +16,6 @@ from app.services.notifications import (
 )
 from app.services.scheduler import ODDS_JOB, SCORES_JOB
 from app.services.standings import active_season, season_standings, week_results
-
-
-@celery_app.task(name="app.tasks.ping")
-def ping(message: str = "pong") -> dict:
-    """Fake task that proves the worker can reach Postgres.
-
-    It writes a ``TaskRun`` row through the shared engine and returns its id.
-    """
-    with Session(engine) as session:
-        run = TaskRun(message=message)
-        session.add(run)
-        session.commit()
-        session.refresh(run)
-        return {"id": run.id, "message": run.message}
 
 
 @celery_app.task(name="app.tasks.refresh_games")

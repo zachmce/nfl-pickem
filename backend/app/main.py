@@ -1,6 +1,5 @@
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlmodel import Session, select
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api import (
@@ -10,16 +9,12 @@ from app.api import (
     config,
     current_week,
     picks,
-    proof,
     results,
     slate,
 )
 from app.config import settings
 from app.csrf import csrf_dispatch
-from app.db import get_session
 from app.exception_handlers import add_exception_handlers
-from app.models import TaskRun
-from app.tasks import ping
 
 # Loud demo-mode banner (belt-and-suspenders for "never on silently",
 # T-sf0-02). Logged at import/startup so EVERY API process surfaces the demo
@@ -56,7 +51,6 @@ app.add_middleware(
 
 add_exception_handlers(app)
 app.include_router(auth.router)
-app.include_router(proof.router)
 app.include_router(picks.router)
 app.include_router(results.router)
 app.include_router(current_week.router)
@@ -69,16 +63,3 @@ app.include_router(admin.router)
 @app.get("/api/health")
 def health() -> dict:
     return {"status": "ok"}
-
-
-@app.post("/api/ping")
-def trigger_ping(message: str = "pong") -> dict:
-    """Enqueue the fake Celery task and return its async id."""
-    result = ping.delay(message)
-    return {"task_id": result.id, "message": message}
-
-
-@app.get("/api/task-runs")
-def list_task_runs(session: Session = Depends(get_session)) -> list[TaskRun]:
-    """List rows the worker has written — proves both ends share the DB."""
-    return list(session.exec(select(TaskRun).order_by(TaskRun.id.desc())).all())

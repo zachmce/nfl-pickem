@@ -110,7 +110,7 @@ class DemoState(SQLModel, table=True):
     (not a recomputed "now+24h" and not a timedelta) is what keeps the two
     processes in sync — neither process recomputes its own positioning clock.
 
-    Single-row table (upserted), mirroring ``TaskRun``'s minimalism.
+    Single-row table (upserted), deliberately minimal.
     """
 
     __tablename__ = "demo_state"
@@ -146,20 +146,6 @@ class AppSetting(SQLModel, table=True):
         sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False),
         default_factory=_utcnow,
     )
-
-
-class TaskRun(SQLModel, table=True):
-    """A trivial record written by the Celery worker to prove the DB wiring.
-
-    Both FastAPI (to read/trigger) and the worker (to write) operate on this
-    table through the shared engine in ``app.db``.
-    """
-
-    __tablename__ = "task_run"
-
-    id: int | None = Field(default=None, primary_key=True)
-    message: str = Field(index=True)
-    created_at: datetime = Field(default_factory=_utcnow, nullable=False)
 
 
 # ---------------------------------------------------------------------------
