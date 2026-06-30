@@ -10,20 +10,25 @@
 > spirit.
 
 An NFL Pick'em web app **plus a Discord bot**, for a friend group. Each week you
-make five picks within the pick window, they lock at kickoff, and they're graded
-into a season-long scoreboard. The Discord bot handles account signup and posts
-LLM-flavored recaps and commentary as games and weeks play out.
+make up to five main picks (plus an optional misc) within the pick window, they
+lock at kickoff, and they're graded into a season-long scoreboard. The Discord bot
+handles account signup and posts LLM-flavored recaps and commentary as games and
+weeks play out.
 
 ## What it is
 
-- **Weekly picks (five per week).** Pick types:
+- **Weekly picks.** Up to **five main picks** a week — one of each of the four bet
+  types, plus a Mortal Lock — and one optional misc pick. Every pick is optional.
   - **Favorite cover** — the favorite covers the spread.
   - **Underdog cover** — the underdog covers the spread.
-  - **Mortal lock** — your highest-confidence pick of the week.
-  - **MISC** — a free-text prediction you write yourself.
+  - **Over** — the two teams' combined score goes over the total.
+  - **Under** — the combined score stays under the total.
+  - **Mortal Lock** — a fifth "wildcard" main pick on any game and bet type you
+    choose (the only same-type duplicate allowed); higher risk, higher reward.
+  - **MISC** — a free-text prediction tied to a game, graded by an admin.
 
-  One of each base type per week, plus your mortal lock — enforced both in the
-  domain logic and by a DB unique index.
+  At most one base pick of each of the four types per week, plus one mortal lock —
+  enforced both in the domain logic and by DB partial-unique indexes.
 - **Weekly slate + pick windows.** Each game has a pick window that **locks at
   kickoff**; you can edit a pick until then, and a locked game is read-only.
 - **Scoring + season standings.** Graded picks roll up into a season matrix
