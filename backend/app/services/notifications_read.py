@@ -36,24 +36,22 @@ from sqlmodel import Session, select
 from app.models import Game, GameStatus, Pick, PickType, Team, User, Week
 from app.services.pick_submission import main_picks_complete
 from app.services.scoring import GradeOutcome, grade_pick
-from app.services.standings import season_standings, week_results
+from app.services.standings import active_season, season_standings, week_results
 
 logger = structlog.get_logger(__name__)
 
 
 def current_season(session: Session) -> int | None:
-    """Resolve the single active season from the distinct ``Game.season`` values.
+    """Resolve the active season as ``max(Game.season)`` (None only on empty DB).
 
-    Mirrors :func:`app.tasks._active_refresh_season` exactly: if exactly one
-    season is present, that is the active season; an ambiguous (multi-season) or
-    empty db yields ``None`` and the caller skips the social ping (lossy is
-    acceptable per the QT-3 design decision).
-
-    ``session.exec(select(<single column>))`` yields scalar ints here (not Row
-    tuples), so iterate the scalars directly.
+    Delegates to the shared :func:`app.services.standings.active_season` selector
+    (the one place the active season is derived): the newest persisted season is
+    active, so on a multi-season DB this resolves the larger season; ``None`` only
+    when there are ZERO games, in which case the caller skips the social ping
+    (lossy is acceptable per the QT-3 design decision). The public name is KEPT —
+    ``app/bot/db_bridge.py`` imports and calls it in 8 places.
     """
-    seasons = set(session.exec(select(Game.season).distinct()).all())
-    return next(iter(seasons)) if len(seasons) == 1 else None
+    return active_season(session)
 
 
 def _pick_keys_for_weeks(

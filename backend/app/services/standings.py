@@ -97,6 +97,29 @@ class UserWeekResult:
     discord_avatar_hash: str | None = None
 
 
+def active_season(session: Session) -> int | None:
+    """Resolve the active season as ``max(Game.season)`` over the persisted games.
+
+    The newest persisted season is the active one — deterministic, with NO clock
+    or game-status dependency. Returns:
+
+    - ``max(Game.season)`` over the distinct persisted seasons (the lone season on
+      a single-season DB; the larger on a multi-season DB, e.g. ``2025`` for
+      ``{2024, 2025}``);
+    - ``None`` only when there are ZERO ``Game`` rows (the empty-DB guard).
+
+    This is the ONE shared active-season selector (spec:
+    ``.planning/notes/active-season-model.md``). The three call sites that used
+    to derive the active season independently (and disagree) all delegate here.
+
+    ``session.exec(select(<single column>))`` yields scalar ints here (not Row
+    tuples), so iterate the scalars directly (do NOT ``for (s,) in ...``, which
+    raises "cannot unpack non-iterable int object").
+    """
+    seasons = set(session.exec(select(Game.season).distinct()).all())
+    return max(seasons) if seasons else None
+
+
 def _as_aware(dt: datetime | None) -> datetime | None:
     """Re-attach UTC to a naive datetime read back from the store.
 

@@ -1,4 +1,4 @@
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from app.celery_app import celery_app
 from app.config import default_scoreboard_source
@@ -16,7 +16,7 @@ from app.services.notifications import (
     window_opened_event,
 )
 from app.services.scheduler import ODDS_JOB, SCORES_JOB
-from app.services.standings import season_standings, week_results
+from app.services.standings import active_season, season_standings, week_results
 
 
 @celery_app.task(name="app.tasks.ping")
@@ -74,22 +74,19 @@ def refresh_games_task() -> dict:
 
 
 def _active_refresh_season(session: Session) -> int | None:
-    """Resolve the single season the poller is reconciling, for recap standings.
+    """Resolve the season the poller is reconciling, for recap standings.
 
     The in-cycle edges carry a ``week`` number only; the standings services need
-    the ``season`` too. The poller reconciles one season's schedule at a time, so
-    we resolve it from the persisted ``Game`` rows: if exactly one season is
-    present, that is the active season; otherwise (an ambiguous multi-season db)
-    return ``None`` and the caller skips the season-scoped recap (a non-essential
-    social ping — lossy is acceptable per the QT-3 design decision).
+    the ``season`` too. Delegates to the shared
+    :func:`app.services.standings.active_season` selector: the newest persisted
+    season (``max(Game.season)``) is active, so on a multi-season DB the newest
+    season's recap is published (not skipped); ``None`` only when there are ZERO
+    games, in which case the caller skips the season-scoped recap (a non-essential
+    social ping — lossy is acceptable per the QT-3 design decision). The name and
+    ``int | None`` signature are preserved so ``_publish_refresh_chat_edges`` and
+    its tests are unaffected.
     """
-    from app.models import Game
-
-    # session.exec(select(<single column>)) yields scalar values (ints) here, not
-    # Row tuples — so iterate scalars directly (do NOT `for (s,) in ...`, which
-    # raises "cannot unpack non-iterable int object").
-    seasons = set(session.exec(select(Game.season).distinct()).all())
-    return next(iter(seasons)) if len(seasons) == 1 else None
+    return active_season(session)
 
 
 def _publish_refresh_chat_edges(session: Session, result) -> None:
