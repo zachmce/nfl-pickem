@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import secrets
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import structlog
@@ -45,17 +46,43 @@ def _serializer() -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(get_settings().secret_key, salt=_SESSION_SALT)
 
 
-def create_session_cookie(user_id: int) -> str:
-    """Produce a signed itsdangerous session token for the given user_id."""
-    return _serializer().dumps({"uid": user_id})
+@dataclass(frozen=True)
+class SessionToken:
+    """The verified contents of a decoded session cookie.
+
+    ``uid`` is the user id the cookie was minted for. ``sv`` is the
+    ``session_version`` carried alongside it — a legacy cookie that predates the
+    session-invalidation feature has no ``sv`` key and decodes to ``sv == 0``,
+    which matches the default column for every existing row (no force-logout).
+    """
+
+    uid: int
+    sv: int
 
 
-def decode_session_cookie(token: str) -> int | None:
-    """Decode + verify a session cookie. Returns user_id on success; None on any failure."""
+def create_session_cookie(user_id: int, session_version: int = 0) -> str:
+    """Produce a signed itsdangerous session token for the given user_id.
+
+    The token binds the user's current ``session_version`` as ``sv`` so a stale
+    cookie (issued before a password change bumped the version) is rejected on
+    decode. The default 0 keeps callers without a version handy correct against a
+    version-0 user.
+    """
+    return _serializer().dumps({"uid": user_id, "sv": session_version})
+
+
+def decode_session_cookie(token: str) -> SessionToken | None:
+    """Decode + verify a session cookie.
+
+    Returns a :class:`SessionToken` (``uid`` + ``sv``) on success; None on any
+    failure (bad signature, expiry, malformed payload, missing ``uid``). A missing
+    ``sv`` key is NOT a failure — it decodes to ``sv == 0`` (the backward-compat
+    rule: a legacy cookie minted before this feature authenticates a version-0 user).
+    """
     s = get_settings()
     try:
         data = _serializer().loads(token, max_age=s.session_max_age_days * 86400)
-        return int(data["uid"])
+        return SessionToken(uid=int(data["uid"]), sv=int(data.get("sv", 0)))
     except BadSignature, SignatureExpired, KeyError, ValueError, TypeError:
         return None
 
@@ -102,8 +129,9 @@ def change_password(
 
     Raises InvalidCredentialsError (401) if current_password does not verify
     against the stored hash, or if the user row is absent / has no hash.
-    Does NOT touch the session cookie — it is a signed user_id, not
-    password-bound.
+    Bumps ``session_version`` so every previously-issued session cookie (which
+    carries the old ``sv``) is invalidated — a password change logs out all
+    other sessions.
     """
     user: User | None = session.get(User, user_id)
     if user is None or user.password_hash is None:
@@ -116,6 +144,7 @@ def change_password(
         )
         raise InvalidCredentialsError()
     user.password_hash = hash_password(new_password)
+    user.session_version = (user.session_version or 0) + 1
     session.add(user)
     session.commit()
     logger.info("password_changed", user_id=user_id)
@@ -262,6 +291,9 @@ def reset_password_for_discord(session: Session, discord_id: int) -> str:
 
     plain = _generate_random_password()
     user.password_hash = hash_password(plain)
+    # Bump session_version so any existing web session for this account is
+    # invalidated — a Discord-initiated reset must log out old web sessions too.
+    user.session_version = (user.session_version or 0) + 1
     session.add(user)
     session.commit()
     logger.info("password_reset_discord", user_id=user.id, discord_id=discord_id)

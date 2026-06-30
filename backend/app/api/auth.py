@@ -40,10 +40,10 @@ def _to_user_read(user: User) -> UserRead:
     )
 
 
-def _set_session_cookie(response: Response, user_id: int) -> None:
+def _set_session_cookie(response: Response, user_id: int, session_version: int = 0) -> None:
     response.set_cookie(
         key=settings.session_cookie_name,
-        value=create_session_cookie(user_id),
+        value=create_session_cookie(user_id, session_version),
         max_age=settings.session_max_age_days * 86400,
         httponly=True,  # not readable by JS — mitigates XSS token theft
         samesite="lax",
@@ -72,7 +72,9 @@ def login(
         raise InvalidCredentialsError()
 
     assert user.id is not None  # persisted user always has an id
-    _set_session_cookie(response, user.id)
+    # Login happens AFTER any password write, so the fresh cookie carries the
+    # user's current session_version (an old cookie with a lower sv is rejected).
+    _set_session_cookie(response, user.id, user.session_version)
     # Issue a CSRF token so the SPA can protect subsequent cookie-auth mutations.
     set_csrf_cookie(response, issue_csrf_token())
     # Post-commit, best-effort: announce the login to the Discord pipe. This site
@@ -118,7 +120,7 @@ def token(
         raise InvalidCredentialsError()
 
     assert user.id is not None
-    return TokenResponse(access_token=create_session_cookie(user.id))
+    return TokenResponse(access_token=create_session_cookie(user.id, user.session_version))
 
 
 @router.post("/logout", response_model=LogoutResponse)

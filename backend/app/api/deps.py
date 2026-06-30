@@ -34,17 +34,23 @@ def get_current_user(
     AuthenticationError (401) when no token is present, it's invalid/expired, or
     the user no longer exists / has been deactivated.
     """
-    token = bearer_token or request.cookies.get(settings.session_cookie_name)
-    if not token:
+    raw_token = bearer_token or request.cookies.get(settings.session_cookie_name)
+    if not raw_token:
         raise AuthenticationError()
 
-    user_id = decode_session_cookie(token)
-    if user_id is None:
+    token = decode_session_cookie(raw_token)
+    if token is None:
         raise AuthenticationError()
 
-    user = session.get(User, user_id)
+    user = session.get(User, token.uid)
     if user is None or not user.is_active:
         # Deactivated/deleted accounts: their token is no longer valid.
+        raise AuthenticationError()
+
+    # Stale-session check: a cookie minted before a password change carries an
+    # older session_version. Reject it exactly like a bad signature (logged-out).
+    # A legacy cookie with no sv decodes to sv == 0, matching a version-0 user.
+    if token.sv != (user.session_version or 0):
         raise AuthenticationError()
 
     return user
