@@ -142,11 +142,18 @@ class PgMigrationSmokeTest(unittest.TestCase):
         # Each invariant gets a fresh connection; cleanup truncates the touched
         # tables so invariants do not interfere with one another.
         self.conn = psycopg.connect(self.dsn)
-        self.addCleanup(self.conn.close)
+        # Cleanups run LIFO: register _truncate_touched FIRST so it runs LAST —
+        # i.e. AFTER self.conn is closed. Otherwise a test that ends with an open
+        # transaction on self.conn (e.g. a trailing SELECT) holds a lock that
+        # blocks the TRUNCATE's ACCESS EXCLUSIVE lock forever (no lock_timeout) —
+        # the cause of the original indefinite hang in invariant_c.
         self.addCleanup(self._truncate_touched)
+        self.addCleanup(self.conn.close)
 
     def _truncate_touched(self) -> None:
         with psycopg.connect(self.dsn) as c:
+            # Fail loudly instead of hanging if a prior test ever leaves a lock.
+            c.execute("SET lock_timeout = '10s'")
             c.execute(
                 "TRUNCATE pick_edit_audit, pick, game, week, team, users "
                 "RESTART IDENTITY CASCADE"
