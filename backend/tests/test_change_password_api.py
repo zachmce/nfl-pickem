@@ -194,6 +194,36 @@ class ChangePasswordApiTests(unittest.TestCase):
         err = self._assert_envelope(resp.json())
         self.assertEqual(err.get("code"), "csrf_failed")
 
+    def test_login_over_length_display_name_returns_422(self) -> None:
+        """display_name > 100 on POST /api/auth/login -> 422 at validation
+        (before any Argon2 work), NOT 401 and NOT 500."""
+        self._clear_auth()
+        resp = self.client.post(
+            "/api/auth/login",
+            json={"display_name": "a" * 101, "password": _CURRENT_PASSWORD},
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+
+    def test_login_over_length_password_returns_422(self) -> None:
+        """password > 128 on POST /api/auth/login -> 422 at validation (before
+        any Argon2 hashing), NOT 401 and NOT 500."""
+        self._clear_auth()
+        resp = self.client.post(
+            "/api/auth/login",
+            json={"display_name": "userA", "password": "a" * 129},
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+
+    def test_normal_in_bounds_login_still_succeeds(self) -> None:
+        """A normal in-bounds login for the seeded userA still returns 200 —
+        the bounds do not regress the happy path."""
+        self._clear_auth()
+        resp = self.client.post(
+            "/api/auth/login",
+            json={"display_name": "userA", "password": _CURRENT_PASSWORD},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
     def test_me_exposes_created_at_and_no_password_hash(self) -> None:
         """GET /api/auth/me returns created_at and never leaks password_hash."""
         resp = self.client.get(

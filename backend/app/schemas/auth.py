@@ -21,8 +21,19 @@ class UserRead(BaseModel):
 
 
 class UserLoginRequest(BaseModel):
-    display_name: str
-    password: str
+    """Request body for POST /api/auth/login.
+
+    Max-only length bounds live here so an oversized payload fails as a 422 at
+    request validation BEFORE any Argon2 work runs (brute-force / CPU-exhaustion
+    guard). argon2id has no bcrypt-style 72-byte cap, so 128 is safe.
+
+    Deliberately NO min_length on either field: login must not enforce or leak a
+    password policy, and pre-existing accounts (including short passwords) must
+    still authenticate.
+    """
+
+    display_name: str = Field(max_length=100)
+    password: str = Field(max_length=128)
 
 
 class TokenResponse(BaseModel):
