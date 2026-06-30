@@ -55,21 +55,24 @@ jobs:
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       - name: Install Python 3.14
         run: uv python install 3.14
-      - name: Install backend (project + runtime deps, mirrors Dockerfile)
+      - name: Install backend into a uv venv (project + deps)
+        # NOT `uv pip install --system` — ubuntu-latest's /usr interpreter is
+        # externally managed (PEP 668), which that rejects. `uv sync` builds an
+        # isolated .venv; steps below run through `uv run`. Mirrors the lint job.
         working-directory: backend
-        run: uv pip install --system .
+        run: uv sync --group dev
       - name: Offline unittest suite (SQLite, no services)
         # TEST_DATABASE_URL is intentionally UNSET here so the PG smoke test
         # SKIPS and the suite stays fully offline.
         working-directory: backend
-        run: python -m unittest
+        run: uv run python -m unittest
       - name: PG/Alembic migration smoke (postgres:17-alpine service)
         working-directory: backend
         env:
           # Exact shape the test expects: it parses POSTGRES_* out of this and
           # strips the +psycopg suffix for psycopg.connect.
           TEST_DATABASE_URL: postgresql+psycopg://smoke:smoke@localhost:5432/smoke
-        run: python -m unittest tests.test_pg_migration_smoke -v
+        run: uv run python -m unittest tests.test_pg_migration_smoke -v
 
   frontend:
     runs-on: ubuntu-latest
