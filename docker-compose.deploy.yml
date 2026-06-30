@@ -1,0 +1,130 @@
+# Image-based production deploy (Option A — manual pull). Pulls prebuilt images
+# from GHCR instead of building from source, so the server needs ONLY this file
+# and a .env — no source checkout, no build toolchain. See DEPLOY.md for the
+# full runbook.
+#
+#   docker compose -f docker-compose.deploy.yml pull
+#   docker compose -f docker-compose.deploy.yml up -d
+#
+# Pin the image set with IMAGE_TAG (defaults to `latest` = HEAD of main per the
+# CI publish rules); set IMAGE_TAG=sha-<short> or a vX.Y.Z tag to pin a release.
+#
+# Hardening vs the dev stack (Codex audit Theme 1):
+#   * db / redis / backend publish NO host ports — internal compose network only.
+#   * ONLY the frontend (nginx) publishes a port (:80).
+#   * pgAdmin is intentionally not shipped here.
+# Next hardening step (out of scope here): TLS / 443 behind a real reverse proxy.
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pickem}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pickem}
+      POSTGRES_DB: ${POSTGRES_DB:-pickem}
+    # No host port — reachable only on the internal compose network.
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pickem}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    # No host port — internal network only.
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # Init container: alembic upgrade head + seeds, then exits. backend/worker/bot
+  # wait for it to complete. The demo seed self-gates on IS_DEMO_DATA (no-ops in
+  # prod) and the admin seed self-gates on DEFAULT_ADMIN_* — so this command is
+  # safe verbatim on the prod path.
+  migrate:
+    image: ghcr.io/zachmce/nfl-pickem-backend:${IMAGE_TAG:-latest}
+    command: ["sh", "-c", "alembic upgrade head && python -m app.seeds.teams && python -m app.seeds.demo && python -m app.seeds.admins"]
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    image: ghcr.io/zachmce/nfl-pickem-backend:${IMAGE_TAG:-latest}
+    # Production uvicorn (no --reload, no source mount).
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    env_file: .env
+    # No host port — the frontend nginx proxies /api to backend:8000 internally.
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  worker:
+    image: ghcr.io/zachmce/nfl-pickem-backend:${IMAGE_TAG:-latest}
+    # Plain celery worker with embedded beat (no watchmedo — that's dev-only).
+    # NOTE: embedded --beat is fine for a single worker; if you ever scale workers,
+    # split beat into its own singleton service so only one scheduler runs.
+    command:
+      ["celery", "-A", "app.celery_app.celery_app", "worker", "--beat", "--loglevel=info", "--schedule=/var/lib/celerybeat/celerybeat-schedule"]
+    env_file: .env
+    # Persist beat's schedule across restarts so it doesn't re-fire on restart.
+    volumes:
+      - celerybeat:/var/lib/celerybeat
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Discord bot (shares the backend image; runs the gateway client). It FAILS FAST
+  # and exits if DISCORD_BOT_TOKEN / DISCORD_GUILD_ID are unset — with
+  # restart: unless-stopped that becomes a crash-loop, so set them in .env, or
+  # remove this service if you are not running the bot.
+  bot:
+    image: ghcr.io/zachmce/nfl-pickem-backend:${IMAGE_TAG:-latest}
+    command: ["python", "-m", "app.bot.client"]
+    env_file: .env
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import os, time, sys; s=os.stat('/tmp/bot_heartbeat'); sys.exit(0 if time.time()-s.st_mtime < 60 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  frontend:
+    image: ghcr.io/zachmce/nfl-pickem-frontend:${IMAGE_TAG:-latest}
+    # The ONLY host-published port. nginx serves the compiled SPA and proxies
+    # /api/* to backend:8000 on the internal network. Front this with TLS/443 +
+    # a reverse proxy as the next hardening step (Codex audit Theme 1).
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  celerybeat:
