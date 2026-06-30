@@ -281,7 +281,10 @@ gateway drops, not just if the process dies.
 
 > **Security note:** `SECRET_KEY` has a dev-only default so the stack runs out of
 > the box. It signs session cookies — set a real random value in `.env` for
-> anything beyond local development.
+> anything beyond local development. Setting `APP_ENV=production` activates a
+> fail-closed startup guard that refuses to boot if `SECRET_KEY`,
+> `SESSION_COOKIE_SECURE`, `CORS_ALLOWED_ORIGINS`, or `IS_DEMO_DATA` are left at
+> insecure dev values.
 
 ## Testing
 
