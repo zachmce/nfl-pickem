@@ -186,6 +186,48 @@ gateway drops, not just if the process dies.
 > the box. It signs session cookies — set a real random value in `.env` for
 > anything beyond local development.
 
+## Testing
+
+The **default** backend test run is fully offline — no Postgres, no Docker. It
+builds the schema with `SQLModel.metadata.create_all()` on SQLite:
+
+```bash
+cd backend && .venv/bin/python -m unittest
+```
+
+Two suites are **opt-in** and skip cleanly by default:
+
+- **Live ESPN smoke** (real outbound GET) — set `RUN_ESPN_LIVE`:
+
+  ```bash
+  RUN_ESPN_LIVE=1 .venv/bin/python -m unittest tests.test_scoreboard_espn -v
+  ```
+
+- **Postgres + Alembic migration smoke** — runs the **real** `alembic upgrade
+  head` (the same entrypoint the compose `migrate` service uses) against a
+  throwaway Postgres and asserts the load-bearing PG invariants (one-null
+  partial unique index, `pick_edit_audit` / `pick` FK cascades, the single
+  `picktype` enum, and a scoped 0013 down/up round-trip). The default offline
+  suite never runs Alembic, so these Postgres-only behaviors are otherwise
+  unverified.
+
+  The runner stands up an **isolated** throwaway Postgres on port `5433` (never
+  port 5432, never the dev/demo `db` service or its volume — the dev/demo
+  database is never touched), runs the test, and always tears the container
+  down. Requires Docker:
+
+  ```bash
+  bash backend/scripts/run_pg_smoke.sh
+  ```
+
+  To run it against your own disposable Postgres instead, set
+  `TEST_DATABASE_URL` and invoke the test directly:
+
+  ```bash
+  cd backend && TEST_DATABASE_URL=postgresql+psycopg://u:p@localhost:5433/db \
+    .venv/bin/python -m unittest tests.test_pg_migration_smoke -v
+  ```
+
 ## Database migrations (Alembic)
 
 Migrations live in `backend/alembic/versions/`. The `migrate` init container
