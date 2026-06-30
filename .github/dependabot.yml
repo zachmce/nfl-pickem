@@ -1,0 +1,32 @@
+version: 2
+updates:
+  # MUST-HAVE: keeps the workflow SHA pins fresh. Dependabot rewrites the pinned
+  # commit SHA and updates the trailing `# vX.Y.Z` comment.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # Backend Python deps (pyproject) — the pip ecosystem covers it.
+  - package-ecosystem: pip
+    directory: "/backend"
+    schedule:
+      interval: weekly
+    groups:
+      pip-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # Frontend npm deps.
+  - package-ecosystem: npm
+    directory: "/frontend"
+    schedule:
+      interval: weekly
+    groups:
+      npm-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
