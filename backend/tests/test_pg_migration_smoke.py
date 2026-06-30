@@ -204,10 +204,10 @@ class PgMigrationSmokeTest(unittest.TestCase):
         )
         return cur.fetchone()[0]
 
-    # --- Invariant A: single head 0013 ----------------------------------------
+    # --- Invariant A: single head 0014 ----------------------------------------
 
-    def test_invariant_a_single_head_0013(self) -> None:
-        """`alembic heads`/`current` reports exactly one head and it is 0013."""
+    def test_invariant_a_single_head_0014(self) -> None:
+        """`alembic heads`/`current` reports exactly one head and it is 0014."""
         heads = _alembic(["heads"], self.child_env)
         self.assertEqual(heads.returncode, 0, heads.stderr)
         head_lines = [ln for ln in heads.stdout.splitlines() if ln.strip()]
