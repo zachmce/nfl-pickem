@@ -106,15 +106,18 @@ class CurrentWeekTests(unittest.TestCase):
         week: int,
         kickoffs: list[datetime],
         status: GameStatus = GameStatus.SCHEDULED,
+        season: int = SEASON,
     ) -> None:
         """Seed a Week row + its games with the given kickoffs and status.
 
         Home/away teams cycle through the four seeded teams; ``espn_event_id`` is
-        kept unique across weeks. Games default to SCHEDULED; pass FINAL/IN_PROGRESS
-        to drive the locked/closed split.
+        kept unique across weeks AND seasons. Games default to SCHEDULED; pass
+        FINAL/IN_PROGRESS to drive the locked/closed split. ``season`` defaults to
+        ``SEASON`` (2025) so existing single-season callers are unchanged; pass a
+        different year to seed a second season for the multi-season case.
         """
         with self._session() as session:
-            week_row = Week(season=SEASON, week=week)
+            week_row = Week(season=season, week=week)
             session.add(week_row)
             session.commit()
             session.refresh(week_row)
@@ -123,9 +126,9 @@ class CurrentWeekTests(unittest.TestCase):
             for i, ko in enumerate(kickoffs):
                 session.add(
                     Game(
-                        espn_event_id=week * 1000 + i,
+                        espn_event_id=season * 100000 + week * 1000 + i,
                         week_id=week_row.id,
-                        season=SEASON,
+                        season=season,
                         week=week,
                         home_team_id=self.tid[i % 2 * 2],
                         away_team_id=self.tid[i % 2 * 2 + 1],
@@ -290,6 +293,46 @@ class CurrentWeekTests(unittest.TestCase):
         closes = _aware(datetime.fromisoformat(body["window_closes_at"]))
         self.assertEqual(closes, wk1_first)
         self.assertGreater(closes, now)
+
+    def test_multi_season_resolves_max_season_no_longer_raises(self) -> None:
+        """Regression: a multi-season DB no longer raises NotFoundError.
+
+        Before 260630-h96 the endpoint raised "expected exactly one season ..."
+        whenever >1 ``Game.season`` existed. Now it resolves ``max(Game.season)``
+        and computes the window over THAT season only. Seed an older season (2024,
+        all FINAL/past) plus the newer season (2025) holding a future-open week —
+        the response must be 200 with ``season == 2025`` and that week open.
+        """
+        now = datetime.now(timezone.utc)
+        # Older season 2024: a fully past + FINAL week (would otherwise be the
+        # "all closed -> latest week" fallback if it leaked into the math).
+        self._seed_week(
+            week=1,
+            kickoffs=[now - timedelta(days=10), now - timedelta(days=10, hours=-3)],
+            status=GameStatus.FINAL,
+            season=2024,
+        )
+        # Newer season 2025: week 1 with a FUTURE first kickoff -> open.
+        wk1_first = now + timedelta(days=2)
+        self._seed_week(
+            week=1,
+            kickoffs=[wk1_first, wk1_first + timedelta(hours=3)],
+            season=2025,
+        )
+
+        resp = self._get()
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        # Resolves the MAX season, not a raise.
+        self.assertEqual(body["season"], 2025)
+        self.assertEqual(body["week"], 1)
+        # Window state + close time reflect the chosen season's week only.
+        self.assertEqual(body["window_state"], "open")
+        self.assertEqual(
+            _aware(datetime.fromisoformat(body["window_closes_at"])), wk1_first
+        )
+        # The 2025 week has a future SCHEDULED kickoff -> season not complete.
+        self.assertIs(body["season_complete"], False)
 
 
 if __name__ == "__main__":
