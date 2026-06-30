@@ -363,7 +363,7 @@ class RefreshGamesTests(unittest.TestCase):
             session.add(row)
             session.commit()
 
-            result = refresh_games(session, _SameKickoffSource())
+            refresh_games(session, _SameKickoffSource())
             # Only the status flips back to FINAL; kickoff is an unchanged no-op.
             session.commit()
             refreshed = session.get(Game, target_id)

@@ -31,7 +31,7 @@ from datetime import datetime, timedelta, timezone
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.demo.anchor import DEMO_KICKOFF_BUFFER, load_demo_anchor, offset_from_anchor
-from app.models import DemoState, Game, GameStatus, Pick, PickResult, User, Week
+from app.models import DemoState, Game, Pick, PickResult, User, Week
 from app.seeds.data.bot_picks_2025 import BOT_PICKS
 from app.seeds.demo import purge_demo, seed_demo
 

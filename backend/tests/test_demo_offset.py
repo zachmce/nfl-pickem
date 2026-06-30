@@ -37,7 +37,7 @@ from app.demo.offset import (
     load_fixture_kickoffs,
 )
 from app.models import GameStatus
-from app.scoreboard.demo import GAME_DURATION, Demo2025Source, derive_status
+from app.scoreboard.demo import Demo2025Source, derive_status
 from app.services.pick_window import compute_window, is_pick_open
 
 SEASON = 2025

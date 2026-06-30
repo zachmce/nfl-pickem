@@ -31,7 +31,7 @@ No pytest dependency is required (none is configured for this project).
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from sqlmodel import Session, SQLModel, create_engine, select
 

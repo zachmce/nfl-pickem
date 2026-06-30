@@ -46,7 +46,6 @@ from app.models import DemoState, Game, GameStatus, Pick, User, Week
 from app.scoreboard.demo import Demo2025Source
 from app.seeds.bot_picks import seed_bot_picks
 from app.seeds.bots import BOT_ACCOUNTS, seed_bots
-from app.seeds.data.bot_picks_2025 import BOT_PICKS
 from app.seeds.fixture_2025 import import_fixture_2025
 from app.seeds.teams import seed_teams
 from app.services.refresh import refresh_games

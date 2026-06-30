@@ -31,7 +31,6 @@ from decimal import Decimal
 from app.models import Game, GameStatus, Pick, PickType
 from app.services.pick_validation import (
     ValidationResult,
-    Violation,
     ViolationCode,
     check_new_pick,
     validate_roster,
