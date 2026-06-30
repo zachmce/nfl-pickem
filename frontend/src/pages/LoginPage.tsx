@@ -69,7 +69,7 @@ export default function LoginPage() {
           )}
 
           <label className="mb-1 block text-sm font-medium text-fg-muted">
-            Display name
+            Username
           </label>
           <input
             type="text"
