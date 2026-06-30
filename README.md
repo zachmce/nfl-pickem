@@ -1,16 +1,69 @@
 # NFL Pick'em
 
-A monorepo scaffold:
+> **Heads up — about this project.** This is a small NFL Pick'em app I built for a
+> group of friends, so we'd have a nicer way to make our weekly picks than a group
+> chat and a spreadsheet. I'll be honest: an AI/LLM coding agent wrote most of the
+> code here — I drove it, reviewed it, and made the calls, but the bulk of the
+> typing was the agent's. PRs are always welcome if you want to poke at it. It is
+> **not** trying to be a slick, million-user product — it's a simple tool for a
+> simple job that probably nobody outside our group actually needs. Take it in that
+> spirit.
 
-| Service    | Stack                                   | Dev port |
-| ---------- | --------------------------------------- | -------- |
-| `backend`  | FastAPI (Python 3.14) + SQLModel        | 8000     |
-| `worker`   | Celery worker (Redis broker)            | —        |
-| `db`       | Postgres 17                             | 5432     |
-| `redis`    | Redis 7 (Celery broker + result store)  | 6379     |
-| `migrate`  | Alembic init container (runs on startup)| —        |
-| `frontend` | React 19 + Vite (dev) / nginx (prod)    | 5173     |
-| `bot`      | Discord bot (discord.py)                | —        |
+An NFL Pick'em web app **plus a Discord bot**, for a friend group. Each week you
+make five picks within the pick window, they lock at kickoff, and they're graded
+into a season-long scoreboard. The Discord bot handles account signup and posts
+LLM-flavored recaps and commentary as games and weeks play out.
+
+## What it is
+
+- **Weekly picks (five per week).** Pick types:
+  - **Favorite cover** — the favorite covers the spread.
+  - **Underdog cover** — the underdog covers the spread.
+  - **Mortal lock** — your highest-confidence pick of the week.
+  - **MISC** — a free-text prediction you write yourself.
+
+  One of each base type per week, plus your mortal lock — enforced both in the
+  domain logic and by a DB unique index.
+- **Weekly slate + pick windows.** Each game has a pick window that **locks at
+  kickoff**; you can edit a pick until then, and a locked game is read-only.
+- **Scoring + season standings.** Graded picks roll up into a season matrix
+  (`Rank | Player | W1…Wn | Total`) with competition ranking and your row
+  highlighted.
+- **Weekly results.** Per-week, per-player results — with a pick-leak gate so you
+  never see another player's pick on a game that hasn't locked yet (you always see
+  your own).
+- **Calendar, rules, profile.** A season calendar view, a rules page, and a profile
+  page with self-serve password change.
+- **Admin tools.** Player management (deactivate / reactivate / grant-admin /
+  revoke-admin / delete), per-user **pick override** (set/clear any user's pick on
+  any game, bypassing the lock while keeping roster integrity, audited), season
+  **ingest** + week **odds-freeze**, and a **bot-personality selector**.
+- **Discord LLM chat personality.** An admin-selectable personality layer that posts
+  recaps and commentary to a chat feed across game / window / week events, with
+  team-logo app-emojis. The bot owns the deterministic facts; the LLM only phrases
+  them, and there's a deterministic fallback on any LLM/DB failure. It talks to a
+  **local / self-hosted OpenAI-compatible** LLM server (no cloud provider, no
+  tool-calling). See [Discord bot](#discord-bot) below.
+- **Demo mode.** A flag-gated, time-shifted 2025 season with seeded bot users and
+  preordained picks, for walking a whole season in (shifted) real time. See
+  [Demo mode](#demo-mode).
+
+## The stack
+
+| Service    | Stack                                              | Dev port |
+| ---------- | -------------------------------------------------- | -------- |
+| `backend`  | FastAPI (Python 3.14) + SQLModel                   | 8000     |
+| `worker`   | Celery worker with **embedded beat** (refresh poller) | —     |
+| `db`       | Postgres 17                                        | 5432     |
+| `redis`    | Redis 7 (Celery broker + result store)             | 6379     |
+| `migrate`  | Alembic + seed init container (runs on startup)    | —        |
+| `bot`      | Discord bot (discord.py) + local-LLM chat layer    | —        |
+| `frontend` | React 19 + Vite (dev) / nginx (prod)               | 5173     |
+| `pgadmin`  | pgAdmin 4 (local dev DB console, no-auth)          | 5050     |
+
+The `worker` runs `celery ... worker --beat`, so the `beat_schedule` (the
+`refresh_games` poller) fires on its cadence and the season unspools on its own —
+it is **not** a "ping" demo worker.
 
 ```
 .
@@ -18,20 +71,27 @@ A monorepo scaffold:
 │   ├── app/
 │   │   ├── config.py        settings (env-driven)
 │   │   ├── db.py            shared sync engine: get_session + task_session
-│   │   ├── models.py        SQLModel tables
+│   │   ├── models.py        SQLModel tables (User, Game, Pick, …)
 │   │   ├── exceptions.py    API exception hierarchy
 │   │   ├── logging_config.py structlog JSON logging
-│   │   ├── celery_app.py
-│   │   ├── tasks.py         sample task that writes to Postgres
-│   │   ├── main.py          FastAPI routes
+│   │   ├── celery_app.py    Celery app + beat schedule
+│   │   ├── tasks.py         Celery tasks (the refresh poller, season ingest, …)
+│   │   ├── main.py          FastAPI app + router mounts
+│   │   ├── api/            route modules (auth, picks, results, slate, …)
 │   │   ├── schemas/         pydantic request/response models
-│   │   ├── services/        business logic (auth.py)
-│   │   └── bot/             Discord bot: client, db_bridge, commands/
+│   │   ├── services/        business logic (auth, scoring, picks, …)
+│   │   ├── seeds/          teams / demo / admins seeders
+│   │   └── bot/             Discord bot + LLM chat layer (personality, recap, …)
 │   └── alembic/        migration environment + versions/
 ├── frontend/           React + Vite SPA, nginx prod config
 ├── docker-compose.yml          dev stack
 └── docker-compose.prod.yml     prod override (nginx SPA)
 ```
+
+> Some ping / task-run / proof scaffolding from the original project skeleton is
+> still in the tree (`app/api/proof.py`, the `TaskRun` model, `POST /api/ping`).
+> It's vestigial — not part of the product — and is kept only so the early wiring
+> tests stay green.
 
 ### One DB access method everywhere
 
@@ -43,11 +103,8 @@ The FastAPI app, the Celery worker/beat, AND the Discord bot all share a single
 - The bot runs an async event loop (discord.py), so it never calls the sync DB
   directly — `app/bot/db_bridge.py` wraps each sync service call in
   `asyncio.to_thread(...)` so DB I/O happens on a worker thread and never blocks
-  the gateway. Business logic lives once in `app/services/auth.py` and is reused
-  by every surface.
-
-The sample `app.tasks.ping` task writes a `TaskRun` row from the worker; the API
-reads it back — proving both ends are wired to Postgres.
+  the gateway. Business logic lives once in `app/services/` and is reused by every
+  surface.
 
 ## Prerequisites
 
@@ -60,8 +117,8 @@ cp .env.example .env
 docker compose up --build      # or: make up
 ```
 
-On startup the `migrate` init container runs `alembic upgrade head` against
-Postgres and exits; `backend` and `worker` wait for it to finish
+On startup the `migrate` init container runs `alembic upgrade head` and the seeders
+against Postgres and exits; `backend` and `worker` wait for it to finish
 (`service_completed_successfully`) before booting.
 
 Then open:
@@ -69,9 +126,24 @@ Then open:
 - Frontend (Vite dev server): http://localhost:5173
 - API docs (Swagger): http://localhost:8000/docs
 - Health check: http://localhost:8000/api/health
+- pgAdmin (local DB console): http://localhost:5050
 
-Click **Enqueue ping task** in the UI (or `POST /api/ping`). The worker writes a
-row to Postgres; **Refresh** lists it back via `GET /api/task-runs`.
+First look: log in (accounts come from the Discord `/register` flow, or use the
+demo bot users in demo mode), open **My Picks** to see the weekly slate and make
+your five picks, then check **Standings** and **Weekly** results.
+
+## Demo mode
+
+Set `IS_DEMO_DATA=true` in `.env` and bring the stack up on an empty DB to seed a
+**time-shifted 2025 season**: real games and odds, shifted so the season starts
+~24h out and then plays in (shifted) real time. Seeded bot users come with
+preordained picks (weeks 1–13), so the standings and weekly screens render real,
+non-empty data while you walk the season — make picks now, watch them lock at the
+shifted kickoffs, and see the beat poller roll results in.
+
+When the flag is ON the API logs a loud demo banner at startup and demo data is
+clearly labeled; when it's OFF (the prod path), the demo seed refuses to run and
+the prod path is byte-for-byte unaffected.
 
 ## Production-style run (nginx serves the compiled SPA)
 
@@ -83,22 +155,38 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
 The frontend is built with `vite build` and served by nginx on
 http://localhost:80, with `/api/*` proxied to the backend.
 
+## API surface
+
+All routes are mounted under `/api`. The main feature routers:
+
+| Prefix              | What it does                                                  |
+| ------------------- | ------------------------------------------------------------ |
+| `/api/auth`         | login / token / csrf / logout / me / change-password         |
+| `/api/picks`        | submit (POST), read (GET), clear (DELETE) your weekly picks   |
+| `/api/results`      | `/week` (weekly results), `/standings` (season matrix)       |
+| `/api/current-week` | the current pick'em week + window state                      |
+| `/api/slate`        | the weekly game slate                                        |
+| `/api/calendar`     | season calendar                                             |
+| `/api/config`       | client-facing config                                        |
+| `/api/admin`        | player mgmt, per-user pick override, ingest-season, freeze-week, bot-personality |
+
+(The `/api/proof/*` and `/api/ping` / `/api/task-runs` endpoints are leftover
+scaffolding, not product features.)
+
 ## Authentication (cookie-based)
 
 Cookie sessions backed by the shared `app/services/auth.py`. Login signs a
 session token (itsdangerous) and sets it as an **HttpOnly** cookie; the browser
 sends it automatically, and FastAPI dependencies resolve the user from it.
 
-| Method & path                  | Auth required | Purpose                                  |
-| ------------------------------ | ------------- | ---------------------------------------- |
-| `POST /api/auth/login`         | none          | Verify credentials, set session cookie   |
-| `POST /api/auth/token`         | none          | OAuth2 password flow — backs Swagger auth |
-| `GET  /api/auth/csrf`          | none          | Issue/refresh the CSRF cookie + token    |
-| `POST /api/auth/logout`        | none          | Clear the session + CSRF cookies         |
-| `GET  /api/auth/me`            | any user      | Current user — SPA auth-state bootstrap  |
-| `GET  /api/proof/authenticated`| any user      | Proof endpoint: any logged-in user       |
-| `GET  /api/proof/admin`        | admin         | Proof endpoint: admins only              |
-| `POST /api/proof/echo`         | any user      | Proof: CSRF-protected cookie mutation    |
+| Method & path                    | Auth required | Purpose                                    |
+| -------------------------------- | ------------- | ------------------------------------------ |
+| `POST /api/auth/login`           | none          | Verify credentials, set session cookie     |
+| `POST /api/auth/token`           | none          | OAuth2 password flow — backs Swagger auth  |
+| `GET  /api/auth/csrf`            | none          | Issue/refresh the CSRF cookie + token      |
+| `POST /api/auth/logout`          | none          | Clear the session + CSRF cookies           |
+| `GET  /api/auth/me`              | any user      | Current user — SPA auth-state bootstrap    |
+| `POST /api/auth/change-password` | any user      | Self-serve password change (8–128 chars)   |
 
 The same signed token reaches the API two ways, so secured routes are marked
 with a lock in Swagger and the **Authorize** button works:
@@ -119,10 +207,8 @@ Cookie auth is protected with a **double-submit-cookie** CSRF check
 - On unsafe methods (POST/PUT/PATCH/DELETE), a **cookie-authenticated** request
   must send the token back in the `X-CSRF-Token` header; mismatch/missing → `403`
   `csrf_failed`. Safe methods (GET/HEAD) and bearer requests skip the check.
-- Exempt endpoints: `login`, `token`, `logout`, `csrf`.
-
-`POST /api/proof/echo` (authenticated) is a demonstration target: it needs the
-CSRF header over the cookie, but works with just a bearer token in Swagger.
+- Exempt endpoints: `login`, `token`, `logout`, `csrf`. (`change-password` is
+  **not** exempt — a cookie-authed change must carry the CSRF header.)
 
 SPA flow: `GET /api/auth/csrf` once on load, read the `csrftoken` cookie, and
 send its value as `X-CSRF-Token` on every mutating request.
@@ -142,8 +228,7 @@ curl -c jar.txt -X POST localhost:8000/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"display_name":"your_name","password":"your_password"}'
 
-curl -b jar.txt localhost:8000/api/proof/authenticated   # 200
-curl -b jar.txt localhost:8000/api/proof/admin           # 200 if admin, else 403
+curl -b jar.txt localhost:8000/api/auth/me        # 200 — current user
 curl -b jar.txt -X POST localhost:8000/api/auth/logout
 ```
 
@@ -153,14 +238,30 @@ and `CORS_ALLOWED_ORIGINS` (explicit origins are required for credentialed CORS)
 
 ## Discord bot
 
-The bot (`app/bot/`) provides three slash commands, all backed by
-`app/services/auth.py`:
+The bot (`app/bot/`) provides slash commands backed by `app/services/auth.py`:
 
 - `/register` — provision a pick'em account for the invoking member; DMs a
   temporary password.
 - `/reset-password` — rotate the member's password and DM the new one.
 - `/admin deactivate|reactivate|grant-admin|revoke-admin @member` —
   authorization is gated on the DB `is_admin` column, never Discord roles.
+
+### LLM chat personality
+
+Beyond account commands, the bot runs an **admin-selectable chat-personality
+layer** that posts recaps and commentary to a chat feed as games, pick windows,
+and weeks play out, with team-logo app-emojis. It's built around a personality
+registry (`app/bot/personality.py`, with `compose_prompt` stitching
+voice + role + guard) and the `chat_personality.py` / `commentary.py` /
+`recap.py` orchestrators on top of `llm_client.py`.
+
+Design intent: the bot computes the **deterministic facts**; the LLM only phrases
+them, and there's a deterministic fallback on any LLM or DB failure — so an LLM
+outage degrades to plain text rather than breaking. It targets a **local /
+self-hosted OpenAI-compatible** LLM server, configured by `llm_api_server`,
+`llm_api_model`, and `llm_api_key` in `app/config.py`. There is **no** cloud
+provider involved and **no** tool-calling (that tier is shelved). The admin
+personality selector lives in the Admin page (`POST /api/admin/bot-personality`).
 
 The bot comes up with the rest of the stack (`docker compose up`). It depends
 only on `db` + `migrate`. Set these in `.env` first — the bot **fails fast and
@@ -207,9 +308,8 @@ Two suites are **opt-in** and skip cleanly by default:
   head` (the same entrypoint the compose `migrate` service uses) against a
   throwaway Postgres and asserts the load-bearing PG invariants (one-null
   partial unique index, `pick_edit_audit` / `pick` FK cascades, the single
-  `picktype` enum, and a scoped 0013 down/up round-trip). The default offline
-  suite never runs Alembic, so these Postgres-only behaviors are otherwise
-  unverified.
+  `picktype` enum, and a scoped down/up round-trip). The default offline suite
+  never runs Alembic, so these Postgres-only behaviors are otherwise unverified.
 
   The runner stands up an **isolated** throwaway Postgres on port `5433` (never
   port 5432, never the dev/demo `db` service or its volume — the dev/demo
@@ -285,3 +385,8 @@ uv run uvicorn app.main:app --reload
 ```
 
 You'll need Postgres and Redis reachable at the hosts in your `.env`.
+
+## Contributing
+
+PRs and issues are welcome — see above for the spirit of the project. Clone from
+`github.com/zachmce/nfl-pickem`.
