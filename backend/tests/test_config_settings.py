@@ -37,9 +37,7 @@ class ConfigFailClosedTests(unittest.TestCase):
         """Default (development) constructs with no raise; dev defaults intact."""
         s = Settings(_env_file=None)  # type: ignore[call-arg]
         self.assertEqual(s.app_env, "development")
-        self.assertEqual(
-            s.secret_key, "dev-only-insecure-secret-key-change-me-in-production"
-        )
+        self.assertEqual(s.secret_key, "dev-only-insecure-secret-key-change-me-in-production")
         self.assertFalse(s.session_cookie_secure)
         self.assertFalse(s.is_demo_data)
 

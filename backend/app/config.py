@@ -166,8 +166,7 @@ class Settings(BaseSettings):
         # CORS origins must be real and non-localhost (T-lkf-04). Empty list or any
         # localhost/127.0.0.1 entry is rejected.
         if not self.cors_allowed_origins or any(
-            "localhost" in origin or "127.0.0.1" in origin
-            for origin in self.cors_allowed_origins
+            "localhost" in origin or "127.0.0.1" in origin for origin in self.cors_allowed_origins
         ):
             failures.append(
                 "CORS_ALLOWED_ORIGINS must list real non-localhost origins; "
