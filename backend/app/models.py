@@ -98,6 +98,17 @@ class User(SQLModel, table=True):
     # (0012); read by the admin-service guards and surfaced through
     # AdminUserRow -> AdminUserRead -> the AdminPage row disable.
     is_protected: bool = Field(default=False)
+    # Monotonic session-invalidation counter. Carried in the signed session cookie
+    # as ``sv`` and compared on every authenticated request (deps.get_current_user):
+    # a cookie whose ``sv`` differs from this column is treated as logged-out. Every
+    # password-write site (change_password, reset_password_for_discord) bumps it so a
+    # password change invalidates all previously-issued cookies. Default 0 +
+    # server_default "0": a Postgres ADD COLUMN backfills existing rows to 0, and a
+    # legacy cookie that carries no ``sv`` key decodes to 0 — so existing valid
+    # sessions keep working and a deploy does NOT force-log-out the current user base.
+    session_version: int = Field(
+        default=0, nullable=False, sa_column_kwargs={"server_default": "0"}
+    )
     created_at: datetime = Field(
         sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False), default_factory=sa.func.now
     )

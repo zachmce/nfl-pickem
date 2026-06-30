@@ -58,7 +58,7 @@ from sqlalchemy.engine import make_url
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 # The single expected head after `alembic upgrade head`.
-EXPECTED_HEAD = "0013"
+EXPECTED_HEAD = "0014"
 
 # The exact picktype enum labels the schema must carry — exactly once, not
 # duplicated. Mirrors app.models.PickType (kept literal here so the test does NOT
@@ -301,20 +301,21 @@ class PgMigrationSmokeTest(unittest.TestCase):
             labels = {row[0] for row in cur.fetchall()}
         self.assertEqual(labels, EXPECTED_PICKTYPE_LABELS)
 
-    # --- Scoped 0013 down/up round-trip ----------------------------------------
+    # --- Scoped 0014 down/up round-trip ----------------------------------------
 
-    def test_invariant_f_scoped_0013_round_trip(self) -> None:
-        """downgrade -1 (0013 -> 0012) then upgrade head both succeed.
+    def test_invariant_f_scoped_0014_round_trip(self) -> None:
+        """downgrade -1 (0014 -> 0013) then upgrade head both succeed.
 
-        Proves 0013's clean FK swap reverses. Scoped to the single 0013 step ONLY
-        — 0012's backfill is irreversible-by-design (see its docstring), so we do
-        NOT downgrade further.
+        Proves 0014's additive session_version ADD COLUMN reverses cleanly
+        (downgrade drops it). Scoped to the single 0014 step ONLY — 0012's
+        backfill is irreversible-by-design (see its docstring), so we do NOT
+        downgrade further.
         """
         down = _alembic(["downgrade", "-1"], self.child_env)
         self.assertEqual(down.returncode, 0, f"downgrade -1 failed:\n{down.stderr}")
 
         current = _alembic(["current"], self.child_env)
-        self.assertIn("0012", current.stdout, current.stdout)
+        self.assertIn("0013", current.stdout, current.stdout)
 
         up = _alembic(["upgrade", "head"], self.child_env)
         self.assertEqual(up.returncode, 0, f"upgrade head failed:\n{up.stderr}")
