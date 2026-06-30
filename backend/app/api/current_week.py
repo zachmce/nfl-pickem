@@ -42,7 +42,7 @@ from app.exceptions import NotFoundError
 from app.models import Game, GameStatus, User
 from app.schemas.current_week import CurrentWeekResponse, PickWindowState
 from app.services.pick_window import PickWindow, compute_window, is_pick_open
-from app.services.standings import season_is_complete
+from app.services.standings import active_season, season_is_complete
 
 router = APIRouter(prefix="/api/current-week", tags=["current-week"])
 
@@ -90,7 +90,10 @@ def read_current_week(
     """Resolve the current week + its pick-window state for the context bar.
 
     Shared read: authenticated but NOT user-scoped (see module docstring). The
-    current week is the earliest week whose window has not yet closed
+    active season is the newest persisted one
+    (:func:`app.services.standings.active_season` -> ``max(Game.season)``); a
+    multi-season DB resolves the newest season rather than raising. Within that
+    season the current week is the earliest week whose window has not yet closed
     (``now < close_at``); if every week is closed, the latest week. The
     four-state is derived from real ``now`` vs the persisted (possibly demo
     time-shifted) kickoffs — no demo branch.
@@ -101,16 +104,16 @@ def read_current_week(
     if not all_games:
         raise NotFoundError("no seeded games to derive the current week from")
 
-    seasons = {g.season for g in all_games}
-    if len(seasons) != 1:
-        raise NotFoundError(
-            f"expected exactly one season in the DB, found {sorted(seasons)}"
-        )
-    season = next(iter(seasons))
+    # The newest persisted season is active (shared selector). all_games is
+    # non-empty here, so season is non-None — no redundant raise needed.
+    season = active_season(session)
 
-    # Group this season's games by week number.
+    # Restrict every downstream computation to the chosen season's games, so a
+    # stray other-season week cannot leak into the window math or the all-FINAL
+    # check. Group THIS season's games by week number.
+    season_games = [g for g in all_games if g.season == season]
     by_week: dict[int, list[Game]] = {}
-    for g in all_games:
+    for g in season_games:
         by_week.setdefault(g.week, []).append(g)
     week_numbers = sorted(by_week)
 
