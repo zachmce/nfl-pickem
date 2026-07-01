@@ -58,6 +58,53 @@ jobs:
         working-directory: backend
         run: uv run basedpyright
 
+  deps-audit:
+    # Backend dependency-vulnerability gate — the Python counterpart to the frontend's
+    # `npm audit --audit-level=high`. Its own job (mirrors the "typecheck is its own job"
+    # convention): gives an attributable failure separate from ruff and runs in parallel.
+    # This is a read-only audit, so the top-level `contents: read` is sufficient — no
+    # job-level permissions are added.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - name: Install Python 3.14
+        run: uv python install 3.14
+      - name: Install pip-audit (dev group)
+        working-directory: backend
+        run: uv sync --group dev
+      # BLOCKING dependency-vuln gate. Audits the FULL locked tree (runtime + dev): we
+      # `uv export` the resolved pin set and feed it to pip-audit, so the EXACT versions in
+      # uv.lock are audited with no re-resolution. Full tree (NO --no-dev) for parity with the
+      # frontend's full-tree `npm audit`. Flag rationale: --no-emit-project keeps this project
+      # itself out of the requirements stream; --no-hashes avoids pip-audit's require-hashes
+      # friction while still auditing the pinned versions. pip-audit exits non-zero on ANY
+      # advisory (PyPA has no severity threshold) — that non-zero IS the gate, matching the
+      # ruff / npm audit / basedpyright posture.
+      #
+      # NOTE: pip-audit 2.10.x does not accept requirements on stdin (`-r -`), so we export to
+      # a temp file and audit that; under the runner's default `bash -eo pipefail`, a failed
+      # export fails the step immediately and pip-audit's exit code is the gate.
+      #
+      # Unfixable / not-applicable advisory ALLOWLIST: append `--ignore-vuln <ID>` to the
+      # pip-audit line below, one per advisory, EACH with a `# rationale:` comment (the ID and
+      # why it is safe — no fix released / not reachable in our usage). As of this commit the
+      # audit is CLEAN, so the allowlist is EMPTY. Escape hatch: if a fix-less advisory ever
+      # wedges CI, add a rationale-commented --ignore-vuln here — do NOT silence the whole
+      # step, and NEVER allowlist a FIXABLE advisory (bump the dependency instead).
+      - name: pip-audit (backend dependency vulnerabilities — BLOCKING)
+        working-directory: backend
+        run: |
+          uv export --format requirements-txt --no-emit-project --no-hashes -o "$RUNNER_TEMP/requirements-audit.txt"
+          # Append `--ignore-vuln <ID>  # rationale: ...` per unfixable advisory (empty today — clean).
+          uv run pip-audit -r "$RUNNER_TEMP/requirements-audit.txt"
+      # Advisory-only pilot of uv's native audit (preview in uv 0.11–0.12; local uv is 0.11.12).
+      # Non-blocking (`|| true`) — run purely to compare noise/coverage against pip-audit. To be
+      # promoted to replace pip-audit once `uv audit` leaves preview (ci-hardening-plan decision 4).
+      - name: uv audit (preview pilot — advisory, non-blocking)
+        working-directory: backend
+        run: uv audit || true
+
   test:
     runs-on: ubuntu-latest
     services:
