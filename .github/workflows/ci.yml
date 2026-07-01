@@ -89,6 +89,18 @@ jobs:
       - name: Build (tsc -b && vite build)
         working-directory: frontend
         run: npm run build
+      # npm audit at the high+ threshold — BLOCKING (npm audit exits non-zero on a
+      # high/critical advisory, which fails the job). Full audit (NO --omit=dev): the
+      # frontend is a build-time SPA whose devDependencies (vite, plugins) ARE the
+      # trusted build toolchain, so a build-chain advisory is in-scope. Threshold
+      # rationale: moderate/low npm audit is dominated by transitive dev-only advisories
+      # that are usually unexploitable in a build-only SPA; high+ is the actionable
+      # signal. Placed AFTER the build step so a build/typecheck failure isn't masked by
+      # an audit failure. Escape hatch if a fix-less high advisory ever wedges CI: bump
+      # the level or triage the specific advisory — do NOT silence this step.
+      - name: npm audit (high+)
+        working-directory: frontend
+        run: npm audit --audit-level=high
 
   secrets:
     runs-on: ubuntu-latest
@@ -102,6 +114,25 @@ jobs:
       - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  dependency-review:
+    # PR-only: the action diffs the dependency graph against the PR base — on a push it
+    # has nothing to compare, so pull_request is the correct/expected trigger.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    # Least-privilege: contents: read ONLY. We deliberately do NOT enable the PR-comment
+    # summary (that would require pull-requests: write) — skipping it preserves least
+    # privilege, notably for fork PRs that don't receive write tokens.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Dependency review (fail on high+)
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          # Fail the PR when it introduces a high/critical vulnerable dependency.
+          fail-on-severity: high
+          # License denylist deferred (noisy) — add a license policy later if wanted.
 
   publish:
     needs: [lint, test, frontend, secrets]
