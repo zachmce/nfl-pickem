@@ -442,6 +442,80 @@ class EmbellishChatEnrichedRosterCompleteTests(unittest.TestCase):
         for token in _PICK_TOKENS:
             self.assertNotIn(token, fact_lower)
 
+    def test_roster_reports_outstanding_not_everyone(self) -> None:
+        # Issue #7 proof at the fact layer: with players still outstanding the fact
+        # reports the COUNT and must NOT say "everyone has now submitted".
+        event = roster_complete_event(actor="Bob", week=3)
+        ctx = {
+            "actor": "Bob",
+            "rank": 2,
+            "season_total": 41,
+            "completed_count": 3,
+            "total_players": 5,
+            "outstanding_count": 2,
+            "standings_meaningful": True,
+        }
+        patcher, calls = _phrase_returns("x")
+        with _ctx_seam("_roster_complete_context", ctx), patcher:
+            _run(chat_personality.embellish_chat(event))
+        fact = calls[0]["fact"]
+        self.assertIn("2 player", fact)
+        self.assertNotIn("everyone has now submitted", fact.lower())
+
+    def test_roster_everyone_submitted_when_pool_complete(self) -> None:
+        # When the pool IS fully complete (and not the single first-to-lock case)
+        # the everyone-submitted wording still fires.
+        event = roster_complete_event(actor="Bob", week=3)
+        ctx = {
+            "actor": "Bob",
+            "rank": 1,
+            "season_total": 60,
+            "completed_count": 5,
+            "total_players": 5,
+            "outstanding_count": 0,
+            "standings_meaningful": True,
+        }
+        patcher, calls = _phrase_returns("x")
+        with _ctx_seam("_roster_complete_context", ctx), patcher:
+            _run(chat_personality.embellish_chat(event))
+        self.assertIn("everyone has now submitted", calls[0]["fact"].lower())
+
+    def test_roster_rank_clause_suppressed_when_no_games_graded(self) -> None:
+        # Before any game is FINAL the season-rank clause is suppressed (no
+        # meaningless "#1 with 0"); it renders once standings are meaningful.
+        event = roster_complete_event(actor="Bob", week=3)
+        ungraded = {
+            "actor": "Bob",
+            "rank": 1,
+            "season_total": 0,
+            "completed_count": 3,
+            "total_players": 5,
+            "outstanding_count": 2,
+            "standings_meaningful": False,
+        }
+        patcher, calls = _phrase_returns("x")
+        with _ctx_seam("_roster_complete_context", ungraded), patcher:
+            _run(chat_personality.embellish_chat(event))
+        fact_lower = calls[0]["fact"].lower()
+        self.assertNotIn("sit at", fact_lower)
+        self.assertNotIn("#1", fact_lower)
+
+        graded = {
+            "actor": "Bob",
+            "rank": 1,
+            "season_total": 12,
+            "completed_count": 3,
+            "total_players": 5,
+            "outstanding_count": 2,
+            "standings_meaningful": True,
+        }
+        patcher, calls = _phrase_returns("x")
+        with _ctx_seam("_roster_complete_context", graded), patcher:
+            _run(chat_personality.embellish_chat(event))
+        fact_lower = calls[0]["fact"].lower()
+        self.assertIn("sit at", fact_lower)
+        self.assertIn("#1", fact_lower)
+
 
 class EmbellishChatEnrichedWindowOpenedTests(unittest.TestCase):
     """window.opened FACT STATES the season leader (+ runner-up + gap) by

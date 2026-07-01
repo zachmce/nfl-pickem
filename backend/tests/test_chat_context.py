@@ -360,6 +360,71 @@ class ChatContextTests(unittest.TestCase):
         for forbidden in ("pick", "side", "pick_impacts", "outstanding_names"):
             self.assertNotIn(forbidden, keys)
 
+    def test_roster_complete_pool_counts_zero_pick_active_players(self) -> None:
+        # Issue #7 reported scenario: active registered players with ZERO picks must
+        # count toward the pool. Add charlie + dave (active, no picks); the pool is
+        # now all four active accounts, none of whom holds a full standard card in
+        # the base fixture, so every one is outstanding. Under the OLD any-pick pool
+        # charlie/dave would have been excluded and total would still be 2.
+        pw = hash_password("correct horse battery staple")
+        with self._session() as session:
+            session.add_all(
+                [
+                    User(display_name="charlie", password_hash=pw, is_active=True, discord_id=3),
+                    User(display_name="dave", password_hash=pw, is_active=True, discord_id=4),
+                ]
+            )
+            session.commit()
+            ctx = get_roster_complete_context(session, SEASON, WEEK, actor="alice")
+
+        self.assertEqual(ctx["total_players"], 4)
+        self.assertEqual(ctx["completed_count"], 0)
+        self.assertEqual(ctx["outstanding_count"], 4)
+        # Count-only contract holds under the new pool: the added zero-pick players
+        # are never named (no name leak).
+        self.assertNotIn("charlie", str(ctx))
+        self.assertNotIn("dave", str(ctx))
+
+    def test_roster_complete_excludes_protected_admin(self) -> None:
+        # The single protected break-glass admin (is_protected, discord_id NULL) is
+        # the non-playing account and must NOT be counted. The base fixture uses
+        # discord_ids 1/2, so the one allowed NULL-discord_id slot is free.
+        pw = hash_password("correct horse battery staple")
+        with self._session() as session:
+            session.add(
+                User(
+                    display_name="root",
+                    password_hash=pw,
+                    is_active=True,
+                    is_protected=True,
+                    discord_id=None,
+                )
+            )
+            session.commit()
+            ctx = get_roster_complete_context(session, SEASON, WEEK, actor="alice")
+
+        # Still just alice + bob; the protected admin is excluded from the pool.
+        self.assertEqual(ctx["total_players"], 2)
+
+    def test_roster_complete_standings_meaningful_true_when_final(self) -> None:
+        # The base fixture seeds FINAL games, so standings are meaningful.
+        with self._session() as session:
+            ctx = get_roster_complete_context(session, SEASON, WEEK, actor="alice")
+        self.assertIs(ctx["standings_meaningful"], True)
+
+    def test_roster_complete_standings_meaningful_false_when_no_final(self) -> None:
+        # With no graded game in the season the flag is False (gates the rank clause
+        # downstream so a meaningless 0-point standing is not surfaced).
+        from sqlmodel import select
+
+        with self._session() as session:
+            for game in session.exec(select(Game).where(Game.season == SEASON)).all():
+                game.status = GameStatus.SCHEDULED
+                session.add(game)
+            session.commit()
+            ctx = get_roster_complete_context(session, SEASON, WEEK, actor="alice")
+        self.assertIs(ctx["standings_meaningful"], False)
+
     # ---- get_leaders_context --------------------------------------------- #
 
     def test_leaders_reports_leader_and_runner_up(self) -> None:
