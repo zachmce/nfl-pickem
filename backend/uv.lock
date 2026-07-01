@@ -666,6 +666,7 @@ dependencies = [
     { name = "celery", extra = ["redis"] },
     { name = "discord-py" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "itsdangerous" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic-settings" },
@@ -679,7 +680,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "ruff" },
 ]
 
@@ -690,6 +690,7 @@ requires-dist = [
     { name = "celery", extras = ["redis"], specifier = ">=5.4" },
     { name = "discord-py", specifier = ">=2.5" },
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "itsdangerous", specifier = ">=2.2" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
     { name = "pydantic-settings", specifier = ">=2.7" },
@@ -702,10 +703,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "ruff", specifier = ">=0.9" },
-]
+dev = [{ name = "ruff", specifier = ">=0.9" }]
 
 [[package]]
 name = "packaging"
