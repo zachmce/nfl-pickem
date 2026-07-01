@@ -22,6 +22,12 @@ jobs:
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       - name: Install Python 3.14
         run: uv python install 3.14
+      - name: Verify uv.lock is in sync with pyproject.toml
+        # Fails if the committed lock would change when re-resolved (e.g. a dep
+        # moved between [project.dependencies] and [dependency-groups]). Prevents
+        # lock/manifest drift from reaching main. Fix locally with `uv lock`.
+        working-directory: backend
+        run: uv lock --check
       - name: Install ruff (dev group)
         working-directory: backend
         run: uv sync --group dev
