@@ -306,7 +306,12 @@ def _enriched_roster_complete_fact(event: dict, context: dict) -> str | None:
     # favorite, underdog, spread, cover, moneyline, mortal, lock, slot, pick) so the
     # LEAK-SAFE guard holds by construction — the window is OPEN.
     parts = [f"{actor} just finished their full Week {event.get('week')} roster."]
-    if rank is not None:
+    # Gate the season-rank clause on standings being meaningful (decision D-2): the
+    # real context builder ALWAYS sets standings_meaningful, so the default of True
+    # only affects hand-built ctx dicts (keeps existing tests that omit the key
+    # green) — the clause is suppressed ONLY when the builder explicitly reports no
+    # graded games, avoiding a meaningless "#1 with 0" before any game is FINAL.
+    if rank is not None and context.get("standings_meaningful", True):
         parts.append(f"They sit at #{rank} on the season with {season_total}.")
 
     outstanding = context.get("outstanding_count")
