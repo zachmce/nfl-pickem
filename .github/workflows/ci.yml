@@ -196,6 +196,35 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: '1'  # the gate: fail ONLY on a fixable HIGH/CRITICAL
 
+  iac-scan:
+    # Advisory (report-only) IaC misconfig scan — deliberately NOT in publish.needs, so
+    # findings land in the Security tab for triage without blocking merges/releases.
+    # Single job (NOT a matrix): trivy config scans the whole tree once; a matrix would
+    # rescan it. Runs on both pull_request and push (default on:).
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write  # upload Trivy config SARIF to code scanning
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Trivy config (IaC) scan — advisory
+        # config mode auto-discovers the Dockerfiles (backend/Dockerfile,
+        # frontend/Dockerfile, frontend/Dockerfile.dev) and the compose files
+        # (docker-compose.yml, .prod.yml, .deploy.yml) for IaC misconfiguration.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          format: sarif
+          output: trivy-config.sarif
+          exit-code: '0'  # advisory — never gates
+      - name: Upload Trivy config SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        with:
+          sarif_file: trivy-config.sarif
+          category: trivy-config
+
   publish:
     # image-scan gate: a fixable-HIGH/CRITICAL image is never pushed to GHCR. Tradeoffs:
     # (a) on a push to main each image builds twice (image-scan builds-no-push, then
