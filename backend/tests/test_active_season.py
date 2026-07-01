@@ -71,6 +71,9 @@ class ActiveSeasonTests(unittest.TestCase):
             )
             s.commit()
 
+    def tearDown(self) -> None:
+        self.engine.dispose()
+
     def test_empty_db_returns_none(self) -> None:
         with Session(self.engine) as s:
             self.assertIsNone(active_season(s))

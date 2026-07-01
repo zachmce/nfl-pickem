@@ -49,6 +49,9 @@ class ActiveRefreshSeasonTests(unittest.TestCase):
             import_fixture_2025(s)  # 272 games, all season 2025
             s.commit()
 
+    def tearDown(self) -> None:
+        self.engine.dispose()
+
     def test_returns_the_single_season(self) -> None:
         # Direct regression: the old `for (s,) in ...` raised TypeError here.
         with Session(self.engine) as s:
@@ -57,8 +60,11 @@ class ActiveRefreshSeasonTests(unittest.TestCase):
     def test_returns_none_when_no_games(self) -> None:
         engine = _memory_engine()
         SQLModel.metadata.create_all(engine)
-        with Session(engine) as s:
-            self.assertIsNone(_active_refresh_season(s))
+        try:
+            with Session(engine) as s:
+                self.assertIsNone(_active_refresh_season(s))
+        finally:
+            engine.dispose()
 
 
 class PublishRefreshChatEdgesTests(unittest.TestCase):
@@ -72,6 +78,9 @@ class PublishRefreshChatEdgesTests(unittest.TestCase):
             seed_teams(s)
             import_fixture_2025(s)
             s.commit()
+
+    def tearDown(self) -> None:
+        self.engine.dispose()
 
     def test_recap_week_publishes_finals_and_windows_without_unpack_error(self) -> None:
         # recap_weeks is non-empty -> reaches _active_refresh_season (the old crash
