@@ -205,7 +205,8 @@ jobs:
         with:
           # Fail the PR when it introduces a high/critical vulnerable dependency.
           fail-on-severity: high
-          # License denylist deferred (noisy) — add a license policy later if wanted.
+          # Strong-copyleft-only denylist (LGPL intentionally allowed — fine for SaaS).
+          deny-licenses: GPL-2.0-only, GPL-2.0-or-later, GPL-3.0-only, GPL-3.0-or-later, AGPL-3.0-only, AGPL-3.0-or-later
 
   image-scan:
     # Runs on BOTH pull_request and push (default on: block) — gives PR-time image
