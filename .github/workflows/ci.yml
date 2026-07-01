@@ -38,6 +38,26 @@ jobs:
         working-directory: backend
         run: uv run ruff format --check .
 
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - name: Install Python 3.14
+        run: uv python install 3.14
+      - name: Install basedpyright (dev group)
+        working-directory: backend
+        run: uv sync --group dev
+      # BLOCKING baseline-and-ratchet type gate. basedpyright reads the committed
+      # backend/.basedpyright/baseline.json and exits non-zero ONLY on NEW errors
+      # introduced beyond the baseline — pre-existing (baselined) errors are absorbed.
+      # Fixing a baselined error prunes it via a deliberate `--writebaseline` commit
+      # that shows up in the diff; the ratchet only ever moves DOWN. A non-zero exit
+      # fails the job, matching the ruff and npm audit gates' posture.
+      - name: basedpyright (type check)
+        working-directory: backend
+        run: uv run basedpyright
+
   test:
     runs-on: ubuntu-latest
     services:
