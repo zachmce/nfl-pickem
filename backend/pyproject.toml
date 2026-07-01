@@ -2,6 +2,7 @@
 name = "nfl-pickem-backend"
 version = "0.1.0"
 description = "FastAPI + Celery backend for NFL Pick'em"
+license = "MIT"
 requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.115",
@@ -69,5 +70,5 @@ include = ["app*"]
 "app" = ["seeds/data/*.json"]
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"

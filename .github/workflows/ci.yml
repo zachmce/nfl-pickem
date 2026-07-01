@@ -205,7 +205,19 @@ jobs:
         with:
           # Fail the PR when it introduces a high/critical vulnerable dependency.
           fail-on-severity: high
-          # License denylist deferred (noisy) — add a license policy later if wanted.
+          # License policy — ALLOW-list (deny-licenses is deprecated for removal in the
+          # next major; see actions/dependency-review-action#997). This fails a PR that adds
+          # a dependency whose DETECTED license is not below; strong copyleft (GPL/AGPL) is
+          # excluded by omission. Weak copyleft (LGPL, MPL-2.0) is intentionally allowed —
+          # fine for a SaaS. Undetected/unknown licenses do NOT fail the action (it only
+          # warns), so this stays low-noise. To exempt a specific package whose license is
+          # misdetected, add it to `allow-dependencies-licenses` (PURL) rather than widening
+          # this list. allow-licenses and deny-licenses are mutually exclusive.
+          allow-licenses: >-
+            MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, 0BSD, ISC, Zlib,
+            Unlicense, CC0-1.0, CC-BY-4.0, Python-2.0, PSF-2.0, HPND,
+            Artistic-2.0, BlueOak-1.0.0, MPL-2.0,
+            LGPL-2.1-only, LGPL-2.1-or-later, LGPL-3.0-only, LGPL-3.0-or-later
 
   image-scan:
     # Runs on BOTH pull_request and push (default on: block) — gives PR-time image
