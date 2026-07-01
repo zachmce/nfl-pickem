@@ -312,6 +312,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write  # cosign keyless OIDC signing (mint a short-lived Fulcio cert); does not widen any other scope
     strategy:
       matrix:
         include:
@@ -341,7 +342,13 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+      - name: Set up Docker Buildx
+        # buildx's docker-container driver is REQUIRED for build-push-action to emit SBOM +
+        # provenance attestation manifests; the default `docker` driver silently cannot. Same
+        # pin already used by the image-scan job.
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
       - name: Build and push
+        id: build  # exposes steps.build.outputs.digest for cosign to sign the pushed image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: ${{ matrix.context }}
@@ -349,3 +356,18 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Attach an SBOM + SLSA (max) provenance attestation to the pushed image
+          # (inspectable via `docker buildx imagetools inspect`). mode=max produces an OCI
+          # image index; cosign below signs that index digest.
+          sbom: true
+          provenance: mode=max
+      - name: Install cosign
+        # SHA resolved + verified against the GitHub API (repos/sigstore/cosign-installer/releases/latest).
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Sign image (cosign keyless)
+        # Keyless signing via GitHub OIDC: Fulcio issues a short-lived cert bound to this
+        # workflow's identity and the signature is logged to the Rekor transparency log — no
+        # key management. Requires the job's id-token:write. cosign v2 is keyless by default
+        # (no COSIGN_EXPERIMENTAL). Sign by DIGEST — this is the OCI image index produced by
+        # provenance mode=max, so the signature covers the whole image index.
+        run: cosign sign --yes ${{ matrix.name }}@${{ steps.build.outputs.digest }}
