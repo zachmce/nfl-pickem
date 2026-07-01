@@ -30,3 +30,23 @@ updates:
       npm-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+
+  # Base container images (Dockerfile FROM lines). Keeps the pinned base-image
+  # digests fresh so a digest pin can't silently go stale — as nginx:1.27-alpine
+  # did until the Trivy gate caught it. No update-types filter so pure digest
+  # refreshes (same tag, new build) are grouped too, not just semver bumps.
+  - package-ecosystem: docker
+    directory: "/backend"
+    schedule:
+      interval: weekly
+    groups:
+      docker-images:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: "/frontend"
+    schedule:
+      interval: weekly
+    groups:
+      docker-images:
+        patterns: ["*"]
