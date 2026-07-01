@@ -21,5 +21,6 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    # Rootless nginx serves on container port 8080; publish it on host :80.
     ports:
-      - "80:80"
+      - "80:8080"

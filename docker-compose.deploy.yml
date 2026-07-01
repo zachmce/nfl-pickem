@@ -115,11 +115,12 @@ services:
 
   frontend:
     image: ghcr.io/zachmce/nfl-pickem-frontend:${IMAGE_TAG:-latest}
-    # The ONLY host-published port. nginx serves the compiled SPA and proxies
-    # /api/* to backend:8000 on the internal network. Front this with TLS/443 +
-    # a reverse proxy as the next hardening step (Codex audit Theme 1).
+    # The ONLY host-published port. Rootless nginx (nginx-unprivileged) serves the
+    # compiled SPA on container port 8080 and proxies /api/* to backend:8000 on the
+    # internal network. Front this with TLS/443 + a reverse proxy as the next
+    # hardening step (Codex audit Theme 1).
     ports:
-      - "80:80"
+      - "80:8080"
     depends_on:
       - backend
     restart: unless-stopped
