@@ -39,8 +39,9 @@ from sqlmodel import Session, select
 from app.api.deps import get_current_user
 from app.db import get_session
 from app.exceptions import NotFoundError
-from app.models import Game, GameStatus, User
+from app.models import Game, GameStatus, User, Week
 from app.schemas.current_week import CurrentWeekResponse, PickWindowState
+from app.services.odds import is_odds_frozen
 from app.services.pick_window import PickWindow, compute_window, is_pick_open
 from app.services.standings import active_season, season_is_complete
 
@@ -150,10 +151,30 @@ def read_current_week(
 
     complete = season_is_complete(session, season=season)
 
+    # Week-level computed freeze predicate for the chosen week. REUSE
+    # app.services.odds.is_odds_frozen against the SAME real-clock ``now`` above
+    # (no freeze math re-implemented; mirrors app.api.slate). Default False and
+    # never let it raise to the caller:
+    #   * no Week row for the chosen {season, week}     -> False
+    #   * is_odds_frozen raises ValueError (no kickoff)  -> False
+    week_row = session.exec(
+        select(Week).where(Week.season == season, Week.week == chosen_week)
+    ).one_or_none()
+    odds_frozen = False
+    if week_row is not None:
+        this_games = _normalized(by_week[chosen_week])
+        idx = week_numbers.index(chosen_week)
+        prev_games = _normalized(by_week[week_numbers[idx - 1]]) if idx > 0 else None
+        try:
+            odds_frozen = is_odds_frozen(week_row, this_games, prev_games, now=now)
+        except ValueError:
+            odds_frozen = False
+
     return CurrentWeekResponse(
         season=season,
         week=chosen_week,
         window_state=state,
         window_closes_at=window.close_at,
         season_complete=complete,
+        odds_frozen=odds_frozen,
     )

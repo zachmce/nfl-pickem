@@ -48,3 +48,11 @@ class CurrentWeekResponse(BaseModel):
     window_state: PickWindowState
     window_closes_at: datetime
     season_complete: bool
+    odds_frozen: bool
+    """The COMPUTED week-level freeze predicate result — the output of
+    :func:`app.services.odds.is_odds_frozen` against the real clock for the chosen
+    week. It is distinct from the ``Week.lines_frozen`` admin-override INPUT column
+    (one of the predicate's inputs) and from the per-game ``Game.odds_frozen``
+    flag; it is week-level, not per game, so it lives on the response (mirroring
+    :attr:`app.schemas.slate.SlateResponse.odds_frozen`). The context bar renders
+    "lines locked" when true / "lines live" when false."""

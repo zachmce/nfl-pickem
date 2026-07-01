@@ -107,6 +107,7 @@ class CurrentWeekTests(unittest.TestCase):
         kickoffs: list[datetime],
         status: GameStatus = GameStatus.SCHEDULED,
         season: int = SEASON,
+        lines_frozen: bool = False,
     ) -> None:
         """Seed a Week row + its games with the given kickoffs and status.
 
@@ -115,9 +116,12 @@ class CurrentWeekTests(unittest.TestCase):
         FINAL/IN_PROGRESS to drive the locked/closed split. ``season`` defaults to
         ``SEASON`` (2025) so existing single-season callers are unchanged; pass a
         different year to seed a second season for the multi-season case.
+        ``lines_frozen`` sets the Week's admin-override freeze column (defaults
+        False so existing callers are unchanged; mirrors slate's
+        ``_seed_week_row``).
         """
         with self._session() as session:
-            week_row = Week(season=season, week=week)
+            week_row = Week(season=season, week=week, lines_frozen=lines_frozen)
             session.add(week_row)
             session.commit()
             session.refresh(week_row)
@@ -327,6 +331,44 @@ class CurrentWeekTests(unittest.TestCase):
         self.assertEqual(_aware(datetime.fromisoformat(body["window_closes_at"])), wk1_first)
         # The 2025 week has a future SCHEDULED kickoff -> season not complete.
         self.assertIs(body["season_complete"], False)
+
+    # -- odds_frozen -------------------------------------------------------
+
+    def test_current_week_reports_odds_frozen_false_before_freeze(self) -> None:
+        """A single open week whose first kickoff is FAR in the future (computed
+        freeze_at still ahead of real now) -> odds_frozen is False.
+
+        Mirrors slate case 9: the computed predicate branch, not the override.
+        """
+        now = datetime.now(timezone.utc)
+        first = now + timedelta(days=30)  # freeze_at (<= first kickoff) still future
+        self._seed_week(week=1, kickoffs=[first, first + timedelta(hours=3)])
+
+        resp = self._get()
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["week"], 1)
+        self.assertIs(body["odds_frozen"], False)
+
+    def test_current_week_reports_odds_frozen_true_via_override(self) -> None:
+        """A single week with lines_frozen=True hits the clock-independent override
+        branch of is_odds_frozen -> odds_frozen is True.
+
+        Mirrors slate case 10.
+        """
+        now = datetime.now(timezone.utc)
+        first = now + timedelta(days=2)
+        self._seed_week(
+            week=1,
+            kickoffs=[first, first + timedelta(hours=3)],
+            lines_frozen=True,
+        )
+
+        resp = self._get()
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["week"], 1)
+        self.assertIs(body["odds_frozen"], True)
 
 
 if __name__ == "__main__":
