@@ -86,9 +86,14 @@ export default function ContextBar() {
     // reads nonsensically). Decision #4 of the site-consistency pass.
     content = `Season complete · ${data.season} final`;
   } else {
+    // Two-state week-level odds indicator, appended after the "closes" clause on
+    // the in-progress line ONLY (not season-complete, loading, error, or the
+    // compact WeekChip). Lowercase matches the bar's dot-separated segment style;
+    // "live" (not "open") avoids colliding with the pick-window "open" state.
+    const linesLabel = data.odds_frozen ? "lines locked" : "lines live";
     content = `Week ${data.week} · picks ${readableState(
       data.window_state,
-    )} · closes ${formatLocalDateTime(data.window_closes_at)}`;
+    )} · closes ${formatLocalDateTime(data.window_closes_at)} · ${linesLabel}`;
   }
 
   return (

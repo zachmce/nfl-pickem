@@ -15,6 +15,14 @@ export interface CurrentWeek {
    * no "closes" clause; false for an in-progress season and a zero-game season.
    */
   season_complete: boolean;
+  /**
+   * The COMPUTED week-level freeze predicate, mirrored from the backend
+   * CurrentWeekResponse.odds_frozen and the SlateResponse.odds_frozen in
+   * ./results/slate. The ContextBar renders "lines locked" when true / "lines
+   * live" when false on the in-progress line only (never in season-complete,
+   * loading, or error states, nor in the compact WeekChip).
+   */
+  odds_frozen: boolean;
 }
 
 /** Fetch the current week + its pick-window state for the context bar. */
