@@ -432,14 +432,22 @@ def get_roster_complete_context(session: Session, season: int, week: int, *, act
       (four base bet types plus a mortal lock) for this week, via
       :func:`app.services.pick_submission.main_picks_complete`;
     * ``total_players`` — the player pool size;
-    * ``outstanding_count`` — ``total_players - completed_count``.
+    * ``outstanding_count`` — ``total_players - completed_count``;
+    * ``standings_meaningful`` — ``True`` once ANY game in the season is
+      :class:`~app.models.GameStatus` ``FINAL`` (i.e. at least one game is graded);
+      gates the downstream season-rank clause so a meaningless 0-point standing is
+      not surfaced before any game is graded.
 
-    Player pool choice: the pool is the set of users who hold ANY pick this season
-    (the same user set :func:`season_standings` derives its rows from), so
-    ``completed/total`` is meaningful for the active league rather than diluted by
-    never-played accounts. Pure read; reuses the existing standings + completion
-    services (no completion math re-implemented). Never returns outstanding names
-    or pick content.
+    Player pool choice (decision D-1, user-locked): the pool is now ALL active
+    accounts EXCEPT the single protected break-glass admin — it intentionally NO
+    LONGER matches the :func:`season_standings` user set. Bots are ``is_active`` and
+    SHOULD count; a playing admin is ``is_active`` and is NOT ``is_protected`` so is
+    counted (we do NOT filter on ``is_admin``); only the lone protected account
+    (``is_protected``, ``discord_id`` NULL — the non-playing break-glass login) is
+    excluded. This makes zero-pick active players count toward ``total_players`` so
+    ``outstanding_count`` reflects the real league. Pure read; reuses the existing
+    standings + completion services (no completion math re-implemented). Never
+    returns outstanding names or pick content.
     """
     standings_results = season_standings(session, season=season)[0].results
     rank: int | None = None
@@ -450,20 +458,16 @@ def get_roster_complete_context(session: Session, season: int, week: int, *, act
             season_total = r.season_total
             break
 
-    # Player pool = users with any pick in the season (matches the standings user
-    # set). Derive their ids from this season's picks.
-    season_week_ids = {
-        w.id
-        for w in session.exec(select(Week).where(Week.season == season)).all()
-        if w.id is not None
+    # Player pool = all active, non-protected accounts (decision D-1). Bots and
+    # playing admins are is_active and count; the protected break-glass admin is
+    # the only exclusion. Identity comparisons (is_/is_not) avoid the E712 lint.
+    pool_user_ids = {
+        uid
+        for uid in session.exec(
+            select(User.id).where(User.is_active.is_(True), User.is_protected.is_(False))
+        ).all()
+        if uid is not None
     }
-    if season_week_ids:
-        pool_user_ids = {
-            p.user_id
-            for p in session.exec(select(Pick).where(Pick.week_id.in_(season_week_ids))).all()
-        }
-    else:
-        pool_user_ids = set()
 
     total_players = len(pool_user_ids)
     completed_count = sum(
@@ -473,6 +477,17 @@ def get_roster_complete_context(session: Session, season: int, week: int, *, act
     )
     outstanding_count = total_players - completed_count
 
+    # standings_meaningful gates the season-rank clause downstream: True once any
+    # season game is FINAL (mirrors the existence-probe in standings.season_is_complete).
+    standings_meaningful = (
+        session.exec(
+            select(Game.id)
+            .where(Game.season == season, Game.status == GameStatus.FINAL)
+            .limit(1)
+        ).first()
+        is not None
+    )
+
     return {
         "actor": actor,
         "rank": rank,
@@ -480,6 +495,7 @@ def get_roster_complete_context(session: Session, season: int, week: int, *, act
         "completed_count": completed_count,
         "total_players": total_players,
         "outstanding_count": outstanding_count,
+        "standings_meaningful": standings_meaningful,
     }
 
 
