@@ -481,9 +481,7 @@ def get_roster_complete_context(session: Session, season: int, week: int, *, act
     # season game is FINAL (mirrors the existence-probe in standings.season_is_complete).
     standings_meaningful = (
         session.exec(
-            select(Game.id)
-            .where(Game.season == season, Game.status == GameStatus.FINAL)
-            .limit(1)
+            select(Game.id).where(Game.season == season, Game.status == GameStatus.FINAL).limit(1)
         ).first()
         is not None
     )
