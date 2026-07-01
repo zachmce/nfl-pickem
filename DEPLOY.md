@@ -104,6 +104,44 @@ docker compose -f docker-compose.deploy.yml up -d   # recreate only what changed
 `migrate` re-runs `alembic upgrade head` (a no-op when already current), so schema
 changes in a new image are applied on update.
 
+**One-time (upgrading an existing deploy to the non-root image):**
+
+The backend image now runs as the non-root `appuser` (uid `10001`). A `celerybeat`
+named volume created under the old **root** image still holds `root:root` data, and
+Docker mounts that volume *over* the image's build-time `chown` — so the worker can no
+longer write `/var/lib/celerybeat/celerybeat-schedule` and embedded celery beat fails
+to start (`PermissionError: [Errno 13]`). Only a **pre-existing** volume is affected;
+a fresh deploy is fine. Fix it once with either remedy below.
+
+First find the real volume name — it is compose-project-prefixed (e.g.
+`nfl-pickem_celerybeat`), and the prefix depends on the deploy directory /
+`COMPOSE_PROJECT_NAME`:
+
+```bash
+docker volume ls | grep celerybeat
+```
+
+- **Remedy A — chown in place** (preserves the schedule; recommended when in doubt):
+
+  ```bash
+  docker run --rm -v <project>_celerybeat:/data alpine chown -R 10001:999 /data
+  docker compose -f docker-compose.deploy.yml up -d
+  ```
+
+  `10001` is the appuser uid and `999` its group. If unsure of the group, chown the
+  uid alone (`chown -R 10001 /data`) — the worker writes as uid `10001`, which is what
+  matters.
+
+- **Remedy B — recreate** (simplest; the schedule is disposable): the beat schedule
+  holds only last-run timestamps, and the `refresh_games` / `refresh_odds` pollers are
+  idempotent, so losing it just re-fires them once, harmlessly.
+
+  ```bash
+  docker compose -f docker-compose.deploy.yml stop worker
+  docker volume rm <project>_celerybeat
+  docker compose -f docker-compose.deploy.yml up -d
+  ```
+
 ## 5. Still to do (not in this compose)
 
 - **TLS / HTTPS.** This compose serves plain HTTP on `:80`. Put a real reverse
