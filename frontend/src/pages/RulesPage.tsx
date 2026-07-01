@@ -89,8 +89,31 @@ export default function RulesPage() {
             visible to all players (your own picks are always visible to you).
           </li>
           <li>
-            Picks are graded against the line as it was when picks locked (the
-            frozen line), plus the final scores.
+            Picks are graded against the locked line (see "When the lines lock"
+            below), plus the final scores.
+          </li>
+        </ul>
+      </section>
+
+      <section className="space-y-3 rounded-lg border border-border bg-surface p-4">
+        <h2 className="text-lg font-bold">When the lines lock</h2>
+        <ul className="list-disc space-y-1 pl-5 text-sm text-fg-muted">
+          <li>
+            Each week's betting line (the spread and the total) can still move
+            while it's live — then it LOCKS, and the line you see becomes final.
+            Your picks are graded against that locked line, and it won't change
+            afterward even if the sportsbooks keep moving it. (You'll also see
+            this called the line "freezing.")
+          </li>
+          <li>
+            A week's line locks at noon ET on the Wednesday before that week's
+            first kickoff — or at the first kickoff itself, if that somehow comes
+            first. That's usually a day or two before picks lock.
+          </li>
+          <li>
+            The bar at the top of the app shows <strong>lines live</strong> while
+            the line can still move, and <strong>lines locked</strong> once it's
+            final for the week.
           </li>
         </ul>
       </section>
