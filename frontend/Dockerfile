@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1
 # Production image: compile the SPA with Vite, then serve it from nginx.
 
-FROM node:26-alpine AS build
+FROM node:26-alpine@sha256:725aeba2364a9b16beae49e180d83bd597dbd0b15c47f1f28875c290bfd255b9 AS build
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm install
+RUN npm ci
 COPY . .
 RUN npm run build
 
