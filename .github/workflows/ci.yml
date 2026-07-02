@@ -318,7 +318,7 @@ jobs:
           persist-credentials: false  # artipacked: image build/scan needs no stored git credential
       - name: Set up Docker Buildx
         # build-push-action's load: true needs the buildx/docker driver.
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
       - name: Build image (no push, load into local docker daemon)
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
@@ -344,7 +344,7 @@ jobs:
           exit-code: '0'  # report-only pass — never fails the job
       - name: Upload Trivy image SARIF
         if: always()  # upload the report even when the gate below fails the job
-        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
         with:
           sarif_file: trivy-backend.sarif
           category: trivy-image-backend  # distinct per image so results don't overwrite
@@ -371,7 +371,7 @@ jobs:
           persist-credentials: false  # artipacked: image build/scan needs no stored git credential
       - name: Set up Docker Buildx
         # build-push-action's load: true needs the buildx/docker driver.
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
       - name: Build image (no push, load into local docker daemon)
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
@@ -397,7 +397,7 @@ jobs:
           exit-code: '0'  # report-only pass — never fails the job
       - name: Upload Trivy image SARIF
         if: always()  # upload the report even when the gate below fails the job
-        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
         with:
           sarif_file: trivy-frontend.sarif
           category: trivy-image-frontend  # distinct per image so results don't overwrite
@@ -444,7 +444,7 @@ jobs:
           exit-code: '0'  # advisory — never gates
       - name: Upload Trivy config SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
         with:
           sarif_file: trivy-config.sarif
           category: trivy-config
@@ -517,14 +517,14 @@ jobs:
         with:
           persist-credentials: false  # artipacked: images are pushed via docker login + cosign signs by digest — no stored git credential used
       - name: Log in to GHCR
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        uses: docker/login-action@c99871dec2022cc055c062a10cc1a1310835ceb4 # v4.3.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Docker metadata
         id: meta
-        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ matrix.name }}
           tags: |
@@ -536,7 +536,7 @@ jobs:
         # buildx's docker-container driver is REQUIRED for build-push-action to emit SBOM +
         # provenance attestation manifests; the default `docker` driver silently cannot. Same
         # pin already used by the image-scan job.
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
       - name: Build and push
         id: build  # exposes steps.build.outputs.digest for cosign to sign the pushed image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
