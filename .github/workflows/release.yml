@@ -47,6 +47,9 @@ jobs:
           FRONTEND: ghcr.io/zachmce/nfl-pickem-frontend
         run: |
           set -euo pipefail
+          # publish tags images via metadata-action {{version}}, which strips the
+          # leading v (pushes :1.0.0, never :v1.0.0) — look the image up by that value.
+          IMAGE_TAG="${VERSION#v}"
           digest_of() {
             local ref="$1" i out
             for i in $(seq 1 20); do
@@ -59,8 +62,8 @@ jobs:
             echo "ERROR: $ref not found after retries — did the publish job succeed?" >&2
             return 1
           }
-          backend_digest=$(digest_of "${BACKEND}:${VERSION}")
-          frontend_digest=$(digest_of "${FRONTEND}:${VERSION}")
+          backend_digest=$(digest_of "${BACKEND}:${IMAGE_TAG}")
+          frontend_digest=$(digest_of "${FRONTEND}:${IMAGE_TAG}")
           {
             echo "# nfl-pickem ${VERSION} — published container image digests"
             echo "${BACKEND}@${backend_digest}"
