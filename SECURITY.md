@@ -5,11 +5,13 @@
 Please report security vulnerabilities **privately** — do not open a public issue
 or pull request for a suspected vulnerability.
 
-Use GitHub's private vulnerability reporting for this repository:
+Report it directly through GitHub's private vulnerability-advisory form:
 
-1. Go to the **Security** tab of this repository.
-2. Click **Report a vulnerability** (under "Advisories").
-3. Provide a description, affected version/commit, and reproduction steps.
+**https://github.com/zachmce/nfl-pickem/security/advisories/new**
+
+(Equivalently: the repository's **Security** tab → **Report a vulnerability**,
+under "Advisories".) Include a description, the affected version/commit, and
+reproduction steps.
 
 This opens a private advisory visible only to the maintainer. You'll receive an
 acknowledgement, and we'll coordinate a fix and disclosure timeline with you.
