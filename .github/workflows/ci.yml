@@ -26,10 +26,15 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      backend: ${{ steps.f.outputs.backend }}
-      frontend: ${{ steps.f.outputs.frontend }}
-      docker: ${{ steps.f.outputs.docker }}
-      ci: ${{ steps.f.outputs.ci }}
+      # On a v* tag push, paths-filter has no diff base and reports every path
+      # unchanged, which skips lint/test/frontend/image-scan and cascades to skip
+      # `publish` (it `needs` them) — so a release tag would build no images and
+      # release.yml then fails "not found". Force every path true on a tag so the
+      # full pipeline runs and gates the release. PRs/branch pushes are unaffected.
+      backend: ${{ steps.f.outputs.backend == 'true' || startsWith(github.ref, 'refs/tags/v') }}
+      frontend: ${{ steps.f.outputs.frontend == 'true' || startsWith(github.ref, 'refs/tags/v') }}
+      docker: ${{ steps.f.outputs.docker == 'true' || startsWith(github.ref, 'refs/tags/v') }}
+      ci: ${{ steps.f.outputs.ci == 'true' || startsWith(github.ref, 'refs/tags/v') }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
