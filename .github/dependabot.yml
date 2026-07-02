@@ -52,8 +52,7 @@ updates:
         patterns: ["*"]
 
   # ClusterFuzzLite fuzz-build env (not shipped): keep the digest-pinned OSS-Fuzz
-  # base image + the hash-pinned import-deps fresh so the Pinned-Dependencies pins
-  # can't silently go stale.
+  # base image fresh so the Pinned-Dependencies pin can't silently go stale.
   - package-ecosystem: docker
     directory: "/.clusterfuzzlite"
     schedule:
@@ -62,10 +61,11 @@ updates:
       docker-images:
         patterns: ["*"]
 
-  - package-ecosystem: pip
-    directory: "/.clusterfuzzlite"
-    schedule:
-      interval: weekly
-    groups:
-      fuzz-build-deps:
-        patterns: ["*"]
+  # NOTE: no `pip` ecosystem for /.clusterfuzzlite. requirements.txt is a fully
+  # hash-pinned, transitive-locked set (uv pip compile --generate-hashes) for
+  # `pip --require-hashes`; Dependabot bumps individual `==` lines independently,
+  # which breaks coherence (e.g. bumping pydantic-core without pydantic →
+  # ResolutionImpossible, PR #28) and isn't caught by PR CI (the fuzz build runs
+  # weekly, not on PRs). Regenerate the whole set manually instead (see the header
+  # comment in .clusterfuzzlite/requirements.txt). Freshness is immaterial here —
+  # it's a throwaway import-only build env, and Scorecard only needs it PINNED.
