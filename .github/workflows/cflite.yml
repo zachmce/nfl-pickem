@@ -1,14 +1,16 @@
 name: ClusterFuzzLite
 
-# Advisory, standalone fuzzing gate — NOT wired into ci-complete (the required
-# merge check), mirroring scorecard.yml/codeql.yml. The OSSF Scorecard Fuzzing
-# check scores on the PRESENCE of a ClusterFuzzLite/Atheris setup, not on a fuzz
-# run passing; fuzzing is slow + nondeterministic, so hard-gating merges on it
-# would buy nothing and risk wedging PRs. Crashes surface as SARIF code-scanning
-# alerts for triage instead.
+# Out-of-band fuzzing — deliberately NOT on pull_request. The OSSF Scorecard
+# Fuzzing check scores on the PRESENCE of a ClusterFuzzLite/Atheris setup
+# (a non-empty .clusterfuzzlite/Dockerfile + `import atheris` harnesses), NOT on
+# a run firing per PR — so a weekly batch keeps the score AND keeps finding bugs
+# while adding zero time to PR CI. Crashes surface as SARIF code-scanning alerts.
 on:
-  pull_request:
-    branches: [main]
+  schedule:
+    # Weekly — Wednesdays at 08:17 UTC (offset from CodeQL Mon 05:23 and
+    # Scorecard Mon 06:47 so the scheduled scans don't pile up).
+    - cron: '17 8 * * 3'
+  workflow_dispatch: {}  # on-demand manual run
 
 # Least-privilege default; the fuzz job widens to job-scoped security-events:write.
 permissions:
@@ -35,7 +37,9 @@ jobs:
         uses: google/clusterfuzzlite/actions/run_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          fuzz-seconds: 120
-          mode: 'code-change'
+          # batch mode fuzzes ALL harnesses (no PR diff to scope to); 300s total
+          # is ample for these small pure targets (they hit full coverage in ~10s).
+          fuzz-seconds: 300
+          mode: 'batch'
           sanitizer: address
           output-sarif: true
