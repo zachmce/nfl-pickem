@@ -50,3 +50,22 @@ updates:
     groups:
       docker-images:
         patterns: ["*"]
+
+  # ClusterFuzzLite fuzz-build env (not shipped): keep the digest-pinned OSS-Fuzz
+  # base image + the hash-pinned import-deps fresh so the Pinned-Dependencies pins
+  # can't silently go stale.
+  - package-ecosystem: docker
+    directory: "/.clusterfuzzlite"
+    schedule:
+      interval: weekly
+    groups:
+      docker-images:
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: "/.clusterfuzzlite"
+    schedule:
+      interval: weekly
+    groups:
+      fuzz-build-deps:
+        patterns: ["*"]

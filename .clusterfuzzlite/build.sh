@@ -5,8 +5,9 @@
 # requires-python>=3.14, but the base-builder-python image ships Python 3.11, so
 # an editable/project install is rejected by the requires-python gate. The pure
 # service modules only need their import-time third-party deps — install just
-# those and put backend/ on PYTHONPATH so `app.*` and `fuzz.*` import.
-pip3 install --no-cache-dir sqlmodel sqlalchemy pydantic
+# those (hash-pinned via requirements.txt, --require-hashes → Scorecard
+# Pinned-Dependencies) and put backend/ on PYTHONPATH so `app.*`/`fuzz.*` import.
+pip3 install --no-cache-dir --require-hashes -r "$SRC/requirements.txt"
 
 export PYTHONPATH="$SRC/backend:${PYTHONPATH:-}"
 
