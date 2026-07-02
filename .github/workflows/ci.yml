@@ -15,7 +15,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Path-filter detect job. Emits boolean outputs consumed by the job-level `if:`
+  # gates below so a change only runs the jobs it actually affects. We use
+  # dorny/paths-filter (NOT workflow-level paths:/paths-ignore:) because gating at
+  # the workflow level breaks required-status-checks on protected main — see the
+  # ci-complete aggregation gate at the bottom of this file. The `ci` filter forces
+  # EVERY gated job to run when the workflow itself changes (a CI edit validates
+  # itself). Top-level `contents: read` + the checkout below is sufficient for the
+  # git-diff comparison (pull_request diffs the base, push diffs `before`).
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.f.outputs.backend }}
+      frontend: ${{ steps.f.outputs.frontend }}
+      docker: ${{ steps.f.outputs.docker }}
+      ci: ${{ steps.f.outputs.ci }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - id: f
+        uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3.0.3
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+            frontend:
+              - 'frontend/**'
+            docker:
+              - '**/Dockerfile*'
+              - 'docker-compose*.yml'
+            ci:
+              - '.github/workflows/**'
+
   lint:
+    needs: [changes]
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -39,6 +72,8 @@ jobs:
         run: uv run ruff format --check .
 
   typecheck:
+    needs: [changes]
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -64,6 +99,8 @@ jobs:
     # convention): gives an attributable failure separate from ruff and runs in parallel.
     # This is a read-only audit, so the top-level `contents: read` is sufficient — no
     # job-level permissions are added.
+    needs: [changes]
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -106,6 +143,8 @@ jobs:
         run: uv audit || true
 
   test:
+    needs: [changes]
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -148,6 +187,8 @@ jobs:
         run: uv run python -m unittest tests.test_pg_migration_smoke -v
 
   frontend:
+    needs: [changes]
+    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -286,6 +327,8 @@ jobs:
     # findings land in the Security tab for triage without blocking merges/releases.
     # Single job (NOT a matrix): trivy config scans the whole tree once; a matrix would
     # rescan it. Runs on both pull_request and push (default on:).
+    needs: [changes]
+    if: needs.changes.outputs.docker == 'true' || needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
