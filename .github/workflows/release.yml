@@ -74,6 +74,18 @@ jobs:
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          # Pin cosign v2: v3.0.0 made --new-bundle-format the default, which makes
+          # sign-blob/attest-blob IGNORE --output-signature and --output-attestation
+          # ("deprecated when using --new-bundle-format and will be ignored"). That
+          # silently drops checksums.txt.sig AND checksums.intoto.jsonl, so the
+          # release upload fails ("no matches found") and — critically — the
+          # .intoto.jsonl asset that scores Scorecard Signed-Releases 10 is never
+          # emitted. v2.6.x keeps the classic detached-file outputs this workflow
+          # (and Scorecard's asset-suffix detection) depend on. Revisit if migrating
+          # the assets to the sigstore bundle format. (image signing in ci.yml uses
+          # `cosign sign`, unaffected by this, and stays on the default v3.)
+          cosign-release: 'v2.6.3'
 
       - name: Sign checksums (cosign keyless sign-blob)
         # Keyless via GitHub OIDC (Fulcio cert + Rekor entry) — no keys, same trust
