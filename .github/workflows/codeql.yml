@@ -8,14 +8,19 @@ on:
     # Weekly — Mondays at 05:23 UTC.
     - cron: '23 5 * * 1'
 
+# Least-privilege default: read-only at the top level. The write token
+# (security-events:write, to upload SARIF) is scoped to the analyze job below so
+# no workflow-wide write permission is granted (OSSF Scorecard Token-Permissions).
 permissions:
-  actions: read
   contents: read
-  security-events: write
 
 jobs:
   analyze:
     runs-on: ubuntu-latest
+    permissions:
+      actions: read           # read workflow run metadata during analysis
+      contents: read          # checkout
+      security-events: write  # upload CodeQL SARIF to code scanning
     strategy:
       fail-fast: false
       matrix:
