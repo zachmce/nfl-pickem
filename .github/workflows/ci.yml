@@ -260,24 +260,20 @@ jobs:
             Artistic-2.0, BlueOak-1.0.0, MPL-2.0,
             LGPL-2.1-only, LGPL-2.1-or-later, LGPL-3.0-only, LGPL-3.0-or-later
 
-  image-scan:
-    # Runs on BOTH pull_request and push (default on: block) — gives PR-time image
-    # feedback the pipeline otherwise lacks (only publish builds images, and only on a
-    # push to main/tags). No if: restriction on purpose.
+  # image-scan is split per-image (backend / frontend) rather than a single matrix job
+  # so each image's scan can be path-gated independently — GitHub Actions cannot skip
+  # individual matrix legs via `if:` (a job-level `if:` gates the WHOLE matrix), so a
+  # frontend-only PR could not otherwise skip the backend image scan. Each job carries
+  # the identical step body as the former matrix leg with its literal image values
+  # inlined and a distinct SARIF category so results don't overwrite. Both run on
+  # pull_request and push, gated on their image's paths (or docker/ci).
+  image-scan-backend:
+    needs: [changes]
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.docker == 'true' || needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       security-events: write  # upload Trivy image SARIF to code scanning (mirrors codeql.yml)
-    strategy:
-      fail-fast: false  # one image's finding must not cancel the other image's scan
-      matrix:
-        include:
-          - image: backend
-            context: ./backend
-            file: ./backend/Dockerfile
-          - image: frontend
-            context: ./frontend
-            file: ./frontend/Dockerfile
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Set up Docker Buildx
@@ -286,11 +282,11 @@ jobs:
       - name: Build image (no push, load into local docker daemon)
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.file }}
+          context: ./backend
+          file: ./backend/Dockerfile
           push: false
           load: true  # load the single-arch image into local docker so Trivy can scan it by ref
-          tags: nfl-pickem-${{ matrix.image }}:ci
+          tags: nfl-pickem-backend:ci
       # Two-pass Trivy rationale: pass 1 ALWAYS uploads SARIF for the Security tab
       # (exit-code 0 — never fails); pass 2 is the exit-code gate. Separating reporting
       # from gating keeps the Security tab populated even on a passing run, and Trivy's
@@ -299,9 +295,9 @@ jobs:
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: image
-          image-ref: nfl-pickem-${{ matrix.image }}:ci
+          image-ref: nfl-pickem-backend:ci
           format: sarif
-          output: trivy-${{ matrix.image }}.sarif
+          output: trivy-backend.sarif
           ignore-unfixed: true
           severity: HIGH,CRITICAL
           limit-severities-for-sarif: true  # SARIF matches the gated severities
@@ -310,13 +306,64 @@ jobs:
         if: always()  # upload the report even when the gate below fails the job
         uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
         with:
-          sarif_file: trivy-${{ matrix.image }}.sarif
-          category: trivy-image-${{ matrix.image }}  # distinct per image so results don't overwrite
+          sarif_file: trivy-backend.sarif
+          category: trivy-image-backend  # distinct per image so results don't overwrite
       - name: Trivy image scan — gate (fixable HIGH/CRITICAL fails the job)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: image
-          image-ref: nfl-pickem-${{ matrix.image }}:ci
+          image-ref: nfl-pickem-backend:ci
+          format: table
+          ignore-unfixed: true  # unfixable base-image CVEs don't block a release
+          severity: HIGH,CRITICAL
+          exit-code: '1'  # the gate: fail ONLY on a fixable HIGH/CRITICAL
+
+  image-scan-frontend:
+    needs: [changes]
+    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.docker == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write  # upload Trivy image SARIF to code scanning (mirrors codeql.yml)
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Set up Docker Buildx
+        # build-push-action's load: true needs the buildx/docker driver.
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+      - name: Build image (no push, load into local docker daemon)
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: false
+          load: true  # load the single-arch image into local docker so Trivy can scan it by ref
+          tags: nfl-pickem-frontend:ci
+      # Two-pass Trivy rationale: pass 1 ALWAYS uploads SARIF for the Security tab
+      # (exit-code 0 — never fails); pass 2 is the exit-code gate. Separating reporting
+      # from gating keeps the Security tab populated even on a passing run, and Trivy's
+      # vuln DB is cached between the two passes so the second pass costs marginally.
+      - name: Trivy image scan — SARIF report (always uploads, never gates)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: nfl-pickem-frontend:ci
+          format: sarif
+          output: trivy-frontend.sarif
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+          limit-severities-for-sarif: true  # SARIF matches the gated severities
+          exit-code: '0'  # report-only pass — never fails the job
+      - name: Upload Trivy image SARIF
+        if: always()  # upload the report even when the gate below fails the job
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        with:
+          sarif_file: trivy-frontend.sarif
+          category: trivy-image-frontend  # distinct per image so results don't overwrite
+      - name: Trivy image scan — gate (fixable HIGH/CRITICAL fails the job)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: nfl-pickem-frontend:ci
           format: table
           ignore-unfixed: true  # unfixable base-image CVEs don't block a release
           severity: HIGH,CRITICAL
@@ -360,7 +407,7 @@ jobs:
     # until the base is bumped (acceptable — ignore-unfixed means only actionable CVEs
     # gate). iac-scan (advisory) and dependency-review (PR-only) are intentionally NOT
     # gates here.
-    needs: [lint, test, frontend, secrets, image-scan]
+    needs: [lint, test, frontend, secrets, image-scan-backend, image-scan-frontend]
     # Never on pull_request: only push to main or a v* tag.
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
@@ -426,3 +473,41 @@ jobs:
         # (no COSIGN_EXPERIMENTAL). Sign by DIGEST — this is the OCI image index produced by
         # provenance mode=max, so the signature covers the whole image index.
         run: cosign sign --yes ${{ matrix.name }}@${{ steps.build.outputs.digest }}
+
+  ci-complete:
+    # Single aggregation gate — the ONE status check branch protection should require
+    # for CI (see the branch-protection handoff in the PR/SUMMARY). Path-filtered PRs
+    # leave some needed jobs `skipped`, which branch protection treats as pass; a job
+    # that actually FAILED or was CANCELLED must still block the merge. `if: always()`
+    # ensures this job runs even when a needed job is skipped/failed, and it inspects
+    # every needed job's result, failing on any `failure`/`cancelled` while treating
+    # `skipped`/`success` as pass. publish is intentionally EXCLUDED — it is push-only
+    # (main/tags) and not a PR merge gate. gitleaks (secrets) is included so a secret
+    # finding still blocks the gate.
+    needs:
+      - changes
+      - lint
+      - typecheck
+      - deps-audit
+      - test
+      - frontend
+      - secrets
+      - dependency-review
+      - image-scan-backend
+      - image-scan-frontend
+      - iac-scan
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify no needed job failed or was cancelled
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Needed job results: $RESULTS"
+          for r in $RESULTS; do
+            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
+              echo "::error::A required CI job reported '$r' — failing the ci-complete gate."
+              exit 1
+            fi
+          done
+          echo "All needed jobs passed or were skipped — ci-complete is green."
