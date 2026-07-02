@@ -430,10 +430,15 @@ jobs:
         # config mode auto-discovers the Dockerfiles (backend/Dockerfile,
         # frontend/Dockerfile, frontend/Dockerfile.dev) and the compose files
         # (docker-compose.yml, .prod.yml, .deploy.yml) for IaC misconfiguration.
+        # skip-dirs excludes .clusterfuzzlite/: its Dockerfile is the OSS-Fuzz
+        # base-builder image (must run as root for compile_python_fuzzer) used
+        # only as a throwaway CI fuzz-build env — never shipped/deployed — so
+        # DS-0002 (root user) etc. there are false positives for our threat model.
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: config
           scan-ref: .
+          skip-dirs: .clusterfuzzlite
           format: sarif
           output: trivy-config.sarif
           exit-code: '0'  # advisory — never gates
