@@ -1,9 +1,21 @@
 # syntax=docker/dockerfile:1
 # Dev image: runs the Vite dev server with hot module reload.
 FROM node:26-alpine@sha256:725aeba2364a9b16beae49e180d83bd597dbd0b15c47f1f28875c290bfd255b9
+
+# Run as the image's built-in non-root `node` user (uid 1000) — clears Trivy
+# DS-0002. Install deps AS node so /app and node_modules are node-owned: the
+# compose dev service (docker-compose.yml) masks node_modules with an anonymous
+# volume that inherits the image dir's ownership, so root-owned node_modules
+# would leave Vite unable to write its .vite cache at runtime (EACCES). uid 1000
+# also matches the typical Linux host uid, keeping the ./frontend bind mount
+# readable/writable for hot reload.
 WORKDIR /app
-COPY package.json package-lock.json* ./
+RUN chown node:node /app
+USER node
+
+COPY --chown=node:node package.json package-lock.json* ./
 RUN npm ci
-COPY . .
+COPY --chown=node:node . .
+
 EXPOSE 5173
 CMD ["npm", "run", "dev", "--", "--host"]
