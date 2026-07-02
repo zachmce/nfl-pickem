@@ -32,6 +32,8 @@ jobs:
       ci: ${{ steps.f.outputs.ci }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false  # artipacked: paths-filter diffs via the API token, not the stored git credential
       - id: f
         uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
         with:
@@ -52,7 +54,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          persist-credentials: false  # artipacked: no downstream step needs the stored git token
+      # cache-poisoning suppressed: ci.yml runs on a release trigger (push tags v*), but this uv
+      # cache is NOT consumed by the publish job (it builds images from source with its own
+      # buildx cache), so a poisoned uv cache cannot reach a published artifact; dropping the
+      # cache would slow every CI run. Low-confidence finding; documented accept (mirrors the
+      # pip-audit --ignore-vuln allowlist posture).
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0  # zizmor: ignore[cache-poisoning]
       - name: Install Python 3.14
         run: uv python install 3.14
       - name: Verify uv.lock is in sync with pyproject.toml
@@ -77,7 +86,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          persist-credentials: false  # artipacked: no downstream step needs the stored git token
+      # cache-poisoning suppressed: ci.yml runs on a release trigger (push tags v*), but this uv
+      # cache is NOT consumed by the publish job (it builds images from source with its own
+      # buildx cache), so a poisoned uv cache cannot reach a published artifact; dropping the
+      # cache would slow every CI run. Low-confidence finding; documented accept (mirrors the
+      # pip-audit --ignore-vuln allowlist posture).
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0  # zizmor: ignore[cache-poisoning]
       - name: Install Python 3.14
         run: uv python install 3.14
       - name: Install basedpyright (dev group)
@@ -104,7 +120,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          persist-credentials: false  # artipacked: no downstream step needs the stored git token
+      # cache-poisoning suppressed: ci.yml runs on a release trigger (push tags v*), but this uv
+      # cache is NOT consumed by the publish job (it builds images from source with its own
+      # buildx cache), so a poisoned uv cache cannot reach a published artifact; dropping the
+      # cache would slow every CI run. Low-confidence finding; documented accept (mirrors the
+      # pip-audit --ignore-vuln allowlist posture).
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0  # zizmor: ignore[cache-poisoning]
       - name: Install Python 3.14
         run: uv python install 3.14
       - name: Install pip-audit (dev group)
@@ -164,7 +187,14 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          persist-credentials: false  # artipacked: no downstream step needs the stored git token
+      # cache-poisoning suppressed: ci.yml runs on a release trigger (push tags v*), but this uv
+      # cache is NOT consumed by the publish job (it builds images from source with its own
+      # buildx cache), so a poisoned uv cache cannot reach a published artifact; dropping the
+      # cache would slow every CI run. Low-confidence finding; documented accept (mirrors the
+      # pip-audit --ignore-vuln allowlist posture).
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0  # zizmor: ignore[cache-poisoning]
       - name: Install Python 3.14
         run: uv python install 3.14
       - name: Install backend into a uv venv (project + deps)
@@ -192,7 +222,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          persist-credentials: false  # artipacked: no downstream step needs the stored git token
+      # cache-poisoning suppressed: same rationale as the uv jobs — the npm cache is NOT consumed
+      # by the publish job, so a poisoned cache cannot reach a published artifact; low-confidence
+      # finding, documented accept.
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0  # zizmor: ignore[cache-poisoning]
         with:
           node-version: '26'
           cache: npm
@@ -222,6 +257,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+          persist-credentials: false  # artipacked: gitleaks reads local history + uses GITHUB_TOKEN via env, never the stored git credential
       # gitleaks exits non-zero on a finding, which fails the job — that block
       # IS the gate. We deliberately do NOT upload SARIF to code scanning (that
       # would force security-events: write); top-level contents:read suffices.
@@ -241,6 +277,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false  # artipacked: dependency-review uses the API, not the stored git credential
       - name: Dependency review (fail on high+)
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
@@ -276,6 +314,8 @@ jobs:
       security-events: write  # upload Trivy image SARIF to code scanning (mirrors codeql.yml)
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false  # artipacked: image build/scan needs no stored git credential
       - name: Set up Docker Buildx
         # build-push-action's load: true needs the buildx/docker driver.
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
@@ -327,6 +367,8 @@ jobs:
       security-events: write  # upload Trivy image SARIF to code scanning (mirrors codeql.yml)
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false  # artipacked: image build/scan needs no stored git credential
       - name: Set up Docker Buildx
         # build-push-action's load: true needs the buildx/docker driver.
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
@@ -382,6 +424,8 @@ jobs:
       security-events: write  # upload Trivy config SARIF to code scanning
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false  # artipacked: trivy config scan needs no stored git credential
       - name: Trivy config (IaC) scan — advisory
         # config mode auto-discovers the Dockerfiles (backend/Dockerfile,
         # frontend/Dockerfile, frontend/Dockerfile.dev) and the compose files
@@ -399,6 +443,43 @@ jobs:
         with:
           sarif_file: trivy-config.sarif
           category: trivy-config
+
+  zizmor:
+    # GitHub Actions static-analysis gate (workflow security). Path-gated to the `ci` filter
+    # (fires only when .github/workflows/** changes), so on a non-workflow PR it is SKIPPED —
+    # which the ci-complete gate treats as pass. Wiring it into ci-complete.needs is what makes
+    # this a real merge gate WITHOUT adding a new required status check / branch-protection change.
+    #
+    # Gate posture = BLOCKING, achieved via TWO steps because zizmor-action cannot both upload
+    # SARIF and fail on findings in a single invocation (mirrors this file's two-pass Trivy
+    # "report + gate" convention):
+    #   1. advanced-security: true  -> uploads SARIF to the Security tab, but BY DESIGN never
+    #      fails on findings (GitHub Advanced Security expects blocking via code-scanning merge
+    #      protection, which is a branch-protection ruleset this task must not touch).
+    #   2. advanced-security: false -> no SARIF upload, but FAILS the job on any finding — the gate.
+    # The audited workflow set (ci.yml, codeql.yml, scorecard.yml) is currently zizmor-clean; the
+    # only accepted findings are the rationale-suppressed `# zizmor: ignore[cache-poisoning]`
+    # inlines, so the blocking step is green today and will fail on any NEW workflow-security finding.
+    needs: [changes]
+    if: needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write  # upload zizmor SARIF to code scanning (advanced-security step)
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false  # artipacked: zizmor only reads the checked-out workflow files
+      - name: zizmor — upload SARIF to code scanning (report; never fails)
+        uses: zizmorcore/zizmor-action@192e21d79ab29983730a13d1382995c2307fbcaa # v0.5.7
+        with:
+          inputs: .github/workflows/
+          advanced-security: true  # public repo — uploads to the Security tab; does not fail on findings
+      - name: zizmor — blocking gate (fails on any finding)
+        uses: zizmorcore/zizmor-action@192e21d79ab29983730a13d1382995c2307fbcaa # v0.5.7
+        with:
+          inputs: .github/workflows/
+          advanced-security: false  # no SARIF upload here; exits non-zero on findings — this IS the gate
 
   publish:
     # image-scan gate: a fixable-HIGH/CRITICAL image is never pushed to GHCR. Tradeoffs:
@@ -428,6 +509,8 @@ jobs:
             name: ghcr.io/zachmce/nfl-pickem-frontend
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false  # artipacked: images are pushed via docker login + cosign signs by digest — no stored git credential used
       - name: Log in to GHCR
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
@@ -472,7 +555,12 @@ jobs:
         # key management. Requires the job's id-token:write. cosign v2 is keyless by default
         # (no COSIGN_EXPERIMENTAL). Sign by DIGEST — this is the OCI image index produced by
         # provenance mode=max, so the signature covers the whole image index.
-        run: cosign sign --yes ${{ matrix.name }}@${{ steps.build.outputs.digest }}
+        # template-injection fix: pass the ${{ }} values through env vars and reference them as
+        # shell variables so no expansion is spliced into the run script (zizmor best practice).
+        env:
+          IMAGE_NAME: ${{ matrix.name }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${IMAGE_NAME}@${IMAGE_DIGEST}"
 
   ci-complete:
     # Single aggregation gate — the ONE status check branch protection should require
@@ -496,6 +584,7 @@ jobs:
       - image-scan-backend
       - image-scan-frontend
       - iac-scan
+      - zizmor
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:

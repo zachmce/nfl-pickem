@@ -1,0 +1,59 @@
+name: Scorecard
+
+# OSSF Scorecard — supply-chain security posture scoring. Mirrors codeql.yml's shape
+# (pinned actions, least-privilege top-level permissions, job-scoped write). Results land
+# in Security → Code scanning → Tools as "Scorecard".
+#
+# Triggers rationale (NOT pull_request — Scorecard on PRs is unsupported):
+#   - branch_protection_rule: re-scores the moment branch protection changes (Scorecard's
+#     Branch-Protection check is the whole reason this trigger exists).
+#   - schedule: a weekly baseline. DISTINCT time from codeql.yml's '23 5 * * 1' to avoid
+#     clustering the Monday-morning runs.
+#   - push:main: refresh the score/badge on every merge to the default branch.
+on:
+  branch_protection_rule:
+  schedule:
+    # Weekly — Mondays at 06:47 UTC (distinct from codeql.yml's 05:23 to avoid clustering).
+    - cron: '47 6 * * 1'
+  push:
+    branches: [main]
+
+# Least-privilege default; the analysis job widens to exactly what Scorecard needs.
+permissions:
+  contents: read
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write  # upload results.sarif to code scanning (mirrors codeql.yml)
+      id-token: write         # OIDC for publish_results — publishes the score to the public OpenSSF API
+      actions: read           # Scorecard reads workflow run/token permissions to score them
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false  # Scorecard's documented recommendation — no stored git credential needed
+
+      - name: Run analysis
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # publish_results: true is the OSSF-recommended default for a PUBLIC repo — it publishes
+          # the score to the public OpenSSF API and enables the Scorecard badge. Deliberate decision:
+          # only already-public repo metadata is exposed.
+          publish_results: true
+
+      # KNOWN LIMITATION (accepted tradeoff, NOT a blocker): with only the default GITHUB_TOKEN
+      # (no PAT — a PAT would be the "new infrastructure" this task forbids), Scorecard's
+      # Branch-Protection check returns partial/inconclusive results. Adding a read-only PAT
+      # (repo admin scope) is the documented way to get full Branch-Protection scoring; deferred.
+      - name: Upload SARIF to code scanning
+        if: always()  # upload the report even if a prior step is flaky (matches ci.yml's Trivy upload pattern)
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        with:
+          sarif_file: results.sarif
+          category: scorecard
