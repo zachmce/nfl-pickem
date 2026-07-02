@@ -1,0 +1,41 @@
+name: ClusterFuzzLite
+
+# Advisory, standalone fuzzing gate — NOT wired into ci-complete (the required
+# merge check), mirroring scorecard.yml/codeql.yml. The OSSF Scorecard Fuzzing
+# check scores on the PRESENCE of a ClusterFuzzLite/Atheris setup, not on a fuzz
+# run passing; fuzzing is slow + nondeterministic, so hard-gating merges on it
+# would buy nothing and risk wedging PRs. Crashes surface as SARIF code-scanning
+# alerts for triage instead.
+on:
+  pull_request:
+    branches: [main]
+
+# Least-privilege default; the fuzz job widens to job-scoped security-events:write.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read          # build_fuzzers checks out the code
+      security-events: write  # upload crash SARIF to code scanning
+    steps:
+      - name: Build fuzzers
+        id: build
+        uses: google/clusterfuzzlite/actions/build_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
+        with:
+          language: python
+          sanitizer: address
+      - name: Run fuzzers
+        uses: google/clusterfuzzlite/actions/run_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fuzz-seconds: 120
+          mode: 'code-change'
+          sanitizer: address
+          output-sarif: true
