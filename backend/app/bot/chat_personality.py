@@ -90,12 +90,12 @@ _GAME_FINAL_ROLE = (
     "the line result, the narrative tags (upset, shutout, the margin tier, a line "
     "swing), and the pick outcomes instead. USE the narrative tags supplied in the "
     "facts to color the reaction, and invent NOTHING beyond the facts handed to "
-    "you. If the facts say no one picked the game, react to the whole league having "
-    "skipped it — and VARY how you say that every time (nobody bothered, it flew "
-    "under the radar, it played to an empty room, a tree fell in an empty forest, "
-    "not one soul had a stake, etc.); do NOT lean on the stock phrase 'lack of "
-    "interest', and NEVER address a bettor or imply anyone was affected (no 'your "
-    "pick', no 'your spread'). When the facts name a pick outcome, roast it as usual."
+    "you. If the facts say no one picked the game, convey in FRESH, varied wording "
+    "each time that nobody in the league had a pick riding on it — phrase that angle "
+    "differently every message and do NOT reuse a stock catchphrase (in particular "
+    "avoid 'lack of interest', 'not one soul had a stake', 'empty room', and 'tree "
+    "in an empty forest'); NEVER address a bettor or imply anyone was affected (no "
+    "'your pick', no 'your spread'). When the facts name a pick outcome, roast it as usual."
 )
 
 _ROSTER_COMPLETE_ROLE = (
