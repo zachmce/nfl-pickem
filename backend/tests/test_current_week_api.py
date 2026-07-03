@@ -27,6 +27,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timedelta, timezone
 
+import httpx
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
@@ -156,7 +157,7 @@ class CurrentWeekTests(unittest.TestCase):
         assert "code" in err, f"envelope missing 'code': {err}"
         return err
 
-    def _get(self) -> object:
+    def _get(self) -> httpx.Response:
         return self.client.get("/api/current-week", headers=self._bearer_headers(self.user_id))
 
     # -- auth --------------------------------------------------------------

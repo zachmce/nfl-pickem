@@ -143,9 +143,7 @@ def read_current_week(
     # largest week that produced a window. This reuses the same all-FINAL signal
     # the four-state derivation below uses for the LOCKED-vs-CLOSED split.
     incomplete_weeks = [
-        wk
-        for wk in sorted(windows)
-        if not all(g.status == GameStatus.FINAL for g in by_week[wk])
+        wk for wk in sorted(windows) if not all(g.status == GameStatus.FINAL for g in by_week[wk])
     ]
     chosen_week = incomplete_weeks[0] if incomplete_weeks else max(windows)
     window = windows[chosen_week]
