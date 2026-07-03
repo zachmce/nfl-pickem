@@ -142,9 +142,12 @@ class PhraseTests(unittest.TestCase):
             )
         self.assertEqual(out, "let's go! 🏈")
         body = _FakeAsyncClient.last_json
-        # The SUPPLIED prompt is the system message; the fact is the user message.
+        # The SUPPLIED prompt LEADS the system message (still verbatim, still first),
+        # with the closer-variety directive appended AFTER it; the fact is the user msg.
         messages = {m["role"]: m["content"] for m in body["messages"]}
-        self.assertEqual(messages["system"], "You are a hype bot")
+        self.assertIn("You are a hype bot", messages["system"])
+        self.assertTrue(messages["system"].startswith("You are a hype bot"))
+        self.assertIn("Vary how you sign off", messages["system"])
         self.assertEqual(messages["user"], "Week 3 picks are open")
         # HARD RULE: enable_thinking must be False or content comes back empty.
         self.assertEqual(body["chat_template_kwargs"]["enable_thinking"], False)
@@ -152,6 +155,23 @@ class PhraseTests(unittest.TestCase):
         self.assertEqual(_FakeAsyncClient.last_headers["Authorization"], "Bearer secret-key")
         self.assertTrue(_FakeAsyncClient.last_url.endswith("/chat/completions"))
         self.assertEqual(body["model"], "gemma")
+
+    def test_phrase_appends_closer_variety_directive_and_preserves_prompt(self) -> None:
+        """The caller's guard-bearing prompt survives verbatim (and leads) while the
+        closer-variety directive is appended — proving every event path (which all
+        flow through phrase()) gets the anti-repetition style nudge."""
+        sentinel = "SENTINEL_GUARD_BEARING_PROMPT_zx9"
+        _FakeAsyncClient._response = _FakeResponse(
+            200, {"choices": [{"message": {"content": "ok"}}]}
+        )
+        with _configured(), mock.patch.object(httpx, "AsyncClient", _FakeAsyncClient):
+            _run(llm_client.phrase("some fact", system_prompt=sentinel))
+        body = _FakeAsyncClient.last_json
+        system_content = {m["role"]: m["content"] for m in body["messages"]}["system"]
+        self.assertIn(sentinel, system_content)
+        self.assertIn("Vary how you sign off", system_content)
+        # The prompt still LEADS (facts-first ordering preserved).
+        self.assertTrue(system_content.startswith(sentinel))
 
     def test_non_200_returns_none(self) -> None:
         _FakeAsyncClient._response = _FakeResponse(503, {})
