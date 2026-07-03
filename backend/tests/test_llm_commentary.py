@@ -152,7 +152,7 @@ class PhraseTests(unittest.TestCase):
         messages = {m["role"]: m["content"] for m in body["messages"]}
         self.assertIn("You are a hype bot", messages["system"])
         self.assertTrue(messages["system"].startswith("You are a hype bot"))
-        self.assertIn("Vary how you sign off", messages["system"])
+        self.assertIn("Vary your closing line", messages["system"])
         self.assertEqual(messages["user"], "Week 3 picks are open")
         # HARD RULE: enable_thinking must be False or content comes back empty.
         self.assertEqual(body["chat_template_kwargs"]["enable_thinking"], False)
@@ -178,7 +178,7 @@ class PhraseTests(unittest.TestCase):
         assert body is not None
         system_content = {m["role"]: m["content"] for m in body["messages"]}["system"]
         self.assertIn(sentinel, system_content)
-        self.assertIn("Vary how you sign off", system_content)
+        self.assertIn("Vary your closing line", system_content)
         # The prompt still LEADS (facts-first ordering preserved).
         self.assertTrue(system_content.startswith(sentinel))
 

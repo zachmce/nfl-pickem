@@ -44,16 +44,21 @@ _TIMEOUT_SECONDS = 10.0
 # caller's facts-first guard (so facts-first still leads). It fights the stock-closer
 # collapse — the model anchoring on one metaphor (e.g. reusing "maybe try a crystal
 # ball next week? 📉" across unrelated failed picks). It licenses NO new fact: it only
-# changes the SHAPE of the sign-off. Lives OUTSIDE every guard/ROLE constant so the
+# changes the SHAPE of the closer. Lives OUTSIDE every guard/ROLE constant so the
 # byte-identical guard invariants (test_personality.py) stay green. Lead phrase
-# ("Vary how you sign off") is stable so wire-format tests can grep for it.
+# ("Vary your closing line") is stable so wire-format tests can grep for it.
 _CLOSER_VARIETY = (
-    "Vary how you sign off every single time — never lean on a stock kicker or reuse "
+    "Vary your closing line every single time — never lean on a stock kicker or reuse "
     "the same closing metaphor from one message to the next, and steer clear of the "
     'canned "maybe try a crystal ball next week" / "better luck next week" trap. '
+    'Do NOT open your kicker with "Imagine ..." ("Imagine betting on...", "Imagine '
+    'being the one who...", "Imagine actually...") — that opener is its own stock '
+    "scaffold; reach for a different construction. "
     "Rotate the SHAPE of your closer: sometimes a deadpan stat, sometimes a backhanded "
     "compliment, sometimes mock sympathy, sometimes a rhetorical question, and sometimes "
-    "just stop after the facts with no kicker at all. This is a STYLE instruction ONLY — "
+    "just stop after the facts with no kicker at all. Never attach a name, handle, "
+    'byline, attribution, or signature (no "— Name", no @handle, no 🤖 sign-off) — the '
+    "Discord username already shows who is speaking. This is a STYLE instruction ONLY — "
     "it never licenses adding any fact, stat, line value, or detail beyond the ones you "
     "are given."
 )
