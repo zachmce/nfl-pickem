@@ -10,10 +10,12 @@ from app.services.notifications import (
     game_final_event,
     ingest_season_event,
     publish_event,
+    to_game_final_impacts,
     week_recap_event,
     window_closed_event,
     window_opened_event,
 )
+from app.services.notifications_read import get_game_final_context
 from app.services.scheduler import ODDS_JOB, SCORES_JOB
 from app.services.standings import active_season, season_standings, week_results
 
@@ -77,14 +79,32 @@ def _active_refresh_season(session: Session) -> int | None:
 def _publish_refresh_chat_edges(session: Session, result) -> None:
     """Publish the collected refresh edges to the pickem-CHAT feed, best-effort.
 
-    One ``game.final`` per finalized game; one ``window.opened`` / ``window.closed``
-    per crossing week; one ``week.recap`` per recap week (the recap payload — the
-    week winner + season leader display names and scores — is pulled from the
-    existing standings services, NO re-implemented scoring). Every publish is
-    post-commit + best-effort (publish_event swallows), so a chat outage never
-    breaks the poll cycle.
+    One ``game.final`` per finalized game (enriched best-effort with the FULL
+    per-user impact list — busted/cashed + mortal-lock flag for every graded pick
+    on the game); one ``window.opened`` / ``window.closed`` per crossing week; one
+    ``week.recap`` per recap week (the recap payload — the week winner + season
+    leader display names and scores — is pulled from the existing standings
+    services, NO re-implemented scoring). Every publish is post-commit + best-effort
+    (publish_event swallows), so a chat outage never breaks the poll cycle.
     """
+    # Resolve the season ONCE — reused for both the finals-impacts read and the
+    # recap block below. None means "no games", so every final degrades to empty
+    # impacts (and the recap block is skipped later).
+    season = _active_refresh_season(session)
+
     for week, away, home, away_score, home_score in result.finalized_games:
+        # Enrich best-effort: a context/grading hiccup here must NEVER escape and
+        # break the poll cycle — it degrades to an empty impact list. A not-found
+        # context returns pick_impacts == [], which maps to [] with no special case.
+        impacts = []
+        if season is not None:
+            try:
+                context = get_game_final_context(
+                    session, season, week, away_abbr=away, home_abbr=home
+                )
+                impacts = to_game_final_impacts(context.get("pick_impacts", []))
+            except Exception:
+                impacts = []
         publish_event(
             game_final_event(
                 week=week,
@@ -92,6 +112,7 @@ def _publish_refresh_chat_edges(session: Session, result) -> None:
                 home_abbr=home,
                 away_score=away_score,
                 home_score=home_score,
+                impacts=impacts,
             )
         )
 
@@ -103,7 +124,6 @@ def _publish_refresh_chat_edges(session: Session, result) -> None:
     if not result.recap_weeks:
         return
 
-    season = _active_refresh_season(session)
     if season is None:
         return  # ambiguous season — skip the season-scoped recap (lossy is fine)
 

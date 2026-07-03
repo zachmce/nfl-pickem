@@ -102,6 +102,57 @@ class PublishRefreshChatEdgesTests(unittest.TestCase):
         # Finals + both window crossings published; recap skipped (no winner) —
         # crucially, NO TypeError reaching the recap block.
         self.assertEqual(types, ["game.final", "window.opened", "window.closed"])
+        # The WSH@GB wk2 fixture game is not FINAL, so context resolves not-found
+        # and the emitted game.final carries an empty impacts list.
+        final_event = next(e for e in recorded if e.get("type") == "game.final")
+        self.assertEqual(final_event["impacts"], [])
+
+    def test_finalized_game_carries_mapped_impacts(self) -> None:
+        # Isolate the wiring from fixture finality by canning the context read.
+        recorded: list[dict] = []
+        result = RefreshResult(finalized_games=((2, "WSH", "GB", 18, 27),))
+        canned = {
+            "found": True,
+            "pick_impacts": [
+                {"display_name": "Zed", "is_mortal_lock": True, "outcome": "WIN"},
+                {"display_name": "Alice", "is_mortal_lock": False, "outcome": "LOSS"},
+                {"display_name": "Pat", "is_mortal_lock": False, "outcome": "PUSH"},
+            ],
+        }
+        with mock.patch("app.tasks.publish_event", side_effect=recorded.append):
+            with mock.patch("app.tasks.get_game_final_context", return_value=canned):
+                with Session(self.engine) as s:
+                    _publish_refresh_chat_edges(s, result)
+
+        final_event = next(e for e in recorded if e.get("type") == "game.final")
+        self.assertEqual(
+            final_event["impacts"],
+            [
+                {"username": "Zed", "outcome": "cashed", "was_mortal_lock": True},
+                {"username": "Alice", "outcome": "busted", "was_mortal_lock": False},
+            ],
+        )
+
+    def test_context_failure_degrades_to_empty_impacts_without_breaking_loop(self) -> None:
+        # An enrichment hiccup must NEVER break the poll cycle: the game.final still
+        # publishes (impacts == []) and the window crossings still fire.
+        recorded: list[dict] = []
+        result = RefreshResult(
+            finalized_games=((2, "WSH", "GB", 18, 27),),
+            windows_closed=(2,),
+        )
+        with mock.patch("app.tasks.publish_event", side_effect=recorded.append):
+            with mock.patch(
+                "app.tasks.get_game_final_context",
+                side_effect=RuntimeError("grading blew up"),
+            ):
+                with Session(self.engine) as s:
+                    _publish_refresh_chat_edges(s, result)
+
+        types = [e.get("type") for e in recorded]
+        self.assertEqual(types, ["game.final", "window.closed"])
+        final_event = next(e for e in recorded if e.get("type") == "game.final")
+        self.assertEqual(final_event["impacts"], [])
 
     def test_no_recap_block_when_recap_weeks_empty(self) -> None:
         recorded: list[dict] = []

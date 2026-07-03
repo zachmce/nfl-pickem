@@ -70,6 +70,7 @@ thread; the async client is the subscriber's concern.
 from __future__ import annotations
 
 import json
+from typing import Literal, TypedDict
 
 import structlog
 
@@ -317,6 +318,73 @@ def window_closed_event(week: int) -> dict:
     }
 
 
+class GameFinalImpact(TypedDict):
+    """One per-user impact on a FINAL game — the ``game.final`` event contract.
+
+    This is the typed shape the Discord embed renderer consumes directly off
+    ``event["impacts"]`` (see ``.planning/todos/pending/game-final-embed-render.md``)
+    to populate its Busted/Cashed fields. JSON-primitive-only by design: the event
+    is ``json.dumps``'d across the Redis pub/sub boundary, so every field is a str
+    or bool that survives a round-trip.
+
+    * ``username`` — the impacted player's DISPLAY name (the game is FINAL/public,
+      so naming pick winners/losers is intended; the event targets ``["chat"]`` only).
+    * ``outcome`` — ``"busted"`` (a LOSS) or ``"cashed"`` (a WIN); the only two
+      point-bearing outcomes the embed has fields for.
+    * ``was_mortal_lock`` — whether the impacted pick was a mortal lock.
+    """
+
+    username: str
+    outcome: Literal["busted", "cashed"]
+    was_mortal_lock: bool
+
+
+# The only two POINT-BEARING grade outcomes, mapped to the embed's two words.
+# Keyed by the scoring ``GradeOutcome`` VALUE string (``pick_impacts`` carries the
+# ``.value``), so a plain string map keeps this builder dependency-light — no import
+# of the heavy scoring module. Outcomes absent from this map (PUSH / INELIGIBLE /
+# UNGRADEABLE) are DROPPED by :func:`to_game_final_impacts`.
+_GRADE_OUTCOME_TO_IMPACT_WORD: dict[str, Literal["busted", "cashed"]] = {
+    "WIN": "cashed",
+    "LOSS": "busted",
+}
+
+
+def to_game_final_impacts(pick_impacts: list[dict]) -> list[GameFinalImpact]:
+    """Map ``get_game_final_context`` pick impacts to the event contract shape.
+
+    Pure, never-raising mapper. Iterates ``pick_impacts`` IN ORDER (the context
+    builder emits mortal-lock rows first, then by display_name) and, for each row:
+
+    * skips it when ``display_name`` is falsy (defensive; matches the context builder);
+    * looks up the outcome word — ``WIN`` -> ``"cashed"``, ``LOSS`` -> ``"busted"`` —
+      and DROPS the row when the outcome is not point-bearing (``PUSH`` /
+      ``INELIGIBLE`` / ``UNGRADEABLE`` belong in neither the Busted nor Cashed group);
+    * otherwise emits ``{"username": display_name, "outcome": word,
+      "was_mortal_lock": bool(is_mortal_lock)}``.
+
+    Order is preserved from the input, so the mortal-lock-first ordering carries
+    through to the embed.
+    """
+    impacts: list[GameFinalImpact] = []
+    for impact in pick_impacts:
+        display_name = impact.get("display_name")
+        if not display_name:
+            continue
+        outcome = impact.get("outcome")
+        word = _GRADE_OUTCOME_TO_IMPACT_WORD.get(outcome) if isinstance(outcome, str) else None
+        if word is None:
+            continue
+        impacts.append(
+            {
+                "username": display_name,
+                "outcome": word,
+                "was_mortal_lock": bool(impact.get("is_mortal_lock")),
+            }
+        )
+    return impacts
+
+
 def game_final_event(
     *,
     week: int,
@@ -324,11 +392,16 @@ def game_final_event(
     home_abbr: str,
     away_score: int,
     home_score: int,
+    impacts: list[GameFinalImpact] | None = None,
 ) -> dict:
     """Build a ``game.final`` event — one game went FINAL. DISPLAY data only.
 
     Carries the two team abbreviations and the two integer final scores plus the
-    week number — nothing user-identifying.
+    week number, and — since the game is FINAL/public — the ``impacts`` list: the
+    per-user (display_name), busted/cashed, mortal-lock-flagged breakdown of EVERY
+    graded pick on the game (see :class:`GameFinalImpact`). ``impacts`` defaults to
+    ``[]`` so existing callers stay back-compatible. Still targets ``["chat"]`` only
+    and carries no user_id/secret — display names on a final game are intended.
     """
     return {
         "v": 1,
@@ -339,6 +412,7 @@ def game_final_event(
         "home": home_abbr,
         "away_score": away_score,
         "home_score": home_score,
+        "impacts": list(impacts or []),
     }
 
 
