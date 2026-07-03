@@ -94,10 +94,12 @@ def read_current_week(
     active season is the newest persisted one
     (:func:`app.services.standings.active_season` -> ``max(Game.season)``); a
     multi-season DB resolves the newest season rather than raising. Within that
-    season the current week is the earliest week whose window has not yet closed
-    (``now < close_at``); if every week is closed, the latest week. The
-    four-state is derived from real ``now`` vs the persisted (possibly demo
-    time-shifted) kickoffs — no demo branch.
+    season the current week is the earliest week that is not yet fully played out
+    (still has a non-FINAL game), so a week whose pick window has closed but whose
+    games are still in progress stays current instead of advancing to the next
+    week (#37); if every week is complete, the latest week. The four-state is
+    derived from real ``now`` vs the persisted (possibly demo time-shifted)
+    kickoffs — no demo branch.
     """
     now = datetime.now(timezone.utc)
 
@@ -132,10 +134,20 @@ def read_current_week(
     if not windows:
         raise NotFoundError("no week has a kickoff to derive a pick window from")
 
-    # Current week: the smallest week number still open (now < close_at);
-    # otherwise the largest week that produced a window.
-    open_weeks = [wk for wk in sorted(windows) if now < windows[wk].close_at]
-    chosen_week = open_weeks[0] if open_weeks else max(windows)
+    # Current week: the smallest week number that is not yet fully played out —
+    # i.e. still has a non-FINAL game. A week stays "current" while its games are
+    # in progress (after its first kickoff closes the pick window but before every
+    # game is FINAL), so an in-progress week does not prematurely advance to the
+    # next week (#37). Only once every game in a week is FINAL does the current
+    # week roll forward. If every week is complete (season over), fall back to the
+    # largest week that produced a window. This reuses the same all-FINAL signal
+    # the four-state derivation below uses for the LOCKED-vs-CLOSED split.
+    incomplete_weeks = [
+        wk
+        for wk in sorted(windows)
+        if not all(g.status == GameStatus.FINAL for g in by_week[wk])
+    ]
+    chosen_week = incomplete_weeks[0] if incomplete_weeks else max(windows)
     window = windows[chosen_week]
 
     # Derive the four-state from the pure window logic + this week's game status.

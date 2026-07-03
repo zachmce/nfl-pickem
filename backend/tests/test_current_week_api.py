@@ -268,6 +268,61 @@ class CurrentWeekTests(unittest.TestCase):
         self.assertEqual(body["window_state"], "open")
         self.assertEqual(_aware(datetime.fromisoformat(body["window_closes_at"])), wk2_first)
 
+    def test_in_progress_week_stays_current_not_next(self) -> None:
+        """Regression (#37): a week whose games are IN PROGRESS stays current even
+        when a later week exists.
+
+        Week 1's first kickoff is in the PAST (pick window closed) but a game is
+        still non-FINAL — the week is being played out. A future week 2 exists.
+        The current week must remain week 1 (state locked), not advance to the
+        upcoming week 2. Before the fix the window-open selector dropped week 1
+        (now >= close_at) and jumped to week 2.
+        """
+        now = datetime.now(timezone.utc)
+        # Week 1: first game already kicked off (past), a later game still to come
+        # (future), whole week IN_PROGRESS -> not all FINAL.
+        self._seed_week(
+            week=1,
+            kickoffs=[now - timedelta(hours=2), now + timedelta(hours=1)],
+            status=GameStatus.IN_PROGRESS,
+        )
+        # Week 2: entirely in the future (would be the wrongly-chosen "open" week).
+        self._seed_week(
+            week=2,
+            kickoffs=[now + timedelta(days=7), now + timedelta(days=7, hours=3)],
+        )
+
+        resp = self._get()
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["week"], 1)
+        self.assertEqual(body["window_state"], "locked")
+
+    def test_current_week_advances_once_week_all_final(self) -> None:
+        """The current week rolls forward only once every game of the earlier week
+        is FINAL — the complement of the #37 regression above.
+
+        Week 1 is fully FINAL (played out); week 2 is upcoming. The current week
+        must now be week 2.
+        """
+        now = datetime.now(timezone.utc)
+        # Week 1's last kickoff is far enough in the past that week 2's open
+        # boundary (that + ~3.5h) has already passed -> week 2 is open, not
+        # merely not_yet_open.
+        self._seed_week(
+            week=1,
+            kickoffs=[now - timedelta(hours=8), now - timedelta(hours=5)],
+            status=GameStatus.FINAL,
+        )
+        wk2_first = now + timedelta(days=5)
+        self._seed_week(week=2, kickoffs=[wk2_first, wk2_first + timedelta(hours=3)])
+
+        resp = self._get()
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["week"], 2)
+        self.assertEqual(body["window_state"], "open")
+
     def test_demo_like_shift(self) -> None:
         """Kickoffs shifted into the FUTURE (simulating the demo time-shift),
         computed against real now -> earliest week reports a future open window.
