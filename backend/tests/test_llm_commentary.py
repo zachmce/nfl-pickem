@@ -82,6 +82,7 @@ class PhrasePatternTests(unittest.TestCase):
         self.assertEqual(out, "KC again? bold. 🔒")
         # HARD RULE: enable_thinking must be False or content comes back empty.
         body = _FakeAsyncClient.last_json
+        assert body is not None
         self.assertIn("chat_template_kwargs", body)
         self.assertEqual(body["chat_template_kwargs"]["enable_thinking"], False)
         # bearer auth + chat/completions endpoint + model wired through.
@@ -145,6 +146,7 @@ class PhraseTests(unittest.TestCase):
             )
         self.assertEqual(out, "let's go! 🏈")
         body = _FakeAsyncClient.last_json
+        assert body is not None
         # The SUPPLIED prompt LEADS the system message (still verbatim, still first),
         # with the closer-variety directive appended AFTER it; the fact is the user msg.
         messages = {m["role"]: m["content"] for m in body["messages"]}
@@ -173,6 +175,7 @@ class PhraseTests(unittest.TestCase):
         with _configured(), mock.patch.object(httpx, "AsyncClient", _FakeAsyncClient):
             _run(llm_client.phrase("some fact", system_prompt=sentinel))
         body = _FakeAsyncClient.last_json
+        assert body is not None
         system_content = {m["role"]: m["content"] for m in body["messages"]}["system"]
         self.assertIn(sentinel, system_content)
         self.assertIn("Vary how you sign off", system_content)
