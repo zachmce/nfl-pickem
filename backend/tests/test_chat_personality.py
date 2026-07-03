@@ -338,8 +338,10 @@ class EnrichedGameFinalNarrativeTests(unittest.TestCase):
         fact = chat_personality._enriched_game_final_fact({"week": 3}, ctx)
         self.assertIsNotNone(fact)
         assert fact is not None  # narrow for basedpyright before subscripting
+        # Outcome conveyed by winner name (KC won 27-20); the raw score is shown
+        # separately by the embed, so it is NOT restated in the fact (D-05.1).
         self.assertIn("KC", fact)
-        self.assertIn("27", fact)
+        self.assertNotIn("27", fact)
 
 
 class EmbellishChatLeakSafeTests(unittest.TestCase):
@@ -463,11 +465,13 @@ class EmbellishChatEnrichedGameFinalTests(unittest.TestCase):
             out = _run(chat_personality.embellish_chat(event))
         self.assertEqual(out, "KC covers, Bob's lock busts 🔥")
         fact = calls[0]["fact"]
-        # Teams + final score.
+        # Outcome by WINNER NAME (KC beat LAC), with the raw score integers ABSENT —
+        # the embed shows the score separately, so the fact no longer restates it
+        # (D-05.1).
         self.assertIn("KC", fact)
         self.assertIn("LAC", fact)
-        self.assertIn("27", fact)
-        self.assertIn("20", fact)
+        self.assertNotIn("27", fact)
+        self.assertNotIn("20", fact)
         # Line result (spread cover) + a notable pick impact by display_name.
         self.assertIn("3.5", fact)
         self.assertIn("Bob", fact)
@@ -510,6 +514,57 @@ class EmbellishChatEnrichedGameFinalTests(unittest.TestCase):
         # A db-read failure still produces a phrased line off the basic fact.
         self.assertEqual(out, "x")
         self.assertIn("KC", calls[0]["fact"])
+
+    def test_enriched_fact_conveys_winner_by_name_without_raw_score(self) -> None:
+        # D-05.1: the outcome is stated by winner NAME; the raw score integers are
+        # shown separately by the embed card, so they must NOT appear in the fact.
+        ctx = {
+            "found": True,
+            "home": "DEN",
+            "away": "LV",
+            "home_score": 31,
+            "away_score": 13,
+            "spread_result": None,
+            "total_result": None,
+            "narrative": {},
+            "pick_impacts": [{"display_name": "Ann", "is_mortal_lock": False, "outcome": "WIN"}],
+        }
+        fact = chat_personality._enriched_game_final_fact({"week": 5}, ctx)
+        self.assertIsNotNone(fact)
+        assert fact is not None  # narrow for basedpyright
+        self.assertIn("DEN", fact)  # the winner is named
+        self.assertNotIn("31", fact)  # neither raw score integer is restated
+        self.assertNotIn("13", fact)
+
+    def test_empty_pick_impacts_appends_no_one_picked_clause(self) -> None:
+        # D-05.2: nobody picked the game -> an explicit no-one-picked clause and NO
+        # phantom bettor (never "your pick" / "your spread").
+        ctx = {
+            "found": True,
+            "home": "PIT",
+            "away": "NYJ",
+            "home_score": 24,
+            "away_score": 7,
+            "spread_result": None,
+            "total_result": None,
+            "narrative": {},
+            "pick_impacts": [],
+        }
+        fact = chat_personality._enriched_game_final_fact({"week": 5}, ctx)
+        self.assertIsNotNone(fact)
+        assert fact is not None  # narrow for basedpyright
+        low = fact.lower()
+        self.assertIn("no one", low)
+        self.assertIn("picked this game", low)
+        self.assertNotIn("your pick", low)
+        self.assertNotIn("your spread", low)
+
+    def test_game_final_role_has_no_picks_no_bettor_branch(self) -> None:
+        # D-05: the role tells the LLM the score is shown separately (do not restate)
+        # and carries a greppable no-picks branch.
+        role = chat_personality._GAME_FINAL_ROLE.lower()
+        self.assertIn("no one picked", role)
+        self.assertTrue("separately" in role or "do not restate" in role)
 
 
 class BustPreferringImpactTests(unittest.TestCase):

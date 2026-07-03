@@ -265,6 +265,32 @@ async def run_notifier(client) -> None:
                     guild = client.get_guild(settings.discord_guild_id)
                     channel = resolve_channel(guild, channel_setting)
                     if channel is not None:
+                        # game.final (260703-piv): render a RICH embed card on the
+                        # chat channel — plain title, deterministic away→home logo'd
+                        # score, the voiced quip (the decorated `line`), a winner-
+                        # color bar, and Busted/Cashed fields from event["impacts"].
+                        # BEST-EFFORT (T-piv-02): the embed build+send is wrapped so
+                        # ANY failure falls back to the existing text send — the
+                        # message still posts and the loop never dies. The log
+                        # channel keeps its terse text path (it is never "chat").
+                        if event.get("type") == "game.final":
+                            try:
+                                from app.bot.game_final_embed import build_game_final_embed
+
+                                embed = build_game_final_embed(event, line)
+                                await channel.send(
+                                    embed=embed,
+                                    allowed_mentions=discord.AllowedMentions.none(),
+                                )
+                            except Exception:
+                                logger.warning("game_final_embed_failed", exc_info=True)
+                                # Best-effort fallback: post the text line instead of
+                                # dropping the message entirely.
+                                await channel.send(
+                                    line, allowed_mentions=discord.AllowedMentions.none()
+                                )
+                            continue
+
                         # Mention hygiene (T-t5u-04): suppress @everyone/@here/role
                         # pings so LLM-authored chat text can never ping the server.
                         await channel.send(line, allowed_mentions=discord.AllowedMentions.none())

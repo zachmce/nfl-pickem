@@ -85,9 +85,17 @@ _FACTS_FIRST_GUARD = (
 _WINDOW_OPENED_ROLE = "You are announcing that the pick window just opened."
 
 _GAME_FINAL_ROLE = (
-    "You are reacting to a game that just went final. USE the narrative tags "
-    "supplied in the facts (upset, shutout, the margin tier, a line swing) to color "
-    "the reaction, and invent NOTHING beyond the facts handed to you."
+    "You are reacting to a game that just went final. The final score is shown "
+    "separately by the system, so do NOT restate the bare final score — react to "
+    "the line result, the narrative tags (upset, shutout, the margin tier, a line "
+    "swing), and the pick outcomes instead. USE the narrative tags supplied in the "
+    "facts to color the reaction, and invent NOTHING beyond the facts handed to "
+    "you. If the facts say no one picked the game, convey in FRESH, varied wording "
+    "each time that nobody in the league had a pick riding on it — phrase that angle "
+    "differently every message and do NOT reuse a stock catchphrase (in particular "
+    "avoid 'lack of interest', 'not one soul had a stake', 'empty room', and 'tree "
+    "in an empty forest'); NEVER address a bettor or imply anyone was affected (no "
+    "'your pick', no 'your spread'). When the facts name a pick outcome, roast it as usual."
 )
 
 _ROSTER_COMPLETE_ROLE = (
@@ -294,11 +302,13 @@ def _select_notable_win(impacts: list[dict]) -> dict | None:
 def _enriched_game_final_fact(event: dict, context: dict) -> str | None:
     """Build the STATE-FACTS-FIRST game.final fact, or ``None`` to fall back.
 
-    States teams + final score, the line result (spread cover + over/under vs the
-    FROZEN line), and the most notable pick impact (a mortal-lock hit/bust by
-    display_name when present, else the first impact). The game is FINAL/public, so
-    naming pick winners/losers is fine. Returns ``None`` when the context did not
-    resolve THIS game (caller uses the basic fact).
+    States the outcome by WINNER NAME (the raw final score is shown separately by
+    the embed card, so it is NOT restated here — D-05.1), the line result (spread
+    cover + over/under vs the FROZEN line), the narrative tags, and the most notable
+    pick impact (a mortal-lock hit/bust by display_name when present). When no one
+    picked the game it says so explicitly and names NO bettor (D-05.2). The game is
+    FINAL/public, so naming pick winners/losers is fine. Returns ``None`` when the
+    context did not resolve THIS game (caller uses the basic fact).
     """
     if not context.get("found"):
         return None
@@ -309,7 +319,16 @@ def _enriched_game_final_fact(event: dict, context: dict) -> str | None:
     away_score = context.get("away_score")
     descriptor = _final_descriptor(home_score, away_score)
 
-    parts = [f"Week {event.get('week')} final: {home} {home_score}, {away} {away_score}."]
+    # Convey the outcome by WINNER NAME only — the embed's structured description
+    # line already shows the raw score, so restating the numbers here is redundant
+    # (D-05.1). No raw score integer goes in this leading clause.
+    week = event.get("week")
+    if home_score == away_score:
+        parts = [f"Week {week} final: {home} and {away} tied."]
+    elif (home_score or 0) > (away_score or 0):
+        parts = [f"Week {week} final: {home} beat {away}."]
+    else:
+        parts = [f"Week {week} final: {away} beat {home}."]
     if descriptor:
         parts.append(f"It was a {descriptor}.")
 
@@ -356,6 +375,10 @@ def _enriched_game_final_fact(event: dict, context: dict) -> str | None:
                 wname = winner.get("display_name")
                 wml = " mortal-lock" if winner.get("is_mortal_lock") else ""
                 parts.append(f"Meanwhile {wname}'s{wml} call cashed.")
+    else:
+        # No one in the league picked this game — say so explicitly and name NO
+        # bettor, so the phrasing layer never invents a phantom pick (D-05.2).
+        parts.append("No one in the league picked this game.")
 
     return " ".join(parts)
 
