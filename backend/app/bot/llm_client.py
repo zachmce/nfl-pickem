@@ -51,10 +51,13 @@ _CLOSER_VARIETY = (
     "Vary your closing line every single time — never lean on a stock kicker or reuse "
     "the same closing metaphor from one message to the next, and steer clear of the "
     'canned "maybe try a crystal ball next week" / "better luck next week" trap. '
+    'Do NOT open your kicker with "Imagine ..." ("Imagine betting on...", "Imagine '
+    'being the one who...", "Imagine actually...") — that opener is its own stock '
+    "scaffold; reach for a different construction. "
     "Rotate the SHAPE of your closer: sometimes a deadpan stat, sometimes a backhanded "
     "compliment, sometimes mock sympathy, sometimes a rhetorical question, and sometimes "
     "just stop after the facts with no kicker at all. Never attach a name, handle, "
-    "byline, attribution, or signature (no \"— Name\", no @handle, no 🤖 sign-off) — the "
+    'byline, attribution, or signature (no "— Name", no @handle, no 🤖 sign-off) — the '
     "Discord username already shows who is speaking. This is a STYLE instruction ONLY — "
     "it never licenses adding any fact, stat, line value, or detail beyond the ones you "
     "are given."
