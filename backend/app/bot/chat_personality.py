@@ -72,7 +72,9 @@ _FACTS_FIRST_GUARD = (
     "little personality — flavor must NEVER replace the news. Use ONLY the facts "
     "you are given: do NOT invent any stat, line value, point spread, total, or "
     "movement that is not in the facts. Reply with ONE short line and at most one "
-    "or two emoji."
+    "emoji. Any team-logo emoji are appended separately by the system and do NOT "
+    "count toward that one-emoji budget — do not add your own team logos or leave "
+    "room for them."
 )
 
 # Per-event ROLE lines: the event-specific CONTEXT (not the voice). The

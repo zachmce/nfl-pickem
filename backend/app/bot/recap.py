@@ -46,7 +46,7 @@ RECAP_GUARD = (
     "Use ONLY the numbers and season storylines you are given. Narrate a movement, "
     "streak, or lead ONLY when it appears in the supplied storyline notes, and never "
     "claim anyone rose or fell except as those notes state; invent nothing beyond "
-    "them. Use at most one or two emoji."
+    "them. Use at most one emoji."
 )
 
 # Back-compat: the composed default (sarcastic) recap prompt. ``build_week_recap``
