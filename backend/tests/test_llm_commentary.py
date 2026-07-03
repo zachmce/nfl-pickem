@@ -88,6 +88,9 @@ class PhrasePatternTests(unittest.TestCase):
         self.assertEqual(_FakeAsyncClient.last_headers["Authorization"], "Bearer secret-key")
         self.assertTrue(_FakeAsyncClient.last_url.endswith("/chat/completions"))
         self.assertEqual(body["model"], "gemma")
+        # Widened phrasing sampling (read the constants so a future retune stays honest).
+        self.assertEqual(body["top_p"], llm_client._TOP_P)
+        self.assertEqual(body["temperature"], llm_client._TEMPERATURE)
 
     def test_non_200_returns_none(self) -> None:
         _FakeAsyncClient._response = _FakeResponse(500, {})
@@ -155,6 +158,9 @@ class PhraseTests(unittest.TestCase):
         self.assertEqual(_FakeAsyncClient.last_headers["Authorization"], "Bearer secret-key")
         self.assertTrue(_FakeAsyncClient.last_url.endswith("/chat/completions"))
         self.assertEqual(body["model"], "gemma")
+        # Widened phrasing sampling (read the constants so a future retune stays honest).
+        self.assertEqual(body["top_p"], llm_client._TOP_P)
+        self.assertEqual(body["temperature"], llm_client._TEMPERATURE)
 
     def test_phrase_appends_closer_variety_directive_and_preserves_prompt(self) -> None:
         """The caller's guard-bearing prompt survives verbatim (and leads) while the

@@ -31,7 +31,13 @@ logger = structlog.get_logger(__name__)
 
 # Keep the line short — this is one chat quip, not an essay.
 _MAX_TOKENS = 80
-_TEMPERATURE = 0.9
+# Modestly raised (0.9 → 1.0) for lexical diversity; bounded by _TOP_P nucleus
+# sampling so the low-probability tail (where invented facts live) stays capped.
+_TEMPERATURE = 1.0
+# Nucleus sampling: keep the top 95% probability mass, cutting the long tail. This
+# is the higher-risk knob — committed separately from the Task 1 prompt fix so it can
+# be reverted alone if a live capture ever shows fact drift.
+_TOP_P = 0.95
 _TIMEOUT_SECONDS = 10.0
 
 # Style-only anti-repetition directive appended to EVERY phrasing call, AFTER the
@@ -110,6 +116,7 @@ async def phrase(fact_text: str, *, system_prompt: str) -> str | None:
         "chat_template_kwargs": {"enable_thinking": False},
         "max_tokens": _MAX_TOKENS,
         "temperature": _TEMPERATURE,
+        "top_p": _TOP_P,
     }
     headers = {"Authorization": f"Bearer {key}"}
 
