@@ -17,7 +17,14 @@
  */
 import { useState } from "react";
 
-import { errorKey, slotKey, type PickItem, type PickType, type SlateGame } from "../lib/picks";
+import {
+  errorKey,
+  slotKey,
+  type GameStatus,
+  type PickItem,
+  type PickType,
+  type SlateGame,
+} from "../lib/picks";
 import type { WindowState } from "../lib/currentWeek";
 import { formatLocalDateTime } from "../lib/datetime";
 import { ERROR_MY_PICKS, LOADING_MY_PICKS } from "../lib/strings";
@@ -555,6 +562,35 @@ function MiscStateBadge({ pick }: { pick: PicksBySlot[string] }) {
   );
 }
 
+/**
+ * Per-game PROGRESS chip (issue #40) — reflects game.status, NOT the pick-lock.
+ *
+ * Picks lock week-wide at the week's first kickoff (see pick_window.py), so a
+ * per-game "locked" badge was misleading: it only tagged the games that had
+ * individually kicked off, implying the rest were still editable when the whole
+ * week was already read-only. This instead surfaces genuinely per-game state:
+ *   - SCHEDULED  -> no chip (nothing to say)
+ *   - IN_PROGRESS -> "In progress" (accent)
+ *   - FINAL      -> "Final" (neutral)
+ */
+function GameStatusBadge({ status }: { status: GameStatus }) {
+  if (status === "SCHEDULED") return null;
+  const { label, tone } =
+    status === "IN_PROGRESS"
+      ? { label: "In progress", tone: "bg-accent-bg text-accent" as const }
+      : { label: "Final", tone: "bg-surface-raised text-fg-muted" as const };
+  return (
+    <span
+      className={[
+        "rounded-full px-2 py-0.5 text-xs font-medium",
+        tone,
+      ].join(" ")}
+    >
+      {label}
+    </span>
+  );
+}
+
 /** One slate game: header (matchup/kickoff/line) + eligible bet options. */
 function GameCard({
   game,
@@ -625,11 +661,7 @@ function GameCard({
             {formatLocalDateTime(game.kickoff_at)} · {lineSummary(game)}
           </div>
         </div>
-        {game.locked && (
-          <span className="rounded-full bg-surface-raised px-2 py-0.5 text-xs font-medium text-fg-muted">
-            locked
-          </span>
-        )}
+        <GameStatusBadge status={game.status} />
       </div>
 
       {eligibleTypes.length === 0 ? (

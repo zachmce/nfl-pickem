@@ -152,6 +152,7 @@ def read_slate(
                 favorite_team_id=g.favorite_team_id,
                 underdog_team_id=g.underdog_team_id,
                 locked=is_game_locked(locked_game, now),
+                status=g.status,
                 eligibility={t: is_pick_type_eligible(g, t) for t in PickType},
             )
         )
