@@ -30,6 +30,14 @@ export type PickType =
 /** Grading state of a persisted pick (mirrors backend PickResult). */
 export type PickResult = "PENDING" | "WIN" | "LOSS";
 
+/**
+ * A game's lifecycle status (mirrors backend GameStatus). Distinct from the
+ * per-game `locked` pick-lock: `status` is game PROGRESS, so the My Picks page
+ * can show which games are underway/final even though the whole week's picks
+ * lock together at the week's first kickoff.
+ */
+export type GameStatus = "SCHEDULED" | "IN_PROGRESS" | "FINAL";
+
 /** Public team reference identity for one side of a matchup. */
 export interface SlateTeam {
   team_id: number;
@@ -51,6 +59,10 @@ export interface SlateGame {
   favorite_team_id: number | null;
   underdog_team_id: number | null;
   locked: boolean;
+  /** Game PROGRESS (mirrors backend GameStatus) — see GameStatus. NOT the
+   * pick-lock: picks lock week-wide at the first kickoff, but a game reports its
+   * own SCHEDULED/IN_PROGRESS/FINAL state independently. */
+  status: GameStatus;
   eligibility: Record<PickType, boolean>;
 }
 

@@ -20,7 +20,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
 
-from app.models import PickType
+from app.models import GameStatus, PickType
 
 
 class SlateTeam(BaseModel):
@@ -39,7 +39,11 @@ class SlateGame(BaseModel):
     ``eligibility`` maps every :class:`~app.models.PickType` to whether that pick
     type is a legal *choice* on this game (computed by the shared
     :func:`app.services.pick_validation.is_pick_type_eligible`). ``locked`` is the
-    per-game lock derived from real now vs the persisted kickoff. The line fields
+    per-game lock derived from real now vs the persisted kickoff. ``status`` is the
+    persisted :class:`~app.models.GameStatus` (SCHEDULED / IN_PROGRESS / FINAL) —
+    per-game PROGRESS, distinct from ``locked`` (pick-lock): the My Picks page
+    surfaces it so a read-only week (locked at its first kickoff) can still show
+    which individual games are underway or final. The line fields
     (``spread`` / ``total`` / ``favorite_team_id`` / ``underdog_team_id``) and
     ``kickoff_at`` preserve their persisted nulls.
     """
@@ -55,6 +59,7 @@ class SlateGame(BaseModel):
     favorite_team_id: int | None
     underdog_team_id: int | None
     locked: bool
+    status: GameStatus
     eligibility: dict[PickType, bool]
 
 

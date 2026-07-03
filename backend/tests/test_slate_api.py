@@ -30,6 +30,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+import httpx
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
@@ -77,7 +78,10 @@ class SlateTests(unittest.TestCase):
             session.commit()
             for t in teams:
                 session.refresh(t)
-            self.tid = [t.id for t in teams]
+            # Freshly committed+refreshed rows always have a PK; narrow to
+            # ``list[int]`` so the many ``self.tid[i]`` call sites type-check
+            # against ``_add_game``'s ``int`` params (no per-call None guard).
+            self.tid: list[int] = [t.id for t in teams if t.id is not None]
 
             # One active user to authenticate the shared read.
             user = User(
@@ -168,7 +172,7 @@ class SlateTests(unittest.TestCase):
         assert "code" in err, f"envelope missing 'code': {err}"
         return err
 
-    def _get(self, week: int) -> object:
+    def _get(self, week: int) -> httpx.Response:
         return self.client.get(
             f"/api/slate?season={SEASON}&week={week}",
             headers=self._bearer_headers(self.user_id),
@@ -341,11 +345,36 @@ class SlateTests(unittest.TestCase):
         resp = self._get(1)
         self.assertEqual(resp.status_code, 200, resp.text)
         games = resp.json()["games"]
-        locked_by_event = {
-            _aware(datetime.fromisoformat(g["kickoff_at"])): g["locked"] for g in games
-        }
-        self.assertTrue(locked_by_event[past])
-        self.assertFalse(locked_by_event[future])
+        by_event = {_aware(datetime.fromisoformat(g["kickoff_at"])): g for g in games}
+        self.assertTrue(by_event[past]["locked"])
+        self.assertFalse(by_event[future]["locked"])
+        # status is per-game PROGRESS, independent of the pick-lock: the underway
+        # game reports IN_PROGRESS; the not-yet-kicked game reports SCHEDULED
+        # (issue #40 — the badge now reflects game status, not pick-lock).
+        self.assertEqual(by_event[past]["status"], "IN_PROGRESS")
+        self.assertEqual(by_event[future]["status"], "SCHEDULED")
+
+    # -- case 5b: FINAL status surfaced ------------------------------------
+
+    def test_final_game_reports_final_status(self) -> None:
+        """A FINAL game surfaces status FINAL on the slate (issue #40)."""
+        now = datetime.now(timezone.utc)
+        wk_id = self._seed_week_row(1)
+        self._add_game(
+            week_id=wk_id,
+            week=1,
+            espn_event_id=1001,
+            kickoff_at=now - timedelta(hours=4),
+            home_team_id=self.tid[0],
+            away_team_id=self.tid[1],
+            status=GameStatus.FINAL,
+        )
+
+        resp = self._get(1)
+        self.assertEqual(resp.status_code, 200, resp.text)
+        games = resp.json()["games"]
+        self.assertEqual(len(games), 1)
+        self.assertEqual(games[0]["status"], "FINAL")
 
     # -- case 6: demo-shift -> everything future, all unlocked -------------
 
