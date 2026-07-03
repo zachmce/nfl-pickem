@@ -228,16 +228,25 @@ class RenderChatTests(unittest.TestCase):
 
 class _SendableChannel:
     """A channel exposing the ``.id``/``.name`` the resolver reads plus an async
-    ``.send`` that records the lines posted — no real Discord object needed."""
+    ``.send`` that records the lines posted — no real Discord object needed.
+
+    Accepts BOTH the text form (``send(line, ...)``) and the embed form
+    (``send(embed=..., ...)``): text lines land in ``sent`` and embeds in
+    ``embeds`` so a test can assert on either. ``send_kwargs`` records every call's
+    keyword args (e.g. ``allowed_mentions``)."""
 
     def __init__(self, id: int, name: str) -> None:  # noqa: A002
         self.id = id
         self.name = name
         self.sent: list[str] = []
+        self.embeds: list = []
         self.send_kwargs: list[dict] = []
 
-    async def send(self, line: str, **kwargs) -> None:
-        self.sent.append(line)
+    async def send(self, line=None, *, embed=None, **kwargs) -> None:  # noqa: ANN001
+        if embed is not None:
+            self.embeds.append(embed)
+        else:
+            self.sent.append(line)
         self.send_kwargs.append(kwargs)
 
 
@@ -449,13 +458,23 @@ class RunNotifierEmbellishTests(unittest.IsolatedAsyncioTestCase):
         _, chat = await self._drive([frame], None)
         self.assertEqual(chat.sent, [render_chat(event)])
 
-    async def test_game_final_posts_llm_line_when_configured(self) -> None:
+    async def test_game_final_posts_embed_with_llm_quip_in_description(self) -> None:
+        # game.final (260703-piv) posts a RICH EMBED, not a text line: the LLM quip
+        # rides in the embed description after the deterministic score line.
         event = game_final_event(
             week=3, away_abbr="LAC", home_abbr="KC", away_score=20, home_score=27
         )
         frame = {"type": "message", "data": json.dumps(event)}
         _, chat = await self._drive([frame], "KC takes it 🔥")
-        self.assertEqual(chat.sent, ["KC takes it 🔥"])
+        self.assertEqual(chat.sent, [])  # no plain text line
+        self.assertEqual(len(chat.embeds), 1)
+        self.assertIn("KC takes it 🔥", chat.embeds[0].description or "")
+        # Mention hygiene still applies on the embed send.
+        import discord
+
+        am = chat.send_kwargs[0].get("allowed_mentions")
+        self.assertIsInstance(am, discord.AllowedMentions)
+        self.assertFalse(am.everyone)
 
     async def test_roster_complete_falls_back_to_deterministic_on_none(self) -> None:
         event = roster_complete_event(actor="Bob", week=3)
@@ -661,15 +680,16 @@ class RunNotifierDecorateTests(unittest.IsolatedAsyncioTestCase):
         from app.bot import team_emoji
 
         team_emoji.populate_emoji_cache([self._FakeEmoji("chiefs", 7)])
-        # game.final renders "Final: KC 27, LAC 20." (home/away abbrs). KC -> chiefs.
+        # game.final (260703-piv) posts an EMBED: the deterministic score line in the
+        # description carries the KC logo directly via resolve_logo.
         event = game_final_event(
             week=3, away_abbr="LAC", home_abbr="KC", away_score=27, home_score=20
         )
         frame = {"type": "message", "data": json.dumps(event)}
         _, chat = await self._drive([frame])
-        self.assertEqual(len(chat.sent), 1)
-        # The KC token is followed by the chiefs logo string.
-        self.assertIn("KC <:chiefs:7>", chat.sent[0])
+        self.assertEqual(len(chat.embeds), 1)
+        # The KC token is followed by the chiefs logo string in the embed body.
+        self.assertIn("KC <:chiefs:7>", chat.embeds[0].description or "")
 
     async def test_logger_line_not_decorated(self) -> None:
         from app.bot import team_emoji
@@ -689,8 +709,9 @@ class RunNotifierDecorateTests(unittest.IsolatedAsyncioTestCase):
         )
         frame = {"type": "message", "data": json.dumps(event)}
         _, chat = await self._drive([frame])
-        self.assertEqual(len(chat.sent), 1)
-        self.assertNotIn("<:", chat.sent[0])
+        # Embed still built with an empty cache — just no logo tokens in the body.
+        self.assertEqual(len(chat.embeds), 1)
+        self.assertNotIn("<:", chat.embeds[0].description or "")
 
     async def test_window_closed_lock_line_and_commentary_decorated(self) -> None:
         from app.bot import team_emoji
@@ -730,6 +751,55 @@ class RunNotifierDecorateTests(unittest.IsolatedAsyncioTestCase):
         # The commentary extra line carrying MIN gains the vikings logo.
         self.assertEqual(len(chat_channel.sent), 2)
         self.assertIn("MIN <:vikingslogo:9>", chat_channel.sent[1])
+
+
+class RunNotifierGameFinalFallbackTests(unittest.IsolatedAsyncioTestCase):
+    """game.final embed is BEST-EFFORT (T-piv-02): if the embed build raises for
+    ANY reason, the notifier still posts the text line and the loop never dies."""
+
+    async def test_embed_build_failure_falls_back_to_text_send(self) -> None:
+        event = game_final_event(
+            week=3, away_abbr="LAC", home_abbr="KC", away_score=20, home_score=27
+        )
+        frame = {"type": "message", "data": json.dumps(event)}
+        subscribe_frame = {"type": "subscribe", "data": 1}
+
+        logger_channel = _SendableChannel(id=123, name="pickem-logger")
+        chat_channel = _SendableChannel(id=456, name="pickem-chat")
+        client = _FakeClient(_SendableGuild([logger_channel, chat_channel]))
+        created: list[_FakeRedis] = []
+
+        def fake_from_url(_url):  # noqa: ANN001
+            if created:  # pragma: no cover - guards an unbounded reconnect loop
+                raise AssertionError("reconnected unexpectedly")
+            pubsub = _FakePubSub([subscribe_frame, frame])
+            redis_client = _FakeRedis(pubsub)
+            created.append(redis_client)
+            return redis_client
+
+        def _boom(*_a, **_k):
+            raise RuntimeError("embed construction blew up")
+
+        with (
+            mock.patch("redis.asyncio.from_url", fake_from_url),
+            mock.patch("app.bot.notifier.get_settings", lambda: _FakeSettings()),
+            mock.patch("app.bot.notifier._RECONNECT_BACKOFF_START", 0),
+            mock.patch("app.bot.notifier._RECONNECT_BACKOFF_MAX", 0),
+            mock.patch("app.bot.game_final_embed.build_game_final_embed", _boom),
+        ):
+            # The loop still ends only via the shutdown CancelledError — it survived.
+            with self.assertRaises(asyncio.CancelledError):
+                await run_notifier(client)
+
+        # No embed landed; a TEXT line did (the best-effort fallback).
+        self.assertEqual(chat_channel.embeds, [])
+        self.assertEqual(len(chat_channel.sent), 1)
+        # Fallback send still suppresses mass mentions.
+        import discord
+
+        am = chat_channel.send_kwargs[-1].get("allowed_mentions")
+        self.assertIsInstance(am, discord.AllowedMentions)
+        self.assertFalse(am.everyone)
 
 
 if __name__ == "__main__":
