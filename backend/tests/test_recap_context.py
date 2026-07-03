@@ -35,8 +35,11 @@ from app.services.standings import season_standings, week_results
 
 SEASON = 2025
 WEEK = 1
+# The recap week for the storyline assertions — the final seeded week (a streak,
+# tenure, and freshness are only expressible over multiple FINAL weeks).
+LAST_WEEK = 3
 
-# The scored week is in the PAST and FINAL (reads do not gate on the window).
+# The scored weeks are in the PAST and FINAL (reads do not gate on the window).
 _PAST = timedelta(days=2)
 
 
@@ -76,54 +79,6 @@ class GetRecapContextTests(unittest.TestCase):
                 session.refresh(t)
             tid = [t.id for t in teams]
 
-            week = Week(season=SEASON, week=WEEK)
-            session.add(week)
-            session.commit()
-            session.refresh(week)
-            assert week.id is not None
-            self.week_id = week.id
-
-            # Favorite (home, tid[0]) favored by 3.5, wins by 7 -> favorite COVERS.
-            game_fav = Game(
-                espn_event_id=1001,
-                week_id=week.id,
-                season=SEASON,
-                week=WEEK,
-                home_team_id=tid[0],
-                away_team_id=tid[1],
-                kickoff_at=now - _PAST,
-                status=GameStatus.FINAL,
-                home_score=24,
-                away_score=17,
-                spread=Decimal("3.5"),
-                total=Decimal("44.5"),
-                favorite_team_id=tid[0],
-                underdog_team_id=tid[1],
-            )
-            # Combined 20+14 = 34 < total 41 -> UNDER wins, OVER loses.
-            game_total = Game(
-                espn_event_id=1002,
-                week_id=week.id,
-                season=SEASON,
-                week=WEEK,
-                home_team_id=tid[2],
-                away_team_id=tid[3],
-                kickoff_at=now - _PAST + timedelta(hours=3),
-                status=GameStatus.FINAL,
-                home_score=20,
-                away_score=14,
-                spread=Decimal("6.5"),
-                total=Decimal("41.0"),
-                favorite_team_id=tid[2],
-                underdog_team_id=tid[3],
-            )
-            session.add_all([game_fav, game_total])
-            session.commit()
-            session.refresh(game_fav)
-            session.refresh(game_total)
-            self.game_fav_id = game_fav.id
-            self.game_total_id = game_total.id
-
             pw = hash_password("correct horse battery staple")
             # Distinct discord_ids: the one-null-discord_id invariant (260629-n59)
             # caps NULL discord_ids at one.
@@ -133,39 +88,119 @@ class GetRecapContextTests(unittest.TestCase):
             session.commit()
             session.refresh(user_a)
             session.refresh(user_b)
-            self.user_a_id = user_a.id
-            self.user_b_id = user_b.id
+            assert user_a.id is not None and user_b.id is not None
 
-            # alice nails both (favorite cover + under); bob misses both.
-            session.add_all(
-                [
-                    Pick(
-                        user_id=user_a.id,
-                        game_id=game_fav.id,
-                        week_id=week.id,
-                        pick_type=PickType.FAVORITE_COVER,
-                    ),
-                    Pick(
-                        user_id=user_a.id,
-                        game_id=game_total.id,
-                        week_id=week.id,
-                        pick_type=PickType.UNDER,
-                    ),
-                    Pick(
-                        user_id=user_b.id,
-                        game_id=game_fav.id,
-                        week_id=week.id,
-                        pick_type=PickType.UNDERDOG_COVER,
-                    ),
-                    Pick(
-                        user_id=user_b.id,
-                        game_id=game_total.id,
-                        week_id=week.id,
-                        pick_type=PickType.OVER,
-                    ),
-                ]
-            )
-            session.commit()
+            # Three FINAL weeks with an IDENTICAL structure so a multi-week storyline is
+            # expressible: alice sweeps her two base picks (2-for-2, red hot) AND leads
+            # every week, but WHIFFS her mortal lock all three weeks (a fresh 3-week
+            # missed-lock streak). bob loses his base picks. Each week also carries an
+            # outright upset (the favorite loses), seeding a league superlative.
+            for w in range(1, LAST_WEEK + 1):
+                week = Week(season=SEASON, week=w)
+                session.add(week)
+                session.commit()
+                session.refresh(week)
+                assert week.id is not None
+                if w == WEEK:
+                    self.week_id = week.id
+
+                # Favorite (home, tid[0]) favored by 3.5, wins by 7 -> favorite COVERS.
+                game_fav = Game(
+                    espn_event_id=w * 10 + 1,
+                    week_id=week.id,
+                    season=SEASON,
+                    week=w,
+                    home_team_id=tid[0],
+                    away_team_id=tid[1],
+                    kickoff_at=now - _PAST,
+                    status=GameStatus.FINAL,
+                    home_score=24,
+                    away_score=17,
+                    spread=Decimal("3.5"),
+                    total=Decimal("50.0"),
+                    favorite_team_id=tid[0],
+                    underdog_team_id=tid[1],
+                )
+                # Combined 20+14 = 34 < total 41 -> UNDER wins, OVER loses.
+                game_total = Game(
+                    espn_event_id=w * 10 + 2,
+                    week_id=week.id,
+                    season=SEASON,
+                    week=w,
+                    home_team_id=tid[2],
+                    away_team_id=tid[3],
+                    kickoff_at=now - _PAST + timedelta(hours=3),
+                    status=GameStatus.FINAL,
+                    home_score=20,
+                    away_score=14,
+                    spread=Decimal("6.5"),
+                    total=Decimal("41.0"),
+                    favorite_team_id=tid[2],
+                    underdog_team_id=tid[3],
+                )
+                # Upset: home (tid[0]) favored by 3.5 but LOSES outright 10-20 (margin
+                # 10) -> alice's FAVORITE_COVER mortal lock MISSES + a biggest-upset tag.
+                game_upset = Game(
+                    espn_event_id=w * 10 + 3,
+                    week_id=week.id,
+                    season=SEASON,
+                    week=w,
+                    home_team_id=tid[0],
+                    away_team_id=tid[1],
+                    kickoff_at=now - _PAST + timedelta(hours=6),
+                    status=GameStatus.FINAL,
+                    home_score=10,
+                    away_score=20,
+                    spread=Decimal("3.5"),
+                    total=Decimal("50.0"),
+                    favorite_team_id=tid[0],
+                    underdog_team_id=tid[1],
+                )
+                session.add_all([game_fav, game_total, game_upset])
+                session.commit()
+                session.refresh(game_fav)
+                session.refresh(game_total)
+                session.refresh(game_upset)
+
+                session.add_all(
+                    [
+                        # alice: sweeps base picks (favorite cover + under) ...
+                        Pick(
+                            user_id=user_a.id,
+                            game_id=game_fav.id,
+                            week_id=week.id,
+                            pick_type=PickType.FAVORITE_COVER,
+                        ),
+                        Pick(
+                            user_id=user_a.id,
+                            game_id=game_total.id,
+                            week_id=week.id,
+                            pick_type=PickType.UNDER,
+                        ),
+                        # ... but whiffs her mortal lock on the upset game.
+                        Pick(
+                            user_id=user_a.id,
+                            game_id=game_upset.id,
+                            week_id=week.id,
+                            pick_type=PickType.FAVORITE_COVER,
+                            is_mortal_lock=True,
+                        ),
+                        # bob: loses both base picks.
+                        Pick(
+                            user_id=user_b.id,
+                            game_id=game_fav.id,
+                            week_id=week.id,
+                            pick_type=PickType.UNDERDOG_COVER,
+                        ),
+                        Pick(
+                            user_id=user_b.id,
+                            game_id=game_total.id,
+                            week_id=week.id,
+                            pick_type=PickType.OVER,
+                        ),
+                    ]
+                )
+                session.commit()
 
     def tearDown(self) -> None:
         self.engine.dispose()
@@ -177,7 +212,9 @@ class GetRecapContextTests(unittest.TestCase):
         with self._session() as session:
             ctx = get_recap_context(session, SEASON, WEEK)
         self.assertIsInstance(ctx, dict)
-        self.assertEqual(set(ctx.keys()), {"week", "weekly_scores", "season_standings"})
+        self.assertEqual(
+            set(ctx.keys()), {"week", "weekly_scores", "season_standings", "storylines"}
+        )
         self.assertEqual(ctx["week"], WEEK)
 
     def test_weekly_scores_match_week_results_high_to_low(self) -> None:
@@ -232,6 +269,49 @@ class GetRecapContextTests(unittest.TestCase):
         self.assertEqual(ctx["weekly_scores"], [])
         self.assertEqual(empty_season["weekly_scores"], [])
         self.assertEqual(empty_season["season_standings"], [])
+        # An empty season carries an empty storylines list (never a raise).
+        self.assertEqual(empty_season["storylines"], [])
+
+    # ------------------------------------------------------------------ #
+    # Storyline-bundle coverage over the multi-week fixture (260703-jun). #
+    # ------------------------------------------------------------------ #
+
+    def test_storylines_key_is_a_bounded_list(self) -> None:
+        with self._session() as session:
+            ctx = get_recap_context(session, SEASON, LAST_WEEK)
+        self.assertIsInstance(ctx["storylines"], list)
+        self.assertLessEqual(len(ctx["storylines"]), 3)  # capped ~2-3
+
+    def test_storylines_are_display_only_no_user_id(self) -> None:
+        with self._session() as session:
+            ctx = get_recap_context(session, SEASON, LAST_WEEK)
+        self.assertNotIn("user_id", _walk(ctx["storylines"]))
+        # Each tag is a display-only {kind, text, fresh} dict.
+        for tag in ctx["storylines"]:
+            self.assertEqual(set(tag.keys()), {"kind", "text", "fresh"})
+
+    def test_seeded_missed_mortal_lock_streak_appears(self) -> None:
+        with self._session() as session:
+            ctx = get_recap_context(session, SEASON, LAST_WEEK)
+        texts = " || ".join(t["text"] for t in ctx["storylines"])
+        # alice (featured: week winner + season leader) whiffed her lock all 3 weeks.
+        self.assertIn("alice", texts)
+        self.assertIn("missed", texts)
+        self.assertIn("mortal lock", texts)
+        streak = next(t for t in ctx["storylines"] if t["kind"] == "mortal_lock_streak")
+        self.assertTrue(streak["fresh"])  # extended at the recap week
+
+    def test_early_single_week_has_no_multiweek_streak(self) -> None:
+        # At Week 1 there is no 3-week streak yet — a repeated missed-lock storyline
+        # cannot be present (the streak needs multiple weeks).
+        with self._session() as session:
+            ctx = get_recap_context(session, SEASON, WEEK)
+        streaks = [
+            t
+            for t in ctx["storylines"]
+            if t["kind"] == "mortal_lock_streak" and "3 weeks" in t["text"]
+        ]
+        self.assertEqual(streaks, [])
 
 
 if __name__ == "__main__":

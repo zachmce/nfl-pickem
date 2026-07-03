@@ -51,6 +51,15 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+import structlog
+from sqlmodel import Session, select
+
+from app.models import Game, GameStatus, PickType, Team
+from app.services.scoring import GradeOutcome
+from app.services.standings import week_results
+
+logger = structlog.get_logger(__name__)
+
 # ---- thresholds (documented small defaults; Claude's discretion per CONTEXT.md) ---- #
 _MIN_STREAK = 2
 _FORM_WINDOW = 3
@@ -255,3 +264,155 @@ def select_storylines(
     if league_pick is not None:
         selected = [*selected, league_pick]
     return selected[:max_total]
+
+
+# --------------------------------------------------------------------------- #
+# DB shell — the ONE Session-touching function. Gathers the normalized inputs the
+# pure core above needs (read-time over FINAL games, reusing week_results / the
+# scoring engine — no scoring/standings math re-implemented) and returns the
+# selected, DISPLAY-ONLY storyline bundle. Best-effort: any slip returns [] and
+# NEVER raises into the recap/notifier loop (T-jun-02).
+# --------------------------------------------------------------------------- #
+
+
+def _biggest_upset(session: Session, *, season: int, through_week: int) -> SuperlativeCandidate | None:
+    """The biggest outright upset over the season's FINAL games up to ``through_week``.
+
+    An "upset" is the favorite losing outright (favorite final score < underdog's) —
+    the SAME pure score comparison :func:`app.services.notifications_read._game_narrative`
+    uses (no cover math is hand-rolled here). Magnitude = the underdog's winning margin;
+    ties broken toward the more recent week. Returns ``None`` when no upset occurred.
+    """
+    abbr_by_team_id = {
+        t.id: t.abbreviation for t in session.exec(select(Team)).all() if t.id is not None
+    }
+    games = session.exec(
+        select(Game).where(
+            Game.season == season,
+            Game.week <= through_week,
+            Game.status == GameStatus.FINAL,
+        )
+    ).all()
+
+    best: SuperlativeCandidate | None = None
+    for game in games:
+        if game.home_score is None or game.away_score is None or game.favorite_team_id is None:
+            continue
+        favorite_is_home = game.favorite_team_id == game.home_team_id
+        favorite_score = game.home_score if favorite_is_home else game.away_score
+        underdog_score = game.away_score if favorite_is_home else game.home_score
+        if favorite_score >= underdog_score:
+            continue  # favorite did not lose outright -> not an upset
+        margin = underdog_score - favorite_score
+        favorite_abbr = abbr_by_team_id.get(game.favorite_team_id)
+        underdog_abbr = (
+            abbr_by_team_id.get(game.underdog_team_id)
+            if game.underdog_team_id is not None
+            else None
+        )
+        candidate = SuperlativeCandidate(
+            label="biggest upset",
+            text=(
+                f"the biggest upset so far: {underdog_abbr} stunned "
+                f"{favorite_abbr} in Week {game.week}"
+            ),
+            magnitude=float(margin),
+            week_set=game.week,
+        )
+        if best is None or (candidate.magnitude, candidate.week_set) > (best.magnitude, best.week_set):
+            best = candidate
+    return best
+
+
+def get_season_storylines(
+    session: Session, *, season: int, week: int, featured_players: Sequence[str]
+) -> list[dict]:
+    """Read-time, best-effort, display-only storyline bundle for ``(season, week)``.
+
+    Gathers the normalized inputs the pure core needs by REUSING
+    :func:`app.services.standings.week_results` (which grades every pick via the scoring
+    engine) for weeks ``1..week`` — so NO scoring/standings math is re-implemented:
+
+    * per-player mortal-lock result sequences (WIN -> hit, LOSS -> miss, else -> none);
+    * per-player weekly base-slate ``(wins, total)`` records for hot/cold form;
+    * the cumulative-through-week leader sequence (leader tenure / lead flip);
+    * league superlative candidates (highest weekly score + biggest upset).
+
+    Freshness is stateless (encoded as "changed state at ``week``"; see module doc), then
+    the pure :func:`select_storylines` picks the featured-player storylines + <=1 league
+    superlative, capped ~2-3. Returns a ``list[dict]`` of display-only tags
+    (``{kind, text, fresh}``) — never a ``user_id``. The whole body is wrapped so ANY
+    error returns ``[]`` (best-effort; never raises into the recap/notifier loop).
+    """
+    try:
+        cumulative: dict[str, int] = {}
+        leader_by_week: list[tuple[int, str]] = []
+        lock_seqs: dict[str, list[tuple[int, str]]] = {}
+        form_recs: dict[str, list[tuple[int, int, int]]] = {}
+        weekly_high: list[tuple[int, int, str]] = []  # (score, week, display_name)
+
+        for wk in range(1, week + 1):
+            results = week_results(session, season=season, week=wk, caller_user_id=None)
+            if not results:
+                continue
+            for row in results:
+                cumulative[row.display_name] = cumulative.get(row.display_name, 0) + row.weekly_score
+                weekly_high.append((row.weekly_score, wk, row.display_name))
+
+                lock_result = LOCK_NONE
+                base_wins = 0
+                base_total = 0
+                for pick in row.picks:
+                    if pick.is_mortal_lock:
+                        if pick.outcome == GradeOutcome.WIN.value:
+                            lock_result = LOCK_HIT
+                        elif pick.outcome == GradeOutcome.LOSS.value:
+                            lock_result = LOCK_MISS
+                    elif pick.pick_type is not PickType.MISC:
+                        if pick.outcome == GradeOutcome.WIN.value:
+                            base_wins += 1
+                            base_total += 1
+                        elif pick.outcome == GradeOutcome.LOSS.value:
+                            base_total += 1
+                lock_seqs.setdefault(row.display_name, []).append((wk, lock_result))
+                form_recs.setdefault(row.display_name, []).append((wk, base_wins, base_total))
+
+            leader = min(cumulative.items(), key=lambda kv: (-kv[1], kv[0]))[0]
+            leader_by_week.append((wk, leader))
+
+        storylines: list[Storyline] = []
+        for name in sorted(lock_seqs):
+            streak = mortal_lock_streak(name, lock_seqs[name], week=week)
+            if streak is not None:
+                storylines.append(streak)
+        for name in sorted(form_recs):
+            form = form_streak(name, form_recs[name], week=week)
+            if form is not None:
+                storylines.append(form)
+        tenure = leader_tenure(leader_by_week, week=week)
+        if tenure is not None:
+            storylines.append(tenure)
+
+        candidates: list[SuperlativeCandidate] = []
+        if weekly_high:
+            top_score, top_week, top_name = max(weekly_high, key=lambda x: (x[0], x[1], x[2]))
+            candidates.append(
+                SuperlativeCandidate(
+                    label="highest weekly score",
+                    text=f"the season's highest weekly haul so far: {top_name} scored {top_score} in Week {top_week}",
+                    magnitude=float(top_score),
+                    week_set=top_week,
+                )
+            )
+        upset = _biggest_upset(session, season=season, through_week=week)
+        if upset is not None:
+            candidates.append(upset)
+        superlative = season_superlative(candidates, week=week)
+        if superlative is not None:
+            storylines.append(superlative)
+
+        selected = select_storylines(storylines, featured_players=featured_players)
+        return [{"kind": s.kind, "text": s.text, "fresh": s.fresh} for s in selected]
+    except Exception:  # best-effort: a computation slip degrades to no storylines
+        logger.warning("season_storylines_failed", season=season, week=week, exc_info=True)
+        return []

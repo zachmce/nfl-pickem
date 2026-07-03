@@ -191,10 +191,14 @@ def get_recap_context(session: Session, season: int, week: int) -> dict:
       ``gap_to_leader`` = the leader's ``season_total`` minus this row's total
       (the leader's gap is 0).
 
-    Information-disclosure boundary (T-tfb-01): carries ``display_name`` + integer
-    fields ONLY — NEVER ``user_id`` (mirrors the T-nef-01 boundary at the top of
-    this module). Pure read: no ``add``/``commit`` — the caller owns the session.
-    Discord-free and httpx-free. An empty week/season yields empty lists.
+    Information-disclosure boundary (T-tfb-01 / T-jun-01): carries ``display_name`` +
+    integer fields ONLY — NEVER ``user_id`` (mirrors the T-nef-01 boundary at the top
+    of this module). The ``storylines`` key (260703-jun) is likewise display-only:
+    curated, deterministic season-storyline tags (``{kind, text, fresh}``) computed
+    read-time over FINAL games about the recap's own featured players (week winner +
+    season leader) plus at most one league superlative. Pure read: no ``add``/``commit``
+    — the caller owns the session. Discord-free and httpx-free. An empty week/season
+    yields empty lists (and an empty ``storylines`` list).
     """
     weekly_scores = [
         {"display_name": r.display_name, "weekly_score": r.weekly_score}
@@ -213,10 +217,24 @@ def get_recap_context(session: Session, season: int, week: int) -> dict:
         for idx, r in enumerate(standings_results, start=1)
     ]
 
+    # Featured players are the ones the recap already surfaces (week winner = top weekly
+    # score, season leader = top standings). Storylines attach around THEM (+ <=1 league
+    # superlative). Best-effort + display-only: a slip yields []. Local import keeps the
+    # storyline service's Session/scoring imports off this module's hot import path.
+    from app.services.storylines import get_season_storylines
+
+    winner = weekly_scores[0]["display_name"] if weekly_scores else None
+    leader = standings[0]["display_name"] if standings else None
+    featured_players = [p for p in (winner, leader) if p is not None]
+    storylines = get_season_storylines(
+        session, season=season, week=week, featured_players=featured_players
+    )
+
     return {
         "week": week,
         "weekly_scores": weekly_scores,
         "season_standings": standings,
+        "storylines": storylines,
     }
 
 
