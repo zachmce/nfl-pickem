@@ -18,10 +18,12 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+from decimal import Decimal
 from unittest import mock
 
 from app.bot import chat_personality
 from app.bot.notifier import render_chat
+from app.services.notifications_read import _game_narrative
 from app.services.notifications import (
     game_final_event,
     misc_graded_event,
@@ -203,6 +205,142 @@ class EmbellishChatDescriptorTests(unittest.TestCase):
         mid = chat_personality._final_descriptor(24, 14)
         self.assertNotIn(mid, ("blowout", "nail-biter"))
 
+    def test_descriptor_graded_tiers(self) -> None:
+        # >= 28 margin is its own top tier ("spanking"), NOT "blowout".
+        self.assertEqual(chat_personality._final_descriptor(45, 3), "spanking")
+        # 10-16 margin is the mid tier — neither "blowout" nor "nail-biter".
+        self.assertEqual(chat_personality._final_descriptor(24, 14), "comfortable win")
+        # 24-point margin STILL "blowout" (preserve the existing contract).
+        self.assertEqual(chat_personality._final_descriptor(27, 3), "blowout")
+        # The 4-9 gap gets no descriptor.
+        self.assertEqual(chat_personality._final_descriptor(20, 14), "")
+
+
+class GameNarrativeHelperTests(unittest.TestCase):
+    """The pure ``_game_narrative`` helper flags upset / shutout / expectation_swing
+    DETERMINISTICALLY from the stored score + spread — no db, invents nothing."""
+
+    def test_upset_when_favorite_loses_outright(self) -> None:
+        # Favorite is home (17), underdog away (20) -> the favorite lost.
+        n = _game_narrative(
+            favorite_abbr="KC",
+            away_score=20,
+            home_score=17,
+            spread=Decimal("3.5"),
+            favorite_is_home=True,
+        )
+        self.assertTrue(n["upset"])
+        # The winner-favored control case is NOT an upset.
+        n2 = _game_narrative(
+            favorite_abbr="KC",
+            away_score=17,
+            home_score=20,
+            spread=Decimal("3.5"),
+            favorite_is_home=True,
+        )
+        self.assertFalse(n2["upset"])
+
+    def test_shutout_on_zero_score(self) -> None:
+        n = _game_narrative(
+            favorite_abbr="KC",
+            away_score=0,
+            home_score=21,
+            spread=Decimal("7"),
+            favorite_is_home=True,
+        )
+        self.assertTrue(n["shutout"])
+        # 0-0 is not a shutout (nobody scored).
+        n2 = _game_narrative(
+            favorite_abbr="KC",
+            away_score=0,
+            home_score=0,
+            spread=Decimal("7"),
+            favorite_is_home=True,
+        )
+        self.assertFalse(n2["shutout"])
+
+    def test_expectation_swing_on_large_actual_vs_spread_gap(self) -> None:
+        # Favored by 7 (home) but LOST by 10 -> actual margin -10, |−10 − 7| = 17 >= 10.
+        n = _game_narrative(
+            favorite_abbr="KC",
+            away_score=24,
+            home_score=14,
+            spread=Decimal("7"),
+            favorite_is_home=True,
+        )
+        self.assertTrue(n["expectation_swing"])
+        # A result landing near the number is NOT a swing (favored 3.5, won by 3).
+        n2 = _game_narrative(
+            favorite_abbr="KC",
+            away_score=17,
+            home_score=20,
+            spread=Decimal("3.5"),
+            favorite_is_home=True,
+        )
+        self.assertFalse(n2["expectation_swing"])
+
+    def test_missing_scores_or_spread_degrade_to_false(self) -> None:
+        n = _game_narrative(
+            favorite_abbr="KC",
+            away_score=None,
+            home_score=21,
+            spread=Decimal("7"),
+            favorite_is_home=True,
+        )
+        self.assertEqual(n, {"upset": False, "shutout": False, "expectation_swing": False})
+        # No spread -> no swing, but a shutout is still computable.
+        n2 = _game_narrative(
+            favorite_abbr="KC",
+            away_score=0,
+            home_score=21,
+            spread=None,
+            favorite_is_home=True,
+        )
+        self.assertTrue(n2["shutout"])
+        self.assertFalse(n2["expectation_swing"])
+
+
+class EnrichedGameFinalNarrativeTests(unittest.TestCase):
+    """The enriched game.final FACT carries the deterministic narrative clauses when
+    the context marks them, and still builds when no ``narrative`` key is present."""
+
+    def test_narrative_clauses_appended(self) -> None:
+        ctx = {
+            "found": True,
+            "home": "KC",
+            "away": "LAC",
+            "home_score": 21,
+            "away_score": 0,
+            "spread_result": None,
+            "total_result": None,
+            "pick_impacts": [],
+            "narrative": {"upset": True, "shutout": True, "expectation_swing": True},
+        }
+        fact = chat_personality._enriched_game_final_fact({"week": 3}, ctx)
+        self.assertIsNotNone(fact)
+        assert fact is not None  # narrow for basedpyright before subscripting
+        low = fact.lower()
+        self.assertIn("upset", low)
+        self.assertIn("shut out", low)
+        self.assertIn("line", low)
+
+    def test_no_narrative_key_still_builds(self) -> None:
+        ctx = {
+            "found": True,
+            "home": "KC",
+            "away": "LAC",
+            "home_score": 27,
+            "away_score": 20,
+            "spread_result": None,
+            "total_result": None,
+            "pick_impacts": [],
+        }
+        fact = chat_personality._enriched_game_final_fact({"week": 3}, ctx)
+        self.assertIsNotNone(fact)
+        assert fact is not None  # narrow for basedpyright before subscripting
+        self.assertIn("KC", fact)
+        self.assertIn("27", fact)
+
 
 class EmbellishChatLeakSafeTests(unittest.TestCase):
     """HARD rule: the roster.complete fact references ONLY actor + week — it can
@@ -372,6 +510,76 @@ class EmbellishChatEnrichedGameFinalTests(unittest.TestCase):
         # A db-read failure still produces a phrased line off the basic fact.
         self.assertEqual(out, "x")
         self.assertIn("KC", calls[0]["fact"])
+
+
+class BustPreferringImpactTests(unittest.TestCase):
+    """The game.final impact selection features a BUSTED mortal lock over a winning
+    one (mortal-lock LOSS > mortal-lock WIN > base bust > base win), deterministic."""
+
+    def _ctx(self, impacts: list[dict]) -> dict:
+        return {
+            "found": True,
+            "home": "KC",
+            "away": "LAC",
+            "home_score": 27,
+            "away_score": 20,
+            "spread_result": None,
+            "total_result": None,
+            "narrative": {},
+            "pick_impacts": impacts,
+        }
+
+    def test_selector_priority_prefers_busted_mortal_lock(self) -> None:
+        impacts = [
+            {"display_name": "Winner", "is_mortal_lock": True, "outcome": "WIN"},
+            {"display_name": "Buster", "is_mortal_lock": True, "outcome": "LOSS"},
+        ]
+        notable = chat_personality._select_notable_impact(impacts)
+        self.assertIsNotNone(notable)
+        assert notable is not None  # narrow for basedpyright
+        self.assertEqual(notable["display_name"], "Buster")
+
+    def test_fact_features_busted_lock_and_names_winner(self) -> None:
+        # Winning mortal lock listed FIRST, busted mortal lock later.
+        impacts = [
+            {"display_name": "Winner", "is_mortal_lock": True, "outcome": "WIN"},
+            {"display_name": "Buster", "is_mortal_lock": True, "outcome": "LOSS"},
+        ]
+        fact = chat_personality._enriched_game_final_fact({"week": 3}, self._ctx(impacts))
+        self.assertIsNotNone(fact)
+        assert fact is not None  # narrow for basedpyright
+        # The BUST is the featured fate...
+        self.assertIn("Buster", fact)
+        self.assertIn("busted", fact)
+        # ...and the contrasting winner is named.
+        self.assertIn("Winner", fact)
+        self.assertIn("cashed", fact)
+
+    def test_base_list_prefers_loss_over_win(self) -> None:
+        impacts = [
+            {"display_name": "Hits", "is_mortal_lock": False, "outcome": "WIN"},
+            {"display_name": "Busts", "is_mortal_lock": False, "outcome": "LOSS"},
+        ]
+        notable = chat_personality._select_notable_impact(impacts)
+        self.assertIsNotNone(notable)
+        assert notable is not None  # narrow for basedpyright
+        self.assertEqual(notable["display_name"], "Busts")
+
+    def test_single_winning_mortal_lock_still_featured(self) -> None:
+        impacts = [{"display_name": "Solo", "is_mortal_lock": True, "outcome": "WIN"}]
+        fact = chat_personality._enriched_game_final_fact({"week": 3}, self._ctx(impacts))
+        self.assertIsNotNone(fact)
+        assert fact is not None  # narrow for basedpyright
+        self.assertIn("Solo", fact)
+        self.assertIn("hit", fact)
+
+    def test_empty_impacts_produce_no_clause_and_no_raise(self) -> None:
+        self.assertIsNone(chat_personality._select_notable_impact([]))
+        fact = chat_personality._enriched_game_final_fact({"week": 3}, self._ctx([]))
+        self.assertIsNotNone(fact)
+        assert fact is not None  # narrow for basedpyright
+        self.assertNotIn("busted", fact)
+        self.assertNotIn("cashed", fact)
 
 
 class EmbellishChatEnrichedRosterCompleteTests(unittest.TestCase):

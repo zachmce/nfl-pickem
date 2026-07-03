@@ -49,9 +49,12 @@ _HANDLED_TYPES = frozenset(
     {"window.opened", "game.final", "roster.complete", "misc.graded", "misc.picked"}
 )
 
-# Margin thresholds (points) for the COMPUTED game.final descriptor.
+# Margin thresholds (points) for the COMPUTED game.final descriptor. Graded tiers,
+# checked highest-first so _final_descriptor returns exactly one word.
 _NAIL_BITER_MARGIN = 3  # margin <= 3 -> a nail-biter
+_COMFORTABLE_MARGIN = 10  # margin >= 10 -> a comfortable win
 _BLOWOUT_MARGIN = 17  # margin >= 17 -> a blowout
+_SPANKING_MARGIN = 28  # margin >= 28 -> a spanking
 
 # The shared STATE-FACTS-FIRST + anti-hallucination guard every embellished prompt
 # composes LAST. It mirrors recap.RECAP_PROMPT's discipline: say the news (the
@@ -79,7 +82,11 @@ _FACTS_FIRST_GUARD = (
 # active personality at compose time.
 _WINDOW_OPENED_ROLE = "You are announcing that the pick window just opened."
 
-_GAME_FINAL_ROLE = "You are reacting to a game that just went final."
+_GAME_FINAL_ROLE = (
+    "You are reacting to a game that just went final. USE the narrative tags "
+    "supplied in the facts (upset, shutout, the margin tier, a line swing) to color "
+    "the reaction, and invent NOTHING beyond the facts handed to you."
+)
 
 _ROSTER_COMPLETE_ROLE = (
     "You are reacting to a player making/setting their full roster of picks for "
@@ -110,14 +117,20 @@ def _final_descriptor(home_score: int, away_score: int) -> str:
     """Return a COMPUTED one-word margin descriptor for a final score.
 
     Pure and deterministic — derived only from ``abs(home_score - away_score)``,
-    never invented. A tight game is a ``"nail-biter"``, a runaway is a
-    ``"blowout"``, and anything in between gets ``""`` (no descriptor).
+    never invented. Graded into tiers checked highest-first so exactly one word is
+    returned: ``>= 28`` -> ``"spanking"``; ``>= 17`` -> ``"blowout"``; ``>= 10`` ->
+    ``"comfortable win"``; ``<= 3`` -> ``"nail-biter"``; anything in the 4-9 gap ->
+    ``""`` (no descriptor).
     """
     margin = abs(home_score - away_score)
-    if margin <= _NAIL_BITER_MARGIN:
-        return "nail-biter"
+    if margin >= _SPANKING_MARGIN:
+        return "spanking"
     if margin >= _BLOWOUT_MARGIN:
         return "blowout"
+    if margin >= _COMFORTABLE_MARGIN:
+        return "comfortable win"
+    if margin <= _NAIL_BITER_MARGIN:
+        return "nail-biter"
     return ""
 
 
@@ -232,6 +245,50 @@ def _basic_misc_picked_fact(event: dict) -> str:
     return f"{event.get('actor')} just submitted their Week {event.get('week')} misc call."
 
 
+def _impact_priority(impact: dict) -> int:
+    """Rank a pick impact so the MOST notable story sorts FIRST (lowest number).
+
+    A blown mortal lock is the story, so it outranks a winning one; a base bust
+    outranks a base hit; pushes/ungradeables rank last. Pure and deterministic.
+    """
+    is_ml = bool(impact.get("is_mortal_lock"))
+    outcome = impact.get("outcome")
+    if is_ml and outcome == "LOSS":
+        return 0  # a blown mortal lock — the headline
+    if is_ml and outcome == "WIN":
+        return 1
+    if outcome == "LOSS":
+        return 2  # a base bust
+    if outcome == "WIN":
+        return 3
+    return 4  # PUSH / UNGRADEABLE / other
+
+
+def _select_notable_impact(impacts: list[dict]) -> dict | None:
+    """Return the single MOST notable impact (bust-preferring), or ``None`` if empty.
+
+    Priority: mortal-lock LOSS > mortal-lock WIN > base LOSS > base WIN > other. The
+    incoming list is already stably ordered (mortal-first, then display_name) by
+    ``get_game_final_context``, so a STABLE sort by :func:`_impact_priority` keeps
+    ties deterministic.
+    """
+    if not impacts:
+        return None
+    return sorted(impacts, key=_impact_priority)[0]
+
+
+def _select_notable_win(impacts: list[dict]) -> dict | None:
+    """Return the most notable WINNING impact (mortal-lock WIN before base WIN).
+
+    Used to surface a contrasting winning fate alongside a featured bust. Returns
+    ``None`` when no impact won. Stable-sorted for deterministic ties.
+    """
+    wins = [i for i in impacts if i.get("outcome") == "WIN"]
+    if not wins:
+        return None
+    return sorted(wins, key=_impact_priority)[0]
+
+
 def _enriched_game_final_fact(event: dict, context: dict) -> str | None:
     """Build the STATE-FACTS-FIRST game.final fact, or ``None`` to fall back.
 
@@ -268,10 +325,20 @@ def _enriched_game_final_fact(event: dict, context: dict) -> str | None:
         ou = "over" if total.get("went_over") else "under"
         parts.append(f"Combined points went {ou} the {total.get('total')}.")
 
+    # Deterministic narrative tags computed by the bot (upset / shutout /
+    # expectation_swing). Derived ONLY from the stored score + spread, so the LLM
+    # gets booleans to color the reaction and invents no numbers. Hand-built test
+    # contexts may omit the key -> default to no tags.
+    narrative = context.get("narrative") or {}
+    if narrative.get("upset"):
+        parts.append("The favorite lost outright — an upset.")
+    if narrative.get("shutout"):
+        parts.append("One team got shut out.")
+    if narrative.get("expectation_swing"):
+        parts.append("The result blew past the betting line.")
+
     impacts = context.get("pick_impacts") or []
-    notable = next((i for i in impacts if i.get("is_mortal_lock")), None)
-    if notable is None and impacts:
-        notable = impacts[0]
+    notable = _select_notable_impact(impacts)
     if notable is not None:
         name = notable.get("display_name")
         outcome = notable.get("outcome")
@@ -280,6 +347,13 @@ def _enriched_game_final_fact(event: dict, context: dict) -> str | None:
             parts.append(f"{name}'s{ml} call on it hit.")
         elif outcome == "LOSS":
             parts.append(f"{name}'s{ml} call on it busted.")
+            # Surface a contrasting winning fate alongside the featured bust
+            # (deterministic, bounded to the two named players, all FINAL/public).
+            winner = _select_notable_win(impacts)
+            if winner is not None and winner is not notable:
+                wname = winner.get("display_name")
+                wml = " mortal-lock" if winner.get("is_mortal_lock") else ""
+                parts.append(f"Meanwhile {wname}'s{wml} call cashed.")
 
     return " ".join(parts)
 
