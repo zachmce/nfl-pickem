@@ -245,6 +245,50 @@ def _basic_misc_picked_fact(event: dict) -> str:
     return f"{event.get('actor')} just submitted their Week {event.get('week')} misc call."
 
 
+def _impact_priority(impact: dict) -> int:
+    """Rank a pick impact so the MOST notable story sorts FIRST (lowest number).
+
+    A blown mortal lock is the story, so it outranks a winning one; a base bust
+    outranks a base hit; pushes/ungradeables rank last. Pure and deterministic.
+    """
+    is_ml = bool(impact.get("is_mortal_lock"))
+    outcome = impact.get("outcome")
+    if is_ml and outcome == "LOSS":
+        return 0  # a blown mortal lock — the headline
+    if is_ml and outcome == "WIN":
+        return 1
+    if outcome == "LOSS":
+        return 2  # a base bust
+    if outcome == "WIN":
+        return 3
+    return 4  # PUSH / UNGRADEABLE / other
+
+
+def _select_notable_impact(impacts: list[dict]) -> dict | None:
+    """Return the single MOST notable impact (bust-preferring), or ``None`` if empty.
+
+    Priority: mortal-lock LOSS > mortal-lock WIN > base LOSS > base WIN > other. The
+    incoming list is already stably ordered (mortal-first, then display_name) by
+    ``get_game_final_context``, so a STABLE sort by :func:`_impact_priority` keeps
+    ties deterministic.
+    """
+    if not impacts:
+        return None
+    return sorted(impacts, key=_impact_priority)[0]
+
+
+def _select_notable_win(impacts: list[dict]) -> dict | None:
+    """Return the most notable WINNING impact (mortal-lock WIN before base WIN).
+
+    Used to surface a contrasting winning fate alongside a featured bust. Returns
+    ``None`` when no impact won. Stable-sorted for deterministic ties.
+    """
+    wins = [i for i in impacts if i.get("outcome") == "WIN"]
+    if not wins:
+        return None
+    return sorted(wins, key=_impact_priority)[0]
+
+
 def _enriched_game_final_fact(event: dict, context: dict) -> str | None:
     """Build the STATE-FACTS-FIRST game.final fact, or ``None`` to fall back.
 
@@ -294,9 +338,7 @@ def _enriched_game_final_fact(event: dict, context: dict) -> str | None:
         parts.append("The result blew past the betting line.")
 
     impacts = context.get("pick_impacts") or []
-    notable = next((i for i in impacts if i.get("is_mortal_lock")), None)
-    if notable is None and impacts:
-        notable = impacts[0]
+    notable = _select_notable_impact(impacts)
     if notable is not None:
         name = notable.get("display_name")
         outcome = notable.get("outcome")
@@ -305,6 +347,13 @@ def _enriched_game_final_fact(event: dict, context: dict) -> str | None:
             parts.append(f"{name}'s{ml} call on it hit.")
         elif outcome == "LOSS":
             parts.append(f"{name}'s{ml} call on it busted.")
+            # Surface a contrasting winning fate alongside the featured bust
+            # (deterministic, bounded to the two named players, all FINAL/public).
+            winner = _select_notable_win(impacts)
+            if winner is not None and winner is not notable:
+                wname = winner.get("display_name")
+                wml = " mortal-lock" if winner.get("is_mortal_lock") else ""
+                parts.append(f"Meanwhile {wname}'s{wml} call cashed.")
 
     return " ".join(parts)
 

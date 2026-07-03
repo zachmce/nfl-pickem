@@ -512,6 +512,76 @@ class EmbellishChatEnrichedGameFinalTests(unittest.TestCase):
         self.assertIn("KC", calls[0]["fact"])
 
 
+class BustPreferringImpactTests(unittest.TestCase):
+    """The game.final impact selection features a BUSTED mortal lock over a winning
+    one (mortal-lock LOSS > mortal-lock WIN > base bust > base win), deterministic."""
+
+    def _ctx(self, impacts: list[dict]) -> dict:
+        return {
+            "found": True,
+            "home": "KC",
+            "away": "LAC",
+            "home_score": 27,
+            "away_score": 20,
+            "spread_result": None,
+            "total_result": None,
+            "narrative": {},
+            "pick_impacts": impacts,
+        }
+
+    def test_selector_priority_prefers_busted_mortal_lock(self) -> None:
+        impacts = [
+            {"display_name": "Winner", "is_mortal_lock": True, "outcome": "WIN"},
+            {"display_name": "Buster", "is_mortal_lock": True, "outcome": "LOSS"},
+        ]
+        notable = chat_personality._select_notable_impact(impacts)
+        self.assertIsNotNone(notable)
+        assert notable is not None  # narrow for basedpyright
+        self.assertEqual(notable["display_name"], "Buster")
+
+    def test_fact_features_busted_lock_and_names_winner(self) -> None:
+        # Winning mortal lock listed FIRST, busted mortal lock later.
+        impacts = [
+            {"display_name": "Winner", "is_mortal_lock": True, "outcome": "WIN"},
+            {"display_name": "Buster", "is_mortal_lock": True, "outcome": "LOSS"},
+        ]
+        fact = chat_personality._enriched_game_final_fact({"week": 3}, self._ctx(impacts))
+        self.assertIsNotNone(fact)
+        assert fact is not None  # narrow for basedpyright
+        # The BUST is the featured fate...
+        self.assertIn("Buster", fact)
+        self.assertIn("busted", fact)
+        # ...and the contrasting winner is named.
+        self.assertIn("Winner", fact)
+        self.assertIn("cashed", fact)
+
+    def test_base_list_prefers_loss_over_win(self) -> None:
+        impacts = [
+            {"display_name": "Hits", "is_mortal_lock": False, "outcome": "WIN"},
+            {"display_name": "Busts", "is_mortal_lock": False, "outcome": "LOSS"},
+        ]
+        notable = chat_personality._select_notable_impact(impacts)
+        self.assertIsNotNone(notable)
+        assert notable is not None  # narrow for basedpyright
+        self.assertEqual(notable["display_name"], "Busts")
+
+    def test_single_winning_mortal_lock_still_featured(self) -> None:
+        impacts = [{"display_name": "Solo", "is_mortal_lock": True, "outcome": "WIN"}]
+        fact = chat_personality._enriched_game_final_fact({"week": 3}, self._ctx(impacts))
+        self.assertIsNotNone(fact)
+        assert fact is not None  # narrow for basedpyright
+        self.assertIn("Solo", fact)
+        self.assertIn("hit", fact)
+
+    def test_empty_impacts_produce_no_clause_and_no_raise(self) -> None:
+        self.assertIsNone(chat_personality._select_notable_impact([]))
+        fact = chat_personality._enriched_game_final_fact({"week": 3}, self._ctx([]))
+        self.assertIsNotNone(fact)
+        assert fact is not None  # narrow for basedpyright
+        self.assertNotIn("busted", fact)
+        self.assertNotIn("cashed", fact)
+
+
 class EmbellishChatEnrichedRosterCompleteTests(unittest.TestCase):
     """roster.complete FACT STATES the actor's rank + season total and the
     completion COUNT — never names of the outstanding, never pick content."""
