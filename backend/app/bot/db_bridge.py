@@ -278,6 +278,7 @@ async def get_game_final_context_async(week: int, away_abbr: str, home_abbr: str
                     "spread_result": None,
                     "total_result": None,
                     "pick_impacts": [],
+                    "narrative": {},
                 }
             return get_game_final_context(
                 session, season, week, away_abbr=away_abbr, home_abbr=home_abbr

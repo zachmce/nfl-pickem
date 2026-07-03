@@ -30,6 +30,8 @@ survives a changing opponent.
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import structlog
 from sqlmodel import Session, select
 
@@ -259,6 +261,63 @@ def _game_final_side_label(
     return "Misc"
 
 
+# A large gap (points) between the actual favorite margin and the posted spread is
+# an expectation swing — the result blew past what the line implied.
+_SWING_POINTS = 10
+
+
+def _empty_narrative() -> dict:
+    """The all-False narrative shape (upset / shutout / expectation_swing)."""
+    return {"upset": False, "shutout": False, "expectation_swing": False}
+
+
+def _game_narrative(
+    *,
+    favorite_abbr: str | None,
+    away_score: int | None,
+    home_score: int | None,
+    spread: Decimal | None,
+    favorite_is_home: bool,
+) -> dict:
+    """Compute the DETERMINISTIC game.final narrative tags from primitives only.
+
+    Pure and db-free (no ORM, no session) so it is unit-testable without a db. All
+    tags are DERIVED entirely from the stored final score + posted spread + which
+    side was favored — nothing is invented:
+
+    * ``shutout`` — one side was held to 0 while the other scored.
+    * ``upset`` — the favorite (``favorite_abbr`` known) lost outright: its final
+      score is strictly LESS than the underdog's.
+    * ``expectation_swing`` — the spread is a positive magnitude and the actual
+      favorite margin (``favorite_score - underdog_score``, negative when the
+      favorite lost) differs from the posted spread by at least ``_SWING_POINTS``.
+
+    Guards against missing scores/spread -> the corresponding tag stays False. Best
+    effort: returns a plain dict of booleans, never raises on well-typed inputs.
+    """
+    narrative = _empty_narrative()
+    if away_score is None or home_score is None:
+        return narrative
+
+    # shutout: one team held scoreless while the other scored.
+    if min(away_score, home_score) == 0 and max(away_score, home_score) > 0:
+        narrative["shutout"] = True
+
+    if favorite_abbr is not None:
+        favorite_score = home_score if favorite_is_home else away_score
+        underdog_score = away_score if favorite_is_home else home_score
+        # upset: the favorite lost outright.
+        if favorite_score < underdog_score:
+            narrative["upset"] = True
+        # expectation_swing: the actual favorite margin blew past the posted line.
+        if spread is not None and spread > 0:
+            actual_favorite_margin = favorite_score - underdog_score
+            if abs(actual_favorite_margin - float(spread)) >= _SWING_POINTS:
+                narrative["expectation_swing"] = True
+
+    return narrative
+
+
 def _not_found_game_final() -> dict:
     """The not-found / unresolvable shape for :func:`get_game_final_context`.
 
@@ -274,6 +333,7 @@ def _not_found_game_final() -> dict:
         "spread_result": None,
         "total_result": None,
         "pick_impacts": [],
+        "narrative": _empty_narrative(),
     }
 
 
@@ -404,6 +464,20 @@ def get_game_final_context(
     # Mortal locks first, then by display_name for a stable, bounded ordering.
     impacts.sort(key=lambda i: (not i["is_mortal_lock"], i["display_name"]))
 
+    # Deterministic narrative tags derived ONLY from the stored score + spread +
+    # which side was favored. Best-effort: a bad value degrades to all-False so a
+    # narrative slip never breaks the (pure, never-raising) builder.
+    try:
+        narrative = _game_narrative(
+            favorite_abbr=favorite_abbr,
+            away_score=game.away_score,
+            home_score=game.home_score,
+            spread=game.spread,
+            favorite_is_home=game.favorite_team_id == home_id,
+        )
+    except Exception:  # pragma: no cover - defensive; helper is pure
+        narrative = _empty_narrative()
+
     return {
         "found": True,
         "away": away_abbr,
@@ -413,6 +487,7 @@ def get_game_final_context(
         "spread_result": spread_result,
         "total_result": total_result,
         "pick_impacts": impacts,
+        "narrative": narrative,
     }
 
 
