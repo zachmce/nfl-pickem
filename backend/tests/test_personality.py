@@ -3,7 +3,7 @@
 The whole point of the swap: a personality changes ONLY the leading voice
 preamble — never the byte-identical anti-hallucination GUARD, never the per-event
 ROLE clauses (the roster count-only leak clause, the misc verdict-preservation
-clause, the recap no-prior-standings clause). These tests compose every event's
+clause, the recap supplied-storyline clause). These tests compose every event's
 system prompt for EVERY personality and assert:
 
 * the ``_FACTS_FIRST_GUARD`` (and the recap/repeated-pick guard tails) appear
@@ -59,10 +59,9 @@ _LEAK_CLAUSE = (
 # The misc.graded verdict-preservation clause that must survive every voice.
 _VERDICT_CLAUSE = "do NOT alter the verdict or the points"
 
-# The recap no-prior-week-standings clause that must survive every voice.
-_NO_PRIOR_STANDINGS_CLAUSE = (
-    "you were given no prior-week standings, so never claim anyone rose or fell"
-)
+# The recap supplied-storyline clause that must survive every voice (260703-jun: the
+# guard now PERMITS supplied storylines while forbidding invented ones).
+_RECAP_STORYLINE_CLAUSE = "never claim anyone rose or fell except as those notes state"
 
 
 def _composed(personality_id: str) -> dict[str, str]:
@@ -118,9 +117,9 @@ class LeakAndVerdictClauseSurviveTests(unittest.TestCase):
         for pid in available_personality_ids():
             self.assertIn(_VERDICT_CLAUSE, _composed(pid)["misc.graded"])
 
-    def test_recap_no_prior_standings_clause_present_for_every_personality(self) -> None:
+    def test_recap_storyline_clause_present_for_every_personality(self) -> None:
         for pid in available_personality_ids():
-            self.assertIn(_NO_PRIOR_STANDINGS_CLAUSE, _composed(pid)["week.recap"])
+            self.assertIn(_RECAP_STORYLINE_CLAUSE, _composed(pid)["week.recap"])
 
 
 class SwapChangesVoiceNotGuardTests(unittest.TestCase):
@@ -145,7 +144,7 @@ class SwapChangesVoiceNotGuardTests(unittest.TestCase):
             self.assertNotIn(chat_personality._FACTS_FIRST_GUARD, voice)
             self.assertNotIn(_LEAK_CLAUSE, voice)
             self.assertNotIn(_VERDICT_CLAUSE, voice)
-            self.assertNotIn(_NO_PRIOR_STANDINGS_CLAUSE, voice)
+            self.assertNotIn(_RECAP_STORYLINE_CLAUSE, voice)
 
 
 class DefaultFallbackTests(unittest.TestCase):

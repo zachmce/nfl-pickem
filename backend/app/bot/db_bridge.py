@@ -237,9 +237,10 @@ async def get_recap_context_async(week: int) -> dict:
     Same posture as :func:`get_week_picks_async`: resolves the active season via
     ``current_season`` then runs ``get_recap_context`` inside a thread over
     ``task_session()``. Returns ``{"week": week, "weekly_scores": [],
-    "season_standings": []}`` when the season is ambiguous/empty. Plain dict out
-    only; NO ORM escapes the thread; this module stays Discord-free (no business
-    logic here — the season-resolve + shaping live in
+    "season_standings": [], "storylines": []}`` when the season is ambiguous/empty
+    (the ``storylines`` key mirrors the populated context shape — 260703-jun). Plain
+    dict out only; NO ORM escapes the thread; this module stays Discord-free (no
+    business logic here — the season-resolve + shaping live in
     :mod:`app.services.notifications_read`).
     """
 
@@ -247,7 +248,12 @@ async def get_recap_context_async(week: int) -> dict:
         with task_session() as session:
             season = current_season(session)
             if season is None:
-                return {"week": week, "weekly_scores": [], "season_standings": []}
+                return {
+                    "week": week,
+                    "weekly_scores": [],
+                    "season_standings": [],
+                    "storylines": [],
+                }
             return get_recap_context(session, season, week)
 
     return await asyncio.to_thread(_sync)

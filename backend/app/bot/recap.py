@@ -29,19 +29,24 @@ logger = structlog.get_logger(__name__)
 RECAP_ROLE = (
     "You are writing a short weekly recap column. Given this week's final per-player "
     "scores and the current season standings, reply with 2-3 short sentences that "
-    "recap THIS week's results AND the current season picture."
+    "recap THIS week's results AND the current season picture. When season storyline "
+    "notes are supplied, you may weave in those cross-week callbacks — but draw them "
+    "ONLY from the supplied notes and invent no streaks, tenures, or superlatives of "
+    "your own."
 )
 
-# The INVARIANT recap guard. It MUST instruct the model to narrate ONLY the supplied
-# numbers and NOT invent movement/trends — no prior-week standings are supplied, so
-# the model has no basis to claim anyone "jumped" or "climbed" (T-tfb-02). This
-# stays byte-identical across every personality (the no-prior-standings clause is a
-# correctness guarantee, not voice flavor — 260627-xbb).
+# The INVARIANT recap guard. It permits the SUPPLIED season storylines (260703-jun
+# feeds prior-week-derived storyline notes) while preserving the anti-hallucination
+# intent: narrate a movement/streak/lead ONLY when it appears in the supplied notes,
+# and invent nothing beyond them (T-tfb-02 / T-jun-03). It stays byte-identical across
+# every personality (a correctness guarantee, not voice flavor — 260627-xbb). NOTE: the
+# SHARED _FACTS_FIRST_GUARD used by the other events is a DIFFERENT constant and is
+# untouched by this revision.
 RECAP_GUARD = (
-    "Use ONLY the numbers you are given. Do NOT invent movement, trends, jumps, "
-    "climbs, streaks, or any stat that is not in the data — you were given no "
-    "prior-week standings, so never claim anyone rose or fell. Use at most one or "
-    "two emoji."
+    "Use ONLY the numbers and season storylines you are given. Narrate a movement, "
+    "streak, or lead ONLY when it appears in the supplied storyline notes, and never "
+    "claim anyone rose or fell except as those notes state; invent nothing beyond "
+    "them. Use at most one or two emoji."
 )
 
 # Back-compat: the composed default (sarcastic) recap prompt. ``build_week_recap``
@@ -82,9 +87,13 @@ def _recap_fact(context: dict) -> str | None:
     Returns ``None`` when there are no weekly scores (nothing to narrate). Otherwise
     builds a deterministic, multi-line fact from the context numbers ONLY: a
     "This week (Week N):" section listing each ``{display_name}: {weekly_score}``
-    high->low, and a "Season standings:" section listing each ``{display_name} —
-    {season_total} (rank {rank}, {gap_to_leader} back)`` in order. This is the LLM
-    input; it carries display-only fields only (never user_id).
+    high->low, a "Season standings:" section listing each ``{display_name} —
+    {season_total} (rank {rank}, {gap_to_leader} back)`` in order, and — when the
+    context carries a non-empty ``storylines`` list (260703-jun) — a "Season
+    storylines:" section listing each supplied tag's display text. When storylines are
+    absent/empty NO section is appended, so an empty-storyline recap fact is
+    byte-identical to the pre-260703-jun output. This is the LLM input; it carries
+    display-only fields only (never user_id).
     """
     weekly_scores = context.get("weekly_scores") or []
     if not weekly_scores:
@@ -103,6 +112,16 @@ def _recap_fact(context: dict) -> str | None:
                 f"- {row['display_name']} — {row['season_total']} "
                 f"(rank {row['rank']}, {row['gap_to_leader']} back)"
             )
+
+    # Supplied season-storyline notes (display-only). Absent/empty -> no section, so
+    # the fact stays byte-identical to the pre-storyline output. Each tag is a
+    # display-only {kind, text, fresh} dict (or a plain string).
+    storylines = context.get("storylines") or []
+    if storylines:
+        lines.append("Season storylines:")
+        for tag in storylines:
+            text = tag.get("text", "") if isinstance(tag, dict) else tag
+            lines.append(f"- {text}")
 
     return "\n".join(lines)
 
