@@ -45,6 +45,16 @@ _CTX = {
 }
 
 
+# A populated context carrying a display-only storyline bundle (260703-jun).
+_CTX_WITH_STORYLINES = {
+    **_CTX,
+    "storylines": [
+        {"kind": "mortal_lock_streak", "text": "alice has missed their mortal lock 3 weeks running", "fresh": True},
+        {"kind": "superlative", "text": "the biggest upset so far: T2 stunned T1 in Week 2", "fresh": False},
+    ],
+}
+
+
 def _event():
     return week_recap_event(week=3, winner="alice", winner_score=9, leader="alice", leader_score=30)
 
@@ -146,6 +156,21 @@ class RecapFactTests(unittest.TestCase):
         self.assertIn("alice", fact)
         self.assertIn("bob", fact)
         self.assertNotIn("user_id", fact)
+
+    def test_supplied_storylines_render_into_fact(self) -> None:
+        fact = recap._recap_fact(_CTX_WITH_STORYLINES)
+        self.assertIsNotNone(fact)
+        self.assertIn("Season storylines:", fact)
+        self.assertIn("missed their mortal lock 3 weeks running", fact)
+        self.assertIn("biggest upset", fact)
+        # Deterministic (pure).
+        self.assertEqual(fact, recap._recap_fact(_CTX_WITH_STORYLINES))
+
+    def test_absent_or_empty_storylines_add_no_section(self) -> None:
+        # Byte-identical to the no-storyline output whether the key is absent or [].
+        baseline = recap._recap_fact(_CTX)
+        self.assertNotIn("Season storylines:", baseline or "")
+        self.assertEqual(recap._recap_fact({**_CTX, "storylines": []}), baseline)
 
 
 if __name__ == "__main__":
