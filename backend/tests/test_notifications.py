@@ -38,6 +38,7 @@ from app.services.notifications import (
     player_registered_event,
     publish_event,
     roster_complete_event,
+    to_game_final_impacts,
     week_recap_event,
     window_closed_event,
     window_opened_event,
@@ -313,9 +314,91 @@ class ChatEventBuilderTests(unittest.TestCase):
         self.assertEqual(event["home"], "KC")
         self.assertEqual(event["away_score"], 20)
         self.assertEqual(event["home_score"], 27)
+        # Omitting impacts yields an empty list (back-compatible default).
+        self.assertEqual(event["impacts"], [])
         self.assertEqual(
             set(event.keys()),
-            {"v", "type", "targets", "week", "away", "home", "away_score", "home_score"},
+            {
+                "v",
+                "type",
+                "targets",
+                "week",
+                "away",
+                "home",
+                "away_score",
+                "home_score",
+                "impacts",
+            },
+        )
+
+    def test_game_final_carries_impacts(self) -> None:
+        impacts = [
+            {"username": "Alice", "outcome": "busted", "was_mortal_lock": True},
+            {"username": "Bob", "outcome": "cashed", "was_mortal_lock": False},
+        ]
+        event = game_final_event(
+            week=3,
+            away_abbr="LAC",
+            home_abbr="KC",
+            away_score=20,
+            home_score=27,
+            impacts=impacts,
+        )
+        self.assertEqual(event["impacts"], impacts)
+        # The whole event must survive a JSON round-trip unchanged (it is
+        # json.dumps'd to Redis downstream).
+        self.assertEqual(json.loads(json.dumps(event)), event)
+
+    def test_to_game_final_impacts_win_and_loss_mapping(self) -> None:
+        result = to_game_final_impacts(
+            [
+                {"display_name": "Alice", "is_mortal_lock": False, "outcome": "WIN"},
+                {"display_name": "Bob", "is_mortal_lock": False, "outcome": "LOSS"},
+            ]
+        )
+        self.assertEqual(
+            result,
+            [
+                {"username": "Alice", "outcome": "cashed", "was_mortal_lock": False},
+                {"username": "Bob", "outcome": "busted", "was_mortal_lock": False},
+            ],
+        )
+
+    def test_to_game_final_impacts_drops_non_point_outcomes(self) -> None:
+        for dropped in ("PUSH", "INELIGIBLE", "UNGRADEABLE"):
+            result = to_game_final_impacts(
+                [{"display_name": "Alice", "is_mortal_lock": False, "outcome": dropped}]
+            )
+            self.assertEqual(result, [], f"{dropped} should be dropped")
+
+    def test_to_game_final_impacts_preserves_order_and_mortal_lock(self) -> None:
+        # Mortal-lock-first order (as the context builder emits it) is preserved,
+        # and was_mortal_lock carries through from is_mortal_lock.
+        result = to_game_final_impacts(
+            [
+                {"display_name": "Zed", "is_mortal_lock": True, "outcome": "WIN"},
+                {"display_name": "Alice", "is_mortal_lock": False, "outcome": "LOSS"},
+            ]
+        )
+        self.assertEqual(
+            result,
+            [
+                {"username": "Zed", "outcome": "cashed", "was_mortal_lock": True},
+                {"username": "Alice", "outcome": "busted", "was_mortal_lock": False},
+            ],
+        )
+
+    def test_to_game_final_impacts_skips_missing_display_name(self) -> None:
+        result = to_game_final_impacts(
+            [
+                {"display_name": None, "is_mortal_lock": False, "outcome": "WIN"},
+                {"display_name": "", "is_mortal_lock": False, "outcome": "LOSS"},
+                {"display_name": "Bob", "is_mortal_lock": False, "outcome": "WIN"},
+            ]
+        )
+        self.assertEqual(
+            result,
+            [{"username": "Bob", "outcome": "cashed", "was_mortal_lock": False}],
         )
 
     def test_week_recap_shape(self) -> None:
@@ -377,7 +460,14 @@ class ChatEventBuilderTests(unittest.TestCase):
             roster_complete_event(actor="a", week=1),
             window_opened_event(week=1),
             window_closed_event(week=1),
-            game_final_event(week=1, away_abbr="A", home_abbr="B", away_score=0, home_score=0),
+            game_final_event(
+                week=1,
+                away_abbr="A",
+                home_abbr="B",
+                away_score=0,
+                home_score=0,
+                impacts=[{"username": "a", "outcome": "cashed", "was_mortal_lock": False}],
+            ),
             week_recap_event(week=1, winner="a", winner_score=0, leader="b", leader_score=0),
             misc_graded_event(actor="a", week=1, prediction="p", verdict="correct", points=1),
         ]
