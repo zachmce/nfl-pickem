@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import unittest
 from dataclasses import dataclass
+from typing import Any, cast
 
 from app.bot.game_final_embed import (
     build_game_final_embed,
@@ -26,7 +27,7 @@ from app.bot.team_emoji import (
     reset_emoji_cache,
     resolve_team_color,
 )
-from app.services.notifications import game_final_event
+from app.services.notifications import GameFinalImpact, game_final_event
 
 
 @dataclass
@@ -38,12 +39,23 @@ class _FakeEmoji:
         return f"<:{self.name}:{self.id}>"
 
 
-def _event(**overrides):
-    base = dict(
-        week=3, away_abbr="LAC", home_abbr="KC", away_score=20, home_score=27, impacts=[]
+def _event(
+    *,
+    week: int = 3,
+    away_abbr: str = "LAC",
+    home_abbr: str = "KC",
+    away_score: int = 20,
+    home_score: int = 27,
+    impacts: list[dict[str, Any]] | None = None,
+) -> dict:
+    return game_final_event(
+        week=week,
+        away_abbr=away_abbr,
+        home_abbr=home_abbr,
+        away_score=away_score,
+        home_score=home_score,
+        impacts=cast("list[GameFinalImpact]", impacts or []),
     )
-    base.update(overrides)
-    return game_final_event(**base)
 
 
 class BuildScoreLineTests(unittest.TestCase):
@@ -121,9 +133,7 @@ class BuildImpactFieldsTests(unittest.TestCase):
         self.assertIn("amy", fields[0][1])
 
     def test_both_sides_yield_two_fields(self) -> None:
-        fields = build_impact_fields(
-            [self._impact("bob", "busted"), self._impact("amy", "cashed")]
-        )
+        fields = build_impact_fields([self._impact("bob", "busted"), self._impact("amy", "cashed")])
         names = [n for n, _ in fields]
         self.assertIn("Busted", names)
         self.assertIn("Cashed", names)

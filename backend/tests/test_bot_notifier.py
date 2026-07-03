@@ -242,10 +242,10 @@ class _SendableChannel:
         self.embeds: list = []
         self.send_kwargs: list[dict] = []
 
-    async def send(self, line=None, *, embed=None, **kwargs) -> None:  # noqa: ANN001
+    async def send(self, line: str | None = None, *, embed=None, **kwargs) -> None:  # noqa: ANN001
         if embed is not None:
             self.embeds.append(embed)
-        else:
+        elif line is not None:
             self.sent.append(line)
         self.send_kwargs.append(kwargs)
 
@@ -472,7 +472,7 @@ class RunNotifierEmbellishTests(unittest.IsolatedAsyncioTestCase):
         # Mention hygiene still applies on the embed send.
         import discord
 
-        am = chat.send_kwargs[0].get("allowed_mentions")
+        am = chat.send_kwargs[0]["allowed_mentions"]
         self.assertIsInstance(am, discord.AllowedMentions)
         self.assertFalse(am.everyone)
 
@@ -797,7 +797,7 @@ class RunNotifierGameFinalFallbackTests(unittest.IsolatedAsyncioTestCase):
         # Fallback send still suppresses mass mentions.
         import discord
 
-        am = chat_channel.send_kwargs[-1].get("allowed_mentions")
+        am = chat_channel.send_kwargs[-1]["allowed_mentions"]
         self.assertIsInstance(am, discord.AllowedMentions)
         self.assertFalse(am.everyone)
 

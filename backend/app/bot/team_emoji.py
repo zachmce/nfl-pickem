@@ -147,6 +147,7 @@ def resolve_team_color(abbr: str) -> int | None:
     """
     return _TEAM_PRIMARY_COLOR.get(abbr)
 
+
 # Module-level mutable cache: lowercased emoji-name -> "<:name:id>" string.
 # Populated ONCE at startup by client.py; read by resolve_logo. Mirrors the
 # app.bot.llm_client module-singleton pattern.
