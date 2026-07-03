@@ -49,8 +49,16 @@ _CTX = {
 _CTX_WITH_STORYLINES = {
     **_CTX,
     "storylines": [
-        {"kind": "mortal_lock_streak", "text": "alice has missed their mortal lock 3 weeks running", "fresh": True},
-        {"kind": "superlative", "text": "the biggest upset so far: T2 stunned T1 in Week 2", "fresh": False},
+        {
+            "kind": "mortal_lock_streak",
+            "text": "alice has missed their mortal lock 3 weeks running",
+            "fresh": True,
+        },
+        {
+            "kind": "superlative",
+            "text": "the biggest upset so far: T2 stunned T1 in Week 2",
+            "fresh": False,
+        },
     ],
 }
 
@@ -159,7 +167,7 @@ class RecapFactTests(unittest.TestCase):
 
     def test_supplied_storylines_render_into_fact(self) -> None:
         fact = recap._recap_fact(_CTX_WITH_STORYLINES)
-        self.assertIsNotNone(fact)
+        assert fact is not None
         self.assertIn("Season storylines:", fact)
         self.assertIn("missed their mortal lock 3 weeks running", fact)
         self.assertIn("biggest upset", fact)

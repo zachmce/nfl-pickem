@@ -145,9 +145,7 @@ def mortal_lock_streak(
     return Storyline(kind="mortal_lock_streak", text=text, fresh=fresh, subject=subject)
 
 
-def leader_tenure(
-    leader_by_week: Sequence[tuple[int, str]], *, week: int
-) -> Storyline | None:
+def leader_tenure(leader_by_week: Sequence[tuple[int, str]], *, week: int) -> Storyline | None:
     """Season-leader tenure / lead change for the CURRENT leader.
 
     ``leader_by_week`` is the ordered ``(week_number, leader_display_name)`` sequence of
@@ -275,7 +273,9 @@ def select_storylines(
 # --------------------------------------------------------------------------- #
 
 
-def _biggest_upset(session: Session, *, season: int, through_week: int) -> SuperlativeCandidate | None:
+def _biggest_upset(
+    session: Session, *, season: int, through_week: int
+) -> SuperlativeCandidate | None:
     """The biggest outright upset over the season's FINAL games up to ``through_week``.
 
     An "upset" is the favorite losing outright (favorite final score < underdog's) —
@@ -319,7 +319,10 @@ def _biggest_upset(session: Session, *, season: int, through_week: int) -> Super
             magnitude=float(margin),
             week_set=game.week,
         )
-        if best is None or (candidate.magnitude, candidate.week_set) > (best.magnitude, best.week_set):
+        if best is None or (candidate.magnitude, candidate.week_set) > (
+            best.magnitude,
+            best.week_set,
+        ):
             best = candidate
     return best
 
@@ -356,7 +359,9 @@ def get_season_storylines(
             if not results:
                 continue
             for row in results:
-                cumulative[row.display_name] = cumulative.get(row.display_name, 0) + row.weekly_score
+                cumulative[row.display_name] = (
+                    cumulative.get(row.display_name, 0) + row.weekly_score
+                )
                 weekly_high.append((row.weekly_score, wk, row.display_name))
 
                 lock_result = LOCK_NONE

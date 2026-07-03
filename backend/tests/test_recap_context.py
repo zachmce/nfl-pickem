@@ -77,7 +77,7 @@ class GetRecapContextTests(unittest.TestCase):
             session.commit()
             for t in teams:
                 session.refresh(t)
-            tid = [t.id for t in teams]
+            tid = [t.id for t in teams if t.id is not None]
 
             pw = hash_password("correct horse battery staple")
             # Distinct discord_ids: the one-null-discord_id invariant (260629-n59)
@@ -161,6 +161,11 @@ class GetRecapContextTests(unittest.TestCase):
                 session.refresh(game_fav)
                 session.refresh(game_total)
                 session.refresh(game_upset)
+                assert (
+                    game_fav.id is not None
+                    and game_total.id is not None
+                    and game_upset.id is not None
+                )
 
                 session.add_all(
                     [
