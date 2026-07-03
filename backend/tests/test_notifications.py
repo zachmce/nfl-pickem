@@ -34,6 +34,7 @@ from app.services.notifications import (
     misc_picked_event,
     pick_cleared_event,
     pick_event,
+    GameFinalImpact,
     pick_log_detail,
     player_registered_event,
     publish_event,
@@ -332,7 +333,7 @@ class ChatEventBuilderTests(unittest.TestCase):
         )
 
     def test_game_final_carries_impacts(self) -> None:
-        impacts = [
+        impacts: list[GameFinalImpact] = [
             {"username": "Alice", "outcome": "busted", "was_mortal_lock": True},
             {"username": "Bob", "outcome": "cashed", "was_mortal_lock": False},
         ]

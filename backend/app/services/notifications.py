@@ -371,7 +371,8 @@ def to_game_final_impacts(pick_impacts: list[dict]) -> list[GameFinalImpact]:
         display_name = impact.get("display_name")
         if not display_name:
             continue
-        word = _GRADE_OUTCOME_TO_IMPACT_WORD.get(impact.get("outcome"))
+        outcome = impact.get("outcome")
+        word = _GRADE_OUTCOME_TO_IMPACT_WORD.get(outcome) if isinstance(outcome, str) else None
         if word is None:
             continue
         impacts.append(
