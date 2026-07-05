@@ -181,6 +181,12 @@ class GetWeekRecapContextTests(unittest.TestCase):
             session.commit()
             for g in (game_big_dog, game_small_dog, game_big_bust, game_tie_bust):
                 session.refresh(g)
+            assert (
+                game_big_dog.id is not None
+                and game_small_dog.id is not None
+                and game_big_bust.id is not None
+                and game_tie_bust.id is not None
+            )
 
             session.add_all(
                 [
@@ -248,6 +254,7 @@ class GetWeekRecapContextTests(unittest.TestCase):
             session.add(game_push)
             session.commit()
             session.refresh(game_push)
+            assert game_push.id is not None
             session.add(
                 Pick(
                     user_id=alice.id,
