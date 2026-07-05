@@ -238,6 +238,195 @@ def get_recap_context(session: Session, season: int, week: int) -> dict:
     }
 
 
+def _recap_upset_key(candidate: dict):
+    """Sort key for the best-call / biggest-bust ranking (upset magnitude).
+
+    Ranks by ``Game.spread`` DESCENDING (the biggest line first — the gutsiest
+    underdog win / the worst favorite bust), with a mortal-lock breaking a spread
+    tie (a mortal-lock call is amplified), then ``display_name`` for a stable final
+    tie-break. Used with :func:`min` (smallest key wins): a larger spread yields a
+    more-negative first element, ``not is_mortal_lock`` puts locks (``False``)
+    ahead, and ``display_name`` orders the rest alphabetically.
+    """
+    return (-candidate["_spread"], not candidate["is_mortal_lock"], candidate["display_name"])
+
+
+def _recap_top_impact(candidates: list[dict]) -> dict | None:
+    """Pick the single top upset impact from ``candidates`` (or ``None``).
+
+    Applies :func:`_recap_upset_key` and strips the private ``_spread`` sort helper
+    so only the display-only keys (``display_name``, ``team_abbr``, ``side_label``,
+    ``spread`` STRING, ``is_mortal_lock``) cross the boundary.
+    """
+    if not candidates:
+        return None
+    top = min(candidates, key=_recap_upset_key)
+    return {k: v for k, v in top.items() if k != "_spread"}
+
+
+def get_week_recap_context(session: Session, season: int, week: int) -> dict:
+    """Display-only ``{standings, best_call, biggest_bust, mortal_locks}`` for the recap card.
+
+    The READ side behind the marquee ``week.recap`` "closing ceremony" Discord embed
+    (260705-kuv). It REUSES the existing scoring/standings services and
+    re-implements NO scoring/standings math:
+
+    * ``standings`` — ``[{rank, display_name, season_total, week_delta}, ...]`` built
+      by joining :func:`get_recap_context`'s ``season_standings`` rows to its
+      ``weekly_scores`` by ``display_name`` (``week_delta`` = that player's
+      ``weekly_score`` this week, ``0`` when the player has no weekly entry).
+    * ``best_call`` — the UNDERDOG_COVER pick that WON on the FINAL game with the
+      largest :attr:`~app.models.Game.spread` (upset magnitude), or ``None``. Ranked
+      by spread DESC, then mortal-lock, then ``display_name``.
+    * ``biggest_bust`` — the FAVORITE_COVER pick that LOST on the FINAL game with the
+      largest ``Game.spread``, or ``None`` (a busted mortal lock is amplified — it
+      breaks spread ties). Ranked by spread DESC (mortal-lock tie-break), then
+      ``display_name``.
+    * ``mortal_locks`` — one ``{display_name, hit, points, side_label}`` row per
+      ``is_mortal_lock`` pick on a FINAL game, graded via
+      :func:`app.services.scoring.grade_pick` (``hit`` = outcome is ``WIN``); empty
+      when nobody used a mortal lock this week.
+
+    Grading is done ONLY through :func:`app.services.scoring.grade_pick` over FINAL
+    games (``Pick.result`` is vestigial for non-MISC types), and ``Game.spread`` (the
+    frozen positive-magnitude line — NOT a non-existent ``Game.n``) is the upset rank
+    key, carried across the boundary as ``str(game.spread)`` exactly like
+    :func:`get_game_final_context` does for ``spread_result``.
+
+    Information-disclosure boundary (T-kuv-01 / T-tfb-01 / T-nef-01): carries
+    ``display_name`` + integer/boolean fields + team abbreviations + a spread STRING
+    ONLY — NEVER a ``user_id``. ``side_label`` reuses :func:`_game_final_side_label`.
+    Pure read: no ``add``/``commit`` — the caller owns the session. Discord-free and
+    httpx-free. An empty/ambiguous week or season yields the all-empty shape
+    ``{standings: [], best_call: None, biggest_bust: None, mortal_locks: []}`` and
+    never raises on well-typed inputs.
+    """
+    # Standings rows: reuse the recap context (do NOT re-query standings) and join
+    # season_standings -> weekly_scores by display_name for the per-week delta.
+    recap = get_recap_context(session, season, week)
+    weekly_by_name = {row["display_name"]: row["weekly_score"] for row in recap["weekly_scores"]}
+    standings = [
+        {
+            "rank": row["rank"],
+            "display_name": row["display_name"],
+            "season_total": row["season_total"],
+            "week_delta": weekly_by_name.get(row["display_name"], 0),
+        }
+        for row in recap["season_standings"]
+    ]
+
+    empty_blocks = {"best_call": None, "biggest_bust": None, "mortal_locks": []}
+
+    # Resolve the week's FINAL games; an ambiguous/empty week means no upset blocks.
+    week_row = session.exec(select(Week).where(Week.season == season, Week.week == week)).first()
+    if week_row is None or week_row.id is None:
+        return {"standings": standings, **empty_blocks}
+
+    final_games = session.exec(
+        select(Game).where(
+            Game.season == season,
+            Game.week == week,
+            Game.status == GameStatus.FINAL,
+        )
+    ).all()
+    games_by_id = {g.id: g for g in final_games if g.id is not None}
+    if not games_by_id:
+        return {"standings": standings, **empty_blocks}
+
+    # Season Team abbreviation map (mirror get_game_final_context's abbr_by_team_id).
+    abbr_by_team_id = {
+        t.id: t.abbreviation for t in session.exec(select(Team)).all() if t.id is not None
+    }
+
+    picks = session.exec(select(Pick).where(Pick.game_id.in_(games_by_id.keys()))).all()
+    user_ids = {p.user_id for p in picks}
+    name_by_user_id = {
+        u.id: u.display_name
+        for u in session.exec(select(User).where(User.id.in_(user_ids))).all()
+        if u.id is not None
+    }
+
+    best_call_candidates: list[dict] = []
+    bust_candidates: list[dict] = []
+    mortal_locks: list[dict] = []
+    for pick in picks:
+        game = games_by_id.get(pick.game_id)
+        if game is None:
+            continue
+        display_name = name_by_user_id.get(pick.user_id)
+        if display_name is None:
+            continue
+
+        favorite_abbr = abbr_by_team_id.get(game.favorite_team_id)
+        underdog_abbr = abbr_by_team_id.get(game.underdog_team_id)
+        home_abbr = abbr_by_team_id.get(game.home_team_id)
+        away_abbr = abbr_by_team_id.get(game.away_team_id)
+        side_label = _game_final_side_label(
+            pick.pick_type,
+            favorite_abbr=favorite_abbr,
+            underdog_abbr=underdog_abbr,
+            home_abbr=home_abbr,
+            away_abbr=away_abbr,
+        )
+        grade = grade_pick(game, pick)
+
+        if pick.is_mortal_lock:
+            mortal_locks.append(
+                {
+                    "display_name": display_name,
+                    "hit": grade.outcome is GradeOutcome.WIN,
+                    "points": grade.points,
+                    "side_label": side_label,
+                }
+            )
+
+        # best_call: the gutsiest RIGHT call — an UNDERDOG_COVER win on the biggest
+        # line. grade_pick already voids a true pick'em to INELIGIBLE, so a candidate
+        # here always has a real positive spread.
+        if (
+            pick.pick_type is PickType.UNDERDOG_COVER
+            and grade.outcome is GradeOutcome.WIN
+            and game.spread is not None
+        ):
+            best_call_candidates.append(
+                {
+                    "display_name": display_name,
+                    "team_abbr": underdog_abbr,
+                    "side_label": side_label,
+                    "spread": str(game.spread),
+                    "is_mortal_lock": pick.is_mortal_lock,
+                    "_spread": game.spread,
+                }
+            )
+
+        # biggest_bust: the worst miss — a FAVORITE_COVER loss on the biggest line.
+        if (
+            pick.pick_type is PickType.FAVORITE_COVER
+            and grade.outcome is GradeOutcome.LOSS
+            and game.spread is not None
+        ):
+            bust_candidates.append(
+                {
+                    "display_name": display_name,
+                    "team_abbr": favorite_abbr,
+                    "side_label": side_label,
+                    "spread": str(game.spread),
+                    "is_mortal_lock": pick.is_mortal_lock,
+                    "_spread": game.spread,
+                }
+            )
+
+    # Stable, display-only board ordering (mortal-lock rows carry no user_id).
+    mortal_locks.sort(key=lambda m: m["display_name"])
+
+    return {
+        "standings": standings,
+        "best_call": _recap_top_impact(best_call_candidates),
+        "biggest_bust": _recap_top_impact(bust_candidates),
+        "mortal_locks": mortal_locks,
+    }
+
+
 # --------------------------------------------------------------------------- #
 # 260627-vpc — embellished-chat context readers (scope items 1, 2, 3, 5, 6).
 #

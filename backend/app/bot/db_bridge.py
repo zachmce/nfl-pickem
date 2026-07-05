@@ -26,6 +26,7 @@ from app.services.notifications_read import (
     get_recap_context,
     get_roster_complete_context,
     get_week_pick_keys,
+    get_week_recap_context,
 )
 from app.services.auth import (
     deactivate_user_by_discord_id,
@@ -255,6 +256,34 @@ async def get_recap_context_async(week: int) -> dict:
                     "storylines": [],
                 }
             return get_recap_context(session, season, week)
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_week_recap_context_async(week: int) -> dict:
+    """Async wrapper: the display-only week.recap "closing ceremony" context.
+
+    Same posture as :func:`get_recap_context_async`: resolves the active season via
+    ``current_season`` then runs
+    :func:`app.services.notifications_read.get_week_recap_context` inside a thread
+    over ``task_session()``. Returns the safe empty shape
+    ``{standings: [], best_call: None, biggest_bust: None, mortal_locks: []}`` on an
+    ambiguous/empty season. Display-only by construction (display_name + ints +
+    abbrs + a spread STRING — never a user_id). Plain dict out only; NO ORM escapes
+    the thread; this module stays Discord-free.
+    """
+
+    def _sync() -> dict:
+        with task_session() as session:
+            season = current_season(session)
+            if season is None:
+                return {
+                    "standings": [],
+                    "best_call": None,
+                    "biggest_bust": None,
+                    "mortal_locks": [],
+                }
+            return get_week_recap_context(session, season, week)
 
     return await asyncio.to_thread(_sync)
 
