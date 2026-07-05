@@ -435,6 +435,7 @@ class ChatEventBuilderTests(unittest.TestCase):
             prediction="Mahomes throws 4 TDs",
             verdict="correct",
             points=3,
+            grader="admin_zach",
         )
         self.assertEqual(event["v"], 1)
         self.assertEqual(event["type"], "misc.graded")
@@ -444,10 +445,16 @@ class ChatEventBuilderTests(unittest.TestCase):
         self.assertEqual(event["prediction"], "Mahomes throws 4 TDs")
         self.assertEqual(event["verdict"], "correct")
         self.assertEqual(event["points"], 3)
+        self.assertEqual(event["grader"], "admin_zach")
         self.assertEqual(
             set(event.keys()),
-            {"v", "type", "targets", "actor", "week", "prediction", "verdict", "points"},
+            {"v", "type", "targets", "actor", "week", "prediction", "verdict", "points", "grader"},
         )
+
+    def test_misc_graded_grader_defaults_to_none(self) -> None:
+        # grader is optional/back-compatible; omitting it carries None.
+        event = misc_graded_event(actor="bob", week=3, prediction="p", verdict="correct", points=3)
+        self.assertIsNone(event["grader"])
 
     def test_misc_graded_carries_negative_points(self) -> None:
         event = misc_graded_event(
