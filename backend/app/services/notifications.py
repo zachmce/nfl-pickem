@@ -242,11 +242,17 @@ def ingest_season_event(*, season: int, weeks: int, games: int, failed: int) -> 
 
 
 def freeze_week_event(week: int) -> dict:
-    """Build a ``freeze.week`` event — one week's lines were frozen."""
+    """Build a ``freeze.week`` event — one week's lines were frozen.
+
+    DUAL-DISPATCHED (260705-jo9): targets BOTH the ops-log (``logger`` — the terse
+    "Week N lines frozen" line) AND the chat channel (``chat`` — a LIGHT gold
+    "Week N - Lines Locked" card). The freeze is a noteworthy state change worth a
+    chat card, but the ops-log line is a useful operational signal we keep too.
+    """
     return {
         "v": 1,
         "type": "freeze.week",
-        "targets": ["logger"],
+        "targets": ["logger", "chat"],
         "week": week,
     }
 
