@@ -166,7 +166,7 @@ class BuildGameFinalEmbedTests(unittest.TestCase):
         embed = build_game_final_embed(_event(), "KC takes it")
         self.assertIsNotNone(embed.title)
         self.assertNotIn("<:", embed.title or "")
-        self.assertIn("Final", embed.title or "")
+        self.assertEqual(embed.title, "Week 3 - Game Final")
 
     def test_description_is_score_line_then_quip_verbatim(self) -> None:
         populate_emoji_cache([_FakeEmoji("chiefs", 7)])

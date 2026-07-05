@@ -120,7 +120,7 @@ def build_impact_fields(impacts: list[dict]) -> list[tuple[str, str]]:
 def build_game_final_embed(event: dict, quip: str) -> discord.Embed:
     """Assemble the ``game.final`` embed card (D-01/D-02/D-03/D-04).
 
-    * plain title (e.g. ``Week 3 · Final``) — no custom emoji;
+    * plain title (e.g. ``Week 3 - Game Final``) — no custom emoji;
     * description = deterministic score line, then the voiced ``quip`` verbatim (D-04);
     * color = the winning team's primary color (neutral on tie/unresolved);
     * Busted/Cashed fields from ``event["impacts"]`` (omit-empty / capped / marked).
@@ -128,7 +128,7 @@ def build_game_final_embed(event: dict, quip: str) -> discord.Embed:
     Pure: constructs and returns the embed, performs NO send.
     """
     week = event.get("week")
-    title = f"Week {week} · Final"
+    title = f"Week {week} - Game Final"
     description = f"{build_score_line(event)}\n{quip}"
     embed = discord.Embed(
         title=title,
