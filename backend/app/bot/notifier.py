@@ -223,18 +223,19 @@ async def run_notifier(client) -> None:
                         # render_chat one-liner baked in as the fallback
                         # (build_week_recap returns that string itself on any db OR
                         # LLM failure — so exactly one chat line lands and it NEVER
-                        # raises). The three Tier-1 reactive events (260627-t5u) get
-                        # an LLM-phrased personality line with the same deterministic
+                        # raises). The Tier-1 reactive events (260627-t5u) get an
+                        # LLM-phrased personality line with the same deterministic
                         # fallback via embellish_chat. All other chat types keep the
-                        # plain render_chat path. window.closed stays on render_chat
-                        # untouched.
+                        # plain render_chat path. window.opened and window.closed
+                        # both stay on render_chat (260705-j8o): they render as LIGHT
+                        # embeds below whose deterministic render_chat text is the
+                        # embed's fallback line — no LLM round-trip.
                         etype = event.get("type")
                         if etype == "week.recap":
                             from app.bot.recap import build_week_recap
 
                             line = await build_week_recap(event)
                         elif etype in (
-                            "window.opened",
                             "game.final",
                             "roster.complete",
                             "misc.graded",
@@ -316,28 +317,57 @@ async def run_notifier(client) -> None:
                                 )
                             continue
 
-                        # Mention hygiene (T-t5u-04): suppress @everyone/@here/role
-                        # pings so LLM-authored chat text can never ping the server.
-                        await channel.send(line, allowed_mentions=discord.AllowedMentions.none())
-                        # ADDITIVE pickem-chat personality layer (260627-nef):
-                        # AFTER the existing deterministic lock line, on a
-                        # window.closed event ONLY, post one personality line per
-                        # flagged player to the SAME chat channel. Fired here —
-                        # inside the per-message try/except and only once the
-                        # channel resolved — so any LLM/db hiccup is caught by the
-                        # notifier_message_failed guard and the loop survives
-                        # (T-nef-03). build_lock_commentary is itself best-effort
-                        # and Discord-free; firing on window.closed (all picks
-                        # final) avoids leaking any open-window pick (T-nef-02).
-                        if event.get("type") == "window.closed":
-                            from app.bot.commentary import build_lock_commentary
+                        # window.opened / window.closed (260705-j8o): render a LIGHT
+                        # embed card on the chat channel — plain title carrying the
+                        # week, a green/red bar (open/locked), and one deterministic
+                        # body line. NO LLM. BEST-EFFORT (T-j8o-02): the embed
+                        # build+send is wrapped so ANY failure falls back to the
+                        # existing text `line` send — the message still posts and the
+                        # loop never dies. Mirrors the game.final / misc.graded blocks.
+                        if event.get("type") in ("window.opened", "window.closed"):
+                            try:
+                                from app.bot.window_embed import build_window_embed
 
-                            for extra in await build_lock_commentary(event.get("week")):
-                                # Chat-channel send — decorate team references too.
+                                embed = build_window_embed(event)
                                 await channel.send(
-                                    decorate_team_logos(extra),
+                                    embed=embed,
                                     allowed_mentions=discord.AllowedMentions.none(),
                                 )
+                            except Exception:
+                                logger.warning("window_embed_failed", exc_info=True)
+                                # Best-effort fallback: post the text line instead of
+                                # dropping the message entirely.
+                                await channel.send(
+                                    line, allowed_mentions=discord.AllowedMentions.none()
+                                )
+                            # ADDITIVE pickem-chat personality layer (260627-nef):
+                            # AFTER the window.closed embed (or its text fallback),
+                            # post one personality line per flagged player to the SAME
+                            # chat channel. Runs whether the embed or the fallback
+                            # posted, so the lock-commentary follow-on is preserved
+                            # byte-for-byte. Fired here — inside the per-message
+                            # try/except and only once the channel resolved — so any
+                            # LLM/db hiccup is caught by the notifier_message_failed
+                            # guard and the loop survives (T-nef-03).
+                            # build_lock_commentary is itself best-effort and
+                            # Discord-free; firing on window.closed (all picks final)
+                            # avoids leaking any open-window pick (T-nef-02).
+                            if event.get("type") == "window.closed":
+                                from app.bot.commentary import build_lock_commentary
+
+                                for extra in await build_lock_commentary(event.get("week")):
+                                    # Chat-channel send — decorate team references too.
+                                    await channel.send(
+                                        decorate_team_logos(extra),
+                                        allowed_mentions=discord.AllowedMentions.none(),
+                                    )
+                            continue
+
+                        # Mention hygiene (T-t5u-04): suppress @everyone/@here/role
+                        # pings so LLM-authored chat text can never ping the server.
+                        # Serves the remaining plain-text chat types (roster.complete,
+                        # misc.picked).
+                        await channel.send(line, allowed_mentions=discord.AllowedMentions.none())
                 except Exception:
                     logger.warning("notifier_message_failed", exc_info=True)
                     continue
