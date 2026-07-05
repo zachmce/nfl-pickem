@@ -449,6 +449,7 @@ def misc_graded_event(
     prediction: str,
     verdict: str,
     points: int,
+    grader: str | None = None,
 ) -> dict:
     """Build a ``misc.graded`` event — an admin graded ``actor``'s MISC prediction.
 
@@ -457,8 +458,11 @@ def misc_graded_event(
     ``pick_log_detail``'s MISC branch), ``verdict`` is the plain word ``"correct"`` or
     ``"incorrect"`` (the CALLER derives it from :class:`~app.models.PickResult`; the
     builder just carries the string), and ``points`` is the graded integer (may be
-    negative). NO user_id, no secret — the key set is exactly
-    ``{v, type, targets, actor, week, prediction, verdict, points}``.
+    negative). ``grader`` is the OPTIONAL display name of the admin who graded the
+    pick (display-only, for an embed footer); it defaults to ``None`` and, when None,
+    is simply carried as ``None`` (the renderer omits the footer). NO user_id, no
+    secret — the key set is exactly
+    ``{v, type, targets, actor, week, prediction, verdict, points, grader}``.
 
     HARD RULE (T-w9w-01): ``misc_text`` is hidden-until-lock, so the CALLER must only
     publish this event once the week's pick window is CLOSED — this pure builder does
@@ -473,6 +477,7 @@ def misc_graded_event(
         "prediction": prediction,
         "verdict": verdict,
         "points": points,
+        "grader": grader,
     }
 
 

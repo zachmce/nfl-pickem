@@ -350,6 +350,7 @@ def grade_user_misc_pick(
                 prediction=pick.misc_text,
                 verdict=verdict,
                 points=pick.points,
+                grader=admin.display_name,
             )
         )
     return PickRead.from_orm_pick(pick)
