@@ -291,6 +291,31 @@ async def run_notifier(client) -> None:
                                 )
                             continue
 
+                        # misc.graded (260705-if1): render a LIGHT embed card on the
+                        # chat channel — plain title, a binary hit/miss marker line, the
+                        # voiced quip (the decorated `line`), a green/red bar by points
+                        # sign, and compact Player/Verdict/(omit-empty) Prediction fields.
+                        # BEST-EFFORT (T-if1-02): the embed build+send is wrapped so ANY
+                        # failure falls back to the existing text send — the message still
+                        # posts and the loop never dies. Mirrors the game.final block.
+                        if event.get("type") == "misc.graded":
+                            try:
+                                from app.bot.misc_graded_embed import build_misc_graded_embed
+
+                                embed = build_misc_graded_embed(event, line)
+                                await channel.send(
+                                    embed=embed,
+                                    allowed_mentions=discord.AllowedMentions.none(),
+                                )
+                            except Exception:
+                                logger.warning("misc_graded_embed_failed", exc_info=True)
+                                # Best-effort fallback: post the text line instead of
+                                # dropping the message entirely.
+                                await channel.send(
+                                    line, allowed_mentions=discord.AllowedMentions.none()
+                                )
+                            continue
+
                         # Mention hygiene (T-t5u-04): suppress @everyone/@here/role
                         # pings so LLM-authored chat text can never ping the server.
                         await channel.send(line, allowed_mentions=discord.AllowedMentions.none())
