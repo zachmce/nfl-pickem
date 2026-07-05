@@ -422,6 +422,50 @@ def game_final_event(
     }
 
 
+class RecapStandingsRow(TypedDict):
+    """One season-standings row on the ``week.recap`` event (260705-kuv).
+
+    Display-only + JSON-primitive: ``display_name`` plus derived integers
+    (``rank``, ``season_total``, ``week_delta`` = the points gained THIS week).
+    NEVER a ``user_id``.
+    """
+
+    rank: int
+    display_name: str
+    season_total: int
+    week_delta: int
+
+
+class RecapUpsetImpact(TypedDict):
+    """The best-call / biggest-bust upset impact on the ``week.recap`` event.
+
+    Display-only + JSON-primitive: ``display_name`` + the picked team's abbreviation
+    + a ``side_label`` + the frozen ``spread`` carried as a STRING (mirrors
+    ``get_game_final_context``'s ``spread_result``) + the ``is_mortal_lock`` flag.
+    NEVER a ``user_id``.
+    """
+
+    display_name: str
+    team_abbr: str
+    side_label: str
+    spread: str
+    is_mortal_lock: bool
+
+
+class RecapMortalLock(TypedDict):
+    """One mortal-lock board row on the ``week.recap`` event (260705-kuv).
+
+    Display-only + JSON-primitive: ``display_name`` + the ``hit`` boolean (grade
+    outcome was a WIN) + the signed ``points`` + the ``side_label``. NEVER a
+    ``user_id``.
+    """
+
+    display_name: str
+    hit: bool
+    points: int
+    side_label: str
+
+
 def week_recap_event(
     *,
     week: int,
@@ -429,12 +473,33 @@ def week_recap_event(
     winner_score: int,
     leader: str,
     leader_score: int,
+    standings: list[RecapStandingsRow] | None = None,
+    best_call: RecapUpsetImpact | None = None,
+    biggest_bust: RecapUpsetImpact | None = None,
+    mortal_locks: list[RecapMortalLock] | None = None,
 ) -> dict:
     """Build a ``week.recap`` event — a week's last game just went FINAL.
 
     ``winner`` is the week winner's DISPLAY name and ``winner_score`` their weekly
     score; ``leader`` is the season leader's DISPLAY name and ``leader_score``
-    their season total. Display names + integer scores ONLY — nothing sensitive.
+    their season total.
+
+    The enriched "closing ceremony" blocks (260705-kuv) are OPTIONAL and
+    back-compatible — mirroring :func:`game_final_event`'s ``impacts=None -> []``
+    pattern — so an existing caller passing only the original four kwargs gets the
+    ORIGINAL key set PLUS the new keys defaulted to ``[]`` / ``None``:
+
+    * ``standings`` — full ``[{rank, display_name, season_total, week_delta}, ...]``
+      (defaults ``[]``);
+    * ``best_call`` — the biggest UNDERDOG_COVER win, or ``None`` (default);
+    * ``biggest_bust`` — the biggest FAVORITE_COVER bust, or ``None`` (default);
+    * ``mortal_locks`` — the ``[{display_name, hit, points, side_label}, ...]`` board
+      (defaults ``[]``).
+
+    DISPLAY DATA ONLY (T-kuv-01): display names + integers/booleans + team
+    abbreviations + a spread STRING — NEVER a ``user_id``, password, or token. The
+    aggregation lives in :func:`app.services.notifications_read.get_week_recap_context`;
+    this pure builder only shapes the display payload.
     """
     return {
         "v": 1,
@@ -445,6 +510,10 @@ def week_recap_event(
         "winner_score": winner_score,
         "leader": leader,
         "leader_score": leader_score,
+        "standings": list(standings or []),
+        "best_call": best_call,
+        "biggest_bust": biggest_bust,
+        "mortal_locks": list(mortal_locks or []),
     }
 
 

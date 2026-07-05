@@ -15,7 +15,7 @@ from app.services.notifications import (
     window_closed_event,
     window_opened_event,
 )
-from app.services.notifications_read import get_game_final_context
+from app.services.notifications_read import get_game_final_context, get_week_recap_context
 from app.services.scheduler import ODDS_JOB, SCORES_JOB
 from app.services.standings import active_season, season_standings, week_results
 
@@ -134,6 +134,25 @@ def _publish_refresh_chat_edges(session: Session, result) -> None:
         winner = week_winners[0] if week_winners else None
         if winner is None or leader is None:
             continue  # no graded picks yet — nothing to recap
+        # Enrich the "closing ceremony" blocks (standings / best call / biggest
+        # bust / mortal-lock board) best-effort — mirroring the game.final impacts
+        # enrichment above. ANY aggregation hiccup degrades to the minimal payload
+        # (empty blocks) and NEVER breaks the poll cycle (T-kuv-02).
+        standings: list = []
+        best_call = None
+        biggest_bust = None
+        mortal_locks: list = []
+        try:
+            recap_ctx = get_week_recap_context(session, season, week)
+            standings = recap_ctx["standings"]
+            best_call = recap_ctx["best_call"]
+            biggest_bust = recap_ctx["biggest_bust"]
+            mortal_locks = recap_ctx["mortal_locks"]
+        except Exception:
+            standings = []
+            best_call = None
+            biggest_bust = None
+            mortal_locks = []
         publish_event(
             week_recap_event(
                 week=week,
@@ -141,6 +160,10 @@ def _publish_refresh_chat_edges(session: Session, result) -> None:
                 winner_score=winner.weekly_score,
                 leader=leader.display_name,
                 leader_score=leader.season_total,
+                standings=standings,
+                best_call=best_call,
+                biggest_bust=biggest_bust,
+                mortal_locks=mortal_locks,
             )
         )
 

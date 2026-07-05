@@ -417,6 +417,12 @@ class ChatEventBuilderTests(unittest.TestCase):
         self.assertEqual(event["winner_score"], 6)
         self.assertEqual(event["leader"], "Dave")
         self.assertEqual(event["leader_score"], 18)
+        # Back-compat (260705-kuv): called with only the original 4 kwargs, the new
+        # enriched blocks default to []/None (mirroring game_final_event's impacts).
+        self.assertEqual(event["standings"], [])
+        self.assertIsNone(event["best_call"])
+        self.assertIsNone(event["biggest_bust"])
+        self.assertEqual(event["mortal_locks"], [])
         self.assertEqual(
             set(event.keys()),
             {
@@ -428,6 +434,10 @@ class ChatEventBuilderTests(unittest.TestCase):
                 "winner_score",
                 "leader",
                 "leader_score",
+                "standings",
+                "best_call",
+                "biggest_bust",
+                "mortal_locks",
             },
         )
 

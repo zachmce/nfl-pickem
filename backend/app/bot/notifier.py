@@ -317,6 +317,37 @@ async def run_notifier(client) -> None:
                                         )
                                     continue
 
+                                # week.recap (260705-kuv): render the marquee amethyst
+                                # "closing ceremony" embed card — plain title, the LLM
+                                # narration (the decorated `line`) as the description,
+                                # and omit-empty Week Winner / Best Call / Biggest Bust
+                                # / Mortal Locks / Standings fields. BEST-EFFORT
+                                # (T-kuv-03): the embed build+send is wrapped so ANY
+                                # failure falls back to the existing text `line` send —
+                                # the message still posts and the loop never dies.
+                                # Mirrors the game.final block. build_week_recap (the
+                                # narration + its RECAP_GUARD) is untouched.
+                                if event.get("type") == "week.recap":
+                                    try:
+                                        from app.bot.week_recap_embed import (
+                                            build_week_recap_embed,
+                                        )
+
+                                        embed = build_week_recap_embed(event, line)
+                                        await channel.send(
+                                            embed=embed,
+                                            allowed_mentions=discord.AllowedMentions.none(),
+                                        )
+                                    except Exception:
+                                        logger.warning("week_recap_embed_failed", exc_info=True)
+                                        # Best-effort fallback: post the text line
+                                        # instead of dropping the message entirely.
+                                        await channel.send(
+                                            line,
+                                            allowed_mentions=discord.AllowedMentions.none(),
+                                        )
+                                    continue
+
                                 # misc.graded (260705-if1): render a LIGHT embed card
                                 # on the chat channel — plain title, a binary hit/miss
                                 # marker line, the voiced quip (the decorated `line`),
