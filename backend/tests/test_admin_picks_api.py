@@ -896,6 +896,8 @@ class AdminPicksApiTests(unittest.TestCase):
         self.assertEqual(event["prediction"], "Mahomes throws 4 TDs")
         self.assertEqual(event["verdict"], "correct")
         self.assertEqual(event["points"], 3)
+        # The grading admin's display name rides along for the embed footer.
+        self.assertEqual(event["grader"], "admin")
 
     def test_grade_misc_on_open_window_publishes_nothing(self) -> None:
         """Grading a MISC pick on an OPEN-window week publishes NO chat event.
