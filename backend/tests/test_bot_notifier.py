@@ -394,18 +394,21 @@ class RunNotifierRoutingTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(asyncio.CancelledError):
                 await run_notifier(client)
 
-        # The chat event landed in pickem-chat; the logger event in pickem-logger.
-        self.assertEqual(len(chat_channel.sent), 1)
-        self.assertEqual(len(logger_channel.sent), 1)
-        self.assertIn("3", chat_channel.sent[0])  # window.opened for week 3
+        # The chat event landed in pickem-chat as a LIGHT embed (260705-j8o), not a
+        # plain text line; the logger event in pickem-logger stays plain text.
+        self.assertEqual(chat_channel.sent, [])
+        self.assertEqual(len(chat_channel.embeds), 1)
+        self.assertIn("3", chat_channel.embeds[0].title)  # window.opened for week 3
         self.assertEqual(logger_channel.sent, ["ohai logged in"])
 
 
 class RunNotifierEmbellishTests(unittest.IsolatedAsyncioTestCase):
-    """The three Tier-1 chat events route through ``embellish_chat``: an LLM line
-    is posted when the client is configured, the deterministic line on a None, and
-    exactly ONE line lands per event. ``window.closed`` is untouched (no embellish
-    call) and the chat send suppresses mass mentions."""
+    """The Tier-1 embellished chat events route through ``embellish_chat``: an LLM
+    line is posted when the client is configured, the deterministic line on a None,
+    and exactly ONE line lands per event. ``window.opened`` no longer embellishes
+    (260705-j8o — it renders as a LIGHT embed), so these exemplars use
+    ``roster.complete`` (still an embellished plain-text event). ``window.closed`` is
+    untouched (no embellish call) and the chat send suppresses mass mentions."""
 
     async def _drive(self, frames, phrase_value):
         """Drive run_notifier over ``frames`` with chat_personality.llm_client.phrase
@@ -447,16 +450,13 @@ class RunNotifierEmbellishTests(unittest.IsolatedAsyncioTestCase):
                 await run_notifier(client)
         return logger_channel, chat_channel
 
-    async def test_window_opened_posts_llm_line_when_configured(self) -> None:
-        frame = {"type": "message", "data": json.dumps(window_opened_event(week=3))}
-        _, chat = await self._drive([frame], "WEEK 3 IS LIVE 🏈")
-        self.assertEqual(chat.sent, ["WEEK 3 IS LIVE 🏈"])
-
-    async def test_window_opened_falls_back_to_deterministic_on_none(self) -> None:
-        event = window_opened_event(week=3)
-        frame = {"type": "message", "data": json.dumps(event)}
-        _, chat = await self._drive([frame], None)
-        self.assertEqual(chat.sent, [render_chat(event)])
+    async def test_roster_complete_posts_llm_line_when_configured(self) -> None:
+        frame = {
+            "type": "message",
+            "data": json.dumps(roster_complete_event(actor="Bob", week=3)),
+        }
+        _, chat = await self._drive([frame], "BOB IS IN FOR WEEK 3 🏈")
+        self.assertEqual(chat.sent, ["BOB IS IN FOR WEEK 3 🏈"])
 
     async def test_game_final_posts_embed_with_llm_quip_in_description(self) -> None:
         # game.final (260703-piv) posts a RICH EMBED, not a text line: the LLM quip
@@ -483,7 +483,7 @@ class RunNotifierEmbellishTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(chat.sent, [render_chat(event)])
 
     async def test_llm_raise_does_not_kill_loop_and_posts_deterministic(self) -> None:
-        event = window_opened_event(week=3)
+        event = roster_complete_event(actor="Bob", week=3)
         frame = {"type": "message", "data": json.dumps(event)}
         _, chat = await self._drive([frame], RuntimeError("llm exploded"))
         # The loop survived (CancelledError still raised) and the deterministic
@@ -493,8 +493,11 @@ class RunNotifierEmbellishTests(unittest.IsolatedAsyncioTestCase):
     async def test_chat_send_suppresses_mass_mentions(self) -> None:
         import discord
 
-        frame = {"type": "message", "data": json.dumps(window_opened_event(week=3))}
-        _, chat = await self._drive([frame], "WEEK 3 IS LIVE 🏈")
+        frame = {
+            "type": "message",
+            "data": json.dumps(roster_complete_event(actor="Bob", week=3)),
+        }
+        _, chat = await self._drive([frame], "BOB IS IN 🏈")
         self.assertEqual(len(chat.send_kwargs), 1)
         am = chat.send_kwargs[0].get("allowed_mentions")
         # AllowedMentions has no __eq__, so compare the suppressing flags directly.
@@ -544,8 +547,10 @@ class RunNotifierEmbellishTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(asyncio.CancelledError):
                 await run_notifier(client)
 
-        # Deterministic lock line + the commentary line posted; embellish NOT called.
-        self.assertEqual(chat_channel.sent, [render_chat(event), "streak line"])
+        # window.closed posts a LIGHT embed (260705-j8o) THEN the unchanged
+        # commentary follow-on line; embellish NOT called.
+        self.assertEqual(chat_channel.sent, ["streak line"])
+        self.assertEqual(len(chat_channel.embeds), 1)
         self.assertFalse(called["embellish"])
 
 
@@ -748,9 +753,11 @@ class RunNotifierDecorateTests(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(asyncio.CancelledError):
                     await run_notifier(client)
 
-        # The commentary extra line carrying MIN gains the vikings logo.
-        self.assertEqual(len(chat_channel.sent), 2)
-        self.assertIn("MIN <:vikingslogo:9>", chat_channel.sent[1])
+        # The lock line is now a LIGHT embed (260705-j8o); only the decorated
+        # commentary follow-on lands in `sent` and carries the vikings logo.
+        self.assertEqual(len(chat_channel.embeds), 1)
+        self.assertEqual(len(chat_channel.sent), 1)
+        self.assertIn("MIN <:vikingslogo:9>", chat_channel.sent[0])
 
 
 class RunNotifierGameFinalFallbackTests(unittest.IsolatedAsyncioTestCase):
@@ -788,6 +795,93 @@ class RunNotifierGameFinalFallbackTests(unittest.IsolatedAsyncioTestCase):
             mock.patch("app.bot.game_final_embed.build_game_final_embed", _boom),
         ):
             # The loop still ends only via the shutdown CancelledError — it survived.
+            with self.assertRaises(asyncio.CancelledError):
+                await run_notifier(client)
+
+        # No embed landed; a TEXT line did (the best-effort fallback).
+        self.assertEqual(chat_channel.embeds, [])
+        self.assertEqual(len(chat_channel.sent), 1)
+        # Fallback send still suppresses mass mentions.
+        import discord
+
+        am = chat_channel.send_kwargs[-1]["allowed_mentions"]
+        self.assertIsInstance(am, discord.AllowedMentions)
+        self.assertFalse(am.everyone)
+
+
+class RunNotifierWindowEmbedTests(unittest.IsolatedAsyncioTestCase):
+    """window.opened/window.closed render as LIGHT embed cards (260705-j8o), and
+    window.closed STILL emits the unchanged ``build_lock_commentary`` follow-on as
+    separate plain-text sends. The embed is BEST-EFFORT (T-j8o-02): a build failure
+    falls back to the text line and the loop never dies."""
+
+    async def test_window_closed_embed_then_unchanged_commentary_followon(self) -> None:
+        # REGRESSION: the lock-commentary follow-on must keep posting exactly as
+        # before — a LIGHT embed card lands, THEN the commentary line as a separate
+        # plain-text send.
+        event = window_closed_event(week=3)
+        frame = {"type": "message", "data": json.dumps(event)}
+        subscribe_frame = {"type": "subscribe", "data": 1}
+
+        chat_channel = _SendableChannel(id=456, name="pickem-chat")
+        client = _FakeClient(_SendableGuild([chat_channel]))
+        created: list[_FakeRedis] = []
+
+        def fake_from_url(_url):  # noqa: ANN001
+            if created:  # pragma: no cover - guards an unbounded reconnect loop
+                raise AssertionError("reconnected unexpectedly")
+            pubsub = _FakePubSub([subscribe_frame, frame])
+            redis_client = _FakeRedis(pubsub)
+            created.append(redis_client)
+            return redis_client
+
+        async def _commentary(week):  # build_lock_commentary stub (no db)
+            return ["streak line"]
+
+        with (
+            mock.patch("redis.asyncio.from_url", fake_from_url),
+            mock.patch("app.bot.notifier.get_settings", lambda: _FakeSettings()),
+            mock.patch("app.bot.notifier._RECONNECT_BACKOFF_START", 0),
+            mock.patch("app.bot.notifier._RECONNECT_BACKOFF_MAX", 0),
+            mock.patch("app.bot.commentary.build_lock_commentary", _commentary),
+        ):
+            with self.assertRaises(asyncio.CancelledError):
+                await run_notifier(client)
+
+        # The LIGHT embed card posted AND the commentary follow-on still posted as a
+        # separate plain-text send — the lock-commentary path is preserved unchanged.
+        self.assertEqual(len(chat_channel.embeds), 1)
+        self.assertEqual(chat_channel.sent, ["streak line"])
+
+    async def test_embed_build_failure_falls_back_to_text_send(self) -> None:
+        # BEST-EFFORT (T-j8o-02): if the embed build raises, the notifier posts the
+        # text line instead and the loop never dies.
+        event = window_opened_event(week=3)
+        frame = {"type": "message", "data": json.dumps(event)}
+        subscribe_frame = {"type": "subscribe", "data": 1}
+
+        chat_channel = _SendableChannel(id=456, name="pickem-chat")
+        client = _FakeClient(_SendableGuild([chat_channel]))
+        created: list[_FakeRedis] = []
+
+        def fake_from_url(_url):  # noqa: ANN001
+            if created:  # pragma: no cover - guards an unbounded reconnect loop
+                raise AssertionError("reconnected unexpectedly")
+            pubsub = _FakePubSub([subscribe_frame, frame])
+            redis_client = _FakeRedis(pubsub)
+            created.append(redis_client)
+            return redis_client
+
+        def _boom(*_a, **_k):
+            raise RuntimeError("embed construction blew up")
+
+        with (
+            mock.patch("redis.asyncio.from_url", fake_from_url),
+            mock.patch("app.bot.notifier.get_settings", lambda: _FakeSettings()),
+            mock.patch("app.bot.notifier._RECONNECT_BACKOFF_START", 0),
+            mock.patch("app.bot.notifier._RECONNECT_BACKOFF_MAX", 0),
+            mock.patch("app.bot.window_embed.build_window_embed", _boom),
+        ):
             with self.assertRaises(asyncio.CancelledError):
                 await run_notifier(client)
 
