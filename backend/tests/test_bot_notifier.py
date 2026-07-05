@@ -169,6 +169,12 @@ class RenderChatTests(unittest.TestCase):
         self.assertIsNotNone(line)
         self.assertIn("3", line)
 
+    def test_render_freeze_week(self) -> None:
+        # freeze.week now renders a chat line too (260705-jo9) — the deterministic
+        # body of the LIGHT lines-locked card and the embed's text fallback.
+        line = render_chat(freeze_week_event(week=4))
+        self.assertEqual(line, "Point spreads are locked for Week 4.")
+
     def test_render_game_final(self) -> None:
         line = render_chat(
             game_final_event(week=3, away_abbr="LAC", home_abbr="KC", away_score=20, home_score=27)
@@ -394,12 +400,16 @@ class RunNotifierRoutingTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(asyncio.CancelledError):
                 await run_notifier(client)
 
-        # The chat event landed in pickem-chat as a LIGHT embed (260705-j8o), not a
-        # plain text line; the logger event in pickem-logger stays plain text.
+        # ROUTING-UNCHANGED regression (260705-jo9): after the dual-surface refactor
+        # a chat-only event still posts to chat ONLY and a logger-only event still
+        # posts to the logger ONLY — no cross-posting between the two independent
+        # surfaces. The chat event landed in pickem-chat as a LIGHT embed (260705-j8o),
+        # not a plain text line; the logger event in pickem-logger stays plain text.
         self.assertEqual(chat_channel.sent, [])
-        self.assertEqual(len(chat_channel.embeds), 1)
+        self.assertEqual(len(chat_channel.embeds), 1)  # chat-only stayed chat-only
         self.assertIn("3", chat_channel.embeds[0].title)  # window.opened for week 3
         self.assertEqual(logger_channel.sent, ["ohai logged in"])
+        self.assertEqual(logger_channel.embeds, [])  # logger-only stayed logger-only
 
 
 class RunNotifierEmbellishTests(unittest.IsolatedAsyncioTestCase):
@@ -894,6 +904,95 @@ class RunNotifierWindowEmbedTests(unittest.IsolatedAsyncioTestCase):
         am = chat_channel.send_kwargs[-1]["allowed_mentions"]
         self.assertIsInstance(am, discord.AllowedMentions)
         self.assertFalse(am.everyone)
+
+
+class RunNotifierFreezeWeekTests(unittest.IsolatedAsyncioTestCase):
+    """freeze.week is DUAL-DISPATCHED (260705-jo9): it posts its terse ops-log line
+    to the LOGGER surface AND a LIGHT gold "lines locked" embed to the CHAT surface —
+    the two surfaces fire INDEPENDENTLY. The chat embed is BEST-EFFORT (T-jo9-02): a
+    build failure falls back to the chat text line WITHOUT affecting the logger post,
+    and the loop never dies."""
+
+    async def test_freeze_week_posts_to_both_logger_and_chat(self) -> None:
+        event = freeze_week_event(week=3)  # targets ["logger", "chat"]
+        frame = {"type": "message", "data": json.dumps(event)}
+        subscribe_frame = {"type": "subscribe", "data": 1}
+
+        logger_channel = _SendableChannel(id=123, name="pickem-logger")
+        chat_channel = _SendableChannel(id=456, name="pickem-chat")
+        client = _FakeClient(_SendableGuild([logger_channel, chat_channel]))
+        created: list[_FakeRedis] = []
+
+        def fake_from_url(_url):  # noqa: ANN001
+            if created:  # pragma: no cover - guards an unbounded reconnect loop
+                raise AssertionError("reconnected unexpectedly")
+            pubsub = _FakePubSub([subscribe_frame, frame])
+            redis_client = _FakeRedis(pubsub)
+            created.append(redis_client)
+            return redis_client
+
+        with (
+            mock.patch("redis.asyncio.from_url", fake_from_url),
+            mock.patch("app.bot.notifier.get_settings", lambda: _FakeSettings()),
+            mock.patch("app.bot.notifier._RECONNECT_BACKOFF_START", 0),
+            mock.patch("app.bot.notifier._RECONNECT_BACKOFF_MAX", 0),
+        ):
+            with self.assertRaises(asyncio.CancelledError):
+                await run_notifier(client)
+
+        # LOGGER surface: the terse ops line, no embed.
+        self.assertEqual(logger_channel.sent, ["Week 3 lines frozen"])
+        self.assertEqual(logger_channel.embeds, [])
+        # CHAT surface: the LIGHT lines-locked embed, no plain text line.
+        self.assertEqual(chat_channel.sent, [])
+        self.assertEqual(len(chat_channel.embeds), 1)
+        self.assertIn("Lines Locked", chat_channel.embeds[0].title)
+        self.assertIn("3", chat_channel.embeds[0].title)
+
+    async def test_chat_embed_failure_falls_back_to_text_and_logger_still_posts(self) -> None:
+        # BEST-EFFORT (T-jo9-02): if the chat embed build raises, the notifier posts
+        # the chat TEXT line instead AND the independent logger post still lands.
+        event = freeze_week_event(week=3)
+        frame = {"type": "message", "data": json.dumps(event)}
+        subscribe_frame = {"type": "subscribe", "data": 1}
+
+        logger_channel = _SendableChannel(id=123, name="pickem-logger")
+        chat_channel = _SendableChannel(id=456, name="pickem-chat")
+        client = _FakeClient(_SendableGuild([logger_channel, chat_channel]))
+        created: list[_FakeRedis] = []
+
+        def fake_from_url(_url):  # noqa: ANN001
+            if created:  # pragma: no cover - guards an unbounded reconnect loop
+                raise AssertionError("reconnected unexpectedly")
+            pubsub = _FakePubSub([subscribe_frame, frame])
+            redis_client = _FakeRedis(pubsub)
+            created.append(redis_client)
+            return redis_client
+
+        def _boom(*_a, **_k):
+            raise RuntimeError("embed construction blew up")
+
+        with (
+            mock.patch("redis.asyncio.from_url", fake_from_url),
+            mock.patch("app.bot.notifier.get_settings", lambda: _FakeSettings()),
+            mock.patch("app.bot.notifier._RECONNECT_BACKOFF_START", 0),
+            mock.patch("app.bot.notifier._RECONNECT_BACKOFF_MAX", 0),
+            mock.patch("app.bot.freeze_week_embed.build_freeze_week_embed", _boom),
+        ):
+            with self.assertRaises(asyncio.CancelledError):
+                await run_notifier(client)
+
+        # No chat embed landed; a chat TEXT line did (the best-effort fallback).
+        self.assertEqual(chat_channel.embeds, [])
+        self.assertEqual(len(chat_channel.sent), 1)
+        # Fallback chat send still suppresses mass mentions.
+        import discord
+
+        am = chat_channel.send_kwargs[-1]["allowed_mentions"]
+        self.assertIsInstance(am, discord.AllowedMentions)
+        self.assertFalse(am.everyone)
+        # The LOGGER surface is independent of the chat embed failure — it STILL posted.
+        self.assertEqual(logger_channel.sent, ["Week 3 lines frozen"])
 
 
 if __name__ == "__main__":

@@ -248,13 +248,17 @@ class OpsEventBuilderTests(unittest.TestCase):
         event = freeze_week_event(week=3)
         self.assertEqual(event["v"], 1)
         self.assertEqual(event["type"], "freeze.week")
-        self.assertEqual(event["targets"], ["logger"])
+        # Dual-dispatched (260705-jo9): ops-log line AND chat lines-locked card.
+        self.assertEqual(event["targets"], ["logger", "chat"])
         self.assertEqual(event["week"], 3)
         self.assertEqual(set(event.keys()), {"v", "type", "targets", "week"})
 
 
 class AllBuildersTargetLoggerTests(unittest.TestCase):
     def test_every_new_builder_targets_logger_only(self) -> None:
+        # freeze_week_event is intentionally EXCLUDED here — it was promoted to a
+        # dual-dispatch ["logger", "chat"] event (260705-jo9) and is covered by
+        # test_freeze_week_shape. Every builder below remains logger-only.
         events = [
             pick_event("pick.created", actor="a", week=1, detail="d"),
             pick_event("pick.changed", actor="a", week=1, detail="d"),
@@ -263,7 +267,6 @@ class AllBuildersTargetLoggerTests(unittest.TestCase):
             admin_pick_cleared_event(target="a", week=1, slot="OVER"),
             player_registered_event("a"),
             ingest_season_event(season=2026, weeks=1, games=1, failed=0),
-            freeze_week_event(week=1),
         ]
         for event in events:
             self.assertEqual(event["targets"], ["logger"])
