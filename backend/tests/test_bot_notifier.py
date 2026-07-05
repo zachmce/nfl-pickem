@@ -566,9 +566,11 @@ class RunNotifierEmbellishTests(unittest.IsolatedAsyncioTestCase):
 
 class RunNotifierRecapTests(unittest.IsolatedAsyncioTestCase):
     """The ``week.recap`` event routes through the Tier-2 ``build_week_recap``
-    orchestrator: the LLM-narrated column is posted when the orchestrator yields one,
-    and the deterministic ``render_chat`` one-liner on fallback — exactly ONE line
-    lands per event and mention hygiene is unchanged."""
+    orchestrator for its narration, then posts a RICH amethyst embed (260705-kuv):
+    the LLM-narrated column (or the deterministic ``render_chat`` one-liner on
+    fallback) rides in the embed DESCRIPTION. Exactly ONE embed lands per event and
+    mention hygiene is unchanged; on an embed-build failure it best-effort falls back
+    to the plain text line."""
 
     async def _drive(self, frames, build_recap):
         """Drive run_notifier over ``frames`` with app.bot.recap.build_week_recap
@@ -604,25 +606,33 @@ class RunNotifierRecapTests(unittest.IsolatedAsyncioTestCase):
             week=3, winner="alice", winner_score=9, leader="alice", leader_score=30
         )
 
-    async def test_posts_llm_column_when_configured(self) -> None:
+    async def test_posts_embed_with_llm_column_in_description(self) -> None:
+        # week.recap (260705-kuv) posts a RICH EMBED, not a text line: the LLM column
+        # rides in the embed description.
         frame = {"type": "message", "data": json.dumps(self._event())}
 
         async def _build(event):
             return "Big week for alice; she leads the season 🏈"
 
         _, chat = await self._drive([frame], _build)
-        self.assertEqual(chat.sent, ["Big week for alice; she leads the season 🏈"])
+        self.assertEqual(chat.sent, [])  # no plain text line
+        self.assertEqual(len(chat.embeds), 1)
+        self.assertEqual(chat.embeds[0].description, "Big week for alice; she leads the season 🏈")
+        self.assertIn("Recap", chat.embeds[0].title or "")
 
-    async def test_falls_back_to_deterministic_one_liner(self) -> None:
+    async def test_falls_back_to_deterministic_one_liner_in_description(self) -> None:
         event = self._event()
         frame = {"type": "message", "data": json.dumps(event)}
 
-        # The orchestrator's own fallback path: return render_chat(event) itself.
+        # The orchestrator's own fallback path: return render_chat(event) itself —
+        # which then becomes the embed's description.
         async def _build(ev):
             return render_chat(ev)
 
         _, chat = await self._drive([frame], _build)
-        self.assertEqual(chat.sent, [render_chat(event)])
+        self.assertEqual(chat.sent, [])
+        self.assertEqual(len(chat.embeds), 1)
+        self.assertEqual(chat.embeds[0].description, render_chat(event))
 
     async def test_recap_send_suppresses_mass_mentions(self) -> None:
         import discord
@@ -633,12 +643,38 @@ class RunNotifierRecapTests(unittest.IsolatedAsyncioTestCase):
             return "recap column"
 
         _, chat = await self._drive([frame], _build)
-        self.assertEqual(len(chat.send_kwargs), 1)
+        # The embed send carries the mention-suppressing kwargs.
+        self.assertEqual(len(chat.embeds), 1)
         am = chat.send_kwargs[0].get("allowed_mentions")
         self.assertIsInstance(am, discord.AllowedMentions)
         self.assertFalse(am.everyone)
         self.assertFalse(am.users)
         self.assertFalse(am.roles)
+
+    async def test_embed_build_failure_falls_back_to_text_send(self) -> None:
+        # BEST-EFFORT (T-kuv-03): if the embed build raises for ANY reason, the
+        # notifier still posts the plain text line and the loop never dies.
+        event = self._event()
+        frame = {"type": "message", "data": json.dumps(event)}
+
+        async def _build(ev):
+            return "recap column"
+
+        def _boom(*_a, **_k):
+            raise RuntimeError("embed construction blew up")
+
+        with mock.patch("app.bot.week_recap_embed.build_week_recap_embed", _boom):
+            _, chat = await self._drive([frame], _build)
+
+        # No embed landed; the text line did (the best-effort fallback).
+        self.assertEqual(chat.embeds, [])
+        self.assertEqual(chat.sent, ["recap column"])
+        # The fallback send still suppresses mass mentions.
+        import discord
+
+        am = chat.send_kwargs[-1]["allowed_mentions"]
+        self.assertIsInstance(am, discord.AllowedMentions)
+        self.assertFalse(am.everyone)
 
 
 class RunNotifierDecorateTests(unittest.IsolatedAsyncioTestCase):
