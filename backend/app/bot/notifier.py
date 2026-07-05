@@ -167,6 +167,10 @@ def render_chat(event: dict) -> str | None:
             f'"{event.get("prediction")}" was {event.get("verdict")} '
             f"({event.get('points'):+d})."
         )
+    if etype == "freeze.week":
+        # Deterministic body of the LIGHT lines-locked chat card (260705-jo9); also
+        # the text fallback when build_freeze_week_embed fails.
+        return f"Point spreads are locked for Week {event.get('week')}."
     return None
 
 
@@ -174,11 +178,14 @@ async def run_notifier(client) -> None:
     """Subscribe to ``pickem:events`` and post rendered lines into the guild.
 
     Builds a ``redis.asyncio`` client from ``settings.redis_url``, SUBSCRIBEs to
-    :data:`EVENTS_CHANNEL`, and loops over messages. Each event is routed by its
-    ``targets`` (QT-3): a chat-targeted event renders via :func:`render_chat` and
-    posts to ``discord_chat_channel``; a logger-targeted event renders via
-    :func:`_render` and posts to ``discord_chat_log_channel`` — both resolved
-    within ``DISCORD_GUILD_ID``.
+    :data:`EVENTS_CHANNEL`, and loops over messages. Each event is dispatched to TWO
+    INDEPENDENT surfaces by its ``targets`` (260705-jo9): the LOGGER surface (when
+    ``"logger" in targets``) renders via :func:`_render` and posts to
+    ``discord_chat_log_channel``; the CHAT surface (when ``"chat" in targets``)
+    renders via :func:`render_chat` / the embellish + embed pipeline and posts to
+    ``discord_chat_channel`` — both resolved within ``DISCORD_GUILD_ID``. The two
+    checks are independent ``if``\\ s (NOT an XOR else-branch), so an event targeting
+    BOTH surfaces (e.g. ``freeze.week`` -> ``["logger", "chat"]``) posts to BOTH.
 
     Two layers of resilience:
 
@@ -209,13 +216,33 @@ async def run_notifier(client) -> None:
                         continue  # subscribe/confirmation frames, not payloads
                     event = json.loads(message["data"])
 
-                    # Route by the event's targets (QT-3): a chat-targeted event
-                    # renders via the render_chat seam and posts to the
-                    # discord_chat_channel; a logger-targeted event renders via the
-                    # logger path and posts to the discord_chat_log_channel. Both
-                    # resolve within DISCORD_GUILD_ID. An event carries one target;
-                    # route to that channel only.
+                    # Dual-surface dispatch (260705-jo9): an event is routed to the
+                    # LOGGER surface AND the CHAT surface INDEPENDENTLY — two
+                    # separate `if target` checks, NOT an XOR else-branch. An event
+                    # targeting only one surface posts only there (unchanged); an
+                    # event targeting BOTH (freeze.week -> ["logger", "chat"]) posts
+                    # to BOTH. The LOGGER surface is dispatched FIRST so the chat
+                    # embed blocks' `continue` statements (which advance the async
+                    # for) fire only AFTER the logger post has already been sent —
+                    # keeping the chat pipeline byte-for-byte. Both channels resolve
+                    # within DISCORD_GUILD_ID.
                     targets = event.get("targets") or []
+                    guild = client.get_guild(settings.discord_guild_id)
+
+                    # LOGGER surface — terse ops-log line via _render (unchanged
+                    # behavior: the old else-branch flowed through the generic send
+                    # with mass-mention suppression, so reproduce that here).
+                    if "logger" in targets:
+                        logger_line = _render(event)
+                        if logger_line is not None:
+                            log_channel = resolve_channel(guild, settings.discord_chat_log_channel)
+                            if log_channel is not None:
+                                await log_channel.send(
+                                    logger_line,
+                                    allowed_mentions=discord.AllowedMentions.none(),
+                                )
+
+                    # CHAT surface — the full player-facing pipeline, unchanged.
                     if "chat" in targets:
                         # week.recap (260627-tfb) routes through the Tier-2 recap
                         # orchestrator: an LLM-narrated column over the full week's
@@ -246,128 +273,172 @@ async def run_notifier(client) -> None:
                             line = await embellish_chat(event)
                         else:
                             line = render_chat(event)
-                        channel_setting = settings.discord_chat_channel
-                    else:
-                        line = _render(event)
-                        channel_setting = settings.discord_chat_log_channel
-                    if line is None:
-                        continue  # unknown event type — ignored
 
-                    # Team-logo decoration (260627-wt5): tag team references in
-                    # player-facing CHAT lines with their Discord application-emoji
-                    # logo. Applied ONLY on the chat branch — the terse logger feed
-                    # is never decorated. decorate_team_logos is best-effort and
-                    # NEVER raises (no-op when the startup emoji fetch failed / the
-                    # cache is empty), so it cannot regress posting.
-                    is_chat = "chat" in (event.get("targets") or [])
-                    if is_chat and line is not None:
-                        line = decorate_team_logos(line)
+                        # None => unknown chat type — nothing to post on this surface.
+                        if line is not None:
+                            # Team-logo decoration (260627-wt5): tag team references
+                            # in player-facing CHAT lines with their Discord
+                            # application-emoji logo. Applied ONLY on the chat surface
+                            # — the terse logger feed is never decorated.
+                            # decorate_team_logos is best-effort and NEVER raises
+                            # (no-op when the startup emoji fetch failed / the cache is
+                            # empty), so it cannot regress posting.
+                            line = decorate_team_logos(line)
 
-                    guild = client.get_guild(settings.discord_guild_id)
-                    channel = resolve_channel(guild, channel_setting)
-                    if channel is not None:
-                        # game.final (260703-piv): render a RICH embed card on the
-                        # chat channel — plain title, deterministic away→home logo'd
-                        # score, the voiced quip (the decorated `line`), a winner-
-                        # color bar, and Busted/Cashed fields from event["impacts"].
-                        # BEST-EFFORT (T-piv-02): the embed build+send is wrapped so
-                        # ANY failure falls back to the existing text send — the
-                        # message still posts and the loop never dies. The log
-                        # channel keeps its terse text path (it is never "chat").
-                        if event.get("type") == "game.final":
-                            try:
-                                from app.bot.game_final_embed import build_game_final_embed
+                            channel = resolve_channel(guild, settings.discord_chat_channel)
+                            if channel is not None:
+                                # game.final (260703-piv): render a RICH embed card on
+                                # the chat channel — plain title, deterministic
+                                # away→home logo'd score, the voiced quip (the
+                                # decorated `line`), a winner-color bar, and
+                                # Busted/Cashed fields from event["impacts"].
+                                # BEST-EFFORT (T-piv-02): the embed build+send is
+                                # wrapped so ANY failure falls back to the existing
+                                # text send — the message still posts and the loop
+                                # never dies.
+                                if event.get("type") == "game.final":
+                                    try:
+                                        from app.bot.game_final_embed import (
+                                            build_game_final_embed,
+                                        )
 
-                                embed = build_game_final_embed(event, line)
-                                await channel.send(
-                                    embed=embed,
-                                    allowed_mentions=discord.AllowedMentions.none(),
-                                )
-                            except Exception:
-                                logger.warning("game_final_embed_failed", exc_info=True)
-                                # Best-effort fallback: post the text line instead of
-                                # dropping the message entirely.
+                                        embed = build_game_final_embed(event, line)
+                                        await channel.send(
+                                            embed=embed,
+                                            allowed_mentions=discord.AllowedMentions.none(),
+                                        )
+                                    except Exception:
+                                        logger.warning("game_final_embed_failed", exc_info=True)
+                                        # Best-effort fallback: post the text line
+                                        # instead of dropping the message entirely.
+                                        await channel.send(
+                                            line,
+                                            allowed_mentions=discord.AllowedMentions.none(),
+                                        )
+                                    continue
+
+                                # misc.graded (260705-if1): render a LIGHT embed card
+                                # on the chat channel — plain title, a binary hit/miss
+                                # marker line, the voiced quip (the decorated `line`),
+                                # a green/red bar by points sign, and compact
+                                # Player/Verdict/(omit-empty) Prediction fields.
+                                # BEST-EFFORT (T-if1-02): the embed build+send is
+                                # wrapped so ANY failure falls back to the existing
+                                # text send — the message still posts and the loop
+                                # never dies. Mirrors the game.final block.
+                                if event.get("type") == "misc.graded":
+                                    try:
+                                        from app.bot.misc_graded_embed import (
+                                            build_misc_graded_embed,
+                                        )
+
+                                        embed = build_misc_graded_embed(event, line)
+                                        await channel.send(
+                                            embed=embed,
+                                            allowed_mentions=discord.AllowedMentions.none(),
+                                        )
+                                    except Exception:
+                                        logger.warning("misc_graded_embed_failed", exc_info=True)
+                                        # Best-effort fallback: post the text line
+                                        # instead of dropping the message entirely.
+                                        await channel.send(
+                                            line,
+                                            allowed_mentions=discord.AllowedMentions.none(),
+                                        )
+                                    continue
+
+                                # window.opened / window.closed (260705-j8o): render a
+                                # LIGHT embed card on the chat channel — plain title
+                                # carrying the week, a green/red bar (open/locked), and
+                                # one deterministic body line. NO LLM. BEST-EFFORT
+                                # (T-j8o-02): the embed build+send is wrapped so ANY
+                                # failure falls back to the existing text `line` send —
+                                # the message still posts and the loop never dies.
+                                # Mirrors the game.final / misc.graded blocks.
+                                if event.get("type") in ("window.opened", "window.closed"):
+                                    try:
+                                        from app.bot.window_embed import (
+                                            build_window_embed,
+                                        )
+
+                                        embed = build_window_embed(event)
+                                        await channel.send(
+                                            embed=embed,
+                                            allowed_mentions=discord.AllowedMentions.none(),
+                                        )
+                                    except Exception:
+                                        logger.warning("window_embed_failed", exc_info=True)
+                                        # Best-effort fallback: post the text line
+                                        # instead of dropping the message entirely.
+                                        await channel.send(
+                                            line,
+                                            allowed_mentions=discord.AllowedMentions.none(),
+                                        )
+                                    # ADDITIVE pickem-chat personality layer
+                                    # (260627-nef): AFTER the window.closed embed (or
+                                    # its text fallback), post one personality line
+                                    # per flagged player to the SAME chat channel.
+                                    # Runs whether the embed or the fallback posted, so
+                                    # the lock-commentary follow-on is preserved
+                                    # byte-for-byte. Fired here — inside the
+                                    # per-message try/except and only once the channel
+                                    # resolved — so any LLM/db hiccup is caught by the
+                                    # notifier_message_failed guard and the loop
+                                    # survives (T-nef-03). build_lock_commentary is
+                                    # itself best-effort and Discord-free; firing on
+                                    # window.closed (all picks final) avoids leaking
+                                    # any open-window pick (T-nef-02).
+                                    if event.get("type") == "window.closed":
+                                        from app.bot.commentary import (
+                                            build_lock_commentary,
+                                        )
+
+                                        for extra in await build_lock_commentary(event.get("week")):
+                                            # Chat-channel send — decorate team refs.
+                                            await channel.send(
+                                                decorate_team_logos(extra),
+                                                allowed_mentions=discord.AllowedMentions.none(),
+                                            )
+                                    continue
+
+                                # freeze.week (260705-jo9): render a LIGHT gold "lines
+                                # locked" embed card on the chat channel — plain title
+                                # carrying the week, a gold bar, and one deterministic
+                                # body line. NO LLM. This is the CHAT half of the dual
+                                # dispatch; the terse ops-log line already fired on the
+                                # LOGGER surface above. BEST-EFFORT (T-jo9-02): the
+                                # embed build+send is wrapped so ANY failure falls back
+                                # to the existing text `line` send — the message still
+                                # posts and the loop never dies. Mirrors the
+                                # misc.graded / window blocks.
+                                if event.get("type") == "freeze.week":
+                                    try:
+                                        from app.bot.freeze_week_embed import (
+                                            build_freeze_week_embed,
+                                        )
+
+                                        embed = build_freeze_week_embed(event)
+                                        await channel.send(
+                                            embed=embed,
+                                            allowed_mentions=discord.AllowedMentions.none(),
+                                        )
+                                    except Exception:
+                                        logger.warning("freeze_week_embed_failed", exc_info=True)
+                                        # Best-effort fallback: post the text line
+                                        # instead of dropping the message entirely.
+                                        await channel.send(
+                                            line,
+                                            allowed_mentions=discord.AllowedMentions.none(),
+                                        )
+                                    continue
+
+                                # Mention hygiene (T-t5u-04): suppress
+                                # @everyone/@here/role pings so LLM-authored chat text
+                                # can never ping the server. Serves the remaining
+                                # plain-text chat types (roster.complete, misc.picked).
                                 await channel.send(
                                     line, allowed_mentions=discord.AllowedMentions.none()
                                 )
-                            continue
-
-                        # misc.graded (260705-if1): render a LIGHT embed card on the
-                        # chat channel — plain title, a binary hit/miss marker line, the
-                        # voiced quip (the decorated `line`), a green/red bar by points
-                        # sign, and compact Player/Verdict/(omit-empty) Prediction fields.
-                        # BEST-EFFORT (T-if1-02): the embed build+send is wrapped so ANY
-                        # failure falls back to the existing text send — the message still
-                        # posts and the loop never dies. Mirrors the game.final block.
-                        if event.get("type") == "misc.graded":
-                            try:
-                                from app.bot.misc_graded_embed import build_misc_graded_embed
-
-                                embed = build_misc_graded_embed(event, line)
-                                await channel.send(
-                                    embed=embed,
-                                    allowed_mentions=discord.AllowedMentions.none(),
-                                )
-                            except Exception:
-                                logger.warning("misc_graded_embed_failed", exc_info=True)
-                                # Best-effort fallback: post the text line instead of
-                                # dropping the message entirely.
-                                await channel.send(
-                                    line, allowed_mentions=discord.AllowedMentions.none()
-                                )
-                            continue
-
-                        # window.opened / window.closed (260705-j8o): render a LIGHT
-                        # embed card on the chat channel — plain title carrying the
-                        # week, a green/red bar (open/locked), and one deterministic
-                        # body line. NO LLM. BEST-EFFORT (T-j8o-02): the embed
-                        # build+send is wrapped so ANY failure falls back to the
-                        # existing text `line` send — the message still posts and the
-                        # loop never dies. Mirrors the game.final / misc.graded blocks.
-                        if event.get("type") in ("window.opened", "window.closed"):
-                            try:
-                                from app.bot.window_embed import build_window_embed
-
-                                embed = build_window_embed(event)
-                                await channel.send(
-                                    embed=embed,
-                                    allowed_mentions=discord.AllowedMentions.none(),
-                                )
-                            except Exception:
-                                logger.warning("window_embed_failed", exc_info=True)
-                                # Best-effort fallback: post the text line instead of
-                                # dropping the message entirely.
-                                await channel.send(
-                                    line, allowed_mentions=discord.AllowedMentions.none()
-                                )
-                            # ADDITIVE pickem-chat personality layer (260627-nef):
-                            # AFTER the window.closed embed (or its text fallback),
-                            # post one personality line per flagged player to the SAME
-                            # chat channel. Runs whether the embed or the fallback
-                            # posted, so the lock-commentary follow-on is preserved
-                            # byte-for-byte. Fired here — inside the per-message
-                            # try/except and only once the channel resolved — so any
-                            # LLM/db hiccup is caught by the notifier_message_failed
-                            # guard and the loop survives (T-nef-03).
-                            # build_lock_commentary is itself best-effort and
-                            # Discord-free; firing on window.closed (all picks final)
-                            # avoids leaking any open-window pick (T-nef-02).
-                            if event.get("type") == "window.closed":
-                                from app.bot.commentary import build_lock_commentary
-
-                                for extra in await build_lock_commentary(event.get("week")):
-                                    # Chat-channel send — decorate team references too.
-                                    await channel.send(
-                                        decorate_team_logos(extra),
-                                        allowed_mentions=discord.AllowedMentions.none(),
-                                    )
-                            continue
-
-                        # Mention hygiene (T-t5u-04): suppress @everyone/@here/role
-                        # pings so LLM-authored chat text can never ping the server.
-                        # Serves the remaining plain-text chat types (roster.complete,
-                        # misc.picked).
-                        await channel.send(line, allowed_mentions=discord.AllowedMentions.none())
                 except Exception:
                     logger.warning("notifier_message_failed", exc_info=True)
                     continue
