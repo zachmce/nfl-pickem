@@ -231,8 +231,7 @@ class DemoSeedTests(unittest.TestCase):
 
             season = self._season(session)
             weeks = {
-                w.week: w
-                for w in session.exec(select(Week).where(Week.season == season)).all()
+                w.week: w for w in session.exec(select(Week).where(Week.season == season)).all()
             }
 
             # Week 1's window is OPEN at seed-now (unbounded-open lower bound,
@@ -240,17 +239,11 @@ class DemoSeedTests(unittest.TestCase):
             self.assertTrue(self._is_open_at(weeks[1], PINNED_NOW))
 
             # (a) Reset happened for EVERY not-open-at-seed week: both latches False.
-            not_open = [
-                w for wk, w in weeks.items() if not self._is_open_at(w, PINNED_NOW)
-            ]
+            not_open = [w for wk, w in weeks.items() if not self._is_open_at(w, PINNED_NOW)]
             self.assertTrue(not_open, "expected at least one closed-at-seed week")
             for w in not_open:
-                self.assertFalse(
-                    w.window_open_notified, f"week {w.week} open latch not reset"
-                )
-                self.assertFalse(
-                    w.window_close_notified, f"week {w.week} close latch not reset"
-                )
+                self.assertFalse(w.window_open_notified, f"week {w.week} open latch not reset")
+                self.assertFalse(w.window_close_notified, f"week {w.week} close latch not reset")
 
             # (b) Silent re-latch of the OPEN-at-seed week: the reset ran BEFORE the
             # internal refresh, which re-set the open latch True.

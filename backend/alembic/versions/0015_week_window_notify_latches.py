@@ -44,15 +44,11 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     op.add_column(
         "week",
-        sa.Column(
-            "window_open_notified", sa.Boolean(), nullable=False, server_default=sa.false()
-        ),
+        sa.Column("window_open_notified", sa.Boolean(), nullable=False, server_default=sa.false()),
     )
     op.add_column(
         "week",
-        sa.Column(
-            "window_close_notified", sa.Boolean(), nullable=False, server_default=sa.false()
-        ),
+        sa.Column("window_close_notified", sa.Boolean(), nullable=False, server_default=sa.false()),
     )
 
 
