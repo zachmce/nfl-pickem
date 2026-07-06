@@ -110,6 +110,20 @@ def seed_demo(session: Session, *, now: datetime | None = None) -> dict:
         game.home_score = None
         game.away_score = None
         session.add(game)
+    # Reset every Week's window-notify latches so a reseed is a FRESH notification
+    # generation. `import_fixture_2025` reuses Week rows (idempotent on season+week),
+    # so without this the latches persist across reseeds and suppress live replays of
+    # already-fired window.opened / window.closed edges. This MUST run BEFORE the
+    # internal refresh_games(now=now) below: that refresh silently re-sets the open
+    # latch True for any window already OPEN at seed-now (pure refresh_games only
+    # accumulates edges on its RefreshResult — never publishes), so an already-open
+    # window stays announced (no spurious Picks Open re-fire on the next live boot),
+    # while windows the live poller crosses AFTER the seed still fire once. Resetting
+    # AFTER the refresh would clear that re-latch and re-introduce the boot re-fire bug.
+    for week in session.exec(select(Week)).all():
+        week.window_open_notified = False
+        week.window_close_notified = False
+        session.add(week)
     refresh_games(session, Demo2025Source(offset), now=now)
     session.commit()
 
