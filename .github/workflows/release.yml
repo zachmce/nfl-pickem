@@ -77,19 +77,6 @@ jobs:
           echo "backend_digest=${backend_digest}" >> "$GITHUB_OUTPUT"
           echo "frontend_digest=${frontend_digest}" >> "$GITHUB_OUTPUT"
 
-      - name: Install cosign v3 (image-signature verify only)
-        # ci.yml's publish-* sign images with cosign v3 (cosign-installer default), which writes
-        # the signature in the v3 bundle format. cosign v2.6.3 verify CANNOT read it — it reports
-        # "no signatures found" — so the image-verify gate below needs a v3 binary. We install it
-        # to a SEPARATE dir and BEFORE the v2.6.3 install so that, per cosign-installer's
-        # GITHUB_PATH prepend order, the LAST install (v2.6.3) wins for bare `cosign` — keeping the
-        # sign-blob/attest-blob steps on v2.6.3 (which they require) — while the verify step calls
-        # this v3 binary by its explicit $COSIGN3 path.
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-        with:
-          cosign-release: 'v3.1.1'
-          install-dir: ${{ runner.temp }}/cosign3
-
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:
@@ -110,16 +97,20 @@ jobs:
         # OWN ci.yml publish keyless identity. ci.yml's publish-backend/-frontend sign the pushed
         # index digest via GitHub OIDC, so Fulcio mints a cert whose SAN is the ci.yml workflow
         # ref (…/.github/workflows/ci.yml@refs/tags/vX); the identity regexp anchors on that path
-        # and leaves @<ref> open. cosign verify exits non-zero when NO matching signature exists,
-        # and `set -e` turns that into a job failure BEFORE the checksums are signed / attested and
-        # the Release is created — so a stray/out-of-band digest our publish job never signed halts
-        # the release.
-        # Verify with cosign v3 ($COSIGN3) — matches the v3 bundle format ci.yml's publish job
-        # signs with (v2.6.3 verify reports "no signatures found" on a v3 signature).
+        # and leaves @<ref> open. If NO matching signature ever appears, the loop below exhausts
+        # its retries and returns non-zero, which `set -e` turns into a job failure BEFORE the
+        # checksums are signed / attested and the Release is created — so a stray/out-of-band
+        # digest our publish job never signed halts the release.
+        #
+        # RETRY (race): release.yml and ci.yml both fire on the v* tag and run CONCURRENTLY. The
+        # `Derive digests` step above waits for the image MANIFEST (crane push), but publish's
+        # `cosign sign` runs a few steps LATER — so the signature can lag the manifest by ~30-120s.
+        # Without a retry, verify races ahead of signing and false-fails "no signatures found"
+        # (observed on the v1.1.1 and v1.1.2 tag cuts). Retry until the signature verifies, then
+        # fail closed. cosign v2.6.3 (installed above) verifies these images fine — no v3 needed.
         # template-injection posture (zizmor): every ${{ }} value flows through env and is
         # referenced ONLY as a shell var — nothing is spliced into the run body.
         env:
-          COSIGN3: ${{ runner.temp }}/cosign3/cosign
           BACKEND: ghcr.io/zachmce/nfl-pickem-backend
           FRONTEND: ghcr.io/zachmce/nfl-pickem-frontend
           BACKEND_DIGEST: ${{ steps.digests.outputs.backend_digest }}
@@ -128,14 +119,23 @@ jobs:
           CERT_IDENTITY_REGEXP: '^https://github\.com/zachmce/nfl-pickem/\.github/workflows/ci\.yml@'
         run: |
           set -euo pipefail
+          # Up to 20 attempts × 15s ≈ 5 min — ample for publish's sign step to land after the
+          # manifest, while still failing closed on a genuinely unsigned / wrong-identity digest.
           verify_signed() {
-            local ref="$1"
-            echo "verifying signature on ${ref} …"
-            # Redirect the verbose verification JSON payload to /dev/null; the exit code is the gate.
-            "$COSIGN3" verify \
-              --certificate-oidc-issuer "$CERT_OIDC_ISSUER" \
-              --certificate-identity-regexp "$CERT_IDENTITY_REGEXP" \
-              "$ref" > /dev/null
+            local ref="$1" i
+            for i in $(seq 1 20); do
+              if cosign verify \
+                   --certificate-oidc-issuer "$CERT_OIDC_ISSUER" \
+                   --certificate-identity-regexp "$CERT_IDENTITY_REGEXP" \
+                   "$ref" > /dev/null 2>&1; then
+                echo "  ✓ verified ${ref} (attempt ${i})"
+                return 0
+              fi
+              echo "  waiting for a valid signature on ${ref} (attempt ${i}/20)…" >&2
+              sleep 15
+            done
+            echo "ERROR: ${ref} has no signature from our publish identity after retries — failing closed." >&2
+            return 1
           }
           verify_signed "${BACKEND}@${BACKEND_DIGEST}"
           verify_signed "${FRONTEND}@${FRONTEND_DIGEST}"
