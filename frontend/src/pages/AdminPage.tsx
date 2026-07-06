@@ -1007,6 +1007,17 @@ function MiscOverridePanel({
   const [gradeResult, setGradeResult] = useState<"WIN" | "LOSS" | null>(null);
   const [gradePoints, setGradePoints] = useState<string>("0");
 
+  // Editable content text for an existing MISC pick. Seeded from the current
+  // pick and re-synced to server truth after each re-GET (Save text or grade).
+  const [editText, setEditText] = useState<string>(miscPick?.misc_text ?? "");
+  useEffect(() => {
+    setEditText(miscPick?.misc_text ?? "");
+  }, [miscPick?.misc_text]);
+
+  const trimmedEdit = editText.trim();
+  const textDirty =
+    trimmedEdit.length > 0 && trimmedEdit !== (miscPick?.misc_text ?? "");
+
   // The inline error is scoped to the MISC slot's game (create uses the selected
   // game; grade uses the existing pick's game).
   const createErrKeyGame = createGameId ?? slate[0]?.game_id ?? 0;
@@ -1106,14 +1117,51 @@ function MiscOverridePanel({
       ) : (
         // -------- Grade an existing MISC pick --------
         <div className="mt-3 space-y-3">
-          <div>
-            <p className="text-sm text-fg">{miscPick.misc_text}</p>
+          <div className="space-y-2">
+            <label className="block text-xs font-medium text-fg-muted">
+              Prediction
+              <textarea
+                value={editText}
+                disabled={savingMisc}
+                onChange={(e) => setEditText(e.target.value)}
+                rows={2}
+                maxLength={280}
+                className={[
+                  "mt-1 block w-full rounded-md border border-border px-2 py-1.5 text-sm",
+                  savingMisc ? "cursor-not-allowed opacity-50" : "",
+                ].join(" ")}
+              />
+            </label>
             <p className="mt-0.5 text-xs text-fg-muted">
               {slotGameLabel(picks, slate, slotKey("MISC", false)) ??
                 `Game #${miscPick.game_id}`}
               {" · "}
               <MiscResultText result={miscPick.result} points={miscPick.points} />
             </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={savingMisc || !textDirty}
+                onClick={() =>
+                  onSet({
+                    game_id: miscPick.game_id,
+                    pick_type: "MISC",
+                    is_mortal_lock: false,
+                    misc_text: trimmedEdit,
+                  })
+                }
+                className={[
+                  "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+                  "border-accent-solid bg-accent-solid text-on-accent hover:bg-accent-solid-hover",
+                  savingMisc || !textDirty ? "cursor-not-allowed opacity-50" : "",
+                ].join(" ")}
+              >
+                Save text
+              </button>
+              {savingMisc && (
+                <span className="text-xs text-fg-muted">Saving…</span>
+              )}
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
