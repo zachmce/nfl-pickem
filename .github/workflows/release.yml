@@ -38,6 +38,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Derive published image digests → checksums.txt
+        id: digests
         # release.yml and ci.yml's publish job both fire on the v* tag; publish
         # pushes the images, so retry imagetools inspect until they appear and fail
         # cleanly if they never do (a blocked/failed publish → no release).
@@ -71,6 +72,10 @@ jobs:
           } > checksums.txt
           echo "--- checksums.txt ---"
           cat checksums.txt
+          # Thread the SAME digests to step outputs so the fail-closed cosign-verify gate and
+          # the SBOM-extract step target EXACTLY what was checksummed — no divergent re-inspect.
+          echo "backend_digest=${backend_digest}" >> "$GITHUB_OUTPUT"
+          echo "frontend_digest=${frontend_digest}" >> "$GITHUB_OUTPUT"
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
@@ -86,6 +91,39 @@ jobs:
           # the assets to the sigstore bundle format. (image signing in ci.yml uses
           # `cosign sign`, unaffected by this, and stays on the default v3.)
           cosign-release: 'v2.6.3'
+
+      - name: Verify published image signatures (cosign keyless) — fail-closed gate
+        # Fail-closed supply-chain gate: cosign-verify EACH published index digest against our
+        # OWN ci.yml publish keyless identity. ci.yml's publish-backend/-frontend sign the pushed
+        # index digest via GitHub OIDC, so Fulcio mints a cert whose SAN is the ci.yml workflow
+        # ref (…/.github/workflows/ci.yml@refs/tags/vX); the identity regexp anchors on that path
+        # and leaves @<ref> open. cosign verify exits non-zero when NO matching signature exists,
+        # and `set -e` turns that into a job failure BEFORE the checksums are signed / attested and
+        # the Release is created — so a stray/out-of-band digest our publish job never signed halts
+        # the release.
+        # template-injection posture (zizmor): every ${{ }} value flows through env and is
+        # referenced ONLY as a shell var — nothing is spliced into the run body.
+        env:
+          BACKEND: ghcr.io/zachmce/nfl-pickem-backend
+          FRONTEND: ghcr.io/zachmce/nfl-pickem-frontend
+          BACKEND_DIGEST: ${{ steps.digests.outputs.backend_digest }}
+          FRONTEND_DIGEST: ${{ steps.digests.outputs.frontend_digest }}
+          CERT_OIDC_ISSUER: https://token.actions.githubusercontent.com
+          CERT_IDENTITY_REGEXP: '^https://github\.com/zachmce/nfl-pickem/\.github/workflows/ci\.yml@'
+        run: |
+          set -euo pipefail
+          verify_signed() {
+            local ref="$1"
+            echo "verifying signature on ${ref} …"
+            # Redirect the verbose verification JSON payload to /dev/null; the exit code is the gate.
+            cosign verify \
+              --certificate-oidc-issuer "$CERT_OIDC_ISSUER" \
+              --certificate-identity-regexp "$CERT_IDENTITY_REGEXP" \
+              "$ref" > /dev/null
+          }
+          verify_signed "${BACKEND}@${BACKEND_DIGEST}"
+          verify_signed "${FRONTEND}@${FRONTEND_DIGEST}"
+          echo "✓ both published digests verified against the ci.yml publish identity"
 
       - name: Sign checksums (cosign keyless sign-blob)
         # Keyless via GitHub OIDC (Fulcio cert + Rekor entry) — no keys, same trust
@@ -126,6 +164,36 @@ jobs:
             --type slsaprovenance \
             --output-attestation checksums.intoto.jsonl
 
+      - name: Extract SBOM from published images → release assets
+        # Surface the SPDX SBOM the publish build already emits (mode=max + sbom) but never
+        # shipped: pull it out of each pushed OCI index and attach it to the Release. buildx is
+        # already used by the derive step (no setup). Reuses the Task-1 digests (same env-var
+        # indirection). Guards LOUDLY on a valid spdxVersion so an empty/garbage SBOM is never
+        # attached — the release fails instead of misleading consumers with a bogus inventory.
+        env:
+          BACKEND: ghcr.io/zachmce/nfl-pickem-backend
+          FRONTEND: ghcr.io/zachmce/nfl-pickem-frontend
+          BACKEND_DIGEST: ${{ steps.digests.outputs.backend_digest }}
+          FRONTEND_DIGEST: ${{ steps.digests.outputs.frontend_digest }}
+        run: |
+          set -euo pipefail
+          extract_sbom() {
+            local ref="$1" out="$2" raw doc
+            echo "extracting SBOM from ${ref} …"
+            raw="$(docker buildx imagetools inspect "$ref" --format '{{ json .SBOM }}')"
+            # `.SBOM` wraps the SPDX doc: single-arch → top-level `.SPDX`; otherwise the first
+            # platform entry's `.SPDX`. select() on spdxVersion makes a missing/garbage doc yield
+            # empty, so `jq -e` exits non-zero → the release FAILS rather than attaching an empty file.
+            if ! doc="$(printf '%s' "$raw" | jq -e '(.SPDX // (to_entries | .[0].value.SPDX) // empty) | select(.spdxVersion != null)')"; then
+              echo "ERROR: no valid SPDX SBOM (with spdxVersion) found for ${ref} — refusing to attach an empty file" >&2
+              exit 1
+            fi
+            printf '%s\n' "$doc" > "$out"
+            echo "wrote ${out} ($(wc -c < "$out") bytes, spdxVersion=$(printf '%s' "$doc" | jq -r .spdxVersion))"
+          }
+          extract_sbom "${BACKEND}@${BACKEND_DIGEST}" sbom-backend.spdx.json
+          extract_sbom "${FRONTEND}@${FRONTEND_DIGEST}" sbom-frontend.spdx.json
+
       - name: Create GitHub Release with signed assets
         # Uses the preinstalled gh CLI (no third-party release action to pin), and
         # is idempotent so re-running the tag re-uploads rather than failing.
@@ -134,7 +202,7 @@ jobs:
           VERSION: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          assets=(checksums.txt checksums.txt.sig checksums.txt.sigstore.json checksums.intoto.jsonl)
+          assets=(checksums.txt checksums.txt.sig checksums.txt.sigstore.json checksums.intoto.jsonl sbom-backend.spdx.json sbom-frontend.spdx.json)
           if gh release view "${VERSION}" >/dev/null 2>&1; then
             gh release upload "${VERSION}" "${assets[@]}" --clobber
           else
