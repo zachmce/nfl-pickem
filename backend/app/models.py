@@ -203,12 +203,17 @@ class Week(SQLModel, table=True):
     # Fire-once notify latches (mirror lines_frozen's plain-bool Field style).
     # Set True the first poll cycle the week's pick window is observed open /
     # closed, so the window.opened / window.closed Discord notification fires
-    # exactly once per week per seed generation. The model default=False is
-    # load-bearing: the SQLite-only offline suite builds the schema from SQLModel
-    # metadata (no migrations), so tests must get False without running 0015
-    # (same reasoning as User.session_version / migration 0014).
+    # exactly once per week per seed generation. lines_frozen_notified is the
+    # sibling freeze latch: set True the first poll cycle the week's odds are
+    # observed frozen (the COMPUTED noon-ET-Wed clock OR the manual admin
+    # override), so the freeze.week "Lines Locked" card fires exactly once per
+    # week per seed generation. The model default=False is load-bearing: the
+    # SQLite-only offline suite builds the schema from SQLModel metadata (no
+    # migrations), so tests must get False without running 0015 / 0016 (same
+    # reasoning as User.session_version / migration 0014).
     window_open_notified: bool = Field(default=False, nullable=False)
     window_close_notified: bool = Field(default=False, nullable=False)
+    lines_frozen_notified: bool = Field(default=False, nullable=False)
 
 
 class Game(SQLModel, table=True):

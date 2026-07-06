@@ -38,6 +38,7 @@ from app.scoreboard.port import ScoreboardFetchError
 from app.scoreboard.types import ScoreboardGame
 from app.seeds.fixture_2025 import FIXTURE_PATH, import_fixture_2025
 from app.seeds.teams import seed_teams
+from app.services.odds import freeze_at
 from app.services.pick_window import compute_window
 from app.services.refresh import RefreshResult, refresh_games
 
@@ -646,6 +647,167 @@ class RefreshWindowEdgeTests(unittest.TestCase):
             again = refresh_games(session, src, now=after_close)
             session.commit()
             self.assertEqual(again.windows_closed, ())
+
+
+class RefreshFreezeEdgeTests(unittest.TestCase):
+    """In-cycle freeze.week edges fire once when a week crosses the computed freeze.
+
+    Mirrors :class:`RefreshWindowEdgeTests` for the odds-freeze edge: a tiny
+    two-week DB with fixed per-week kickoffs and a stable (no-kickoff-move) source,
+    so the ONLY thing that changes between polls is the injected ``now`` — any
+    freeze crossing is produced purely by the advancing clock (the real production
+    path). The exact freeze boundary is DERIVED from
+    :func:`app.services.odds.freeze_at` rather than hardcoded (matching the window
+    class deriving open_at/close_at). Proves the crossing is recorded ONCE, the
+    persisted latch holds on a re-poll, and a pre-set manual-freeze latch suppresses
+    the double-fire.
+    """
+
+    SEASON = 2025
+
+    def setUp(self) -> None:
+        self.engine = create_engine("sqlite://")
+        SQLModel.metadata.create_all(self.engine)
+        from app.models import Team
+
+        with Session(self.engine) as session:
+            session.add_all(
+                [
+                    Team(espn_team_id=i, abbreviation=f"T{i}", display_name=f"Team {i}")
+                    for i in range(1, 5)
+                ]
+            )
+            session.commit()
+            self.team_ids = [t.id for t in session.exec(select(Team)).all() if t.id is not None]
+
+    def tearDown(self) -> None:
+        self.engine.dispose()
+
+    def _seed_week_game(
+        self, session: Session, *, week: int, event_id: int, kickoff: datetime
+    ) -> None:
+        wk = Week(season=self.SEASON, week=week)
+        session.add(wk)
+        session.commit()
+        session.refresh(wk)
+        assert wk.id is not None
+        session.add(
+            Game(
+                espn_event_id=event_id,
+                week_id=wk.id,
+                season=self.SEASON,
+                week=week,
+                home_team_id=self.team_ids[0],
+                away_team_id=self.team_ids[1],
+                kickoff_at=kickoff,
+                status=GameStatus.SCHEDULED,
+            )
+        )
+        session.commit()
+
+    class _StableSource:
+        """Echoes unchanged state: returns no games so reconcile writes nothing.
+
+        The seeded rows keep their FIXED kickoffs across every poll — NOTHING
+        moves. The ONLY thing that changes between polls is the injected ``now``,
+        so any freeze crossing is produced purely by the advancing clock, never by
+        a kickoff move.
+        """
+
+        @staticmethod
+        def fetch_week(season: int, week: int) -> list[ScoreboardGame]:
+            return []
+
+    # Fixed kickoffs shared by the freeze tests. wk1 is the earlier week (its
+    # computed freeze is earlier); wk2 is the target whose crossing we straddle.
+    WK1_KICKOFF = datetime(2025, 9, 7, 17, 0, tzinfo=timezone.utc)
+    WK2_KICKOFF = datetime(2025, 9, 14, 17, 0, tzinfo=timezone.utc)
+
+    def _freeze_at(self, session: Session, week: int) -> datetime:
+        """Derive the exact computed freeze instant for ``week`` from its games."""
+        this_games = session.exec(
+            select(Game).where(Game.season == self.SEASON, Game.week == week)
+        ).all()
+        prev_games = session.exec(
+            select(Game).where(Game.season == self.SEASON, Game.week == week - 1)
+        ).all()
+        return freeze_at(list(this_games), list(prev_games) or None)
+
+    def test_freeze_edge_fires_once_on_advancing_clock(self) -> None:
+        """freeze.week fires the first poll wk2's odds are observed frozen.
+
+        Two fixed-kickoff weeks; only ``now`` advances (no kickoff move). Poll
+        BEFORE both weeks' computed freeze -> no edge; poll AT/after wk2's derived
+        ``freeze_at`` -> wk2 IN weeks_frozen and its persisted latch flips True; a
+        same-``now`` re-poll re-emits nothing (the latch holds).
+        """
+        with Session(self.engine) as session:
+            self._seed_week_game(session, week=1, event_id=9001, kickoff=self.WK1_KICKOFF)
+            self._seed_week_game(session, week=2, event_id=9002, kickoff=self.WK2_KICKOFF)
+
+        src = self._StableSource()
+
+        with Session(self.engine) as session:
+            freeze_wk1 = self._freeze_at(session, 1)
+            freeze_wk2 = self._freeze_at(session, 2)
+            # `before` precedes BOTH freezes so neither week is frozen yet.
+            before = min(freeze_wk1, freeze_wk2) - timedelta(hours=1)
+            at_freeze = freeze_wk2  # `now >= freeze_at` -> frozen at the boundary
+
+            # Poll 1: before either week freezes -> no freeze edge.
+            first = refresh_games(session, src, now=before)
+            session.commit()
+            self.assertEqual(first.weeks_frozen, ())
+
+            # Poll 2: now at wk2's computed freeze -> freeze.week fires once and the
+            # persisted latch flips True.
+            second = refresh_games(session, src, now=at_freeze)
+            session.commit()
+            self.assertIn(2, second.weeks_frozen)
+            wk2 = session.exec(
+                select(Week).where(Week.season == self.SEASON, Week.week == 2)
+            ).first()
+            assert wk2 is not None
+            self.assertTrue(wk2.lines_frozen_notified)
+
+            # Poll 3: same `now`, latch already set -> no re-emit (the latch holds).
+            third = refresh_games(session, src, now=at_freeze)
+            session.commit()
+            self.assertEqual(third.weeks_frozen, ())
+
+    def test_manual_freeze_latch_suppresses_double_fire(self) -> None:
+        """A pre-set manual-freeze latch suppresses the computed re-emit.
+
+        Simulates the post-``freeze_week_task`` state (exactly as test_demo_seed
+        simulates persisted latches directly): a week with ``lines_frozen = True``
+        AND ``lines_frozen_notified = True``. Running refresh at a ``now`` past the
+        freeze must NOT re-list that week in ``weeks_frozen`` — the latch blocks the
+        double-fire even though ``is_odds_frozen`` is True via the manual override.
+        """
+        with Session(self.engine) as session:
+            self._seed_week_game(session, week=1, event_id=9101, kickoff=self.WK1_KICKOFF)
+            self._seed_week_game(session, week=2, event_id=9102, kickoff=self.WK2_KICKOFF)
+            # Simulate the post-freeze_week_task state on wk2 ONLY: manually frozen
+            # AND already-notified. wk1 is left unlatched as a positive control.
+            wk2 = session.exec(
+                select(Week).where(Week.season == self.SEASON, Week.week == 2)
+            ).first()
+            assert wk2 is not None
+            wk2.lines_frozen = True
+            wk2.lines_frozen_notified = True
+            session.add(wk2)
+            session.commit()
+
+        src = self._StableSource()
+
+        with Session(self.engine) as session:
+            after_freeze = self._freeze_at(session, 2) + timedelta(hours=1)
+            result = refresh_games(session, src, now=after_freeze)
+            session.commit()
+            # wk2's latch suppresses the re-emit; wk1 (unlatched, also frozen by now)
+            # is the positive control proving the cycle DID detect a freeze edge.
+            self.assertNotIn(2, result.weeks_frozen)
+            self.assertIn(1, result.weeks_frozen)
 
 
 class BeatWiringRegressionTests(unittest.TestCase):

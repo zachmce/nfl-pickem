@@ -217,10 +217,12 @@ class DemoSeedTests(unittest.TestCase):
             self.assertNotIn("windows_opened", summary)
             self.assertNotIn("windows_closed", summary)
 
-            # (2) Simulate persisted latches from a prior generation on EVERY week.
+            # (2) Simulate persisted latches from a prior generation on EVERY week
+            # (window edges AND the freeze edge).
             for week in session.exec(select(Week)).all():
                 week.window_open_notified = True
                 week.window_close_notified = True
+                week.lines_frozen_notified = True
                 session.add(week)
             session.commit()
 
@@ -238,12 +240,19 @@ class DemoSeedTests(unittest.TestCase):
             # closes at week-1's first kickoff ~24h out) — sanity-check that.
             self.assertTrue(self._is_open_at(weeks[1], PINNED_NOW))
 
-            # (a) Reset happened for EVERY not-open-at-seed week: both latches False.
+            # (a) Reset happened for EVERY not-open-at-seed week: all latches False.
+            # The not-open-at-seed weeks are the FUTURE weeks (windows not yet open),
+            # whose computed freeze is even further out — so they are NOT frozen at
+            # seed-now, and the internal seed refresh does NOT silently re-latch the
+            # freeze. Their freeze latch must reset to False (re-arming Lines Locked
+            # so a live poller crossing the computed freeze after the seed fires it
+            # once), alongside the window latches.
             not_open = [w for wk, w in weeks.items() if not self._is_open_at(w, PINNED_NOW)]
             self.assertTrue(not_open, "expected at least one closed-at-seed week")
             for w in not_open:
                 self.assertFalse(w.window_open_notified, f"week {w.week} open latch not reset")
                 self.assertFalse(w.window_close_notified, f"week {w.week} close latch not reset")
+                self.assertFalse(w.lines_frozen_notified, f"week {w.week} freeze latch not reset")
 
             # (b) Silent re-latch of the OPEN-at-seed week: the reset ran BEFORE the
             # internal refresh, which re-set the open latch True.
@@ -253,6 +262,44 @@ class DemoSeedTests(unittest.TestCase):
             )
             # Its window has NOT closed at seed-now, so the close latch stays False.
             self.assertFalse(weeks[1].window_close_notified)
+
+    def test_reseed_clears_stale_manual_freeze_override(self) -> None:
+        """A reseed clears the ``lines_frozen`` admin override (stale after a jump).
+
+        A week manually frozen ("freeze now") at one anchor position must NOT stay
+        frozen "in the future" after rewinding the demo and reseeding — the reseed
+        hands the freeze decision back to the pure computed clock (refresh_games
+        re-derives it from the new anchor).
+        """
+        with Session(self.engine) as session:
+            seed_demo(session, now=PINNED_NOW)
+            season = self._season(session)
+            weeks = {
+                w.week: w for w in session.exec(select(Week).where(Week.season == season)).all()
+            }
+
+            # Simulate an admin "freeze now" on a FUTURE (not-open-at-seed) week —
+            # relative to the anchor it is not computed-frozen, so only the override
+            # could hold it frozen.
+            future = next(
+                w for _, w in sorted(weeks.items()) if not self._is_open_at(w, PINNED_NOW)
+            )
+            future.lines_frozen = True
+            session.add(future)
+            session.commit()
+            target = future.week
+
+            # Reseed (same pinned now — the idempotent reposition path).
+            seed_demo(session, now=PINNED_NOW)
+
+            refetched = session.exec(
+                select(Week).where(Week.season == season, Week.week == target)
+            ).first()
+            assert refetched is not None
+            self.assertFalse(
+                refetched.lines_frozen,
+                f"week {target}'s stale manual freeze override should be cleared by reseed",
+            )
 
     def test_purge_empties_demo_footprint(self) -> None:
         with Session(self.engine) as session:
