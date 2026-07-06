@@ -34,6 +34,7 @@ from app.demo.anchor import DEMO_KICKOFF_BUFFER, load_demo_anchor, offset_from_a
 from app.models import DemoState, Game, Pick, PickResult, User, Week
 from app.seeds.data.bot_picks_2025 import BOT_PICKS
 from app.seeds.demo import purge_demo, seed_demo
+from app.services.pick_window import PickWindow, is_pick_open
 
 PINNED_NOW = datetime(2026, 6, 23, 12, 0, 0, tzinfo=timezone.utc)
 WEEKS = tuple(range(1, 19))
@@ -179,6 +180,86 @@ class DemoSeedTests(unittest.TestCase):
             self.assertEqual(load_demo_anchor(session), PINNED_NOW)
             self.assertEqual(len(session.exec(select(DemoState)).all()), 1)
             self.assertLess(abs(week1_earliest() - before), timedelta(seconds=1))
+
+    @staticmethod
+    def _aware(dt: datetime | None) -> datetime | None:
+        """Normalize a naive SQLite datetime to tz-aware UTC (file convention)."""
+        if dt is None:
+            return None
+        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+    def _is_open_at(self, week: Week, now: datetime) -> bool:
+        """Classify a Week's stored window as open at ``now`` (deterministic).
+
+        Builds a :class:`PickWindow` from the week's persisted
+        ``window_opens_at`` / ``window_closes_at`` (tz-normalized) and defers to
+        the pure :func:`is_pick_open`, rather than hardcoding a week number.
+        """
+        close_at = self._aware(week.window_closes_at)
+        assert close_at is not None, f"week {week.week} missing window_closes_at"
+        window = PickWindow(open_at=self._aware(week.window_opens_at), close_at=close_at)
+        return is_pick_open(window, now)
+
+    def test_reseed_resets_latches_and_silently_re_latches_open_window(self) -> None:
+        """A reseed is a fresh notify generation (the live reseed bug, #55 gap).
+
+        Persisted latches from a prior generation must NOT survive a reseed and
+        suppress live re-fires — EXCEPT the open-at-seed window, which the internal
+        refresh silently re-latches (so a live boot does not spuriously re-fire
+        Picks Open). Also proves ``seed_demo`` surfaces no window edges (silent).
+        """
+        with Session(self.engine) as session:
+            # (1) First generation.
+            summary = seed_demo(session, now=PINNED_NOW)
+
+            # (c) Seed silence: seed_demo discards the RefreshResult and reaches no
+            # publisher — its summary dict carries NO window-edge keys.
+            self.assertNotIn("windows_opened", summary)
+            self.assertNotIn("windows_closed", summary)
+
+            # (2) Simulate persisted latches from a prior generation on EVERY week.
+            for week in session.exec(select(Week)).all():
+                week.window_open_notified = True
+                week.window_close_notified = True
+                session.add(week)
+            session.commit()
+
+            # (3) Reseed (same pinned now, idempotent).
+            summary2 = seed_demo(session, now=PINNED_NOW)
+            self.assertNotIn("windows_opened", summary2)
+            self.assertNotIn("windows_closed", summary2)
+
+            season = self._season(session)
+            weeks = {
+                w.week: w
+                for w in session.exec(select(Week).where(Week.season == season)).all()
+            }
+
+            # Week 1's window is OPEN at seed-now (unbounded-open lower bound,
+            # closes at week-1's first kickoff ~24h out) — sanity-check that.
+            self.assertTrue(self._is_open_at(weeks[1], PINNED_NOW))
+
+            # (a) Reset happened for EVERY not-open-at-seed week: both latches False.
+            not_open = [
+                w for wk, w in weeks.items() if not self._is_open_at(w, PINNED_NOW)
+            ]
+            self.assertTrue(not_open, "expected at least one closed-at-seed week")
+            for w in not_open:
+                self.assertFalse(
+                    w.window_open_notified, f"week {w.week} open latch not reset"
+                )
+                self.assertFalse(
+                    w.window_close_notified, f"week {w.week} close latch not reset"
+                )
+
+            # (b) Silent re-latch of the OPEN-at-seed week: the reset ran BEFORE the
+            # internal refresh, which re-set the open latch True.
+            self.assertTrue(
+                weeks[1].window_open_notified,
+                "week 1 (open at seed-now) should be silently re-latched open",
+            )
+            # Its window has NOT closed at seed-now, so the close latch stays False.
+            self.assertFalse(weeks[1].window_close_notified)
 
     def test_purge_empties_demo_footprint(self) -> None:
         with Session(self.engine) as session:
