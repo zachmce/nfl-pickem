@@ -255,6 +255,12 @@ jobs:
         with:
           sarif_file: trivy-released-backend.sarif
           category: trivy-released-backend  # distinct from publish's trivy-image-backend / iac's trivy-config
+          # Attribute to the default branch, NOT the triggering tag: the code
+          # scanning alert list only shows branches + PRs, so tag-ref uploads are
+          # stored but invisible/un-filterable in the Security tab. github.sha is
+          # the commit the v* tag dereferences to (the release commit on main).
+          ref: refs/heads/main
+          sha: ${{ github.sha }}
       - name: Trivy scan released frontend digest — SARIF report (never gates)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         continue-on-error: true  # a trivy hiccup must not redden the job after the release exists
@@ -274,3 +280,7 @@ jobs:
         with:
           sarif_file: trivy-released-frontend.sarif
           category: trivy-released-frontend  # distinct from publish's trivy-image-frontend / iac's trivy-config
+          # See the backend upload above: land on refs/heads/main so the findings
+          # are visible in the Security-tab list (tag-ref alerts are not listable).
+          ref: refs/heads/main
+          sha: ${{ github.sha }}
