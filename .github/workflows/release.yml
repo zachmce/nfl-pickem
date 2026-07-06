@@ -25,6 +25,7 @@ jobs:
       contents: write  # create the GitHub Release + upload assets
       id-token: write  # cosign keyless (Fulcio/Rekor) — same trust model as ci.yml publish
       packages: read   # imagetools inspect the pushed GHCR images
+      security-events: write  # upload the report-only released-digest Trivy SARIF to code scanning; mirrors the image-scan-* / iac-scan / zizmor scan jobs in ci.yml
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -224,3 +225,52 @@ jobs:
           else
             gh release create "${VERSION}" --title "${VERSION}" --generate-notes "${assets[@]}"
           fi
+
+      # ── Report-only released-digest Trivy scan ──────────────────────────────
+      # A full-CVE-profile record of exactly what shipped: scan each PUBLISHED image
+      # BY DIGEST and upload a deliberately BROADER SARIF (all severities INCLUDING
+      # unfixed) than the ci.yml publish gate (which narrows to fixable HIGH,CRITICAL).
+      # These steps run AFTER "Create GitHub Release" and use exit-code 0 +
+      # continue-on-error, so a scan/upload hiccup can NEVER block or unwind the
+      # release. The blocking CVE gate already lives in ci.yml's build-once/scan/
+      # promote publish path — this is the broader release-time record, not a gate.
+      # Digests flow via step-level env into the action `with:` input (no shell run
+      # body), matching the file's env-indirection posture (zizmor template-injection).
+      - name: Trivy scan released backend digest — SARIF report (never gates)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        continue-on-error: true  # a trivy hiccup must not redden the job after the release exists
+        env:
+          BACKEND_DIGEST: ${{ steps.digests.outputs.backend_digest }}
+        with:
+          scan-type: image
+          image-ref: ghcr.io/zachmce/nfl-pickem-backend@${{ env.BACKEND_DIGEST }}
+          format: sarif
+          output: trivy-released-backend.sarif
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL  # full CVE profile — broader than the publish gate
+          exit-code: '0'  # report-only — this scan NEVER gates the release
+      - name: Upload released backend Trivy SARIF
+        if: always()  # upload even if the scan above hit continue-on-error
+        continue-on-error: true  # a code-scanning upload hiccup must never redden the post-release job
+        uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
+        with:
+          sarif_file: trivy-released-backend.sarif
+          category: trivy-released-backend  # distinct from publish's trivy-image-backend / iac's trivy-config
+      - name: Trivy scan released frontend digest — SARIF report (never gates)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        continue-on-error: true  # a trivy hiccup must not redden the job after the release exists
+        env:
+          FRONTEND_DIGEST: ${{ steps.digests.outputs.frontend_digest }}
+        with:
+          scan-type: image
+          image-ref: ghcr.io/zachmce/nfl-pickem-frontend@${{ env.FRONTEND_DIGEST }}
+          format: sarif
+          output: trivy-released-frontend.sarif
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL  # full CVE profile — broader than the publish gate
+          exit-code: '0'  # report-only — this scan NEVER gates the release
+      - name: Upload released frontend Trivy SARIF
+        if: always()  # upload even if the scan above hit continue-on-error
+        continue-on-error: true  # a code-scanning upload hiccup must never redden the post-release job
+        uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
+        with:
+          sarif_file: trivy-released-frontend.sarif
+          category: trivy-released-frontend  # distinct from publish's trivy-image-frontend / iac's trivy-config

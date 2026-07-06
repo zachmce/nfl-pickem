@@ -258,17 +258,34 @@ jobs:
 
   secrets:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read          # gitleaks reads local git history
+      security-events: write  # upload the gitleaks SARIF to code scanning (mirrors the image-scan-* / iac-scan / zizmor jobs)
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           persist-credentials: false  # artipacked: gitleaks reads local history + uses GITHUB_TOKEN via env, never the stored git credential
       # gitleaks exits non-zero on a finding, which fails the job — that block
-      # IS the gate. We deliberately do NOT upload SARIF to code scanning (that
-      # would force security-events: write); top-level contents:read suffices.
+      # IS the gate (preserved byte-for-byte below). We now ALSO upload the gitleaks
+      # SARIF to code scanning for the Security tab, which is why the job-level
+      # security-events: write scope above was added. The upload does NOT weaken the
+      # gate — findings still fail the job.
       - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # gitleaks-action v3.0.0 runs `gitleaks detect --report-path=results.sarif`,
+      # writing results.sarif to GITHUB_WORKSPACE on EVERY run (empty-results SARIF
+      # when clean, populated on a finding). if: always() uploads on both clean and
+      # finding runs (findings are exactly what we want surfaced); continue-on-error
+      # guarantees an upload hiccup can never break the required secrets gate.
+      - name: Upload gitleaks SARIF
+        if: always()
+        continue-on-error: true  # never let a SARIF-upload hiccup fail the required secrets gate
+        uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
+        with:
+          sarif_file: results.sarif
+          category: gitleaks  # distinct from all trivy-* / zizmor categories
 
   dependency-review:
     # PR-only: the action diffs the dependency graph against the PR base — on a push it
