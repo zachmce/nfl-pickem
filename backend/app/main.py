@@ -32,7 +32,7 @@ if settings.is_demo_data:
         _demo_line,
     )
 
-app = FastAPI(title="NFL Pick'em API", version="1.1.4")
+app = FastAPI(title="NFL Pick'em API", version="1.1.5")
 
 # Middleware order: the LAST add_middleware is outermost. CORS must be outermost
 # so its headers are attached to every response — including a CSRF 403 — so add
