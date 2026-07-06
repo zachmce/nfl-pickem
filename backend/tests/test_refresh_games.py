@@ -545,104 +545,107 @@ class RefreshWindowEdgeTests(unittest.TestCase):
         )
         session.commit()
 
-    def test_window_closed_edge_once_then_none_on_repoll(self) -> None:
-        """A week whose earliest kickoff moves into the past closes the window."""
-        from app.scoreboard.types import ScoreboardTeam
+    class _StableSource:
+        """Echoes unchanged state: returns no games so reconcile writes nothing.
 
-        now = datetime(2025, 9, 10, 12, 0, tzinfo=timezone.utc)
-        future = now + timedelta(days=2)
-        past = now - timedelta(hours=2)
+        The seeded rows keep their FIXED kickoffs across every poll — NOTHING
+        moves. The ONLY thing that changes between polls is the injected ``now``,
+        so any window crossing is produced purely by the advancing clock (the real
+        production path), never by a kickoff move.
+        """
 
-        with Session(self.engine) as session:
-            # Persisted kickoff is in the FUTURE -> window OPEN at `now`.
-            self._seed_week_game(session, week=1, event_id=5001, kickoff=future)
-
-        # Source repositions the game's kickoff to the PAST and finals it ->
-        # earliest kickoff now in the past -> window CLOSED at `now`.
-        def _src(season, week):
-            if week != 1:
-                return []
-            return [
-                ScoreboardGame(
-                    espn_event_id="5001",
-                    season=season,
-                    week=week,
-                    kickoff_at=past,
-                    status=GameStatus.FINAL,
-                    home=ScoreboardTeam(None, None, score=21),
-                    away=ScoreboardTeam(None, None, score=17),
-                )
-            ]
-
-        class _Src:
-            fetch_week = staticmethod(_src)
-
-        with Session(self.engine) as session:
-            first = refresh_games(session, _Src(), now=now)
-            session.commit()
-            self.assertIn(1, first.windows_closed)
-            self.assertNotIn(1, first.windows_opened)
-
-            # Steady-state re-poll: week 1 is now fully FINAL -> not refetched, and
-            # the window boolean is the same both ends -> no edge.
-            second = refresh_games(session, _Src(), now=now)
-            self.assertEqual(second.windows_closed, ())
-            self.assertEqual(second.windows_opened, ())
-
-    def test_window_opened_edge_once_then_none_on_repoll(self) -> None:
-        """Week 2 opens once week 1's last game (its kickoff) moves into the past."""
-        from app.scoreboard.types import ScoreboardTeam
-
-        now = datetime(2025, 9, 18, 12, 0, tzinfo=timezone.utc)
-        wk1_future = now + timedelta(days=5)  # before: wk1 far future -> wk2 closed
-        wk1_past = now - timedelta(hours=6)  # after: wk1 past -> wk2 open_at past
-        wk2_future = now + timedelta(days=3)  # wk2 close stays future -> still open
-
-        with Session(self.engine) as session:
-            self._seed_week_game(session, week=1, event_id=6001, kickoff=wk1_future)
-            self._seed_week_game(session, week=2, event_id=6002, kickoff=wk2_future)
-
-        def _src(season, week):
-            if week == 1:
-                return [
-                    ScoreboardGame(
-                        espn_event_id="6001",
-                        season=season,
-                        week=week,
-                        kickoff_at=wk1_past,
-                        status=GameStatus.FINAL,
-                        home=ScoreboardTeam(None, None, score=10),
-                        away=ScoreboardTeam(None, None, score=7),
-                    )
-                ]
-            if week == 2:
-                # Week 2 stays SCHEDULED with its future kickoff (window stays open).
-                return [
-                    ScoreboardGame(
-                        espn_event_id="6002",
-                        season=season,
-                        week=week,
-                        kickoff_at=wk2_future,
-                        status=GameStatus.SCHEDULED,
-                        home=ScoreboardTeam(None, None, score=None),
-                        away=ScoreboardTeam(None, None, score=None),
-                    )
-                ]
+        @staticmethod
+        def fetch_week(season: int, week: int) -> list[ScoreboardGame]:
             return []
 
-        class _Src:
-            fetch_week = staticmethod(_src)
+    def test_window_opened_edge_fires_once_on_advancing_clock(self) -> None:
+        """window.opened fires the first poll wk2's window is observed open.
+
+        Two fixed-kickoff weeks (wk1 prev, wk2 target):
+          * wk1 kickoff = 2025-09-07 17:00Z
+          * wk2 kickoff = 2025-09-14 17:00Z
+          -> wk2.open_at = max(wk1 kickoffs) + 3.5h = 2025-09-07 20:30Z
+          -> wk2.close_at = wk2 earliest kickoff = 2025-09-14 17:00Z
+        Only ``now`` advances (no kickoff move). The edge fires EXACTLY once (the
+        persisted latch), and a same-``now`` re-poll re-emits nothing.
+        """
+        wk1_kickoff = datetime(2025, 9, 7, 17, 0, tzinfo=timezone.utc)
+        wk2_kickoff = datetime(2025, 9, 14, 17, 0, tzinfo=timezone.utc)
+        before_open = datetime(2025, 9, 7, 19, 0, tzinfo=timezone.utc)  # < wk2.open_at
+        in_window = datetime(2025, 9, 10, 12, 0, tzinfo=timezone.utc)  # in [open, close)
 
         with Session(self.engine) as session:
-            first = refresh_games(session, _Src(), now=now)
-            session.commit()
-            self.assertIn(2, first.windows_opened)
-            self.assertNotIn(2, first.windows_closed)
+            self._seed_week_game(session, week=1, event_id=7001, kickoff=wk1_kickoff)
+            self._seed_week_game(session, week=2, event_id=7002, kickoff=wk2_kickoff)
 
-            # Re-poll: week 1 is fully final (not refetched), week 2 unchanged ->
-            # the window boolean is stable both ends -> no new edge.
-            second = refresh_games(session, _Src(), now=now)
-            self.assertEqual(second.windows_opened, ())
+        src = self._StableSource()
+
+        with Session(self.engine) as session:
+            # Poll 1: before wk2.open_at -> window not yet open, no edge. wk1 is
+            # already past its own close_at and was never announced open, so it
+            # emits neither an open nor a close edge.
+            first = refresh_games(session, src, now=before_open)
+            session.commit()
+            self.assertEqual(first.windows_opened, ())
+            self.assertEqual(first.windows_closed, ())
+
+            # Poll 2: now inside wk2's window -> window.opened fires once and the
+            # persisted latch flips True.
+            second = refresh_games(session, src, now=in_window)
+            session.commit()
+            self.assertIn(2, second.windows_opened)
+            self.assertNotIn(2, second.windows_closed)
+            wk2 = session.exec(
+                select(Week).where(Week.season == self.SEASON, Week.week == 2)
+            ).first()
+            assert wk2 is not None
+            self.assertTrue(wk2.window_open_notified)
+
+            # Poll 3: same `now`, latch already set -> no re-emit.
+            third = refresh_games(session, src, now=in_window)
+            session.commit()
+            self.assertEqual(third.windows_opened, ())
+
+    def test_window_closed_edge_fires_once_on_advancing_clock(self) -> None:
+        """window.closed fires once `now` passes wk2.close_at for an opened week.
+
+        Same two fixed-kickoff weeks and stable (no-kickoff-move) source. The
+        window is first observed OPEN (setting the open latch), THEN ``now``
+        advances past wk2.close_at -> window.closed fires exactly once; a re-poll
+        at the same past-close ``now`` is idempotent (empty).
+        """
+        wk1_kickoff = datetime(2025, 9, 7, 17, 0, tzinfo=timezone.utc)
+        wk2_kickoff = datetime(2025, 9, 14, 17, 0, tzinfo=timezone.utc)
+        in_window = datetime(2025, 9, 10, 12, 0, tzinfo=timezone.utc)  # sets open latch
+        after_close = datetime(2025, 9, 14, 18, 0, tzinfo=timezone.utc)  # > wk2.close_at
+
+        with Session(self.engine) as session:
+            self._seed_week_game(session, week=1, event_id=8001, kickoff=wk1_kickoff)
+            self._seed_week_game(session, week=2, event_id=8002, kickoff=wk2_kickoff)
+
+        src = self._StableSource()
+
+        with Session(self.engine) as session:
+            # First observe the window OPEN so a close can later be announced (a
+            # close is only emitted for a window we announced open).
+            opened = refresh_games(session, src, now=in_window)
+            session.commit()
+            self.assertIn(2, opened.windows_opened)
+
+            # Advance past wk2.close_at -> window.closed fires once, latch flips.
+            closed = refresh_games(session, src, now=after_close)
+            session.commit()
+            self.assertIn(2, closed.windows_closed)
+            wk2 = session.exec(
+                select(Week).where(Week.season == self.SEASON, Week.week == 2)
+            ).first()
+            assert wk2 is not None
+            self.assertTrue(wk2.window_close_notified)
+
+            # Idempotent re-poll at the same past-close `now`.
+            again = refresh_games(session, src, now=after_close)
+            session.commit()
+            self.assertEqual(again.windows_closed, ())
 
 
 class BeatWiringRegressionTests(unittest.TestCase):
