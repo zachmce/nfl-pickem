@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-07-06
+
+### Added
+
+- Admin grade mode can now edit the content text of an existing MISC pick, not
+  just its grade — fixing a typo or clarifying the prompt no longer requires
+  deleting and recreating the pick.
+
+### Fixed
+
+- Time-based week open/close now fires the Discord `window.opened` /
+  `window.closed` cards. Previously these only fired on an explicit state change,
+  so a week that opened or closed purely by the clock was announced silently
+  (#55).
+- The "My Picks" context bar no longer shows a "closes …" clause once the pick
+  window is closed; the clause is now gated on the window actually being open
+  (#58).
+
+### Security
+
+- **Release images are now built once and the exact bytes are scanned and
+  shipped.** The Trivy CVE scan runs against the same OCI artifact that is
+  promoted to GHCR (scanned digest == published digest), instead of a separately
+  rebuilt image. Per-PR image scanning is unchanged.
+- **Published image digests are cosign-verified before a release is cut.** The
+  release workflow fails closed if a digest was not keyless-signed by our own
+  publish pipeline, so a stray or tampered digest can never be checksummed and
+  released.
+- **An SPDX SBOM is now attached to each GitHub Release** (`sbom-backend.spdx.json`,
+  `sbom-frontend.spdx.json`), so consumers can inspect the exact dependency
+  inventory of the images they pull.
+
 ## [1.1.0] - 2026-07-05
 
 ### Added
