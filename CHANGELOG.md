@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.5] - 2026-07-06
+
+### Fixed
+
+- Released-digest Trivy SARIF now lands on the `main` branch instead of the
+  release tag. `release.yml` runs on the `v*` tag push, so the report-only
+  shipped-image scans (added in v1.1.4) were filed under `refs/tags/v*` — and
+  GitHub's code-scanning alert list only shows branches and pull requests, never
+  tags, so those findings were stored but invisible in the Security tab. The
+  upload steps now pass an explicit `ref`/`sha` so the results appear in the
+  browsable default-branch view and refresh in place each release. Still
+  report-only — never gates a release.
+
 ## [1.1.4] - 2026-07-06
 
 ### Added
