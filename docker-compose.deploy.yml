@@ -44,13 +44,14 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # Init container: alembic upgrade head + seeds, then exits. backend/worker/bot
-  # wait for it to complete. The demo seed self-gates on IS_DEMO_DATA (no-ops in
-  # prod) and the admin seed self-gates on DEFAULT_ADMIN_* — so this command is
-  # safe verbatim on the prod path.
+  # Init container: the shell-free `app.bootstrap` entrypoint runs alembic
+  # upgrade head + the three seeds in order (fail-fast), then exits. backend/
+  # worker/bot wait for it to complete. The demo seed self-gates on IS_DEMO_DATA
+  # (no-ops in prod) and the admin seed self-gates on DEFAULT_ADMIN_* — so this
+  # entrypoint is safe verbatim on the prod path.
   migrate:
     image: ghcr.io/zachmce/nfl-pickem-backend:${IMAGE_TAG:-latest}
-    command: ["sh", "-c", "alembic upgrade head && python -m app.seeds.teams && python -m app.seeds.demo && python -m app.seeds.admins"]
+    command: ["python", "-m", "app.bootstrap"]
     env_file: .env
     depends_on:
       db:
