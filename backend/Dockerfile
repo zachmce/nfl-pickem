@@ -82,10 +82,14 @@ COPY --from=builder /app /app
 # python -m app.bot.client / python -m app.bootstrap) run as bare executables.
 ENTRYPOINT []
 
-# No USER line needed — the runtime base already runs as nonroot 65532 by default,
-# and it has no shell to run useradd anyway. No HEALTHCHECK either: the runtime
-# ships no shell/curl; the bot's healthcheck is a compose-level CMD-form probe that
-# execs the venv's python3 directly.
+# Restate the nonroot user explicitly even though the base already defaults to it:
+# `trivy config` (the iac-scan job) reads the Dockerfile TEXT, not the base image's
+# metadata, so an absent USER instruction reads as root and re-raises DS-0002 — the
+# exact reason frontend/Dockerfile restates `USER nginx`. Numeric 65532 is valid
+# without a passwd entry and matches the celerybeat chown above. No HEALTHCHECK:
+# the runtime ships no shell/curl; the bot's healthcheck is a compose-level
+# CMD-form probe that execs the venv's python3 directly.
+USER 65532
 
 EXPOSE 8000
 
