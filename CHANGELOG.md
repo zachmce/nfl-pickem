@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.3] - 2026-07-06
+
+### Fixed
+
+- Release workflow: the image-signature verification gate now retries until the
+  publish job's signing step completes, closing a race that could false-fail a
+  release cut when `release.yml` ran ahead of `ci.yml`'s image signing. (Also
+  reverted an earlier, incorrect cosign-v3 workaround for the same symptom.)
+
 ## [1.1.2] - 2026-07-06
 
 ### Fixed
