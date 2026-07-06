@@ -93,10 +93,12 @@ class RefreshResult:
       home_score)`` tuple per game that transitioned to FINAL THIS cycle (display
       data only). A game already FINAL last cycle never reappears (its week is
       not even re-fetched).
-    * ``windows_opened`` — week numbers whose pick window crossed closed->open
-      this cycle (filled by the window-edge step).
-    * ``windows_closed`` — week numbers whose pick window crossed open->closed
-      this cycle.
+    * ``windows_opened`` — week numbers whose pick window was FIRST observed open
+      this cycle (the persisted ``Week.window_open_notified`` latch flips True),
+      so ``window.opened`` fires exactly once per week per seed generation.
+    * ``windows_closed`` — week numbers whose pick window was FIRST observed
+      closed this cycle after having been announced open (the persisted
+      ``Week.window_close_notified`` latch flips True).
     * ``recap_weeks`` — week numbers whose LAST non-final game went FINAL this
       cycle (i.e. a game finalized this cycle AND every row in the week is now
       FINAL) — the week.recap trigger.
@@ -188,35 +190,6 @@ def _team_abbr_map(session: Session) -> dict[int, str]:
     return {t.id: t.abbreviation for t in session.exec(select(Team)).all() if t.id is not None}
 
 
-def _week_open_states(
-    by_week: dict[tuple[int, int], list[Game]], now: datetime
-) -> dict[tuple[int, int], bool]:
-    """Compute each week's pick-window-open boolean at ``now`` (reusing the math).
-
-    For every ``(season, week)`` group, derive the :class:`PickWindow` from the
-    week's CURRENT (in-memory) kickoffs plus the previous week's kickoffs exactly
-    as the stamping step does — reusing :func:`compute_window` /
-    :func:`is_pick_open`, NO re-implemented open/close math — and record whether
-    the window is open at ``now``. A week with no kickoff (``compute_window``
-    raises ``ValueError``) is treated as NOT open (skipped from any crossing), the
-    same defensive skip the stamping loop uses. Called once at function entry and
-    again after reconcile+stamping so a False->True / True->False change between
-    the two snapshots is the in-cycle window crossing.
-    """
-    states: dict[tuple[int, int], bool] = {}
-    for (season, week), this_games in by_week.items():
-        prev_games = by_week.get((season, week - 1))
-        try:
-            window = compute_window(
-                _normalized_games(this_games),
-                _normalized_games(prev_games) if prev_games else None,
-            )
-            states[(season, week)] = is_pick_open(window, now)
-        except ValueError:
-            states[(season, week)] = False
-    return states
-
-
 def _scores_by_event_id(games: list[ScoreboardGame]) -> dict[int, ScoreboardGame]:
     """Index the source's games by integer ``espn_event_id`` (skip Nones)."""
     indexed: dict[int, ScoreboardGame] = {}
@@ -303,11 +276,6 @@ def refresh_games(
     recap_weeks: list[int] = []
     team_abbr = _team_abbr_map(session)
 
-    # QT-3 window edges: snapshot each week's window-open boolean at `now` from
-    # the CURRENT persisted kickoffs BEFORE this cycle mutates them, so a crossing
-    # this cycle can be detected by comparing against the post-reconcile snapshot.
-    window_open_before = _week_open_states(by_week, now)
-
     for season, week in needy:
         try:
             fetched = source.fetch_week(season, week)
@@ -353,6 +321,10 @@ def refresh_games(
     # --- Window stamping (after reconciliation, over every week in the DB) ---
     seasons = {season for season, _ in by_week}
     windows_stamped = 0
+    # Window edge accumulators (declared here so they span all seasons). Filled
+    # by the fire-once latches inside the stamping loop below.
+    windows_opened: list[int] = []
+    windows_closed: list[int] = []
 
     for season in seasons:
         season_weeks = sorted(w for s, w in by_week if s == season)
@@ -397,23 +369,29 @@ def refresh_games(
                     session.add(week_row)
                     windows_stamped += 1
 
-    # QT-3 window edges: recompute each week's window-open boolean from the
-    # now-updated kickoffs and compare to the pre-reconcile snapshot. A
-    # False->True change is a closed->open crossing (window.opened); a True->False
-    # change is an open->closed crossing (window.closed). A steady-state cycle
-    # computes the same boolean both times, so it emits neither (idempotent).
-    window_open_after = _week_open_states(by_week, now)
-    windows_opened: list[int] = []
-    windows_closed: list[int] = []
-    for key, before_open in window_open_before.items():
-        after_open = window_open_after.get(key, before_open)
-        if before_open == after_open:
-            continue
-        _season, week = key
-        if after_open:
-            windows_opened.append(week)
-        else:
-            windows_closed.append(week)
+            # Window edges (fire-once, persisted latches). Emit window.opened the
+            # FIRST cycle this week's pick window is observed open, and
+            # window.closed the FIRST cycle `now` passes its close_at for a window
+            # we already announced open. The persisted per-week latches
+            # (window_open_notified / window_close_notified) make each edge fire
+            # exactly once per week per seed generation — driven by the CURRENT
+            # is_pick_open(window, now) rather than a same-`now` before/after diff.
+            # Set the open latch BEFORE the close check so ordering is stable.
+            # window.close_at is tz-aware (compute_window runs over _normalized_games)
+            # and `now` is tz-aware, so `now >= window.close_at` compares safely and
+            # is the exact complement of is_pick_open's half-open `now < close_at`.
+            if is_pick_open(window, now) and not week_row.window_open_notified:
+                windows_opened.append(wk)
+                week_row.window_open_notified = True
+                session.add(week_row)
+            if (
+                now >= window.close_at
+                and week_row.window_open_notified
+                and not week_row.window_close_notified
+            ):
+                windows_closed.append(wk)
+                week_row.window_close_notified = True
+                session.add(week_row)
 
     return RefreshResult(
         weeks_polled=weeks_polled,
