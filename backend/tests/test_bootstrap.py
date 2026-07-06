@@ -60,9 +60,7 @@ class BootstrapOrderTests(unittest.TestCase):
     def test_migration_failure_skips_all_seeds(self) -> None:
         with (
             mock.patch.object(bootstrap, "configure_logging"),
-            mock.patch.object(
-                bootstrap, "run_migrations", side_effect=RuntimeError("boom")
-            ),
+            mock.patch.object(bootstrap, "run_migrations", side_effect=RuntimeError("boom")),
             mock.patch("app.seeds.teams.main") as m_teams,
             mock.patch("app.seeds.demo.main") as m_demo,
             mock.patch("app.seeds.admins.main") as m_admins,
