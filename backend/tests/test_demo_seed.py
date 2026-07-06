@@ -217,10 +217,12 @@ class DemoSeedTests(unittest.TestCase):
             self.assertNotIn("windows_opened", summary)
             self.assertNotIn("windows_closed", summary)
 
-            # (2) Simulate persisted latches from a prior generation on EVERY week.
+            # (2) Simulate persisted latches from a prior generation on EVERY week
+            # (window edges AND the freeze edge).
             for week in session.exec(select(Week)).all():
                 week.window_open_notified = True
                 week.window_close_notified = True
+                week.lines_frozen_notified = True
                 session.add(week)
             session.commit()
 
@@ -238,12 +240,19 @@ class DemoSeedTests(unittest.TestCase):
             # closes at week-1's first kickoff ~24h out) — sanity-check that.
             self.assertTrue(self._is_open_at(weeks[1], PINNED_NOW))
 
-            # (a) Reset happened for EVERY not-open-at-seed week: both latches False.
+            # (a) Reset happened for EVERY not-open-at-seed week: all latches False.
+            # The not-open-at-seed weeks are the FUTURE weeks (windows not yet open),
+            # whose computed freeze is even further out — so they are NOT frozen at
+            # seed-now, and the internal seed refresh does NOT silently re-latch the
+            # freeze. Their freeze latch must reset to False (re-arming Lines Locked
+            # so a live poller crossing the computed freeze after the seed fires it
+            # once), alongside the window latches.
             not_open = [w for wk, w in weeks.items() if not self._is_open_at(w, PINNED_NOW)]
             self.assertTrue(not_open, "expected at least one closed-at-seed week")
             for w in not_open:
                 self.assertFalse(w.window_open_notified, f"week {w.week} open latch not reset")
                 self.assertFalse(w.window_close_notified, f"week {w.week} close latch not reset")
+                self.assertFalse(w.lines_frozen_notified, f"week {w.week} freeze latch not reset")
 
             # (b) Silent re-latch of the OPEN-at-seed week: the reset ran BEFORE the
             # internal refresh, which re-set the open latch True.

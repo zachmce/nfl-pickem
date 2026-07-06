@@ -99,6 +99,9 @@ class RefreshResult:
     * ``windows_closed`` — week numbers whose pick window was FIRST observed
       closed this cycle after having been announced open (the persisted
       ``Week.window_close_notified`` latch flips True).
+    * ``weeks_frozen`` — week numbers whose odds were FIRST observed frozen this
+      cycle (the persisted ``Week.lines_frozen_notified`` latch flips True), so
+      ``freeze.week`` fires exactly once per week per seed generation.
     * ``recap_weeks`` — week numbers whose LAST non-final game went FINAL this
       cycle (i.e. a game finalized this cycle AND every row in the week is now
       FINAL) — the week.recap trigger.
@@ -111,6 +114,7 @@ class RefreshResult:
     finalized_games: tuple[tuple[int, str, str, int, int], ...] = field(default_factory=tuple)
     windows_opened: tuple[int, ...] = field(default_factory=tuple)
     windows_closed: tuple[int, ...] = field(default_factory=tuple)
+    weeks_frozen: tuple[int, ...] = field(default_factory=tuple)
     recap_weeks: tuple[int, ...] = field(default_factory=tuple)
 
 
@@ -253,6 +257,12 @@ def refresh_games(
     if now is None:
         now = datetime.now(timezone.utc)
 
+    # Deferred import to avoid an import cycle: app.services.odds imports
+    # group_games_by_week FROM this module at top level, so a top-level
+    # `from app.services.odds import is_odds_frozen` here would be circular.
+    # Mirrors odds.py's own function-local import convention.
+    from app.services.odds import is_odds_frozen
+
     all_games = list(session.exec(select(Game)).all())
     if not all_games:
         return RefreshResult()
@@ -325,6 +335,7 @@ def refresh_games(
     # by the fire-once latches inside the stamping loop below.
     windows_opened: list[int] = []
     windows_closed: list[int] = []
+    weeks_frozen: list[int] = []
 
     for season in seasons:
         season_weeks = sorted(w for s, w in by_week if s == season)
@@ -393,6 +404,23 @@ def refresh_games(
                 week_row.window_close_notified = True
                 session.add(week_row)
 
+            # Freeze edge (fire-once, persisted latch). Emit freeze.week the FIRST
+            # cycle this week's odds are observed frozen. is_odds_frozen already
+            # covers BOTH paths — the manual override (week_row.lines_frozen) and
+            # the computed clock (now >= freeze_at(...)) — so the manual admin
+            # freeze and the automatic noon-ET-Wed freeze share this one edge. The
+            # persisted lines_frozen_notified latch makes it fire exactly once per
+            # week per seed generation. freeze_at cannot raise here: `window` was
+            # already computed successfully above (the ValueError `continue` guard
+            # precedes this point), so this week has a kickoff to reason about.
+            if (
+                is_odds_frozen(week_row, this_games, prev_games, now=now)
+                and not week_row.lines_frozen_notified
+            ):
+                weeks_frozen.append(wk)
+                week_row.lines_frozen_notified = True
+                session.add(week_row)
+
     return RefreshResult(
         weeks_polled=weeks_polled,
         games_updated=games_updated,
@@ -401,5 +429,6 @@ def refresh_games(
         finalized_games=tuple(finalized_games),
         windows_opened=tuple(windows_opened),
         windows_closed=tuple(windows_closed),
+        weeks_frozen=tuple(weeks_frozen),
         recap_weeks=tuple(recap_weeks),
     )

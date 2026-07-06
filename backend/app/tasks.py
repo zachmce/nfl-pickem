@@ -1,8 +1,9 @@
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.celery_app import celery_app
 from app.config import default_scoreboard_source
 from app.db import task_session
+from app.models import Week
 from app.services.freeze import freeze_week
 from app.services.ingest import ingest_season
 from app.services.notifications import (
@@ -120,6 +121,13 @@ def _publish_refresh_chat_edges(session: Session, result) -> None:
         publish_event(window_opened_event(week))
     for week in result.windows_closed:
         publish_event(window_closed_event(week))
+    # One freeze.week ("Lines Locked") per week whose odds crossed the computed
+    # freeze this cycle (the automatic noon-ET-Wed clock). Reuses the SAME
+    # freeze_week_event card the manual admin freeze fires, so a hand freeze and
+    # the computed freeze render identically — and the persisted latch makes each
+    # week fire exactly once (the manual path pre-latches; see freeze_week_task).
+    for week in result.weeks_frozen:
+        publish_event(freeze_week_event(week=week))
 
     if not result.recap_weeks:
         return
@@ -278,8 +286,21 @@ def freeze_week_task(season: int, week: int) -> dict:
         # anchor on this same session); the ESPN (prod) branch ignores the arg.
         source = default_scoreboard_source(session)
         result = freeze_week(session, source, season, week)
-        # freeze_week commits once at the end; this wrapper-level commit is a
-        # harmless no-op that keeps the wrapper shape identical to its siblings.
+        # Double-fire reconciliation: set the freeze notify latch on the frozen
+        # week so the next refresh_games cycle does NOT re-emit freeze.week for it
+        # (is_odds_frozen stays True via the manual lines_frozen override, but the
+        # persisted latch blocks a duplicate). The manual card fires exactly once
+        # via publish_event below. Set BEFORE the commit so lines_frozen (set by
+        # freeze_week) and the latch persist together.
+        week_row = session.exec(
+            select(Week).where(Week.season == result.season, Week.week == result.week)
+        ).first()
+        if week_row is not None:
+            week_row.lines_frozen_notified = True
+            session.add(week_row)
+        # freeze_week commits once at the end; this wrapper-level commit also
+        # persists the latch set above and keeps the wrapper shape identical to
+        # its siblings.
         session.commit()
         # Post-commit, best-effort pickem-logger ops line. publish_event swallows
         # Redis errors, so logging can never break the freeze.
