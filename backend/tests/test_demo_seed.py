@@ -263,6 +263,44 @@ class DemoSeedTests(unittest.TestCase):
             # Its window has NOT closed at seed-now, so the close latch stays False.
             self.assertFalse(weeks[1].window_close_notified)
 
+    def test_reseed_clears_stale_manual_freeze_override(self) -> None:
+        """A reseed clears the ``lines_frozen`` admin override (stale after a jump).
+
+        A week manually frozen ("freeze now") at one anchor position must NOT stay
+        frozen "in the future" after rewinding the demo and reseeding — the reseed
+        hands the freeze decision back to the pure computed clock (refresh_games
+        re-derives it from the new anchor).
+        """
+        with Session(self.engine) as session:
+            seed_demo(session, now=PINNED_NOW)
+            season = self._season(session)
+            weeks = {
+                w.week: w for w in session.exec(select(Week).where(Week.season == season)).all()
+            }
+
+            # Simulate an admin "freeze now" on a FUTURE (not-open-at-seed) week —
+            # relative to the anchor it is not computed-frozen, so only the override
+            # could hold it frozen.
+            future = next(
+                w for _, w in sorted(weeks.items()) if not self._is_open_at(w, PINNED_NOW)
+            )
+            future.lines_frozen = True
+            session.add(future)
+            session.commit()
+            target = future.week
+
+            # Reseed (same pinned now — the idempotent reposition path).
+            seed_demo(session, now=PINNED_NOW)
+
+            refetched = session.exec(
+                select(Week).where(Week.season == season, Week.week == target)
+            ).first()
+            assert refetched is not None
+            self.assertFalse(
+                refetched.lines_frozen,
+                f"week {target}'s stale manual freeze override should be cleared by reseed",
+            )
+
     def test_purge_empties_demo_footprint(self) -> None:
         with Session(self.engine) as session:
             seed_demo(session, now=PINNED_NOW)

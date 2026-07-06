@@ -124,10 +124,19 @@ def seed_demo(session: Session, *, now: datetime | None = None) -> dict:
     # the Lines Locked notification so a live poller crossing the computed freeze
     # after the seed fires it once. Resetting AFTER the refresh would clear that
     # re-latch and re-introduce the boot re-fire bug.
+    #
+    # Also clear the lines_frozen OVERRIDE (the manual admin "freeze now" flag): a
+    # reseed repositions the demo in time, so a stored override from a PRIOR position
+    # is stale — a week manually frozen at a later anchor would otherwise stay frozen
+    # "in the future" after rewinding. Clearing it (BEFORE the internal refresh) hands
+    # the freeze decision back to the pure computed clock, which refresh_games then
+    # re-derives from the new anchor. `import_fixture_2025` reuses Week rows, so
+    # (like the latches) the override must be reset explicitly here.
     for week in session.exec(select(Week)).all():
         week.window_open_notified = False
         week.window_close_notified = False
         week.lines_frozen_notified = False
+        week.lines_frozen = False
         session.add(week)
     refresh_games(session, Demo2025Source(offset), now=now)
     session.commit()
