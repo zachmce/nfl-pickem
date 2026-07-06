@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.4] - 2026-07-06
+
+### Added
+
+- The Discord `freeze.week` card now also fires when a week's betting lines
+  freeze by the clock (the time-based freeze), mirroring the window open/close
+  cards from #55 — a week whose lines froze purely on schedule is no longer
+  announced silently.
+- CI publishes Trivy (image scan) and gitleaks (secret scan) SARIF results for
+  the released image digest to the GitHub Security tab, so vulnerability and
+  secret findings for shipped images surface in code scanning.
+
+### Fixed
+
+- Demo reseed now clears the `lines_frozen` admin override, which could
+  otherwise remain stale after the demo time anchor jumps to a new week.
+
 ## [1.1.3] - 2026-07-06
 
 ### Fixed
