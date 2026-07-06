@@ -15,10 +15,17 @@ fires exactly once per week per seed generation:
 This is a PLAIN additive boolean (NOT NULL, ``server_default=sa.false()``, so
 existing rows backfill to False): there is NO enum involved, so the Postgres
 enum-reuse caveat (``postgresql.ENUM(create_type=False)``, see 0007/0008) does NOT
-apply here. The ``false`` server_default keeps every EXISTING ``week`` row
-un-notified after the migration, so upgrading a live DB emits no spurious
-"Lines Locked" backfill notification. ``upgrade()`` adds the column;
-``downgrade()`` drops it.
+apply here. ``upgrade()`` adds the column; ``downgrade()`` drops it.
+
+Backfill note: ``refresh_games`` scans EVERY week, so an already-frozen week with
+``lines_frozen_notified=False`` WILL emit ``freeze.week`` on the next poll. This is
+harmless on this project's deploy paths because seeding re-arms correctly: the
+demo/go-live seed calls ``refresh_games(now=...)`` which silently re-latches every
+week already frozen at seed-now (accumulating edges without publishing), so those
+do NOT re-fire — only freezes the live poller crosses AFTER the seed fire once. The
+one path that WOULD emit a one-time catch-up per already-frozen week is applying
+this migration to a live, mid-season DB that is never re-seeded — not a path this
+project uses (deploys seed).
 
 Note: the SQLite-only OFFLINE tests do not run migrations — they build the schema
 from the SQLModel metadata (``SQLModel.metadata.create_all``), so this column is
