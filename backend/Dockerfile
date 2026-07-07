@@ -29,25 +29,33 @@ USER root
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
     UV_PYTHON_DOWNLOADS=never \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
     PYTHONDONTWRITEBYTECODE=1
 
 WORKDIR /app
 
-# Install dependencies first for better layer caching. A placeholder package lets
-# the project build for its deps before the real source is copied in. The venv is
-# built at /opt/venv — deliberately OUTSIDE /app — because the dev + prod-overlay
-# compose services bind-mount ./backend:/app, which would shadow a venv under /app
-# and every command would lose uvicorn/celery/watchmedo at runtime.
+# Install dependencies FROZEN from the committed uv.lock — NOT re-resolved from
+# pyproject.toml ranges at build time. `uv sync --frozen` reads uv.lock directly
+# and FAILS the build if the lock is out of sync with pyproject (the drift gate),
+# so the resolution we ship is byte-for-byte the one CI enforces/audits/SBOMs
+# (`uv lock --check`, `uv export | pip-audit`). UV_PROJECT_ENVIRONMENT=/opt/venv
+# points uv sync at /opt/venv instead of the default ./.venv. The deps layer is
+# copied (pyproject.toml + uv.lock) BEFORE the source COPY so it invalidates only
+# when pyproject/uv.lock change (layer caching preserved). The venv is built at
+# /opt/venv — deliberately OUTSIDE /app — because the dev + prod-overlay compose
+# services bind-mount ./backend:/app, which would shadow a venv under /app and
+# every command would lose uvicorn/celery/watchmedo at runtime.
 # uv is already bundled in :latest-dev (no COPY --from=astral-sh/uv needed).
-# Keep `uv pip install` (NOT `uv sync`) — there is no committed uv.lock; deps are
-# tracked via the pip Dependabot ecosystem on pyproject.toml.
-COPY pyproject.toml ./
-RUN mkdir -p app && touch app/__init__.py \
-    && uv venv --python python3.14 /opt/venv \
-    && uv pip install --python /opt/venv/bin/python --no-cache-dir .
+COPY pyproject.toml uv.lock ./
+RUN uv venv --python python3.14 /opt/venv \
+    && uv sync --frozen --no-dev --no-install-project
 
-# Application source (overwrites the placeholder package).
+# Application source.
 COPY . .
+
+# Install the project package itself against the same locked deps (deps are
+# already present from the layer above, so this only wires in the `app` package).
+RUN uv sync --frozen --no-dev
 
 # Home for Celery beat's persistent schedule DB. In dev/staging a named volume is
 # mounted here (keeping the file off the host bind-mount); in prod no volume is
