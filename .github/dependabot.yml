@@ -35,6 +35,16 @@ updates:
   # digests fresh so a digest pin can't silently go stale — as nginx:1.27-alpine
   # did until the Trivy gate caught it. No update-types filter so pure digest
   # refreshes (same tag, new build) are grouped too, not just semver bumps.
+  #
+  # NOTE (backend cgr.dev base): /backend now pins two `cgr.dev/chainguard/python`
+  # FROM lines as `:latest@sha256:...` and `:latest-dev@sha256:...`. This ecosystem
+  # already covers them (no per-image config needed), BUT Dependabot reliably
+  # bumping a `cgr.dev` `:latest@sha256` DIGEST is less battle-tested than semver
+  # tags on Docker Hub / GHCR — `:latest`-only digest bumping on a third-party
+  # registry has historically been rougher. If the first weekly docker PR no-ops
+  # the cgr.dev digest, the fallback is Renovate (handles cgr.dev `:latest` digest
+  # pinning well) or a manual weekly digest bump. Confirm empirically on the first
+  # PR; do not over-engineer before then.
   - package-ecosystem: docker
     directory: "/backend"
     schedule:
