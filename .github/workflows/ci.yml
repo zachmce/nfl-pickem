@@ -444,6 +444,82 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: '1'  # the gate: fail ONLY on a fixable HIGH/CRITICAL
 
+  # osv-scan is a NEW pre-merge dependency gate over OSV.dev. Its marginal value over the
+  # existing pip-audit / npm audit / Trivy / dependency-review stack is the ossf/malicious-packages
+  # (MAL-) advisories that CVE-only tools do not carry — known-malicious package IDs. BLOCKING from
+  # day one, wired into ci-complete.needs below.
+  #
+  # WHY THE DIRECT ACTION (not the reusable workflow): this repo enforces "all actions pinned to a
+  # full-length commit SHA". Google's osv-scanner reusable workflow internally uses an UNPINNED
+  # actions/download-artifact@v8, so GitHub rejects the whole reusable workflow here. We therefore
+  # drive the SHA-pinnable subdir action `osv-scanner-action/osv-scanner-action` directly (its root
+  # action.yml is a branding-only stub with no `runs:`, hence the subdir path) and do the SARIF
+  # upload + fail-on-vuln gating ourselves, mirroring how the image-scan / gitleaks jobs upload SARIF.
+  # The subdir action exposes only `scan-args`; its docker entrypoint splits the newline-separated
+  # value into argv (exactly how the reusable workflow injects --output/--format), so we pass
+  # --format/--output plus the scan roots that way.
+  #
+  # ONE job over BOTH ecosystem subtrees (osv-scanner accepts multiple positional roots and dedupes
+  # across manifests) → a single SARIF under a single category, avoiding the category collision two
+  # separate uploads would cause. Scoping to ./backend ./frontend (not ./) deliberately excludes the
+  # throwaway .clusterfuzzlite hash-pinned requirements.
+  #
+  # PATH-FILTER (no new detect filter needed): backend/pyproject.toml + backend/uv.lock fall under
+  # the existing `changes` backend: 'backend/**' filter, frontend/package.json +
+  # frontend/package-lock.json under frontend: 'frontend/**'. Reused here — consistent with the
+  # sibling gates deps-audit (pip-audit / backend) and frontend (npm audit / frontend). The `ci`
+  # clause self-validates when ci.yml changes and (via the changes job's tag-forcing) runs it on v*.
+  #
+  # REF / VISIBILITY (PR #70/#71 lesson): on the pull_request trigger codeql-action/upload-sarif
+  # derives the correct ref automatically (like the image-scan-* PR SARIF analog), so results are
+  # visible in the default Security-tab view with no manual ref override; on push to main it keeps
+  # the main-branch analysis fresh + visible.
+  osv-scan:
+    needs: [changes]
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write  # upload the osv-scanner SARIF to code scanning (mirrors image-scan-* / iac-scan / zizmor)
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false  # artipacked: osv-scanner reads the checked-out tree; no downstream step needs the stored git credential
+      # continue-on-error so a finding (osv-scanner exits non-zero) does NOT abort before we upload
+      # the SARIF; the explicit gate step below turns that outcome into the blocking failure. The
+      # docker action writes osv.sarif to the workspace root via --output.
+      - name: osv-scanner (backend + frontend deps)
+        id: osv
+        continue-on-error: true
+        uses: google/osv-scanner-action/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+        with:
+          scan-args: |-
+            --format=sarif
+            --output=osv.sarif
+            -r
+            ./backend
+            ./frontend
+      - name: Upload osv-scanner SARIF
+        if: always()  # upload the report even when the scan found vulns (mirrors gitleaks/trivy)
+        continue-on-error: true  # never let a SARIF-upload hiccup flip the gate result
+        uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
+        with:
+          sarif_file: osv.sarif
+          category: osv-scanner  # distinct from every existing trivy-* / zizmor / gitleaks / semgrep
+      # THE BLOCKING GATE (day one, no burn-in): the scan step ran with continue-on-error, so its
+      # non-zero exit surfaces as steps.osv.outcome == 'failure'. Re-raise it here so any OSV finding
+      # (CVE or MAL-) — or a scanner error — fails ci-complete. The SARIF is already uploaded above.
+      - name: Enforce osv-scanner gate
+        if: always()
+        env:
+          OSV_OUTCOME: ${{ steps.osv.outcome }}
+        run: |
+          if [ "$OSV_OUTCOME" != "success" ]; then
+            echo "::error::osv-scanner reported findings (CVE or MAL-) or errored — see the osv-scanner step log above and the Security tab (tool: osv-scanner)."
+            exit 1
+          fi
+          echo "osv-scanner: no findings across ./backend and ./frontend."
+
   iac-scan:
     # Advisory (report-only) IaC misconfig scan — deliberately NOT in publish.needs, so
     # findings land in the Security tab for triage without blocking merges/releases.
@@ -885,6 +961,7 @@ jobs:
       - iac-scan
       - zizmor
       - semgrep
+      - osv-scan
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
