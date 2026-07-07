@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.7] - 2026-07-07
+
+### Security
+
+- Added **osv-scanner** as a blocking CI dependency gate over OSV.dev, scanning
+  the backend (Python) and frontend (npm) manifests and uploading SARIF to the
+  Security tab. Its marginal value over the existing pip-audit / npm audit /
+  Trivy / dependency-review stack is the `ossf/malicious-packages` (`MAL-`)
+  advisories — known-malicious package IDs that the CVE-only tools don't carry.
+  Blocking from day one. (#84)
+- Added a two-pass **Semgrep** SAST job to CI with a validated custom canary
+  ruleset, gated through `ci-complete`. (#81)
+- **Dependabot** now waits a 5-day cooldown before opening version-bump PRs for
+  the `github-actions`, `pip`, and `npm` ecosystems, so a malicious or broken
+  release has time to be yanked before it is pulled. The container base-image
+  (`docker`) ecosystems stay uncooled so CVE patches remain prompt. (#82)
+- Refreshed the backend Chainguard / Wolfi Python base-image digest (#83) and the
+  frontend Chainguard nginx base-image digest (#79).
+
+### Changed
+
+- No application or runtime behavior changes — this is a CI / supply-chain
+  hardening release. The shipped images are rebuilt on refreshed Chainguard base
+  digests but are otherwise functionally identical to 1.1.6.
+
 ## [1.1.6] - 2026-07-07
 
 ### Security
