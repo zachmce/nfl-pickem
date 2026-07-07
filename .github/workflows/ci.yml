@@ -444,6 +444,98 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: '1'  # the gate: fail ONLY on a fixable HIGH/CRITICAL
 
+  # osv-scan is a NEW pre-merge dependency gate over OSV.dev. Its marginal value over the
+  # existing pip-audit / npm audit / Trivy / dependency-review stack is the ossf/malicious-packages
+  # (MAL-) advisories that CVE-only tools do not carry — known-malicious package IDs. BLOCKING from
+  # day one (fail-on-vuln: true → non-zero exit → the gate), wired into ci-complete.needs below.
+  # Split per-ecosystem (backend / frontend), mirroring the image-scan-backend/-frontend split, so
+  # each scan is path-gated independently and gets a distinct SARIF category (a job-level `if:` gates
+  # a whole matrix, so a per-ecosystem split is what lets a frontend-only PR skip the backend scan).
+  #
+  # PATH-FILTER DECISION (no new detect filter needed): the backend manifests
+  # backend/pyproject.toml + backend/uv.lock already fall under the existing `changes`
+  # backend: 'backend/**' filter, and frontend/package.json + frontend/package-lock.json under
+  # frontend: 'frontend/**'. So we reuse the existing backend / frontend outputs — consistent with
+  # the sibling dependency gates deps-audit (pip-audit, gated on backend) and frontend (npm audit,
+  # gated on frontend), which likewise gate on the broad ecosystem output. A manifest-only filter
+  # would diverge from those siblings for marginal savings, so it is intentionally NOT added.
+  #
+  # REF / VISIBILITY (PR #70/#71 lesson): on the PRIMARY pull_request trigger, upload-sarif derives
+  # the correct ref automatically (exactly like the image-scan-* PR-triggered SARIF analog), so
+  # results are visible in the default Security-tab view with NO manual ref override. These jobs also
+  # run on push to main (keeping the main-branch analysis fresh + visible). On a v* tag push the
+  # changes job forces the filters true, so the jobs also upload against the tag ref
+  # (stored-but-invisible in the default view) — redundant-but-harmless because the main-branch
+  # analysis already carries the visible results, matching how semgrep/zizmor/iac-scan upload on tags.
+  osv-scan-backend:
+    needs: [changes]
+    # Matches deps-audit's gate: the `ci` clause self-validates when ci.yml changes and is what makes
+    # it run on a v* tag via the changes job's tag-forcing.
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write  # upload the osv-scanner SARIF to code scanning (mirrors image-scan-* / iac-scan / zizmor)
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false  # artipacked: osv-scanner reads the checked-out tree; no downstream step needs the stored git credential
+      # fail-on-vuln: true → non-zero exit on any OSV finding (CVE or MAL-) IS the blocking gate
+      # (no burn-in). upload-sarif: false so WE control the category + the upload runs like the
+      # image-scan SARIF uploads (next step) rather than the action self-uploading. The action ALWAYS
+      # writes the SARIF file regardless of upload-sarif.
+      - name: osv-scanner (backend deps — BLOCKING)
+        uses: google/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+        with:
+          # Recursive scan scoped to the backend subtree — auto-discovers BOTH backend/pyproject.toml
+          # and backend/uv.lock (osv-scanner dedupes packages across manifests), matching pip-audit's
+          # full-locked-tree posture. --skip-git avoids scanning git submodule commit refs.
+          scan-args: |-
+            -r
+            --skip-git
+            ./backend
+          results-file-name: osv-backend.sarif
+          upload-sarif: false  # we upload ourselves in the next step to control the category
+          fail-on-vuln: true   # the gate: exit non-zero on a finding (explicit for clarity — this is the default)
+      - name: Upload osv-scanner SARIF (backend)
+        if: always()  # upload the report even when fail-on-vuln failed the step above (mirrors gitleaks/trivy)
+        continue-on-error: true  # never let a SARIF-upload hiccup flip the fail-on-vuln gate result
+        uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
+        with:
+          sarif_file: osv-backend.sarif
+          category: osv-scanner-backend  # NEW category, distinct from every existing trivy-* / zizmor / gitleaks / semgrep
+
+  osv-scan-frontend:
+    needs: [changes]
+    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write  # upload the osv-scanner SARIF to code scanning (mirrors image-scan-* / iac-scan / zizmor)
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false  # artipacked: osv-scanner reads the checked-out tree; no downstream step needs the stored git credential
+      - name: osv-scanner (frontend deps — BLOCKING)
+        uses: google/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+        with:
+          # Recursive scan scoped to the frontend subtree — auto-discovers frontend/package.json and
+          # frontend/package-lock.json. --skip-git avoids scanning git submodule commit refs.
+          scan-args: |-
+            -r
+            --skip-git
+            ./frontend
+          results-file-name: osv-frontend.sarif
+          upload-sarif: false  # we upload ourselves in the next step to control the category
+          fail-on-vuln: true   # the gate: exit non-zero on a finding (explicit for clarity — this is the default)
+      - name: Upload osv-scanner SARIF (frontend)
+        if: always()  # upload the report even when fail-on-vuln failed the step above (mirrors gitleaks/trivy)
+        continue-on-error: true  # never let a SARIF-upload hiccup flip the fail-on-vuln gate result
+        uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
+        with:
+          sarif_file: osv-frontend.sarif
+          category: osv-scanner-frontend  # NEW category, distinct from every existing trivy-* / zizmor / gitleaks / semgrep
+
   iac-scan:
     # Advisory (report-only) IaC misconfig scan — deliberately NOT in publish.needs, so
     # findings land in the Security tab for triage without blocking merges/releases.
