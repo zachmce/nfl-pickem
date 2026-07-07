@@ -669,11 +669,12 @@ jobs:
   # (now PR-only). crane then promotes the byte-identical index to GHCR and aliases every
   # metadata-action tag onto that one digest, so the scanned digest == the shipped digest, with
   # the SBOM + SLSA-provenance attestation manifests intact. cosign keyless-OIDC signs the pushed
-  # index digest. publish is push-only (main / v* tags) and gates on lint/test/secrets (backend)
-  # or frontend/secrets (frontend). iac-scan (advisory) and dependency-review (PR-only) are NOT
-  # gates here.
+  # index digest. publish is push-only (main / v* tags) and gates on the FULL quality set:
+  # lint/typecheck/deps-audit/test/semgrep/osv-scan/secrets (backend) or
+  # frontend/semgrep/osv-scan/secrets (frontend). iac-scan (advisory) and dependency-review
+  # (PR-only) are NOT gates here.
   publish-backend:
-    needs: [lint, test, secrets]
+    needs: [lint, typecheck, deps-audit, test, semgrep, osv-scan, secrets]
     # Never on pull_request: only push to main or a v* tag, and only if no backend quality gate
     # actually failed. always() is required so a path-skipped sibling job cannot cascade-skip this
     # one. This job now self-scans the exact artifact it ships (the two-pass Trivy gate below), so
@@ -683,7 +684,11 @@ jobs:
       && github.event_name == 'push'
       && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
       && needs.lint.result != 'failure' && needs.lint.result != 'cancelled'
+      && needs.typecheck.result != 'failure' && needs.typecheck.result != 'cancelled'
+      && needs.deps-audit.result != 'failure' && needs.deps-audit.result != 'cancelled'
       && needs.test.result != 'failure' && needs.test.result != 'cancelled'
+      && needs.semgrep.result != 'failure' && needs.semgrep.result != 'cancelled'
+      && needs.osv-scan.result != 'failure' && needs.osv-scan.result != 'cancelled'
       && needs.secrets.result != 'failure' && needs.secrets.result != 'cancelled' }}
     runs-on: ubuntu-latest
     permissions:
@@ -808,16 +813,18 @@ jobs:
         run: cosign sign --yes "${IMAGE_NAME}@${IMAGE_DIGEST}"
 
   publish-frontend:
-    needs: [frontend, secrets]
+    needs: [frontend, semgrep, osv-scan, secrets]
     # Mirror of publish-backend for the frontend image: build-once into an OCI layout, gate Trivy on
     # those exact bytes, crane-promote the byte-identical index, cosign-sign the pushed digest. Gates
-    # only on frontend/secrets now (it self-scans the shipped bytes). always() defeats the
+    # on frontend/semgrep/osv-scan/secrets now (it self-scans the shipped bytes). always() defeats the
     # skipped-needs cascade so a backend-only push does not cascade-skip this job.
     if: >-
       ${{ always()
       && github.event_name == 'push'
       && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
       && needs.frontend.result != 'failure' && needs.frontend.result != 'cancelled'
+      && needs.semgrep.result != 'failure' && needs.semgrep.result != 'cancelled'
+      && needs.osv-scan.result != 'failure' && needs.osv-scan.result != 'cancelled'
       && needs.secrets.result != 'failure' && needs.secrets.result != 'cancelled' }}
     runs-on: ubuntu-latest
     permissions:
