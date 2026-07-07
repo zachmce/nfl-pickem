@@ -24,7 +24,7 @@ from fastapi import APIRouter, Depends
 from sqlmodel import Session
 
 from app.api.deps import get_current_user
-from app.db import get_session
+from app.db import commit_or_conflict, get_session
 from app.models import Game, Pick, PickType, Team, User
 from app.schemas.picks import PickRead, PickSubmitRequest
 from app.services.notifications import (
@@ -104,7 +104,7 @@ def submit(
         week=payload.week,
         items=payload.picks,
     )
-    session.commit()
+    commit_or_conflict(session)
     for pick in picks:
         session.refresh(pick)
 
