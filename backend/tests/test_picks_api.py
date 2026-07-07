@@ -36,6 +36,7 @@ from decimal import Decimal
 from unittest import mock
 
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -68,6 +69,25 @@ def _aware(dt: datetime | None) -> datetime | None:
     if dt is not None and dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt
+
+
+class _FakeOrig(Exception):
+    """Stand-in for a DBAPI error carrying a Postgres SQLSTATE.
+
+    SQLite's IntegrityError does NOT populate ``orig.sqlstate`` (that is
+    Postgres-specific), so a plain duplicate-insert on this offline suite would
+    never exercise ``commit_or_conflict``'s 23505 branch. Subclassing Exception
+    lets SQLAlchemy's DBAPIError machinery accept this as a valid ``orig``.
+    """
+
+    def __init__(self, sqlstate: str) -> None:
+        super().__init__(f"fake DBAPI error sqlstate={sqlstate}")
+        self.sqlstate = sqlstate
+
+
+def _integrity_error(sqlstate: str) -> IntegrityError:
+    """Build an IntegrityError whose ``.orig.sqlstate`` is ``sqlstate``."""
+    return IntegrityError("INSERT INTO pick ...", {}, _FakeOrig(sqlstate))
 
 
 class PicksApiTests(unittest.TestCase):
@@ -295,6 +315,26 @@ class PicksApiTests(unittest.TestCase):
 
     def _clear_auth(self) -> None:
         self.client.cookies.clear()
+
+    def _override_raising_commit(self, sqlstate: str) -> None:
+        """Route the request session's ``commit`` to raise a crafted 23505-style error.
+
+        The request session's ONLY commit is the router's (submit_picks does
+        ``session.add`` only), and setUp seeded data on a SEPARATE session, so an
+        always-raising commit here safely simulates the Postgres unique-index race
+        at exactly the router commit site. tearDown pops the override.
+        """
+
+        def _override():
+            with Session(self.engine) as session:
+
+                def _raise() -> None:
+                    raise _integrity_error(sqlstate)
+
+                setattr(session, "commit", _raise)
+                yield session
+
+        app.dependency_overrides[get_session] = _override
 
     @staticmethod
     def _assert_envelope(body: dict) -> dict:
@@ -1600,6 +1640,62 @@ class PicksApiTests(unittest.TestCase):
         rows_b = self._picks_for(self.user_b_id, self.week_id)
         self.assertEqual(len(rows_b), 1)
         self.assertEqual(rows_b[0].pick_type, PickType.FAVORITE_COVER)
+
+    # -- concurrent pick-slot conflict (23505 -> 409) ----------------------
+
+    def test_submit_slot_unique_race_maps_to_409(self) -> None:
+        """A 23505 unique-index violation at commit -> 409 conflict envelope, no writes.
+
+        Simulates the pick-slot race (two concurrent duplicate submits both pass
+        read-then-insert validation; the loser trips the partial unique index at
+        commit). The offline SQLite driver does not populate ``orig.sqlstate``, so
+        we monkeypatch the request session's commit to raise the Postgres-style
+        23505 IntegrityError.
+        """
+        self._override_raising_commit("23505")
+        headers = self._cookie_auth_headers(self.user_a_id)
+        resp = self.client.post(
+            "/api/picks",
+            json={
+                "season": SEASON,
+                "week": WEEK,
+                "picks": [
+                    {
+                        "game_id": self.game_spread_id,
+                        "pick_type": "FAVORITE_COVER",
+                        "is_mortal_lock": True,
+                    },
+                    {"game_id": self.game_total_id, "pick_type": "OVER"},
+                ],
+            },
+            headers=headers,
+        )
+        self.assertNotEqual(resp.status_code, 200, "the losing submit must NOT succeed")
+        self.assertEqual(resp.status_code, 409, resp.text)
+        err = self._assert_envelope(resp.json())
+        self.assertEqual(err.get("code"), "conflict")
+        self.assertEqual(err.get("reason"), "concurrent_pick_conflict")
+        # rollback ran -> nothing persisted for the user.
+        self.assertEqual(self._picks_for(self.user_a_id, self.week_id), [])
+
+    def test_submit_non_23505_integrity_error_propagates(self) -> None:
+        """A NON-23505 IntegrityError is NOT mapped to 409 — it re-raises unchanged."""
+        self._override_raising_commit("23502")  # not_null_violation, not a unique race
+        headers = self._cookie_auth_headers(self.user_a_id)
+        # Default TestClient re-raises server exceptions, so the original
+        # IntegrityError propagates out of the request rather than becoming a 409.
+        with self.assertRaises(IntegrityError):
+            self.client.post(
+                "/api/picks",
+                json={
+                    "season": SEASON,
+                    "week": WEEK,
+                    "picks": [
+                        {"game_id": self.game_total_id, "pick_type": "OVER"},
+                    ],
+                },
+                headers=headers,
+            )
 
 
 if __name__ == "__main__":
