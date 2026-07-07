@@ -8,25 +8,32 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-# nginxinc/nginx-unprivileged:stable-alpine (digest-pinned) — the official NGINX
-# Inc rootless image: runs as uid 101 (nginx) and listens on 8080 so no root is
-# needed to bind the port (Trivy DS-0002). It is the same upstream nginx on the
-# same Alpine as nginx:stable-alpine, so the vuln posture is identical — 0 fixable
-# HIGH/CRITICAL, with only the same unfixed MEDIUM/UNKNOWN advisories — i.e. the
-# swap adds no new Trivy findings. Digest pin keeps builds reproducible;
-# Dependabot's docker ecosystem refreshes it.
-FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:fd3314e343bad2de4e1127ef58be122abbfa7e09572fa46ae62fcddb6b3f21c5 AS runtime
+# ---- runtime: cgr.dev/chainguard/nginx:latest — distroless, glibc, nonroot ----
+# Chainguard's distroless nginx: runs as the nonroot nginx user (uid 65532) and
+# listens on 8080 by default, so no root is needed to bind the port (Trivy
+# DS-0002). Same config layout as the old nginx-unprivileged image — server blocks
+# load from /etc/nginx/conf.d/*.conf and the docroot is /usr/share/nginx/html — so
+# both COPY lines and the whole nginx.conf drop in unchanged. The minimal image
+# ships none of the Alpine/nginx OS-package advisories the old base carried, so the
+# released-digest Trivy findings drop to ~0. Mirrors the merged backend Chainguard
+# swap. Digest-pinned for reproducibility; Dependabot's docker ecosystem (/frontend)
+# refreshes the pin. Caveat (same as backend): Dependabot bumping a third-party
+# cgr.dev `:latest@sha256` digest is less battle-tested than Docker Hub semver —
+# confirm on the first weekly PR, Renovate/manual bump as fallback.
+FROM cgr.dev/chainguard/nginx:latest@sha256:f23fcc2d894e8711b25d88ca4d3ea50964c8268e67fc6e58b054c652f08f2ad5 AS runtime
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
-# Explicit non-root USER: `trivy config` reads the Dockerfile text (not the base
-# image metadata), so the base's built-in USER 101 must be restated to clear DS-0002.
-USER nginx
+# Restate the nonroot user explicitly even though the base already defaults to it:
+# `trivy config` (iac-scan) reads the Dockerfile TEXT, not the base image metadata,
+# so an absent USER instruction reads as root and re-raises DS-0002. Numeric 65532
+# is valid without a passwd entry and matches the image's nginx user.
+USER 65532
 EXPOSE 8080
-# Rootless nginx serves on 8080. busybox wget is already in the image (no new
-# packages) — probe the SPA root so the container reports health (Trivy DS-0026).
-# Use 127.0.0.1, not localhost: the unprivileged image's listen-on-ipv6 entrypoint
-# script can't patch our read-only config as non-root, so nginx is IPv4-only and a
-# `localhost` probe would resolve to ::1 and fail.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:8080/ >/dev/null 2>&1 || exit 1
-CMD ["nginx", "-g", "daemon off;"]
+# No CMD/ENTRYPOINT: the base image already starts nginx correctly on its own
+# (ENTRYPOINT ["/usr/sbin/nginx"] + CMD to run with daemon off). Re-adding a
+# positional `nginx` arg would double the entrypoint and crash — the same trap the
+# backend fixed. Unlike the python image we do NOT reset ENTRYPOINT: nginx's default
+# entrypoint is exactly what we want. No container health probe either: distroless
+# ships no shell/wget to probe with, and nothing depends on frontend health in
+# compose (prod/deploy use a plain depends_on: [backend], no service_healthy).
+# Mirrors the backend runtime.
