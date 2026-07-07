@@ -1,0 +1,36 @@
+rules:
+  - id: raw-sql-string-interpolation
+    languages: [python]
+    severity: WARNING
+    message: >-
+      SQL is being string-built with interpolation (f-string / % / .format() / +
+      concatenation) and handed to a raw SQL sink: text(...), session.exec(text(...)),
+      or an .execute(...) call. This is a SQL-injection sink. Use parameterized binds
+      instead of interpolating values into the SQL string -- bind :params via
+      text("... :x ...").bindparams(x=...), or express the query with SQLModel /
+      SQLAlchemy constructs (select(...).where(Col == value)) so the driver escapes the
+      value. Never format untrusted input into the SQL text.
+      NOTE: this rule is an armed canary shipped at severity: WARNING -- it reports to
+      the Security tab but does NOT gate. Promote it to severity: ERROR once proven
+      clean on real PRs so the offline gate pass blocks it.
+    patterns:
+      - pattern-either:
+          # Interpolation wrapped in text(...) / $M.text(...).
+          # This also covers session.exec(text(...)) since Semgrep matches the
+          # text(...) sub-expression wherever it appears.
+          - pattern: text(f"...")
+          - pattern: text("..." % $A)
+          - pattern: text("..." + $A)
+          - pattern: text($A + "...")
+          - pattern: text("...".format(...))
+          - pattern: $M.text(f"...")
+          - pattern: $M.text("..." % $A)
+          - pattern: $M.text("..." + $A)
+          - pattern: $M.text($A + "...")
+          - pattern: $M.text("...".format(...))
+          # Interpolation passed straight into an .execute(...) sink.
+          - pattern: $C.execute(f"...")
+          - pattern: $C.execute("..." % $A)
+          - pattern: $C.execute("..." + $A)
+          - pattern: $C.execute($A + "...")
+          - pattern: $C.execute("...".format(...))
