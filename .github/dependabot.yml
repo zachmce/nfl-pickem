@@ -6,6 +6,14 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    # Supply-chain defense-in-depth: hold new releases for 5 days before opening
+    # a bump PR, so a malicious or broken release has time to be yanked/flagged
+    # (e.g. by osv-scanner's MAL- advisories) before we pull it. Applied to the
+    # third-party PACKAGE ecosystems only, NOT the docker base images below —
+    # those are pinned for CVE freshness and a cooldown would delay security
+    # patches.
+    cooldown:
+      default-days: 5
     groups:
       actions-minor-patch:
         patterns: ["*"]
@@ -16,6 +24,8 @@ updates:
     directory: "/backend"
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 5
     groups:
       pip-minor-patch:
         patterns: ["*"]
@@ -26,6 +36,8 @@ updates:
     directory: "/frontend"
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 5
     groups:
       npm-minor-patch:
         patterns: ["*"]
