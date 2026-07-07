@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.8] - 2026-07-07
+
+Code-review hardening pass — the four actioned TIER 1 findings from an external
+review (the other two were reviewed and consciously deferred as accepted risk for
+the private, single-operator deployment).
+
+### Security
+
+- **Prompt-injection defense on the LLM chat layer.** User-controlled MISC
+  prediction text is now sanitized and wrapped in a single labeled data-fence
+  before it crosses into the chat-personality LLM prompt: fence markers
+  (`<<<` / `>>>`) and control characters are stripped from the input (so a player
+  cannot break out of the fence or smuggle a fake instruction line) and the text
+  is length-capped; the misc-graded role prompt now instructs the model to treat
+  the fenced text as quoted data and never follow instructions inside it. A player
+  can no longer steer the bot's public output by phrasing their prediction as an
+  instruction. (#89)
+
+### Fixed
+
+- **Concurrent pick submissions no longer return a raw 500.** A check-then-insert
+  race on the same pick slot (two simultaneous submits) could hit the partial
+  unique index at commit and surface an unhandled `IntegrityError`. Both the user
+  submit and admin set-pick paths now translate the Postgres unique-violation
+  (SQLSTATE 23505) into the standard 409 conflict envelope, honoring the "never a
+  raw 500" contract. (#87)
+
+### Changed
+
+- **Backend image installs dependencies frozen from `uv.lock`.** The builder stage
+  now runs `uv sync --frozen` against the committed lockfile instead of
+  re-resolving `pyproject.toml` ranges at build time, so the dependency set that
+  CI audits and SBOMs is byte-for-byte the set the image ships; a lock/manifest
+  drift now fails the build. (#86)
+- **Image publish is gated on the full quality set.** `publish-backend` now
+  additionally requires `typecheck`, `deps-audit`, `semgrep`, and `osv-scan`, and
+  `publish-frontend` requires `semgrep` and `osv-scan` — so a signed image can no
+  longer ship past a failing type check, dependency audit, or SAST/OSV gate. The
+  path-skip-tolerant gating pattern is preserved. (#88)
+
 ## [1.1.7] - 2026-07-07
 
 ### Security
