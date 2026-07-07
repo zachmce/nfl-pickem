@@ -977,6 +977,8 @@ jobs:
       - iac-scan
       - zizmor
       - semgrep
+      - osv-scan-backend
+      - osv-scan-frontend
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
