@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.6] - 2026-07-07
+
+### Security
+
+- Backend image migrated to a Chainguard / Wolfi glibc-minimal multi-stage base:
+  released-digest Trivy findings dropped 163 → 0. The `perl-base` package and both
+  previously-unfixed CRITICALs (CVE-2026-8376, CVE-2026-42496) are gone from the
+  shipped image. (Shell-free `app.bootstrap` migrate/seed entrypoint, #72;
+  Chainguard Python base, #73.)
+- Frontend runtime migrated to a Chainguard nginx base: released-digest Trivy
+  findings dropped 13 → 0. (#77.)
+
+### Changed
+
+- Operator / upgrade note: the backend worker's non-root uid changed 10001 →
+  65532, so a pre-existing `celerybeat` named volume needs a one-time
+  chown/recreate on staging and dev (see DEPLOY.md §4). The frontend has no such
+  volume.
+
 ## [1.1.5] - 2026-07-06
 
 ### Fixed
