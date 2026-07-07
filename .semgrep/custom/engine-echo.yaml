@@ -1,0 +1,20 @@
+rules:
+  - id: sqlmodel-engine-echo-true
+    languages: [python]
+    severity: WARNING
+    message: >-
+      create_engine(...) / create_async_engine(...) is called with a literal
+      echo=True, which turns on SQLAlchemy statement logging. In shipped code engine
+      echo must be off (echo=False) or config-driven (echo=<setting>), never a
+      hard-coded True -- statement logging is noisy and can leak query text and bound
+      parameter values into application logs. Set echo=False, or drive it from a
+      pydantic Settings field so it stays off by default.
+      NOTE: this rule is an armed canary shipped at severity: WARNING -- it reports to
+      the Security tab but does NOT gate. Promote it to severity: ERROR once proven
+      clean on real PRs so the offline gate pass blocks it.
+    patterns:
+      - pattern-either:
+          - pattern: create_engine(..., echo=True, ...)
+          - pattern: create_async_engine(..., echo=True, ...)
+          - pattern: $M.create_engine(..., echo=True, ...)
+          - pattern: $M.create_async_engine(..., echo=True, ...)
