@@ -37,7 +37,7 @@ from fastapi import APIRouter, Depends
 from sqlmodel import Session
 
 from app.api.deps import require_admin
-from app.db import get_session
+from app.db import commit_or_conflict, get_session
 from app.exceptions import ConflictError, NotFoundError
 from app.models import Game, PickResult, PickType, Team, User
 from app.schemas.admin import (
@@ -277,7 +277,7 @@ def set_user_pick(
         is_mortal_lock=payload.is_mortal_lock,
         misc_text=payload.misc_text,
     )
-    session.commit()
+    commit_or_conflict(session)
     session.refresh(pick)
 
     # Post-commit, best-effort pickem-logger publish (AFTER the commit succeeds).

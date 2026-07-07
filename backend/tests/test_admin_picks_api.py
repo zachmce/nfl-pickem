@@ -30,6 +30,7 @@ from unittest import mock
 
 from fastapi.testclient import TestClient
 from sqlalchemy import event
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -61,6 +62,25 @@ def _enable_sqlite_fks(dbapi_connection, _connection_record):  # noqa: ANN001
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.close()
+
+
+class _FakeOrig(Exception):
+    """Stand-in for a DBAPI error carrying a Postgres SQLSTATE.
+
+    SQLite does not populate ``orig.sqlstate`` (that is Postgres-specific), so we
+    craft one here to exercise ``commit_or_conflict``'s 23505 branch offline.
+    Subclassing Exception lets SQLAlchemy's DBAPIError machinery accept it as
+    ``orig``.
+    """
+
+    def __init__(self, sqlstate: str) -> None:
+        super().__init__(f"fake DBAPI error sqlstate={sqlstate}")
+        self.sqlstate = sqlstate
+
+
+def _integrity_error(sqlstate: str) -> IntegrityError:
+    """Build an IntegrityError whose ``.orig.sqlstate`` is ``sqlstate``."""
+    return IntegrityError("INSERT INTO pick ...", {}, _FakeOrig(sqlstate))
 
 
 class AdminPicksApiTests(unittest.TestCase):
@@ -260,6 +280,26 @@ class AdminPicksApiTests(unittest.TestCase):
     def _clear_auth(self) -> None:
         self.client.cookies.clear()
 
+    def _override_raising_commit(self, sqlstate: str) -> None:
+        """Route the request session's ``commit`` to raise a crafted 23505-style error.
+
+        The request session's ONLY commit in set_user_pick is the router's
+        (admin_set_pick does ``session.add`` only), and setUp seeded data on a
+        SEPARATE session, so an always-raising commit safely simulates the
+        Postgres unique-index race at the router commit site. tearDown pops it.
+        """
+
+        def _override():
+            with Session(self.engine) as session:
+
+                def _raise() -> None:
+                    raise _integrity_error(sqlstate)
+
+                setattr(session, "commit", _raise)
+                yield session
+
+        app.dependency_overrides[get_session] = _override
+
     def _picks_for(self, user_id: int, week_id: int) -> list[Pick]:
         with self._session() as session:
             return list(
@@ -356,6 +396,28 @@ class AdminPicksApiTests(unittest.TestCase):
         rows = self._picks_for(self.target_id, self.week_id)
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].game_id, self.game_open_id)
+
+    def test_admin_set_pick_slot_unique_race_maps_to_409(self) -> None:
+        """A 23505 unique-index violation at commit on set-pick -> 409 conflict envelope.
+
+        Mirrors ``test_add_pick_when_absent`` (an EMPTY slot, so the service
+        INSERTs and reaches the router commit), but monkeypatches the request
+        session's commit to raise the Postgres-style 23505 IntegrityError SQLite
+        does not populate.
+        """
+        self._override_raising_commit("23505")
+        resp = self._put(
+            self.target_id,
+            season=SEASON,
+            week=WEEK,
+            body={"game_id": self.game_open_id, "pick_type": "FAVORITE_COVER"},
+            as_user=self.admin_id,
+        )
+        self.assertNotEqual(resp.status_code, 200, "the losing set-pick must NOT succeed")
+        self.assertEqual(resp.status_code, 409, resp.text)
+        err = self._assert_envelope(resp.json())
+        self.assertEqual(err.get("code"), "conflict")
+        self.assertEqual(err.get("reason"), "concurrent_pick_conflict")
 
     def test_change_existing_pick_upserts_not_duplicates(self) -> None:
         """PUT the same slot a different game -> 200; one row, game_id updated."""
