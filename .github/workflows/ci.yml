@@ -35,6 +35,11 @@ jobs:
       frontend: ${{ steps.f.outputs.frontend == 'true' || startsWith(github.ref, 'refs/tags/v') }}
       docker: ${{ steps.f.outputs.docker == 'true' || startsWith(github.ref, 'refs/tags/v') }}
       ci: ${{ steps.f.outputs.ci == 'true' || startsWith(github.ref, 'refs/tags/v') }}
+      # Dedicated filter for the semgrep job. Kept SEPARATE from `ci` on purpose:
+      # `ci` forces every gated job to rerun on any workflow edit, but a change to a
+      # semgrep RULE (.semgrep/**) must rerun semgrep WITHOUT rerunning lint/test/
+      # frontend/iac. Same tag-forcing as the others so a release runs semgrep too.
+      semgrep: ${{ steps.f.outputs.semgrep == 'true' || startsWith(github.ref, 'refs/tags/v') }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -52,6 +57,10 @@ jobs:
               - 'docker-compose*.yml'
             ci:
               - '.github/workflows/**'
+            # Watches the hand-authored ruleset so a rule edit re-runs semgrep only
+            # (see the `semgrep` output above and the semgrep job's path-gated `if:`).
+            semgrep:
+              - '.semgrep/**'
 
   lint:
     needs: [changes]
@@ -510,6 +519,69 @@ jobs:
           inputs: .github/workflows/
           advanced-security: false  # no SARIF upload here; exits non-zero on findings — this IS the gate
 
+  semgrep:
+    # Semgrep SAST — additive over CodeQL (framework-aware registry packs + hand-authored
+    # FastAPI/SQLModel invariants in .semgrep/custom/). TWO passes, mirroring this file's
+    # Trivy / zizmor "report + gate" convention:
+    #   REPORT (never gates): registry packs (p/python + p/react + p/typescript) PLUS the
+    #     custom rules → SARIF to the Security tab under category: semgrep. `|| true` keeps
+    #     it non-blocking, so a registry false-positive OR a semgrep.dev outage can never
+    #     wedge a merge. Live registry fetch is acceptable here (non-blocking path).
+    #   GATE (blocks): custom .semgrep/ rules ONLY, offline/deterministic (no registry
+    #     config), `--severity ERROR --error`. Pinning the Semgrep binary pins the ENGINE,
+    #     NOT the registry rules (those are fetched live) — so keeping the blocking path
+    #     custom-YAML-only + offline is what makes the gate reproducible. No custom rule
+    #     ships at ERROR yet (all are WARNING canaries), so this passes cleanly today but is
+    #     ARMED for future promotions.
+    # Path-gated + wired into ci-complete.needs is what makes this a real merge gate WITHOUT
+    # adding a new branch-protection required status check (mirrors the zizmor pattern).
+    #
+    # PIN MECHANISM: the official Semgrep container by @sha256 digest (matches the repo's
+    # digest-pinned base images), run via `docker run` so the SARIF-upload ACTION still runs
+    # on the node-capable runner. NOT the semgrep-action (that targets the Semgrep AppSec
+    # platform / login token). The image runs as root, so semgrep.sarif written into the
+    # mounted /src is root-owned but world-readable — upload-sarif (runner user) reads it
+    # fine; if a future image drops root, add `-u "$(id -u):$(id -g)" -e HOME=/tmp` to the
+    # `docker run`. FALLBACK if the container path has friction: run the identical two passes
+    # via `uvx --python 3.12 semgrep==1.145.0 scan ...` on the runner (version pin == engine pin).
+    needs: [changes]
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true' || needs.changes.outputs.ci == 'true' || needs.changes.outputs.semgrep == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write  # upload the semgrep SARIF to code scanning (mirrors zizmor / trivy / gitleaks)
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false  # artipacked: semgrep only reads the checked-out tree
+      # REPORT pass — registry packs + custom rules → SARIF. `|| true` neutralises a
+      # findings exit AND a registry-fetch/exit-2 hiccup, so this pass never fails the job.
+      - name: Semgrep — SARIF report (registry packs + custom; always non-gating)
+        run: |
+          docker run --rm -v "$PWD":/src -w /src \
+            semgrep/semgrep@sha256:b68f9b68483955b85042dac7b4533757779625a02dcf91e470da4c2df1b430be \
+            semgrep scan \
+              --config p/python --config p/react --config p/typescript \
+              --config .semgrep/custom/ \
+              --metrics=off --sarif --sarif-output=semgrep.sarif || true
+      - name: Upload Semgrep SARIF
+        if: always()  # upload the report even if a later step fails the job
+        continue-on-error: true  # never let a SARIF-upload hiccup fail the semgrep gate (mirrors gitleaks)
+        uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep  # distinct from all trivy-* / zizmor / gitleaks categories
+      # GATE pass — custom rules ONLY, offline (no registry config), ERROR-severity.
+      # `--error` makes a matching ERROR finding exit non-zero; NO `|| true` — this is the gate.
+      # Green today (no custom rule ships at ERROR yet); armed for future promotions.
+      - name: Semgrep — offline gate (custom ERROR rules only; blocks)
+        run: |
+          docker run --rm -v "$PWD":/src -w /src \
+            semgrep/semgrep@sha256:b68f9b68483955b85042dac7b4533757779625a02dcf91e470da4c2df1b430be \
+            semgrep scan \
+              --config .semgrep/custom/ \
+              --severity ERROR --metrics=off --error
+
   # publish is split per-image (mirroring the image-scan-backend/-frontend split) so a
   # path-filtered push that changes only ONE image still publishes THAT image. On a v* tag
   # the changes job forces both images' filters true, so every release publishes both images.
@@ -812,6 +884,7 @@ jobs:
       - image-scan-frontend
       - iac-scan
       - zizmor
+      - semgrep
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
