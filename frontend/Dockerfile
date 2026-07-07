@@ -15,7 +15,7 @@ RUN npm run build
 # HIGH/CRITICAL, with only the same unfixed MEDIUM/UNKNOWN advisories — i.e. the
 # swap adds no new Trivy findings. Digest pin keeps builds reproducible;
 # Dependabot's docker ecosystem refreshes it.
-FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:fd3314e343bad2de4e1127ef58be122abbfa7e09572fa46ae62fcddb6b3f21c5 AS runtime
+FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:ee7b7bc02a4af72c98d4365151f92d9b380c482c48d8c84bbbe44bd3192ba463 AS runtime
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 # Explicit non-root USER: `trivy config` reads the Dockerfile text (not the base
