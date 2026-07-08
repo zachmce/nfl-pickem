@@ -1,3 +1,6 @@
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -31,7 +34,16 @@ if settings.is_demo_data:
         _demo_line,
     )
 
-app = FastAPI(title="NFL Pick'em API", version="1.2.0")
+# Single-source the version from installed package metadata (pyproject.toml is the
+# authority) instead of hardcoding it here — one fewer file to hand-stamp on a
+# release cut. The shipped image installs the project (`uv sync --frozen`) so the
+# metadata is current at build time; the fallback only fires on an uninstalled path.
+try:
+    _APP_VERSION = _pkg_version("nfl-pickem-backend")
+except PackageNotFoundError:  # package not installed (rare dev path)
+    _APP_VERSION = "0.0.0-dev"
+
+app = FastAPI(title="NFL Pick'em API", version=_APP_VERSION)
 
 # Middleware order: the LAST add_middleware is outermost. CORS must be outermost
 # so its headers are attached to every response — including a CSRF 403 — so add
