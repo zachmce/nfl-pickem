@@ -126,8 +126,26 @@ def token(
 @router.post("/logout", response_model=LogoutResponse)
 def logout(response: Response) -> LogoutResponse:
     """Clear the session + CSRF cookies. Idempotent — safe when not logged in."""
-    response.delete_cookie(key=settings.session_cookie_name, path="/")
-    response.delete_cookie(key=CSRF_COOKIE_NAME, path="/")
+    # The deletion Set-Cookie attributes MUST stay matched to each cookie's setter
+    # (session -> _set_session_cookie; csrf -> csrf.set_csrf_cookie). Browsers
+    # increasingly require an attribute-matched overwrite to actually clear a
+    # cookie, so under session_cookie_secure a bare delete may leave it in place.
+    # No `domain` is passed (setters are domain-less) — keeping the cookie
+    # domain-less is what lets a `__Host-` session cookie name work unchanged.
+    response.delete_cookie(
+        key=settings.session_cookie_name,
+        secure=settings.session_cookie_secure,
+        httponly=True,
+        samesite="lax",
+        path="/",
+    )
+    response.delete_cookie(
+        key=CSRF_COOKIE_NAME,
+        secure=settings.session_cookie_secure,
+        httponly=False,  # matches set_csrf_cookie — the SPA must read this cookie
+        samesite="lax",
+        path="/",
+    )
     return LogoutResponse(message="logged_out")
 
 
