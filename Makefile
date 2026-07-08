@@ -1,4 +1,4 @@
-.PHONY: up down prod logs migrate revision shell-backend
+.PHONY: up down prod logs migrate revision
 
 # Start the dev stack (Vite + hot reload).
 up:
@@ -24,6 +24,3 @@ migrate:
 # The rev id is the filename prefix; pad it (0002, 0003, ...) to keep them ordered.
 revision:
 	docker compose run --rm migrate alembic revision --autogenerate --rev-id "$(rev)" -m "$(m)"
-
-shell-backend:
-	docker compose exec backend bash
