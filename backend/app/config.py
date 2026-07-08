@@ -45,6 +45,15 @@ class Settings(BaseSettings):
     # CORS: explicit origins are REQUIRED for credentialed (cookie) requests —
     # a wildcard "*" is rejected by browsers when credentials are sent. The Vite
     # dev proxy makes /api same-origin so this only matters for direct calls.
+    #
+    # IMPORTANT — cookie auth is same-origin only. The session cookie is
+    # SameSite=Lax (see auth._set_session_cookie), so a browser will NOT attach it
+    # on cross-site XHR/fetch. Configuring CORS origins does not change that:
+    # a separately-hosted SPA calling this API cross-origin would silently 401 even
+    # with the origin allow-listed here. It works today because both dev (Vite
+    # proxy) and prod (nginx proxy) serve the SPA and API on the SAME origin.
+    # Genuine cross-origin cookie auth would require SameSite=None + Secure and is
+    # intentionally unsupported — deploy behind the proxy instead.
     cors_allowed_origins: list[str] = ["http://localhost:5173"]
 
     # Discord bot. Non-bot containers (api, worker, migrate) leave the token and
