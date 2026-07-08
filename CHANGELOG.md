@@ -5,6 +5,68 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-07-08
+
+Hardening & quality pass — the six actioned TIER 2 findings from the external Fable
+code review. The frontend gains its first linter and test suite; the deploy stack
+gains network segmentation and Redis authentication; the SPA gains a baseline CSP
+and security headers.
+
+### ⚠️ Upgrading (deploy stack)
+
+- **Redis now requires a password.** `docker-compose.deploy.yml` starts Redis with
+  `--requirepass` fail-closed, so the stack refuses to start unless your `.env`
+  sets `REDIS_PASSWORD` **and** an authenticated
+  `REDIS_URL=redis://:<password>@redis:6379/0` (both — the URL is what the
+  backend/worker/bot use to authenticate). See `.env.example` / `DEPLOY.md`.
+- **Update the compose file on the server, not just the images.** `docker compose
+  pull` refreshes images only; the new `redis` command, the segmented networks, and
+  the authenticated healthcheck live in `docker-compose.deploy.yml` itself — copy the
+  new version over before `up -d`. The `redisdata` volume is preserved (Redis simply
+  gains a password).
+
+### Security
+
+- **Deploy-stack network segmentation + Redis auth (T8).** The internet-facing nginx
+  container no longer shares a network with the data plane. Two bridges (`frontend_net`,
+  `backend_net`) isolate it: nginx reaches only the backend, while `db`/`redis` sit on
+  the backend network alone, so a hypothetical nginx compromise has no route to
+  postgres:5432 or redis:6379. Redis additionally requires a password. (#96)
+- **Baseline Content-Security-Policy + security headers on the SPA (T7).** nginx now
+  emits `Content-Security-Policy` (scoped `img-src` for the Discord avatar and ESPN
+  team-logo CDNs), `X-Content-Type-Options: nosniff`, `Referrer-Policy`, and
+  `server_tokens off`. (#91)
+- **Session cookie hygiene (T11).** Logout now deletes the session and CSRF cookies
+  with attributes matched to how they were set, so a secure-context browser reliably
+  clears them; `SESSION_COOKIE_NAME=__Host-session` is documented for prod. (#92)
+
+### Added
+
+- **Frontend linting and tests (T12).** ESLint (flat config: typescript-eslint +
+  react-hooks + react-refresh) and Vitest (+ Testing Library + jsdom) are now part of
+  the frontend, wired as **blocking** CI gates. `react-hooks/exhaustive-deps` runs as
+  an error gate (the hand-rolled data-fetching hooks are clean). (#93)
+
+### Changed
+
+- **CSRF middleware converted to pure ASGI (T10).** The double-submit CSRF check moved
+  off Starlette's `BaseHTTPMiddleware` to a class-based ASGI middleware — dropping the
+  response-buffering / BackgroundTask / contextvar caveats and per-request overhead.
+  Externally byte-identical (same guards, same 403 envelope, same middleware order). (#95)
+- **Notifications reuse a single Redis client (T9).** The Discord event publisher and
+  cooldown claim now share a memoized Redis client instead of constructing (and
+  discarding) a new connection pool per event. Best-effort / fail-open contracts
+  unchanged. (#94)
+
+### Fixed
+
+- **nginx stale-`index.html` after deploy + stock-config shadowing (T7).**
+  `index.html` is now served `no-cache`, so a redeploy's purged content-hashed assets
+  can't strand a client on a stale index. The Chainguard base image's stock
+  `nginx.default.conf` (which shadowed our server block for `Host: localhost`, dropping
+  headers and the SPA/API routing) is now overwritten. The no-flash theme bootstrap was
+  moved to an external script so it survives the strict CSP. (#91)
+
 ## [1.1.8] - 2026-07-07
 
 Code-review hardening pass — the four actioned TIER 1 findings from an external
