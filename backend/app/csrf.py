@@ -22,6 +22,7 @@ import secrets
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.config import settings
 
@@ -51,24 +52,52 @@ def set_csrf_cookie(response: Response, token: str) -> None:
     )
 
 
-async def csrf_dispatch(request: Request, call_next):
-    """Enforce double-submit CSRF on unsafe, cookie-authenticated requests."""
-    if request.method not in _SAFE_METHODS and request.url.path not in _EXEMPT_PATHS:
-        has_bearer = request.headers.get("authorization", "").lower().startswith("bearer ")
-        cookie_session = request.cookies.get(settings.session_cookie_name)
-        # Only cookie-authenticated requests need CSRF; bearer is exempt.
-        if cookie_session and not has_bearer:
-            cookie_token = request.cookies.get(CSRF_COOKIE_NAME)
-            header_token = request.headers.get(CSRF_HEADER_NAME)
-            if (
-                not cookie_token
-                or not header_token
-                or not secrets.compare_digest(cookie_token, header_token)
-            ):
-                return JSONResponse(
-                    status_code=403,
-                    content={
-                        "error": {"code": "csrf_failed", "message": "CSRF token missing or invalid"}
-                    },
-                )
-    return await call_next(request)
+class CSRFMiddleware:
+    """Enforce double-submit CSRF on unsafe, cookie-authenticated requests.
+
+    A pure-ASGI class middleware. It needs only the scope's
+    method/path/headers/cookies, never the body, so it wraps the app directly
+    and avoids the response-buffering and contextvar-propagation caveats of
+    Starlette's dispatch-function base middleware. Non-http scopes
+    (websocket/lifespan) pass straight through; the 403 envelope is emitted via
+    ``JSONResponse`` so status, content-type, and serialized body stay
+    byte-identical to the prior behavior.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # Request(scope) WITHOUT a receive is body-safe: reading .method,
+        # .url.path, .headers, .cookies never consumes the body, and reuses the
+        # exact header/cookie parsing the old dispatch used.
+        request = Request(scope)
+        if request.method not in _SAFE_METHODS and request.url.path not in _EXEMPT_PATHS:
+            has_bearer = request.headers.get("authorization", "").lower().startswith("bearer ")
+            cookie_session = request.cookies.get(settings.session_cookie_name)
+            # Only cookie-authenticated requests need CSRF; bearer is exempt.
+            if cookie_session and not has_bearer:
+                cookie_token = request.cookies.get(CSRF_COOKIE_NAME)
+                header_token = request.headers.get(CSRF_HEADER_NAME)
+                if (
+                    not cookie_token
+                    or not header_token
+                    or not secrets.compare_digest(cookie_token, header_token)
+                ):
+                    response = JSONResponse(
+                        status_code=403,
+                        content={
+                            "error": {
+                                "code": "csrf_failed",
+                                "message": "CSRF token missing or invalid",
+                            }
+                        },
+                    )
+                    await response(scope, receive, send)
+                    return
+
+        await self.app(scope, receive, send)

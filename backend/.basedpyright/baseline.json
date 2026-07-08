@@ -2410,6 +2410,16 @@
                 }
             }
         ],
+        "./tests/test_csrf_middleware.py": [
+            {
+                "code": "reportCallIssue",
+                "range": {
+                    "startColumn": 19,
+                    "endColumn": 13,
+                    "lineCount": 5
+                }
+            }
+        ],
         "./tests/test_current_week_api.py": [
             {
                 "code": "reportCallIssue",
