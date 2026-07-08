@@ -28,6 +28,14 @@ export default tseslint.config(
       globals: globals.browser, // src is browser code (document/fetch/window) — no-undef is ON in non-typed mode
     },
     rules: {
+      // The VALUE gate this task exists for. `eslint-plugin-react-hooks`'s flat
+      // `recommended` ships exhaustive-deps at "warn" by default (only rules-of-hooks
+      // defaults to "error"), and `eslint src` fails only on errors — so without this
+      // override a broken dependency array in the hand-rolled hooks (useWeekly/
+      // useMyPicks/useStandings/useAdminPickEditor) would NOT fail CI. Promote it to
+      // error. Currently clean (0 findings), so the gate is green today.
+      "react-hooks/exhaustive-deps": "error",
+
       // ── Residue tracked as warn (see .planning/todos/pending/frontend-react-hooks-v7-residue.md) ──
       // This task's target was the `react-hooks/exhaustive-deps` bug class, which is
       // ALREADY clean (0 findings). eslint-plugin-react-hooks@7's flat `recommended`
