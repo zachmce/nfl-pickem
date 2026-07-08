@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-07-08
+
+Cleanup patch — the TIER 3 items from the external Fable code review (internal
+consistency, release ergonomics, and documentation accuracy). No user-facing
+behavior changes.
+
+### Changed
+
+- **Backend version is single-sourced from package metadata (T16).**
+  `FastAPI(version=...)` now reads `importlib.metadata.version("nfl-pickem-backend")`
+  instead of a hardcoded string, so `pyproject.toml` is the sole authority and the
+  release version stamp is one file smaller. (#99)
+
+### Fixed
+
+- **`User.created_at` default consistency (T13).** Switched the default from a SQL
+  function element (`sa.func.now`) to `_utcnow`, matching every other timestamp
+  column — the in-memory attribute is now a real `datetime` before flush rather than a
+  SQL expression. Python-side only; no schema change. (#100)
+
+### Removed
+
+- **Dead `make shell-backend` target (T15).** The runtime image is distroless (no
+  shell) and the dev backend builds that same stage, so the target could never work. (#98)
+
+### Documentation
+
+- **Pick-window write/read contract clarified (T17).** The `pick_window` docstrings now
+  state that the week-level window is the operative gate on user writes, and that
+  per-game `is_game_locked` is defense-in-depth for writes and the operative primitive
+  for read paths (standings pick-visibility). Behavior unchanged. (#101)
+- **Cookie-auth same-origin constraint documented (T18).** Noted (in `config.py` and
+  `DEPLOY.md`) that the `SameSite=Lax` session cookie makes cross-origin cookie auth
+  unsupported regardless of CORS configuration — deploy the SPA and API on the same
+  origin behind the proxy. (#101)
+
 ## [1.2.0] - 2026-07-08
 
 Hardening & quality pass — the six actioned TIER 2 findings from the external Fable
