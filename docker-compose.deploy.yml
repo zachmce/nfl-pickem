@@ -31,18 +31,31 @@ services:
       timeout: 3s
       retries: 10
     restart: unless-stopped
+    networks:
+      - backend_net
 
   redis:
     image: redis:7-alpine
     # No host port — internal network only.
+    # Auth (T8): requirepass is threaded to backend/worker/bot via the
+    # authenticated REDIS_URL (redis://:${REDIS_PASSWORD}@redis:6379/0) in .env —
+    # confirmed one whole setting in config.py, no code change. The `:?` makes
+    # `docker compose` fail-closed (refuse to parse) if REDIS_PASSWORD is unset.
+    command:
+      ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set}"]
     volumes:
       - redisdata:/data
+    # GOTCHA: with requirepass on, a plain `redis-cli ping` returns NOAUTH and the
+    # healthcheck fails → backend/worker (which gate on redis service_healthy) never
+    # start. The healthcheck MUST carry -a $REDIS_PASSWORD to authenticate.
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
     restart: unless-stopped
+    networks:
+      - backend_net
 
   # Init container: the shell-free `app.bootstrap` entrypoint runs alembic
   # upgrade head + the three seeds in order (fail-fast), then exits. backend/
@@ -57,6 +70,8 @@ services:
       db:
         condition: service_healthy
     restart: "no"
+    networks:
+      - backend_net
 
   backend:
     image: ghcr.io/zachmce/nfl-pickem-backend:${IMAGE_TAG:-latest}
@@ -72,6 +87,11 @@ services:
       migrate:
         condition: service_completed_successfully
     restart: unless-stopped
+    # backend bridges BOTH networks: frontend_net so nginx can proxy /api to
+    # backend:8000, backend_net so it can reach db/redis on the data plane.
+    networks:
+      - frontend_net
+      - backend_net
 
   worker:
     image: ghcr.io/zachmce/nfl-pickem-backend:${IMAGE_TAG:-latest}
@@ -92,6 +112,8 @@ services:
       migrate:
         condition: service_completed_successfully
     restart: unless-stopped
+    networks:
+      - backend_net
 
   # Discord bot (shares the backend image; runs the gateway client). It FAILS FAST
   # and exits if DISCORD_BOT_TOKEN / DISCORD_GUILD_ID are unset — with
@@ -113,6 +135,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+    networks:
+      - backend_net
 
   frontend:
     image: ghcr.io/zachmce/nfl-pickem-frontend:${IMAGE_TAG:-latest}
@@ -125,6 +149,21 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+    # frontend joins ONLY frontend_net — it reaches backend:8000 to proxy /api but
+    # has NO route to db/redis (defense-in-depth; see the networks block below).
+    networks:
+      - frontend_net
+
+# Network segmentation (T8, defense-in-depth). nginx (frontend) is the only
+# host-exposed service; it must not share a network with the data plane. Two
+# bridges: frontend_net (nginx <-> backend for /api) and backend_net (backend/
+# worker/bot/migrate <-> db/redis). Only backend joins both, so a hypothetical
+# frontend compromise has no route to postgres:5432 / redis:6379.
+networks:
+  frontend_net:
+    driver: bridge
+  backend_net:
+    driver: bridge
 
 volumes:
   pgdata:

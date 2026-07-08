@@ -55,6 +55,14 @@ POSTGRES_USER=pickem
 POSTGRES_PASSWORD=<a strong password>
 POSTGRES_DB=pickem
 
+# Redis auth — REQUIRED. The deploy stack's redis runs with `--requirepass
+# ${REDIS_PASSWORD}` and FAIL-CLOSES (docker compose refuses to parse) if this is
+# unset. Generate one with: openssl rand -hex 32
+REDIS_PASSWORD=<paste: openssl rand -hex 32>
+# REDIS_URL must then carry that password in the userless `:password@` form.
+# backend/worker/bot/celery all read this one URL (config.py redis_url) — no code change.
+REDIS_URL=redis://:<REDIS_PASSWORD>@redis:6379/0
+
 # Discord bot — required, or the `bot` service crash-loops. Remove the bot
 # service from docker-compose.deploy.yml if you are not running it.
 DISCORD_BOT_TOKEN=<token>
@@ -89,6 +97,30 @@ docker compose -f docker-compose.deploy.yml up -d
   `worker`, and `bot` wait for it to finish.
 - Only the **frontend** publishes a port (`:80`). `db`, `redis`, and `backend`
   are reachable only on the internal compose network.
+
+### Network segmentation (defense-in-depth)
+
+`docker-compose.deploy.yml` splits the stack across **two** internal bridge
+networks instead of one shared default:
+
+- **`frontend_net`** — the internet-facing `frontend` (nginx) joins **only** this
+  network. It reaches `backend:8000` here to proxy `/api`, but has **no route** to
+  the data plane.
+- **`backend_net`** — `db`, `redis`, `worker`, `bot`, and `migrate` live **only**
+  here. `backend` is the **only** service that bridges both networks.
+
+Net effect: the only host-exposed container (nginx) cannot resolve or reach
+`postgres:5432` or `redis:6379`. A hypothetical frontend compromise has no direct
+path to the data store or the celery/bot broker — defense-in-depth for this
+single-operator, internal-network deploy. Combined with Redis `requirepass` above,
+reaching the broker now also requires the shared secret.
+
+> **Scope / deferral.** This segmentation + Redis auth is applied to
+> `docker-compose.deploy.yml` **only** — the actual internet-facing production
+> artifact. `docker-compose.prod.yml` is a thin overlay on the base
+> `docker-compose.yml` and does not self-contain `redis`/`db`, so mirroring the
+> hardening there is a separate, deliberately-deferred follow-up (not a silent
+> skip).
 
 Watch it come up:
 
