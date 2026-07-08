@@ -610,6 +610,90 @@ class ClaimCooldownTests(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
+# Redis client memoization (T9) — one construction across many calls.
+# --------------------------------------------------------------------------- #
+
+
+class _CountingFakeRedis:
+    """Satisfies BOTH call paths and records how it was exercised.
+
+    Exposes ``publish`` (used by :func:`publish_event`) and ``set`` (used by
+    :func:`claim_cooldown`) so the SAME cached instance can serve every call in
+    the reuse test. The class-level ``construction_count`` counts how many times
+    the ``from_url`` factory handed back an instance — the value under test.
+    """
+
+    def __init__(self) -> None:
+        self.published: list[tuple[str, str]] = []
+        self.set_calls: list[tuple] = []
+
+    def publish(self, channel: str, payload: str) -> int:
+        self.published.append((channel, payload))
+        return 1
+
+    def set(self, key, value, nx=False, ex=None):  # noqa: A002
+        self.set_calls.append((key, value, nx, ex))
+        return True
+
+
+class RedisClientReuseTests(unittest.TestCase):
+    """The memoized ``_redis_client`` constructs its client exactly ONCE.
+
+    Patches the REAL construction point (``redis.Redis.from_url``) rather than
+    ``notifications._redis_client`` — patching the function itself would bypass
+    the very cache under test. The module cache is reset around each test so no
+    fake client leaks into (or in from) the other tests.
+    """
+
+    def setUp(self) -> None:
+        notifications._reset_redis_client()
+
+    def tearDown(self) -> None:
+        notifications._reset_redis_client()
+
+    def test_single_construction_across_many_calls(self) -> None:
+        fake = _CountingFakeRedis()
+        construction_count = 0
+
+        def _from_url(url: str, *args, **kwargs) -> _CountingFakeRedis:
+            nonlocal construction_count
+            construction_count += 1
+            return fake
+
+        with patch("redis.Redis.from_url", side_effect=_from_url):
+            for _ in range(5):
+                self.assertIsNone(publish_event(login_event("alice")))
+            for _ in range(5):
+                self.assertTrue(claim_cooldown("pickem:cd:k", 300))
+
+        # The pool-bearing client was built ONCE and reused for every call.
+        self.assertEqual(construction_count, 1)
+        # The single cached client really did the work on BOTH paths.
+        self.assertEqual(len(fake.published), 5)
+        self.assertEqual(len(fake.set_calls), 5)
+        channel, payload = fake.published[0]
+        self.assertEqual(channel, EVENTS_CHANNEL)
+        self.assertEqual(json.loads(payload), login_event("alice"))
+        self.assertTrue(all(c[2] is True and c[3] == 300 for c in fake.set_calls))
+
+    def test_reset_forces_a_fresh_construction(self) -> None:
+        construction_count = 0
+
+        def _from_url(url: str, *args, **kwargs) -> _CountingFakeRedis:
+            nonlocal construction_count
+            construction_count += 1
+            return _CountingFakeRedis()
+
+        with patch("redis.Redis.from_url", side_effect=_from_url):
+            publish_event(login_event("alice"))
+            self.assertEqual(construction_count, 1)
+            # After a reset the next call rebuilds the client.
+            notifications._reset_redis_client()
+            publish_event(login_event("alice"))
+            self.assertEqual(construction_count, 2)
+
+
+# --------------------------------------------------------------------------- #
 # misc.picked (260628-itg) — leak-safe chat event: actor + week ONLY.
 # --------------------------------------------------------------------------- #
 

@@ -1,6 +1,5 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api import (
     admin,
@@ -13,7 +12,7 @@ from app.api import (
     slate,
 )
 from app.config import settings
-from app.csrf import csrf_dispatch
+from app.csrf import CSRFMiddleware
 from app.exception_handlers import add_exception_handlers
 
 # Loud demo-mode banner (belt-and-suspenders for "never on silently",
@@ -37,7 +36,7 @@ app = FastAPI(title="NFL Pick'em API", version="1.1.8")
 # Middleware order: the LAST add_middleware is outermost. CORS must be outermost
 # so its headers are attached to every response — including a CSRF 403 — so add
 # CSRF first (inner) and CORS last (outer).
-app.add_middleware(BaseHTTPMiddleware, dispatch=csrf_dispatch)
+app.add_middleware(CSRFMiddleware)
 
 # Explicit origins + credentials so cookie auth works cross-origin. A wildcard
 # "*" is invalid with allow_credentials=True (browsers reject it).
