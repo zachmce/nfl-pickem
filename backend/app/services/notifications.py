@@ -556,15 +556,42 @@ def misc_graded_event(
     }
 
 
+# Memoized module-level synchronous redis client (None until first real use).
+# Building a client per call discarded redis-py's internal connection pool on
+# every event; caching one instance here reuses that pool across calls (T9).
+_client = None
+
+
 def _redis_client():
-    """Construct a synchronous redis client from ``settings.redis_url``.
+    """Return a MEMOIZED synchronous redis client built from ``settings.redis_url``.
 
     Isolated as a tiny seam so tests can monkeypatch it without touching a real
     socket, and so the URL is never hardcoded (reuse the celery broker setting).
-    """
-    import redis
 
-    return redis.Redis.from_url(settings.redis_url)
+    The client is constructed ONCE and cached in the module-global ``_client`` so
+    redis-py's internal connection pool is reused across calls (no per-event pool
+    churn); subsequent calls return the same instance. redis-py transparently
+    reconnects a stale pooled connection, so no health-check/reconnect logic is
+    needed here. This stays the SINGLE construction point AND the SINGLE monkeypatch
+    seam: a test that patches ``notifications._redis_client`` replaces this whole
+    function, so the cache branch never runs under those patches.
+    """
+    global _client
+    if _client is None:
+        import redis
+
+        _client = redis.Redis.from_url(settings.redis_url)
+    return _client
+
+
+def _reset_redis_client() -> None:
+    """Clear the memoized client so the next :func:`_redis_client` call rebuilds it.
+
+    Test-only seam: exists ONLY so the reuse test can drop the cached (fake) client
+    between tests and never leak one. NOT part of the public API — not exported.
+    """
+    global _client
+    _client = None
 
 
 # Default cooldown window (seconds) for the dedup'd chat milestones below
