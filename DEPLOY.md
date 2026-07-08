@@ -36,6 +36,11 @@ SECRET_KEY=<paste: openssl rand -hex 32>
 # Cookies are HTTPS-only in prod.
 SESSION_COOKIE_SECURE=true
 
+# Recommended: give the session cookie the __Host- prefix so the browser ENFORCES
+# Secure + Path=/ + no-Domain. Safe without any code change — both cookie setters
+# already use path="/" and never send a Domain. Recommended, not required.
+SESSION_COOKIE_NAME=__Host-session
+
 # Real origin(s) the SPA is served from — NO localhost. Comma-separated if several.
 CORS_ALLOWED_ORIGINS=https://pickem.example.com
 
