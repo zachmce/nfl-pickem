@@ -42,6 +42,11 @@ SESSION_COOKIE_SECURE=true
 SESSION_COOKIE_NAME=__Host-session
 
 # Real origin(s) the SPA is served from — NO localhost. Comma-separated if several.
+# NOTE: cookie auth is SAME-ORIGIN only. The session cookie is SameSite=Lax, so the
+# browser won't send it on cross-site requests — serve the SPA and API on the same
+# origin via the nginx proxy (this stack does). A separately-hosted SPA pointed at
+# this API cross-origin would silently 401 even with its origin listed here; set this
+# to exactly the site origin.
 CORS_ALLOWED_ORIGINS=https://pickem.example.com
 
 # Never serve demo data in prod.

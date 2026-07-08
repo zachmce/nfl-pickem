@@ -29,8 +29,13 @@ Scope is **window + lock computation only**:
 Rules (single source of truth — see PROJECT.md "Active" requirements):
 
 * The window **closes** at the current week's **earliest kickoff** (the week's
-  first game). Games that kick off later in the same week are guarded
-  individually by :func:`is_game_locked`, not by the week-level close.
+  first game). This week-level close is the **operative gate on all user writes**
+  (submit / clear): the pick-submission paths check :func:`is_pick_open` first, so
+  once the earliest game kicks off nothing is editable for the week. The
+  finer-grained :func:`is_game_locked` is a **defense-in-depth** check on those
+  write paths (redundant with the closed window, since every kickoff is ≥ the
+  close by construction) and the **operative primitive for read paths** — e.g.
+  standings pick-visibility, which reveals a game's picks once it has kicked off.
 * The window **opens** after the previous week's last game ends. The schema has
   no explicit game-end timestamp (``Game`` carries only ``kickoff_at``, status,
   and scores), so this boundary is **APPROXIMATED** as the previous week's
@@ -171,9 +176,14 @@ def is_game_locked(game: Game, now: datetime) -> bool:
     treated as **not** locked. ``now`` (and the kickoff, when present) must be
     timezone-aware; a naive value raises :class:`ValueError`.
 
-    This is the finer-grained guard that complements the week-level window: the
-    window closes at the week's earliest kickoff, but games later in the same
-    week stay unlocked until their own kickoff.
+    This is the finer-grained, per-game primitive that complements the week-level
+    window. Note the contract precisely: the week window (see :func:`is_pick_open`)
+    closes at the week's *earliest* kickoff and is what actually gates user writes,
+    so in the submit/clear paths this per-game lock is defense-in-depth only — by
+    the time a later game reaches its own kickoff the week window has long since
+    closed. Where it is the *operative* gate is the **read paths**: standings
+    pick-visibility uses it to reveal a game's picks the moment that game kicks
+    off, independently of the week window.
     """
     _require_aware(now, "now")
     if game.kickoff_at is None:
