@@ -21,7 +21,17 @@ RUN npm run build
 # cgr.dev `:latest@sha256` digest is less battle-tested than Docker Hub semver —
 # confirm on the first weekly PR, Renovate/manual bump as fallback.
 FROM cgr.dev/chainguard/nginx:latest@sha256:76cc70e5e8da88ae76ff585525c340fc09d54018c5c902551d61a24c2b3ac0d2 AS runtime
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# OVERWRITE the base image's stock conf.d/nginx.default.conf (a `server_name
+# localhost; listen 8080` block with no SPA fallback, no /api proxy, and no
+# security headers). The main nginx.conf `include /etc/nginx/conf.d/*.conf` loads
+# every *.conf, so copying to a DIFFERENT filename (the old default.conf) left the
+# stock block in place — and its exact `server_name localhost` match beat our
+# `server_name _` default_server for `Host: localhost`, silently shadowing our
+# config (headers, SPA fallback, proxy) on the local-access path and re-leaking the
+# nginx version. Copying to nginx.default.conf replaces it, leaving exactly one
+# server block (ours) that handles every Host. Distroless-safe: a COPY needs no
+# shell, unlike a `RUN rm` (this base ships none).
+COPY nginx.conf /etc/nginx/conf.d/nginx.default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 # Restate the nonroot user explicitly even though the base already defaults to it:
 # `trivy config` (iac-scan) reads the Dockerfile TEXT, not the base image metadata,
