@@ -110,7 +110,8 @@ class User(SQLModel, table=True):
         default=0, nullable=False, sa_column_kwargs={"server_default": "0"}
     )
     created_at: datetime = Field(
-        sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False), default_factory=sa.func.now
+        sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False),
+        default_factory=_utcnow,
     )
 
 
