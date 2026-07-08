@@ -249,9 +249,19 @@ jobs:
       - name: npm ci
         working-directory: frontend
         run: npm ci
+      # ESLint (flat config, non-type-checked + react-hooks) — BLOCKING. Runs before
+      # the build so a lint failure surfaces first. Non-zero exit fails the job.
+      - name: ESLint (flat, blocking)
+        working-directory: frontend
+        run: npm run lint
       - name: Build (tsc -b && vite build)
         working-directory: frontend
         run: npm run build
+      # Vitest single-pass (--run) — BLOCKING. Runs after the build so a type/build
+      # failure isn't masked by a test failure. Non-zero exit fails the job.
+      - name: Vitest (run once, blocking)
+        working-directory: frontend
+        run: npm test -- --run
       # npm audit at the high+ threshold — BLOCKING (npm audit exits non-zero on a
       # high/critical advisory, which fails the job). Full audit (NO --omit=dev): the
       # frontend is a build-time SPA whose devDependencies (vite, plugins) ARE the
