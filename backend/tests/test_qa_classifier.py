@@ -118,7 +118,9 @@ class ValidateClassificationTests(unittest.TestCase):
 
     def test_standings_normalizes_with_no_team(self) -> None:
         out = validate_classification({"intent": "standings"}, known_team_tokens=_KNOWN_TEAMS)
-        self.assertEqual(out, QaResult(intent=QaIntent.standings, team=None, week=None, subject=None))
+        self.assertEqual(
+            out, QaResult(intent=QaIntent.standings, team=None, week=None, subject=None)
+        )
 
     def test_lines_slate_resolves_real_team_token(self) -> None:
         out = validate_classification(
@@ -188,7 +190,9 @@ class ValidateClassificationTests(unittest.TestCase):
             {"intent": "lines_slate", "team": "SF", "week": 3, "subject": "spread"},
             known_team_tokens=_KNOWN_TEAMS,
         )
-        self.assertEqual(out, QaResult(intent=QaIntent.lines_slate, team="SF", week=3, subject="spread"))
+        self.assertEqual(
+            out, QaResult(intent=QaIntent.lines_slate, team="SF", week=3, subject="spread")
+        )
 
 
 # --------------------------------------------------------------------------- #

@@ -16,9 +16,11 @@ from __future__ import annotations
 import asyncio
 import unittest
 from types import SimpleNamespace
+from typing import cast
 from unittest import mock
 
 import discord
+from discord.ext import commands
 
 from app.bot import qa
 from app.bot.commands import mention_qa
@@ -60,7 +62,18 @@ def _make_message(
 
 
 def _cog() -> MentionQaCog:
-    return MentionQaCog(SimpleNamespace(user=_BOT_USER))
+    # The fake bot stands in for commands.Bot (only .user is read by the cog).
+    return MentionQaCog(cast(commands.Bot, SimpleNamespace(user=_BOT_USER)))
+
+
+def _deliver(cog: MentionQaCog, message: SimpleNamespace) -> None:
+    """Run the listener with a fake message.
+
+    The ``SimpleNamespace`` fake deliberately stands in for a real
+    ``discord.Message`` (the handler only reads a few attributes); the cast tells the
+    type checker that's intentional so the strict gate stays green.
+    """
+    _run(cog.on_message(cast(discord.Message, message)))
 
 
 def _answer_returns(value):
@@ -87,7 +100,7 @@ class MentionGateTests(unittest.TestCase):
         message = _make_message(content="<@999> what's the score?")
         patcher, calls = _answer_returns("KC 27, LAC 20 (final) 🔒")
         with patcher:
-            _run(cog.on_message(message))
+            _deliver(cog, message)
         # answer_question was called with the STRIPPED question + the asker's id.
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0]["question"], "what's the score?")
@@ -106,7 +119,7 @@ class MentionGateTests(unittest.TestCase):
         message = _make_message(content="<@999> hi", author_bot=True)
         patcher, calls = _answer_returns("nope")
         with patcher:
-            _run(cog.on_message(message))
+            _deliver(cog, message)
         self.assertEqual(calls, [])
         self.assertEqual(message.channel.sent, [])
 
@@ -115,7 +128,7 @@ class MentionGateTests(unittest.TestCase):
         message = _make_message(content="   <@999>   ")
         patcher, calls = _answer_returns("nope")
         with patcher:
-            _run(cog.on_message(message))
+            _deliver(cog, message)
         self.assertEqual(calls, [])
         self.assertEqual(message.channel.sent, [])
 
@@ -125,7 +138,7 @@ class MentionGateTests(unittest.TestCase):
         message = _make_message(content="@everyone <@999> standings?", mention_everyone=True)
         patcher, calls = _answer_returns("nope")
         with patcher:
-            _run(cog.on_message(message))
+            _deliver(cog, message)
         self.assertEqual(calls, [])
         self.assertEqual(message.channel.sent, [])
 
@@ -135,7 +148,7 @@ class MentionGateTests(unittest.TestCase):
         message = _make_message(content="<@&555> standings?", mentions_bot=False)
         patcher, calls = _answer_returns("nope")
         with patcher:
-            _run(cog.on_message(message))
+            _deliver(cog, message)
         self.assertEqual(calls, [])
         self.assertEqual(message.channel.sent, [])
 
@@ -144,7 +157,7 @@ class MentionGateTests(unittest.TestCase):
         message = _make_message(content="<@999> standings?", in_guild=False)
         patcher, calls = _answer_returns("nope")
         with patcher:
-            _run(cog.on_message(message))
+            _deliver(cog, message)
         self.assertEqual(calls, [])
 
 
@@ -153,8 +166,8 @@ class CooldownTests(unittest.TestCase):
         cog = _cog()
         patcher, calls = _answer_returns("ok")
         with patcher:
-            _run(cog.on_message(_make_message(content="<@999> standings?", author_id=42)))
-            _run(cog.on_message(_make_message(content="<@999> standings again?", author_id=42)))
+            _deliver(cog, _make_message(content="<@999> standings?", author_id=42))
+            _deliver(cog, _make_message(content="<@999> standings again?", author_id=42))
         # Answered once — the second call within the window is suppressed.
         self.assertEqual(len(calls), 1)
 
@@ -162,8 +175,8 @@ class CooldownTests(unittest.TestCase):
         cog = _cog()
         patcher, calls = _answer_returns("ok")
         with patcher:
-            _run(cog.on_message(_make_message(content="<@999> standings?", author_id=1)))
-            _run(cog.on_message(_make_message(content="<@999> standings?", author_id=2)))
+            _deliver(cog, _make_message(content="<@999> standings?", author_id=1))
+            _deliver(cog, _make_message(content="<@999> standings?", author_id=2))
         self.assertEqual(len(calls), 2)
 
 
@@ -173,7 +186,7 @@ class GuardTests(unittest.TestCase):
         message = _make_message(content="<@999> standings?")
         with _answer_raises():
             # Must not raise out of on_message.
-            _run(cog.on_message(message))
+            _deliver(cog, message)
         self.assertEqual(message.channel.sent, [])
 
 
@@ -193,7 +206,7 @@ class WiringTests(unittest.TestCase):
             async def add_cog(self, cog):
                 added.append(cog)
 
-        _run(mention_qa.setup(_FakeBot()))
+        _run(mention_qa.setup(cast(commands.Bot, _FakeBot())))
         self.assertEqual(len(added), 1)
         self.assertIsInstance(added[0], MentionQaCog)
 

@@ -473,13 +473,17 @@ class ListAnswerAndFormattingTests(unittest.TestCase):
 
     def test_fmt_when_is_clean_and_none_safe(self) -> None:
         s = qa._fmt_when(datetime(2026, 7, 6, 12, 22, 31, 79408, tzinfo=timezone.utc))
+        assert s is not None
         self.assertIn("Jul 6", s)
         self.assertIn("12:22 PM UTC", s)
         self.assertNotIn("079408", s)
         self.assertNotIn("+00", s)
         # 12-hour edges.
-        self.assertIn("12:00 AM UTC", qa._fmt_when(datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc)))
-        self.assertIn("1:05 PM UTC", qa._fmt_when(datetime(2026, 1, 1, 13, 5, tzinfo=timezone.utc)))
+        midnight = qa._fmt_when(datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc))
+        afternoon = qa._fmt_when(datetime(2026, 1, 1, 13, 5, tzinfo=timezone.utc))
+        assert midnight is not None and afternoon is not None
+        self.assertIn("12:00 AM UTC", midnight)
+        self.assertIn("1:05 PM UTC", afternoon)
         # Non-datetime / None -> None (never raises).
         self.assertIsNone(qa._fmt_when(None))
         self.assertIsNone(qa._fmt_when("2026-07-06"))
