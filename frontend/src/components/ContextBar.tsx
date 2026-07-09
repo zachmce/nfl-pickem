@@ -6,17 +6,10 @@
  * are seeded, or a network error). They NEVER throw — the shell must survive a
  * failed context read.
  */
-import { useEffect, useState } from "react";
-
-import {
-  getCurrentWeek,
-  type CurrentWeek,
-  type WindowState,
-} from "../lib/currentWeek";
+import { type WindowState } from "../lib/currentWeek";
 import { formatLocalDateTime } from "../lib/datetime";
 import { ERROR_WEEK_STATUS, LOADING_WEEK_STATUS } from "../lib/strings";
-
-type Status = "loading" | "ok" | "error";
+import { useWeek } from "./useWeek";
 
 const STATE_LABEL: Record<WindowState, string> = {
   not_yet_open: "not yet open",
@@ -29,37 +22,12 @@ function readableState(state: WindowState): string {
   return STATE_LABEL[state] ?? state;
 }
 
-/** Shared hook: fetch the current week once, tracking loading/ok/error. */
-function useCurrentWeek() {
-  const [data, setData] = useState<CurrentWeek | null>(null);
-  const [status, setStatus] = useState<Status>("loading");
-
-  useEffect(() => {
-    let cancelled = false;
-    getCurrentWeek()
-      .then((d) => {
-        if (cancelled) return;
-        setData(d);
-        setStatus("ok");
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setStatus("error");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  return { data, status };
-}
-
 /**
  * Compact week-status chip for the header bar (stays visible at all widths,
  * including when the mobile nav is collapsed).
  */
 export function WeekChip() {
-  const { data, status } = useCurrentWeek();
+  const { data, status } = useWeek();
 
   let text = "Week …";
   if (status === "error") text = "Week —";
@@ -76,7 +44,7 @@ export function WeekChip() {
 
 /** Full slim context bar rendered below the header. */
 export default function ContextBar() {
-  const { data, status } = useCurrentWeek();
+  const { data, status } = useWeek();
 
   let content: string;
   if (status === "loading") content = LOADING_WEEK_STATUS;
