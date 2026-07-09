@@ -33,6 +33,7 @@ from enum import Enum
 import structlog
 
 from app.bot import chat_personality, llm_client
+from app.bot.personality import compose_prompt
 
 logger = structlog.get_logger(__name__)
 
@@ -215,3 +216,234 @@ def validate_classification(raw: object, *, known_team_tokens: set[str]) -> QaRe
     subject = _coerce_subject(raw.get("subject")) if intent in _SUBJECT_INTENTS else None
 
     return QaResult(intent=intent, team=team, week=week, subject=subject)
+
+
+# --------------------------------------------------------------------------- #
+# Task 2 — deterministic intent handlers + the phrasing orchestrator.
+#
+# Facts-first, leak-safe, stateless: the bot owns a deterministic FACT string
+# (built from a display-only db_bridge read) and the LLM only phrases it in the
+# active voice. On any phrase failure the deterministic fact line is returned so
+# exactly one line always lands; on any seam raise a deterministic error line is
+# returned (answer_question NEVER raises into the gateway loop).
+# --------------------------------------------------------------------------- #
+
+# The Q&A ROLE (event-specific context) + the byte-distinct facts-first GUARD. The
+# GUARD is QA-specific: it does NOT reuse the leak-token-avoidance wording from
+# chat_personality verbatim — it states the facts-first / anti-invention / never
+# reveal-another-player's-hidden-pick / one-line discipline in its own words.
+QA_ROLE = (
+    "You are answering a league member's question about the NFL pick'em game, using "
+    "ONLY the facts supplied to you below. The facts were read from the app's own data."
+)
+
+QA_GUARD = (
+    "State the supplied facts plainly and FIRST, then add a little personality — "
+    "flavor must NEVER replace the answer. Invent NOTHING beyond the facts you are "
+    "given: no stat, spread, total, score, standing, close time, or pick that is not "
+    "written in the facts. NEVER reveal, guess, or hint at another player's hidden "
+    "pick — you are only ever given the asker's own status. If the facts are a decline "
+    "or a 'not yet supported' note, deliver that in character without inventing an "
+    "answer. Reply with ONE short line and at most one emoji."
+)
+
+# Deterministic short-circuit line for an unregistered asker (no LLM call needed).
+_REGISTER_LINE = "You need a pick'em account first — run /register to get set up."
+
+# Deterministic error line — the best-effort fallback when a db seam raises. Never
+# leaks anything; just keeps the listener from ever raising into the gateway loop.
+_ERROR_LINE = "Something went sideways pulling that up — give it another shot in a bit."
+
+# Tier-2 (coming_soon) wink: recognized-but-planned, NO capability menu, NO DB read.
+_COMING_SOON_FACT = (
+    "That's not something tracked yet — injuries, weather, news, line movement, and "
+    "who-wins predictions are on the roadmap, not in the playbook today."
+)
+
+# Tier-3 (unknown) decline: the capability MENU (the four things it can answer) + a
+# bug-the-developer nudge. The menu appears ONLY on unknown.
+_UNKNOWN_FACT = (
+    "Not sure how to answer that one. What can be answered: the asker's own pick / "
+    "lock status, the season standings, this week's lines and slate (and when picks "
+    "close), and game scores. For anything else, bug the developer to build it."
+)
+
+# Stateless soft-decline for a single-game lines question with no team resolved —
+# no ask-and-wait, no pending-slot state.
+_SOFT_DECLINE_FACT = "Name a team and the line for that game can be pulled up."
+
+# Subject hints that a lines question is about a SINGLE game (so a missing team is a
+# stateless soft-decline, not a whole-slate dump).
+_SINGLE_GAME_HINTS = (
+    "spread",
+    "line",
+    "total",
+    "over",
+    "under",
+    "favorite",
+    "underdog",
+    "moneyline",
+    "odds",
+)
+
+
+def _wants_single_game(subject: str | None) -> bool:
+    """Whether a teamless lines question implies ONE game (-> soft-decline)."""
+    if not subject:
+        return False
+    low = subject.lower()
+    return any(hint in low for hint in _SINGLE_GAME_HINTS)
+
+
+def _pick_status_fact(status: dict) -> str:
+    """Build the asker's OWN pick-status fact (registered case)."""
+    name = status.get("display_name")
+    if status.get("complete"):
+        return f"{name}'s standard card is complete — every pick is in for the week."
+    remaining = status.get("remaining_labels") or []
+    if remaining:
+        return f"{name} still needs to make these picks this week: {', '.join(remaining)}."
+    return f"{name}'s card is not complete yet."
+
+
+def _standings_fact(ctx: dict) -> str:
+    """Build the standings fact from the leaders context (display-only)."""
+    leader = ctx.get("leader")
+    if not leader:
+        return "No standings yet — nobody has a graded pick."
+    leader_total = ctx.get("leader_total")
+    runner_up = ctx.get("runner_up")
+    gap = ctx.get("gap")
+    if runner_up and gap == 0:
+        return f"{leader} and {runner_up} are tied for the lead with {leader_total}."
+    parts = [f"{leader} leads the season with {leader_total}."]
+    if runner_up:
+        parts.append(f"{runner_up} is {gap} back in second.")
+    return " ".join(parts)
+
+
+def _one_game_line_fact(game: dict, week: int | None, close_at: object) -> str:
+    """A single game's line fact (matchup + favorite/spread + total + close)."""
+    away = game.get("away")
+    home = game.get("home")
+    parts = [f"Week {week}: {away} at {home}."]
+    favorite = game.get("favorite")
+    spread = game.get("spread")
+    if favorite and spread:
+        parts.append(f"{favorite} favored by {spread}.")
+    total = game.get("total")
+    if total:
+        parts.append(f"Total is {total}.")
+    if close_at:
+        parts.append(f"Picks close {close_at}.")
+    return " ".join(parts)
+
+
+def _slate_fact(slate: dict) -> str:
+    """Build the lines/slate fact — one game's line or a whole-week summary."""
+    games = slate.get("games") or []
+    week = slate.get("week")
+    close_at = slate.get("close_at")
+    if not games:
+        return f"No games are posted for week {week} yet."
+    if len(games) == 1:
+        return _one_game_line_fact(games[0], week, close_at)
+
+    summaries = []
+    for game in games:
+        matchup = f"{game.get('away')}@{game.get('home')}"
+        favorite = game.get("favorite")
+        spread = game.get("spread")
+        if favorite and spread:
+            matchup += f" ({favorite} -{spread})"
+        summaries.append(matchup)
+    fact = f"Week {week} slate: " + "; ".join(summaries) + "."
+    if close_at:
+        fact += f" Picks close {close_at}."
+    return fact
+
+
+def _scores_fact(scores: dict) -> str:
+    """Build the scores fact (final + in-progress) for the week (display-only)."""
+    games = scores.get("games") or []
+    week = scores.get("week")
+    if not games:
+        return f"No scores yet for week {week}."
+    parts = []
+    for game in games:
+        tag = "final" if game.get("status") == "FINAL" else "in progress"
+        parts.append(
+            f"{game.get('away')} {game.get('away_score')} at "
+            f"{game.get('home')} {game.get('home_score')} ({tag})"
+        )
+    return f"Week {week} scores: " + "; ".join(parts) + "."
+
+
+async def _build_fact(result: QaResult, *, discord_id: int) -> str | None:
+    """Route a validated intent to its deterministic reader and build the FACT.
+
+    Returns the fact string to phrase, or ``None`` for the pick_status
+    unregistered short-circuit (the caller returns :data:`_REGISTER_LINE` directly,
+    no LLM). LEAK INVARIANT: no branch here reads another user's picks —
+    ``pick_status`` is asker-only (``get_pick_status_async`` takes ONLY the asker's
+    ``discord_id``) and every other intent is already-public data.
+    """
+    from app.bot import db_bridge
+
+    if result.intent is QaIntent.pick_status:
+        status = await db_bridge.get_pick_status_async(discord_id)
+        if not status.get("registered"):
+            return None  # -> _REGISTER_LINE (deterministic, no LLM)
+        return _pick_status_fact(status)
+
+    if result.intent is QaIntent.standings:
+        return _standings_fact(await db_bridge.get_leaders_context_async())
+
+    if result.intent is QaIntent.lines_slate:
+        # Stateless missing-param: a single-game line question with no team resolved
+        # gets a soft decline — never an ask-and-wait / pending slot.
+        if result.team is None and _wants_single_game(result.subject):
+            return _SOFT_DECLINE_FACT
+        return _slate_fact(await db_bridge.get_lines_slate_async(team_abbr=result.team))
+
+    if result.intent is QaIntent.scores:
+        return _scores_fact(await db_bridge.get_week_scores_async())
+
+    if result.intent is QaIntent.coming_soon:
+        return _COMING_SOON_FACT  # Tier 2 — no DB read
+
+    return _UNKNOWN_FACT  # Tier 3 — decline + capability menu
+
+
+async def answer_question(question: str, *, discord_id: int) -> str:
+    """Answer a league member's @mention ``question`` as one public in-voice line.
+
+    The best-effort orchestrator (mirrors ``embellish_chat``'s guarded posture;
+    NEVER raises): classify -> validate (with the real-team token set) -> route to
+    a deterministic reader and build a FACT -> phrase the fact in the active voice.
+    On the pick_status unregistered path returns a deterministic /register line with
+    no LLM call. When ``llm_client.phrase`` returns ``None`` returns the
+    deterministic FACT string itself so exactly one line always lands. On ANY seam
+    raise returns a deterministic error line — the on_message listener that calls
+    this never sees an exception.
+    """
+    try:
+        from app.bot import db_bridge
+
+        raw = await classify_question(question)
+        known_team_tokens = await db_bridge.get_real_team_tokens_async()
+        result = validate_classification(raw, known_team_tokens=known_team_tokens)
+
+        fact = await _build_fact(result, discord_id=discord_id)
+        if fact is None:
+            # pick_status, unregistered asker — deterministic, no phrasing.
+            return _REGISTER_LINE
+
+        voice = await db_bridge.resolve_active_voice_async()
+        system_prompt = compose_prompt(voice, QA_ROLE, QA_GUARD)
+        phrased = await llm_client.phrase(fact, system_prompt=system_prompt)
+        return phrased if phrased is not None else fact
+    except Exception:
+        # A classify / db / phrase hiccup must never escape into the gateway loop.
+        logger.warning("answer_question_failed", exc_info=True)
+        return _ERROR_LINE

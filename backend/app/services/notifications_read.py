@@ -30,6 +30,7 @@ survives a changing opponent.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import structlog
@@ -37,10 +38,24 @@ from sqlmodel import Session, select
 
 from app.models import Game, GameStatus, Pick, PickType, Team, User, Week
 from app.services.pick_submission import main_picks_complete
+from app.services.pick_window import compute_window
 from app.services.scoring import GradeOutcome, grade_pick
 from app.services.standings import active_season, season_standings, week_results
 
 logger = structlog.get_logger(__name__)
+
+
+def _as_aware(dt: datetime | None) -> datetime | None:
+    """Re-attach UTC to a naive datetime read back from the store.
+
+    ``DateTime(timezone=True)`` round-trips NAIVE on SQLite (Postgres preserves
+    tz). Re-declared locally (mirrors ``standings._as_aware`` /
+    ``current_week._as_aware``) rather than importing a private helper. The
+    normalized copy is never persisted, leaving production-on-Postgres unaffected.
+    """
+    if dt is not None and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 def current_season(session: Session) -> int | None:
@@ -821,3 +836,246 @@ def get_leaders_context(session: Session, season: int) -> dict:
         "runner_up_total": None,
         "gap": None,
     }
+
+
+# --------------------------------------------------------------------------- #
+# 260709-k5w — inbound @mention Q&A read seams (Path A v1).
+#
+# The READ side behind the four supported Q&A intents (pick status, standings,
+# lines/slate, scores). Each is a pure read (no add/commit) returning a plain,
+# DISPLAY-ONLY dict. They REUSE the existing scoring/standings/window/completion
+# services — no scoring / standings / window / completion math is re-implemented
+# here. STANDINGS reuses get_leaders_context (no new standings reader).
+#
+# Information-disclosure boundary: the ONLY asker-scoped reader,
+# get_pick_status_for_user, resolves the caller's own row by ``discord_id`` and
+# NEVER reads another user; every other reader is already-public data (final /
+# in-progress scores, posted lines, the leaderboard). None of them carries a
+# ``user_id`` across the boundary.
+# --------------------------------------------------------------------------- #
+
+# The four base bet slots, named in a stable display order for the pick-status
+# "what's left" list (the caller's OWN card, so revealing is fine). Mortal lock is
+# the fifth requirement for a complete standard card.
+_PICK_SLOT_LABELS: tuple[tuple[PickType, str], ...] = (
+    (PickType.UNDERDOG_COVER, "underdog cover"),
+    (PickType.FAVORITE_COVER, "favorite cover"),
+    (PickType.OVER, "over"),
+    (PickType.UNDER, "under"),
+)
+
+
+def resolve_current_week(session: Session, season: int) -> int | None:
+    """The current week number for ``season`` — earliest not-yet-final week.
+
+    Mirrors the WEEK-NUMBER selection in
+    :func:`app.api.current_week.read_current_week` (only the number, never the
+    four-state): the earliest week that still has a non-FINAL game, else the latest
+    week when every week is complete. Returns ``None`` when the season has no games.
+    The slate / scores / pick-status readers call this when the classifier gave no
+    explicit ``week``.
+    """
+    games = list(session.exec(select(Game).where(Game.season == season)).all())
+    if not games:
+        return None
+    by_week: dict[int, list[Game]] = {}
+    for g in games:
+        by_week.setdefault(g.week, []).append(g)
+    weeks = sorted(by_week)
+    incomplete = [
+        wk for wk in weeks if not all(g.status is GameStatus.FINAL for g in by_week[wk])
+    ]
+    return incomplete[0] if incomplete else weeks[-1]
+
+
+def get_pick_status_for_user(
+    session: Session, season: int, week: int, *, discord_id: int
+) -> dict:
+    """ASKER-ONLY pick status for the caller identified by ``discord_id``.
+
+    Resolves the caller's :class:`~app.models.User` by ``discord_id`` and returns a
+    display-only dict ``{registered, display_name, complete, remaining_labels}``:
+    ``complete`` reuses :func:`app.services.pick_submission.main_picks_complete`
+    (all four base bet types + a mortal lock), and ``remaining_labels`` names the
+    still-unfilled slots of the caller's OWN standard card. Returns
+    ``{registered: False}`` when the discord_id has no account. NEVER reads another
+    user — there is no parameter to ask for anyone else's picks (leak-safe by
+    construction, T-k5w-01).
+    """
+    user = session.exec(select(User).where(User.discord_id == discord_id)).one_or_none()
+    if user is None or user.id is None:
+        return {"registered": False}
+
+    week_row = session.exec(
+        select(Week).where(Week.season == season, Week.week == week)
+    ).one_or_none()
+
+    # Read ONLY this caller's picks for the week (asker-scoped by user_id).
+    picks: list[Pick] = []
+    if week_row is not None and week_row.id is not None:
+        picks = list(
+            session.exec(
+                select(Pick).where(Pick.user_id == user.id, Pick.week_id == week_row.id)
+            ).all()
+        )
+
+    complete = False
+    if week_row is not None:
+        complete = main_picks_complete(session, user_id=user.id, season=season, week=week)
+
+    base_slot_types = {slot for slot, _ in _PICK_SLOT_LABELS}
+    present_base = {
+        p.pick_type for p in picks if not p.is_mortal_lock and p.pick_type in base_slot_types
+    }
+    has_mortal_lock = any(p.is_mortal_lock for p in picks)
+    remaining_labels = [label for slot, label in _PICK_SLOT_LABELS if slot not in present_base]
+    if not has_mortal_lock:
+        remaining_labels.append("mortal lock")
+
+    return {
+        "registered": True,
+        "display_name": user.display_name,
+        "complete": complete,
+        "remaining_labels": remaining_labels,
+    }
+
+
+def _team_ids_for_token(teams: list[Team], token: str) -> set[int]:
+    """Resolve a real-team ``token`` (abbreviation or display-name word) to team ids.
+
+    Pure and case-insensitive: matches a team when the upper-cased ``token`` equals
+    its abbreviation, equals its full display name, or is one of the display name's
+    words (so "CHIEFS" resolves "Kansas City Chiefs"). ``token`` is already a real
+    32-team token from the validator, so this only maps it back to id(s).
+    """
+    needle = token.strip().upper()
+    ids: set[int] = set()
+    for t in teams:
+        if t.id is None:
+            continue
+        name = t.display_name.upper()
+        if needle == t.abbreviation.upper() or needle == name or needle in name.split():
+            ids.add(t.id)
+    return ids
+
+
+def _slate_close_at(games: list[Game]) -> datetime | None:
+    """The week's pick-window close time (its first kickoff), or ``None``.
+
+    Reuses :func:`app.services.pick_window.compute_window` over tz-normalized
+    kickoff copies (never mutating the store rows) so no window math is
+    re-implemented; returns ``None`` when no game has a kickoff to close on.
+    """
+    if not games:
+        return None
+    # Shallow copies with tz-aware kickoffs so compute_window can run without
+    # mutating the store rows (mirrors app.api.current_week._normalized). Only
+    # kickoff_at is read by the window math, but the other required fields are
+    # copied so the model constructs cleanly.
+    aware = [
+        Game(
+            espn_event_id=g.espn_event_id,
+            week_id=g.week_id,
+            season=g.season,
+            week=g.week,
+            home_team_id=g.home_team_id,
+            away_team_id=g.away_team_id,
+            kickoff_at=_as_aware(g.kickoff_at),
+            status=g.status,
+        )
+        for g in games
+    ]
+    try:
+        return compute_window(aware).close_at
+    except ValueError:
+        return None
+
+
+def get_lines_slate(
+    session: Session, season: int, week: int, *, team_abbr: str | None = None
+) -> dict:
+    """Display-only lines/slate for ``{season, week}`` — optionally one team's game.
+
+    Returns ``{week, close_at, games: [{away, home, favorite, spread, total}, ...]}``
+    where ``spread``/``total`` are stringified frozen line values (or ``None`` when
+    unposted) and ``close_at`` is the week's pick-window close (its first kickoff)
+    via :func:`compute_window`. When ``team_abbr`` (a real validator token) is
+    given, ``games`` is narrowed to that team's game. Display-only; pure read.
+    """
+    games = list(
+        session.exec(select(Game).where(Game.season == season, Game.week == week)).all()
+    )
+    teams = list(session.exec(select(Team)).all())
+    abbr_by_team_id = {t.id: t.abbreviation for t in teams if t.id is not None}
+
+    close_at = _slate_close_at(games)
+
+    if team_abbr is not None:
+        team_ids = _team_ids_for_token(teams, team_abbr)
+        games = [
+            g for g in games if g.home_team_id in team_ids or g.away_team_id in team_ids
+        ]
+
+    game_dicts = [
+        {
+            "away": abbr_by_team_id.get(g.away_team_id),
+            "home": abbr_by_team_id.get(g.home_team_id),
+            "favorite": (
+                abbr_by_team_id.get(g.favorite_team_id)
+                if g.favorite_team_id is not None
+                else None
+            ),
+            "spread": str(g.spread) if g.spread is not None else None,
+            "total": str(g.total) if g.total is not None else None,
+        }
+        for g in games
+    ]
+
+    return {"week": week, "close_at": close_at, "games": game_dicts}
+
+
+def get_week_scores(session: Session, season: int, week: int) -> dict:
+    """Display-only final + in-progress scores for ``{season, week}``.
+
+    Returns ``{week, games: [{away, home, away_score, home_score, status}, ...]}``
+    for the week's games that are FINAL or IN_PROGRESS (SCHEDULED games have no
+    score yet and are omitted). Scores are integers; ``status`` is the plain
+    :class:`~app.models.GameStatus` value. Display-only (public); pure read.
+    """
+    games = list(
+        session.exec(select(Game).where(Game.season == season, Game.week == week)).all()
+    )
+    teams = list(session.exec(select(Team)).all())
+    abbr_by_team_id = {t.id: t.abbreviation for t in teams if t.id is not None}
+
+    scored = [
+        {
+            "away": abbr_by_team_id.get(g.away_team_id),
+            "home": abbr_by_team_id.get(g.home_team_id),
+            "away_score": g.away_score,
+            "home_score": g.home_score,
+            "status": g.status.value,
+        }
+        for g in games
+        if g.status in (GameStatus.FINAL, GameStatus.IN_PROGRESS)
+    ]
+
+    return {"week": week, "games": scored}
+
+
+def get_real_team_tokens(session: Session) -> set[str]:
+    """The real-team token set for the validator — abbreviations + name tokens.
+
+    For each seeded :class:`~app.models.Team`: the upper-cased abbreviation, the
+    upper-cased full display name, and each word of the display name (so "Chiefs"
+    resolves as a display-name token). This is the ``known_team_tokens`` the pure
+    :func:`app.bot.qa.validate_classification` coerces against — anything not in it
+    is a non-real team and becomes ``unknown``. Returns an empty set on an unseeded DB.
+    """
+    tokens: set[str] = set()
+    for t in session.exec(select(Team)).all():
+        tokens.add(t.abbreviation.upper())
+        name = t.display_name.upper()
+        tokens.add(name)
+        tokens.update(name.split())
+    return tokens
