@@ -882,15 +882,11 @@ def resolve_current_week(session: Session, season: int) -> int | None:
     for g in games:
         by_week.setdefault(g.week, []).append(g)
     weeks = sorted(by_week)
-    incomplete = [
-        wk for wk in weeks if not all(g.status is GameStatus.FINAL for g in by_week[wk])
-    ]
+    incomplete = [wk for wk in weeks if not all(g.status is GameStatus.FINAL for g in by_week[wk])]
     return incomplete[0] if incomplete else weeks[-1]
 
 
-def get_pick_status_for_user(
-    session: Session, season: int, week: int, *, discord_id: int
-) -> dict:
+def get_pick_status_for_user(session: Session, season: int, week: int, *, discord_id: int) -> dict:
     """ASKER-ONLY pick status for the caller identified by ``discord_id``.
 
     Resolves the caller's :class:`~app.models.User` by ``discord_id`` and returns a
@@ -932,11 +928,22 @@ def get_pick_status_for_user(
     if not has_mortal_lock:
         remaining_labels.append("mortal lock")
 
+    # Whether the week's pick window is still open — so an incomplete card after the
+    # window closes is reported as locked-with-gaps, not as a still-actionable to-do.
+    # Same real-clock-vs-persisted-kickoffs comparison the rest of the app uses
+    # (demo-correct with no demo branch — see app.api.current_week).
+    week_games = list(
+        session.exec(select(Game).where(Game.season == season, Game.week == week)).all()
+    )
+    close_at = _slate_close_at(week_games)
+    pick_open = close_at is not None and datetime.now(timezone.utc) < close_at
+
     return {
         "registered": True,
         "display_name": user.display_name,
         "complete": complete,
         "remaining_labels": remaining_labels,
+        "pick_open": pick_open,
     }
 
 
@@ -1002,28 +1009,24 @@ def get_lines_slate(
     via :func:`compute_window`. When ``team_abbr`` (a real validator token) is
     given, ``games`` is narrowed to that team's game. Display-only; pure read.
     """
-    games = list(
-        session.exec(select(Game).where(Game.season == season, Game.week == week)).all()
-    )
+    games = list(session.exec(select(Game).where(Game.season == season, Game.week == week)).all())
     teams = list(session.exec(select(Team)).all())
     abbr_by_team_id = {t.id: t.abbreviation for t in teams if t.id is not None}
 
     close_at = _slate_close_at(games)
+    # Window open/closed for tense-correct "picks close/closed <when>" phrasing.
+    pick_open = close_at is not None and datetime.now(timezone.utc) < close_at
 
     if team_abbr is not None:
         team_ids = _team_ids_for_token(teams, team_abbr)
-        games = [
-            g for g in games if g.home_team_id in team_ids or g.away_team_id in team_ids
-        ]
+        games = [g for g in games if g.home_team_id in team_ids or g.away_team_id in team_ids]
 
     game_dicts = [
         {
             "away": abbr_by_team_id.get(g.away_team_id),
             "home": abbr_by_team_id.get(g.home_team_id),
             "favorite": (
-                abbr_by_team_id.get(g.favorite_team_id)
-                if g.favorite_team_id is not None
-                else None
+                abbr_by_team_id.get(g.favorite_team_id) if g.favorite_team_id is not None else None
             ),
             "spread": str(g.spread) if g.spread is not None else None,
             "total": str(g.total) if g.total is not None else None,
@@ -1031,7 +1034,7 @@ def get_lines_slate(
         for g in games
     ]
 
-    return {"week": week, "close_at": close_at, "games": game_dicts}
+    return {"week": week, "close_at": close_at, "pick_open": pick_open, "games": game_dicts}
 
 
 def get_week_scores(session: Session, season: int, week: int) -> dict:
@@ -1042,9 +1045,7 @@ def get_week_scores(session: Session, season: int, week: int) -> dict:
     score yet and are omitted). Scores are integers; ``status`` is the plain
     :class:`~app.models.GameStatus` value. Display-only (public); pure read.
     """
-    games = list(
-        session.exec(select(Game).where(Game.season == season, Game.week == week)).all()
-    )
+    games = list(session.exec(select(Game).where(Game.season == season, Game.week == week)).all())
     teams = list(session.exec(select(Team)).all())
     abbr_by_team_id = {t.id: t.abbreviation for t in teams if t.id is not None}
 

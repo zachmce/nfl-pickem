@@ -34,7 +34,7 @@ logger = structlog.get_logger(__name__)
 # Per-user cooldown window. Each mention triggers two local-Gemma calls, so gate
 # before any LLM work. Lighter than /register's 300s (this is a chat query) but
 # still throttles a spammer to one answer per window.
-_COOLDOWN_SECONDS = 20.0
+_COOLDOWN_SECONDS = 10.0
 
 
 def _strip_bot_mention(content: str, bot_id: int) -> str:
@@ -98,9 +98,7 @@ class MentionQaCog(commands.Cog):
 
             line = await qa.answer_question(question, discord_id=message.author.id)
             decorated = decorate_team_logos(line)
-            await message.channel.send(
-                decorated, allowed_mentions=discord.AllowedMentions.none()
-            )
+            await message.channel.send(decorated, allowed_mentions=discord.AllowedMentions.none())
         except Exception:
             # One bad message must never crash the gateway loop (mirrors the notifier
             # per-message guard). answer_question is best-effort too, but guard the

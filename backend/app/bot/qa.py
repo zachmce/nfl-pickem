@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 
 import structlog
@@ -124,7 +125,7 @@ async def classify_question(question: str) -> dict | None:
         return None
     try:
         parsed = json.loads(raw)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
     return parsed if isinstance(parsed, dict) else None
 
@@ -295,10 +296,57 @@ def _wants_single_game(subject: str | None) -> bool:
     return any(hint in low for hint in _SINGLE_GAME_HINTS)
 
 
+@dataclass(frozen=True)
+class _ListAnswer:
+    """A multi-item answer (whole slate / whole-week scores).
+
+    A one-line phrasing guard would make the LLM DROP a long list, so list answers
+    are split: ``header_fact`` is the ONLY thing phrased in voice (a short in-character
+    lead), and ``body`` — the deterministic per-game block — is appended verbatim by
+    the orchestrator so the games/scores can never be summarized away.
+    """
+
+    header_fact: str
+    body: str
+
+
+def _fmt_when(when: object) -> str | None:
+    """Format a tz-aware close time as a short, human string, else ``None``.
+
+    Turns ``2026-07-06 12:22:31.079408+00:00`` into ``Mon Jul 6, 12:22 PM UTC`` —
+    no microseconds, no offset noise. Built without ``strftime`` day/hour padding
+    quirks so it renders identically on any libc.
+    """
+    if not isinstance(when, datetime):
+        return None
+    hour = when.hour % 12 or 12
+    ampm = "AM" if when.hour < 12 else "PM"
+    return f"{when.strftime('%a %b')} {when.day}, {hour}:{when.minute:02d} {ampm} UTC"
+
+
+def _close_clause(when: str | None, pick_open: bool) -> str | None:
+    """The 'Picks close/closed <when>' clause — tense-correct, or ``None``."""
+    if not when:
+        return None
+    return f"Picks {'close' if pick_open else 'closed'} {when}."
+
+
 def _pick_status_fact(status: dict) -> str:
-    """Build the asker's OWN pick-status fact (registered case)."""
+    """Build the asker's OWN pick-status fact (registered case).
+
+    Window-aware. While the window is OPEN the fact is an actionable to-do (which
+    slots still need a pick). Once the window has CLOSED the card can no longer be
+    filled, so enumerating the unmade slots isn't actionable — the fact is just the
+    verdict (locked in full vs. locked but incomplete), kept short so the one-line
+    phrasing guard can't trim away the meaning.
+    """
     name = status.get("display_name")
-    if status.get("complete"):
+    complete = bool(status.get("complete"))
+    if not status.get("pick_open"):
+        if complete:
+            return f"{name} was locked in for the week — a full card before the deadline."
+        return f"Picks are locked for the week and {name}'s card was incomplete."
+    if complete:
         return f"{name}'s standard card is complete — every pick is in for the week."
     remaining = status.get("remaining_labels") or []
     if remaining:
@@ -322,7 +370,7 @@ def _standings_fact(ctx: dict) -> str:
     return " ".join(parts)
 
 
-def _one_game_line_fact(game: dict, week: int | None, close_at: object) -> str:
+def _one_game_line_fact(game: dict, week: int | None, when: str | None, pick_open: bool) -> str:
     """A single game's line fact (matchup + favorite/spread + total + close)."""
     away = game.get("away")
     home = game.get("home")
@@ -334,52 +382,82 @@ def _one_game_line_fact(game: dict, week: int | None, close_at: object) -> str:
     total = game.get("total")
     if total:
         parts.append(f"Total is {total}.")
-    if close_at:
-        parts.append(f"Picks close {close_at}.")
+    close_clause = _close_clause(when, pick_open)
+    if close_clause:
+        parts.append(close_clause)
     return " ".join(parts)
 
 
-def _slate_fact(slate: dict) -> str:
-    """Build the lines/slate fact — one game's line or a whole-week summary."""
+def _slate_fact(slate: dict) -> str | _ListAnswer:
+    """Build the lines/slate answer.
+
+    A single game (or a team-narrowed slate) stays a one-liner. A whole multi-game
+    slate becomes a :class:`_ListAnswer`: a short in-character header + a
+    deterministic one-line-per-game block, so the full slate always lands.
+    """
     games = slate.get("games") or []
     week = slate.get("week")
-    close_at = slate.get("close_at")
+    when = _fmt_when(slate.get("close_at"))
+    pick_open = bool(slate.get("pick_open"))
     if not games:
         return f"No games are posted for week {week} yet."
     if len(games) == 1:
-        return _one_game_line_fact(games[0], week, close_at)
+        return _one_game_line_fact(games[0], week, when, pick_open)
 
-    summaries = []
+    body_lines = []
     for game in games:
-        matchup = f"{game.get('away')}@{game.get('home')}"
+        line = f"{game.get('away')} @ {game.get('home')}"
         favorite = game.get("favorite")
         spread = game.get("spread")
         if favorite and spread:
-            matchup += f" ({favorite} -{spread})"
-        summaries.append(matchup)
-    fact = f"Week {week} slate: " + "; ".join(summaries) + "."
-    if close_at:
-        fact += f" Picks close {close_at}."
-    return fact
+            line += f" — {favorite} -{spread}"
+        total = game.get("total")
+        if total:
+            line += f" (O/U {total})"
+        body_lines.append(line)
+    header = f"Week {week}'s full slate — {len(games)} games."
+    close_clause = _close_clause(when, pick_open)
+    if close_clause:
+        header += f" {close_clause}"
+    return _ListAnswer(header_fact=header, body="\n".join(body_lines))
 
 
-def _scores_fact(scores: dict) -> str:
-    """Build the scores fact (final + in-progress) for the week (display-only)."""
+def _scores_one_line(game: dict, week: int | None) -> str:
+    """A single game's score fact (display-only)."""
+    tag = "final" if game.get("status") == "FINAL" else "in progress"
+    return (
+        f"Week {week}: {game.get('away')} {game.get('away_score')} at "
+        f"{game.get('home')} {game.get('home_score')} ({tag})."
+    )
+
+
+def _scores_fact(scores: dict) -> str | _ListAnswer:
+    """Build the scores answer (final + in-progress) for the week.
+
+    One scored game is a one-liner; a full scoreboard becomes a :class:`_ListAnswer`
+    (a short header + a deterministic per-game score block) so no score is dropped.
+    """
     games = scores.get("games") or []
     week = scores.get("week")
     if not games:
         return f"No scores yet for week {week}."
-    parts = []
+    if len(games) == 1:
+        return _scores_one_line(games[0], week)
+
+    n_final = sum(1 for game in games if game.get("status") == "FINAL")
+    n_live = len(games) - n_final
+    body_lines = []
     for game in games:
         tag = "final" if game.get("status") == "FINAL" else "in progress"
-        parts.append(
-            f"{game.get('away')} {game.get('away_score')} at "
+        body_lines.append(
+            f"{game.get('away')} {game.get('away_score')} @ "
             f"{game.get('home')} {game.get('home_score')} ({tag})"
         )
-    return f"Week {week} scores: " + "; ".join(parts) + "."
+    header = f"Week {week} scoreboard — {n_final} final, {n_live} in progress."
+    return _ListAnswer(header_fact=header, body="\n".join(body_lines))
 
 
-async def _build_fact(result: QaResult, *, discord_id: int) -> str | None:
+async def _build_fact(result: QaResult, *, discord_id: int) -> str | _ListAnswer | None:
     """Route a validated intent to its deterministic reader and build the FACT.
 
     Returns the fact string to phrase, or ``None`` for the pick_status
@@ -441,6 +519,15 @@ async def answer_question(question: str, *, discord_id: int) -> str:
 
         voice = await db_bridge.resolve_active_voice_async()
         system_prompt = compose_prompt(voice, QA_ROLE, QA_GUARD)
+
+        if isinstance(fact, _ListAnswer):
+            # List answer: phrase ONLY the short header in voice, then append the
+            # deterministic block verbatim so the full slate/scoreboard always lands
+            # (a one-line phrasing guard would otherwise summarize the list away).
+            phrased_header = await llm_client.phrase(fact.header_fact, system_prompt=system_prompt)
+            header = phrased_header if phrased_header is not None else fact.header_fact
+            return f"{header}\n{fact.body}"
+
         phrased = await llm_client.phrase(fact, system_prompt=system_prompt)
         return phrased if phrased is not None else fact
     except Exception:
