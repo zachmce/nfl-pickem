@@ -863,7 +863,7 @@ function PickOverrideEditor({
   const [season, setSeason] = useState<number>(target.season);
   const [week, setWeek] = useState<number>(target.week);
 
-  const { status, slate, picks, saving, slotError, set, clear, grade } =
+  const { status, refreshing, slate, picks, saving, slotError, set, clear, grade } =
     useAdminPickEditor(target.id, season, week);
 
   return (
@@ -920,6 +920,12 @@ function PickOverrideEditor({
           />
         </label>
       </div>
+
+      {refreshing && (
+        <p className="text-xs text-fg-muted" aria-live="polite">
+          Updating…
+        </p>
+      )}
 
       {status === "loading" ? (
         <p className="text-fg-muted">Loading roster…</p>
