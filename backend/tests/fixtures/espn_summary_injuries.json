@@ -1,0 +1,62 @@
+{
+  "injuries": [
+    {
+      "team": {
+        "id": "12",
+        "abbreviation": "KC",
+        "displayName": "Kansas City Chiefs"
+      },
+      "injuries": [
+        {
+          "status": "Out",
+          "date": "2026-01-05T18:00Z",
+          "athlete": {
+            "displayName": "Isiah Pacheco",
+            "position": {"abbreviation": "RB"}
+          },
+          "type": {"name": "Out"},
+          "details": {
+            "type": "Knee",
+            "location": "Lower body",
+            "returnDate": "2026-01-19"
+          }
+        },
+        {
+          "status": "Questionable",
+          "date": "2026-01-05T18:00Z",
+          "athlete": {
+            "displayName": "Rashee Rice",
+            "position": {"abbreviation": "WR"}
+          },
+          "type": {"name": "Questionable"},
+          "details": {
+            "type": "Ankle",
+            "location": "Lower body"
+          }
+        },
+        {
+          "status": "Doubtful",
+          "date": "2026-01-05T18:00Z",
+          "athlete": {
+            "displayName": "Nick Bolton",
+            "position": {"abbreviation": "LB"}
+          },
+          "type": {"name": "Doubtful"},
+          "details": {
+            "type": "Hamstring",
+            "returnDate": "2026-01-12"
+          }
+        }
+      ]
+    },
+    {
+      "team": {
+        "id": "24",
+        "abbreviation": "LAC",
+        "displayName": "Los Angeles Chargers"
+      },
+      "injuries": []
+    }
+  ],
+  "news": {"articles": []}
+}
