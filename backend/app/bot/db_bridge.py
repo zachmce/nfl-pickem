@@ -23,10 +23,15 @@ from app.services.notifications_read import (
     get_game_final_context,
     get_history_pick_keys,
     get_leaders_context,
+    get_lines_slate,
+    get_pick_status_for_user,
+    get_real_team_tokens,
     get_recap_context,
     get_roster_complete_context,
     get_week_pick_keys,
     get_week_recap_context,
+    get_week_scores,
+    resolve_current_week,
 )
 from app.services.auth import (
     deactivate_user_by_discord_id,
@@ -409,5 +414,96 @@ async def get_leaders_context_async() -> dict:
                     "gap": None,
                 }
             return get_leaders_context(session, season)
+
+    return await asyncio.to_thread(_sync)
+
+
+# --------------------------------------------------------------------------- #
+# 260709-k5w — inbound @mention Q&A async seams (Path A v1). Same posture as the
+# wrappers above (asyncio.to_thread + task_session() + current_season inside the
+# worker thread; plain values out; NO discord import). Each resolves the
+# season/current-week internally and returns the safe empty shape on an
+# ambiguous/empty season.
+# --------------------------------------------------------------------------- #
+
+
+async def get_real_team_tokens_async() -> set[str]:
+    """Async wrapper: the real 32-team token set for the Q&A validator.
+
+    Abbreviations + display-name tokens (see
+    :func:`app.services.notifications_read.get_real_team_tokens`). Returns an empty
+    set on an unseeded DB. Plain set out only; Discord-free.
+    """
+
+    def _sync() -> set[str]:
+        with task_session() as session:
+            return get_real_team_tokens(session)
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_pick_status_async(discord_id: int) -> dict:
+    """Async wrapper: ASKER-ONLY pick status for ``discord_id`` (leak-safe).
+
+    Resolves the active season + current week internally, then reads ONLY the
+    caller's own status via
+    :func:`app.services.notifications_read.get_pick_status_for_user` (never another
+    user). Returns ``{registered: False}`` on an ambiguous/empty season or an
+    unregistered discord_id. Plain dict out only; Discord-free.
+    """
+
+    def _sync() -> dict:
+        with task_session() as session:
+            season = current_season(session)
+            if season is None:
+                return {"registered": False}
+            week = resolve_current_week(session, season)
+            if week is None:
+                return {"registered": False}
+            return get_pick_status_for_user(session, season, week, discord_id=discord_id)
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_lines_slate_async(team_abbr: str | None = None) -> dict:
+    """Async wrapper: this week's lines/slate, optionally narrowed to one team.
+
+    Resolves the season + current week internally then delegates to
+    :func:`app.services.notifications_read.get_lines_slate`. Returns the safe empty
+    shape ``{week: None, close_at: None, games: []}`` on an ambiguous/empty season.
+    Plain dict out only; Discord-free.
+    """
+
+    def _sync() -> dict:
+        with task_session() as session:
+            season = current_season(session)
+            if season is None:
+                return {"week": None, "close_at": None, "games": []}
+            week = resolve_current_week(session, season)
+            if week is None:
+                return {"week": None, "close_at": None, "games": []}
+            return get_lines_slate(session, season, week, team_abbr=team_abbr)
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_week_scores_async() -> dict:
+    """Async wrapper: this week's final + in-progress scores.
+
+    Resolves the season + current week internally then delegates to
+    :func:`app.services.notifications_read.get_week_scores`. Returns the safe empty
+    shape ``{week: None, games: []}`` on an ambiguous/empty season. Plain dict out
+    only; Discord-free.
+    """
+
+    def _sync() -> dict:
+        with task_session() as session:
+            season = current_season(session)
+            if season is None:
+                return {"week": None, "games": []}
+            week = resolve_current_week(session, season)
+            if week is None:
+                return {"week": None, "games": []}
+            return get_week_scores(session, season, week)
 
     return await asyncio.to_thread(_sync)
