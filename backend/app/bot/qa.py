@@ -277,9 +277,17 @@ _UNKNOWN_FACT = (
 # no ask-and-wait, no pending-slot state.
 _SOFT_DECLINE_FACT = "Name a team and the line for that game can be pulled up."
 
-# Stateless soft-decline for a teamless injuries question — the injury report is
-# always team-scoped, so a whole-league dump is never the answer. No HTTP, no DB.
-_INJURIES_NO_TEAM_FACT = "Name a team and I'll pull that team's injury report."
+# Stateless soft-decline for a teamless injuries question — the report is always
+# team-scoped, so a whole-league dump is never the answer. No HTTP, no DB.
+# NOTE: deliberately worded WITHOUT the word "injury". The small local phrasing
+# model carries a hard prior that any terse injury-flavored decline means "not yet
+# supported" (injuries used to be a coming_soon topic) and inverts the meaning when
+# it phrases it — e.g. "Name a team and I'll pull that team's injury report" came
+# out as "That feature is not yet supported. 🙄". Framing it as a neutral
+# "you didn't name a team, ask again" phrases faithfully; the injury context is
+# obvious from the member's own question. The longer degrade line below survives
+# phrasing (it reads as an unambiguous transient "couldn't do X right now").
+_INJURIES_NO_TEAM_FACT = "No team in that question — name one and ask again."
 
 # Best-effort degrade line when the team's game/event can't be resolved OR the ESPN
 # fetch/parse fails. NEVER an invented injury (T-u0z-02) — a fixed, honest miss.
