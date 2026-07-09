@@ -9,16 +9,19 @@ import { Outlet } from "react-router-dom";
 import ContextBar from "./ContextBar";
 import DemoBanner from "./DemoBanner";
 import Header from "./Header";
+import { WeekProvider } from "./WeekContext";
 
 export default function AppShell() {
   return (
     <div className="min-h-screen bg-surface">
       <DemoBanner />
-      <Header />
-      <ContextBar />
-      <main className="mx-auto w-full max-w-5xl xl:max-w-7xl 2xl:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-6">
-        <Outlet />
-      </main>
+      <WeekProvider>
+        <Header />
+        <ContextBar />
+        <main className="mx-auto w-full max-w-5xl xl:max-w-7xl 2xl:max-w-[1700px] px-4 sm:px-6 lg:px-8 py-6">
+          <Outlet />
+        </main>
+      </WeekProvider>
     </div>
   );
 }
