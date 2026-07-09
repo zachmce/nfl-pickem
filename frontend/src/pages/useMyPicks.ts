@@ -1,7 +1,7 @@
 /**
  * State hook for the My Picks page: owns all data loading and autosave state.
  *
- * Load sequence (on mount, cancel-on-unmount like ContextBar.useCurrentWeek):
+ * Load sequence (on mount, cancel-on-unmount):
  *   1. getCurrentWeek() -> season/week + window_state.
  *   2. Promise.all(getSlate, getMyPicks) for that week.
  * Any failure lands in a graceful "error" status (never throws to the page).
