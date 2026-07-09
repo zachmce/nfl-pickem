@@ -51,13 +51,16 @@ class QaIntent(str, Enum):
     standings = "standings"
     lines_slate = "lines_slate"
     scores = "scores"
+    injuries = "injuries"
     coming_soon = "coming_soon"
     unknown = "unknown"
 
 
 # Which validated intents carry which optional params. A field irrelevant to the
-# resolved intent is DROPPED (set to None), not treated as an error.
-_TEAM_INTENTS = frozenset({QaIntent.lines_slate})
+# resolved intent is DROPPED (set to None), not treated as an error. ``injuries``
+# is team-BEARING and team-REQUIRED (a teamless injuries question soft-declines) —
+# it reuses the same real-team validation + coercion path as ``lines_slate``.
+_TEAM_INTENTS = frozenset({QaIntent.lines_slate, QaIntent.injuries})
 _WEEK_INTENTS = frozenset({QaIntent.pick_status, QaIntent.lines_slate, QaIntent.scores})
 _SUBJECT_INTENTS = frozenset({QaIntent.lines_slate, QaIntent.unknown, QaIntent.coming_soon})
 
@@ -93,7 +96,8 @@ CLASSIFIER_SYSTEM_PROMPT = (
     '"intent" MUST be one of: pick_status (their own pick/lock status), standings '
     "(the leaderboard or someone's rank), lines_slate (the spread, total, this "
     "week's games, or when the window closes), scores (final or in-progress game "
-    "scores), coming_soon (a recognized but unsupported topic: injuries, weather, "
+    "scores), injuries (a team's injury report — who is hurt, out, doubtful, or "
+    "questionable), coming_soon (a recognized but unsupported topic: weather, "
     "news, line movement, or a who-will-win prediction), unknown (anything you are "
     'not sure about). "team" is a team name or abbreviation the question is about, '
     'or null. "week" is an integer week number, or null. "subject" is a short noun '
@@ -272,6 +276,16 @@ _UNKNOWN_FACT = (
 # Stateless soft-decline for a single-game lines question with no team resolved —
 # no ask-and-wait, no pending-slot state.
 _SOFT_DECLINE_FACT = "Name a team and the line for that game can be pulled up."
+
+# Stateless soft-decline for a teamless injuries question — the injury report is
+# always team-scoped, so a whole-league dump is never the answer. No HTTP, no DB.
+_INJURIES_NO_TEAM_FACT = "Name a team and I'll pull that team's injury report."
+
+# Best-effort degrade line when the team's game/event can't be resolved OR the ESPN
+# fetch/parse fails. NEVER an invented injury (T-u0z-02) — a fixed, honest miss.
+_INJURIES_DEGRADE_FACT = (
+    "Couldn't pull the injury report right now — give it another shot in a bit."
+)
 
 # Subject hints that a lines question is about a SINGLE game (so a missing team is a
 # stateless soft-decline, not a whole-slate dump).
@@ -457,6 +471,62 @@ def _scores_fact(scores: dict) -> str | _ListAnswer:
     return _ListAnswer(header_fact=header, body="\n".join(body_lines))
 
 
+def _injuries_as_of(players: list[dict]) -> str | None:
+    """The first available per-player ``date`` stamp — the report's as-of, or ``None``."""
+    for player in players:
+        as_of = player.get("date")
+        if as_of:
+            return as_of
+    return None
+
+
+def _injury_player_line(player: dict) -> str:
+    """One deterministic per-player injury line, built ONLY from parsed fields.
+
+    Invents nothing: a missing field is simply omitted (name/position/status/body
+    part/return date each degrade out of the line rather than being fabricated).
+    """
+    name = player.get("display_name") or "Unknown player"
+    position = player.get("position")
+    subject = f"{name} ({position})" if position else name
+    status = player.get("status") or "status unknown"
+    body_part = player.get("body_part")
+    detail = f"{status} — {body_part}" if body_part else status
+    line = f"{subject}: {detail}"
+    return_date = player.get("return_date")
+    if return_date:
+        line += f", expected back {return_date}"
+    return line
+
+
+def _injuries_fact(team_abbr: str, players: list[dict]) -> str | _ListAnswer:
+    """Build the deterministic injuries answer for ``team_abbr``.
+
+    * No injuries listed -> a single clean line (no fabricated as-of when there is
+      no injury to stamp).
+    * One player -> a one-liner naming status / name / position / body part / return
+      date + the as-of stamp.
+    * Multiple players -> a :class:`_ListAnswer` whose ``header_fact`` is a short
+      phrasable lead and whose ``body`` is a deterministic one-line-per-player block,
+      so the one-line phrasing guard can NEVER trim the roster away.
+
+    Everything is derived from the parsed ``players`` — nothing beyond those fields
+    is invented (T-u0z-02).
+    """
+    if not players:
+        return f"No injuries listed for {team_abbr} right now."
+
+    as_of = _injuries_as_of(players)
+    as_of_clause = f" (as of {as_of})" if as_of else ""
+
+    if len(players) == 1:
+        return f"{team_abbr} injury report — {_injury_player_line(players[0])}.{as_of_clause}"
+
+    header = f"{team_abbr} injury report — {len(players)} listed{as_of_clause}."
+    body = "\n".join(_injury_player_line(player) for player in players)
+    return _ListAnswer(header_fact=header, body=body)
+
+
 async def _build_fact(result: QaResult, *, discord_id: int) -> str | _ListAnswer | None:
     """Route a validated intent to its deterministic reader and build the FACT.
 
@@ -486,6 +556,28 @@ async def _build_fact(result: QaResult, *, discord_id: int) -> str | _ListAnswer
 
     if result.intent is QaIntent.scores:
         return _scores_fact(await db_bridge.get_week_scores_async())
+
+    if result.intent is QaIntent.injuries:
+        # Team-scoped by construction: a teamless injuries question stateless-soft-
+        # declines (no HTTP, no DB lookup) — never a whole-league dump.
+        if result.team is None:
+            return _INJURIES_NO_TEAM_FACT
+        # Resolve the asked team's current-week game -> stored espn_event_id (+ the
+        # canonical ESPN abbreviation to filter the parse by). None -> degrade.
+        resolved = await db_bridge.get_injuries_event_id_async(result.team)
+        if resolved is None:
+            return _INJURIES_DEGRADE_FACT
+        event_id, canonical_abbr = resolved
+        # espn_extra owns ALL HTTP + Redis; qa.py imports the seam, never httpx.
+        from app.services import espn_extra
+
+        payload = await espn_extra.fetch_injuries(event_id)
+        if payload is None:
+            return _INJURIES_DEGRADE_FACT  # best-effort fetch failed — never invent
+        players = espn_extra.parse_injuries(payload, canonical_abbr)
+        if players is None:
+            return _INJURIES_DEGRADE_FACT  # unusable shape — never invent
+        return _injuries_fact(canonical_abbr, players)
 
     if result.intent is QaIntent.coming_soon:
         return _COMING_SOON_FACT  # Tier 2 — no DB read

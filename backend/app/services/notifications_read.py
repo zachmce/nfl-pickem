@@ -1064,6 +1064,51 @@ def get_week_scores(session: Session, season: int, week: int) -> dict:
     return {"week": week, "games": scored}
 
 
+def get_current_week_event_id_for_team(
+    session: Session, season: int, week: int, *, team_abbr: str
+) -> tuple[int, str] | None:
+    """Resolve a real-team token to its ``(espn_event_id, canonical_abbreviation)``.
+
+    The read seam behind the Path-B injuries intent (260709-u0z). Reuses
+    :func:`_team_ids_for_token` (abbreviation OR display-name word) to map the
+    validator token to team id(s), finds the season/week :class:`~app.models.Game`
+    that team plays in, and returns:
+
+    * ``espn_event_id`` — the game's stored ESPN event id (an int we already own; the
+      SSRF-safe input to the on-demand summary fetch, never user text), and
+    * ``canonical_abbreviation`` — the asked team's real ESPN abbreviation, so the
+      pure :func:`app.services.espn_extra.parse_injuries` filters by an EXACT
+      abbreviation rather than a name-word token.
+
+    Returns ``None`` when the token resolves no team, when it does not resolve to
+    EXACTLY ONE game this week (unknown / bye / ambiguous multi-team word), or when
+    the resolved game carries no stored event id. Display-only, pure read (no
+    ``add``/``commit``); never raises on well-typed inputs.
+    """
+    teams = list(session.exec(select(Team)).all())
+    team_ids = _team_ids_for_token(teams, team_abbr)
+    if not team_ids:
+        return None
+
+    games = list(session.exec(select(Game).where(Game.season == season, Game.week == week)).all())
+    matching = [g for g in games if g.home_team_id in team_ids or g.away_team_id in team_ids]
+    if len(matching) != 1:
+        return None
+    game = matching[0]
+    if game.espn_event_id is None:
+        return None
+
+    abbr_by_team_id = {t.id: t.abbreviation for t in teams if t.id is not None}
+    if game.home_team_id in team_ids:
+        canonical = abbr_by_team_id.get(game.home_team_id)
+    else:
+        canonical = abbr_by_team_id.get(game.away_team_id)
+    if canonical is None:
+        return None
+
+    return (game.espn_event_id, canonical)
+
+
 def get_real_team_tokens(session: Session) -> set[str]:
     """The real-team token set for the validator — abbreviations + name tokens.
 

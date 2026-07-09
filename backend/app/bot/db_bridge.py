@@ -20,6 +20,7 @@ from app.db import task_session
 from app.services.notifications import player_registered_event, publish_event
 from app.services.notifications_read import (
     current_season,
+    get_current_week_event_id_for_team,
     get_game_final_context,
     get_history_pick_keys,
     get_leaders_context,
@@ -505,5 +506,30 @@ async def get_week_scores_async() -> dict:
             if week is None:
                 return {"week": None, "games": []}
             return get_week_scores(session, season, week)
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_injuries_event_id_async(team_abbr: str) -> tuple[int, str] | None:
+    """Async seam: resolve ``team_abbr`` to its current-week ``(event_id, abbr)``.
+
+    Same posture as the other Q&A seams (asyncio.to_thread + task_session() +
+    current_season + resolve_current_week inside the worker thread). Delegates to
+    :func:`app.services.notifications_read.get_current_week_event_id_for_team` and
+    returns the ``(espn_event_id, canonical_abbreviation)`` tuple, or ``None`` on an
+    ambiguous/empty season, an unresolved current week, or a team that does not
+    resolve to exactly one game with a stored event id. Plain values out only;
+    Discord-free.
+    """
+
+    def _sync() -> tuple[int, str] | None:
+        with task_session() as session:
+            season = current_season(session)
+            if season is None:
+                return None
+            week = resolve_current_week(session, season)
+            if week is None:
+                return None
+            return get_current_week_event_id_for_team(session, season, week, team_abbr=team_abbr)
 
     return await asyncio.to_thread(_sync)
