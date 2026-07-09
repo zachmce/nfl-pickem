@@ -160,6 +160,34 @@ class PickemBot(commands.Bot):
         await super().close()
 
 
+def build_intents() -> discord.Intents:
+    """Build the exact gateway intents the bot subscribes to.
+
+    Extracted from ``main()`` as a pure seam so the intent set can be asserted in a
+    unit test (regression guard). Minimal-by-default: everything starts off and only
+    what the bot actually uses is enabled.
+
+    The two message intents are DISTINCT and BOTH required for the inbound @mention
+    Q&A listener:
+
+    * ``guild_messages`` (non-privileged) — the gateway subscription that DELIVERS
+      ``on_message`` events in a server. Without it the listener never fires for a
+      guild message, no matter what else is set.
+    * ``message_content`` (privileged; also toggled in the Developer Portal) — lets
+      ``.content`` be populated so the question text is readable.
+
+    Enabling only ``message_content`` (the original bug) meant the bot could read
+    content it never received — the listener stayed silent in every server.
+    """
+    intents = discord.Intents.none()
+    intents.guilds = True
+    intents.guild_messages = True  # DELIVERS on_message in guilds (non-privileged)
+    intents.dm_messages = True
+    intents.members = True  # privileged — must be toggled in Developer Portal
+    intents.message_content = True  # privileged — READ content; also a Portal toggle
+    return intents
+
+
 async def main() -> None:
     """Fail-fast async entrypoint for the bot container.
 
@@ -182,18 +210,7 @@ async def main() -> None:
     # has a baseline before the gateway becomes ready.
     HEARTBEAT_FILE.touch()
 
-    # Minimal intents only: guilds + dm_messages + members + message_content
-    intents = discord.Intents.none()
-    intents.guilds = True
-    intents.dm_messages = True
-    intents.members = True  # privileged — must be toggled in Developer Portal
-    # PRIVILEGED: required by the inbound @mention Q&A listener (on_message) to read
-    # message text. Like `members`, it MUST also be toggled ON in the Developer
-    # Portal (Bot -> Privileged Gateway Intents -> Message Content Intent) — enabling
-    # it here alone is not enough (see user_setup in the plan / SUMMARY).
-    intents.message_content = True
-
-    bot = PickemBot(command_prefix="!", intents=intents)  # prefix unused; slash-only
+    bot = PickemBot(command_prefix="!", intents=build_intents())  # prefix unused; slash-only
     async with bot:
         # Install explicit SIGTERM/SIGINT handlers before starting the gateway.
         # asyncio.run() only handles SIGINT, and discord.py's signal handling only
