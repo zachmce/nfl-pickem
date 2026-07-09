@@ -40,6 +40,7 @@ COG_MODULES = (
     "app.bot.commands.register",
     "app.bot.commands.reset_password",
     "app.bot.commands.admin",
+    "app.bot.commands.mention_qa",
 )
 
 
@@ -181,11 +182,16 @@ async def main() -> None:
     # has a baseline before the gateway becomes ready.
     HEARTBEAT_FILE.touch()
 
-    # Minimal intents only: guilds + dm_messages + members
+    # Minimal intents only: guilds + dm_messages + members + message_content
     intents = discord.Intents.none()
     intents.guilds = True
     intents.dm_messages = True
     intents.members = True  # privileged — must be toggled in Developer Portal
+    # PRIVILEGED: required by the inbound @mention Q&A listener (on_message) to read
+    # message text. Like `members`, it MUST also be toggled ON in the Developer
+    # Portal (Bot -> Privileged Gateway Intents -> Message Content Intent) — enabling
+    # it here alone is not enough (see user_setup in the plan / SUMMARY).
+    intents.message_content = True
 
     bot = PickemBot(command_prefix="!", intents=intents)  # prefix unused; slash-only
     async with bot:
