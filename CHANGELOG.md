@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] - 2026-07-09
+
+Bug-fix patch — two frontend data-freshness fixes surfaced during exploration.
+User-facing behavior improves; no API or schema changes.
+
+### Fixed
+
+- **Current-week status now refreshes during in-app navigation (#103).** The header
+  week chip and the sub-header context bar (week number + pick-window state) were fed by
+  a fetch that ran only once per full page load, inside the persistent app shell that
+  client-side navigation never remounts — so the labels went stale until a hard browser
+  refresh (a stale "picks open" label could mislead a player into attempting to edit
+  locked picks). The two displays now share a single `WeekProvider` that re-fetches on
+  route change and on window focus, so the status stays current without a reload.
+- **Admin pick-override editor no longer jumps when changing weeks (#104).** Switching
+  the week (or season) in the admin edit-picks panel tore the roster down to a "Loading…"
+  placeholder on every change; because the panel sits at the bottom of the page, the
+  collapse shrank the document and the browser's scroll clamp made the whole page lurch.
+  The editor now keeps the current roster on screen while the next week loads (with a
+  subtle "Updating…" hint), holding the layout stable.
+
 ## [1.2.1] - 2026-07-08
 
 Cleanup patch — the TIER 3 items from the external Fable code review (internal
