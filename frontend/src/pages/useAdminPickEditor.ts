@@ -51,6 +51,9 @@ export type Status = "loading" | "ok" | "error";
 
 export interface UseAdminPickEditor {
   status: Status;
+  /** True while a week/user REFETCH is in flight and prior slate/picks are still
+   * shown (status stays "ok"). Genuine first loads use status="loading" instead. */
+  refreshing: boolean;
   /** The chosen week's slate (options/eligibility/lock/lines — not user-scoped). */
   slate: SlateGame[];
   /** The TARGET user's authoritative roster keyed by slotKey. */
@@ -88,6 +91,7 @@ export function useAdminPickEditor(
   week: number,
 ): UseAdminPickEditor {
   const [status, setStatus] = useState<Status>("loading");
+  const [refreshing, setRefreshing] = useState(false);
   const [slate, setSlate] = useState<SlateGame[]>([]);
   const [picks, setPicks] = useState<PicksBySlot>({});
   const [saving, setSaving] = useState<Record<string, boolean>>({});
@@ -112,10 +116,23 @@ export function useAdminPickEditor(
   const picksRef = useRef<PicksBySlot>({});
   picksRef.current = picks;
 
+  // Flips to true the first time a load SUCCEEDS. Gates the "loading" placeholder
+  // to a genuine first open — subsequent week/user changes are REFETCHES that keep
+  // the prior data mounted (status stays "ok") and drive `refreshing` instead.
+  const hasLoadedRef = useRef(false);
+
   // Re-load whenever the target user OR the chosen season/week changes.
   useEffect(() => {
     let cancelled = false;
-    setStatus("loading");
+    if (hasLoadedRef.current) {
+      // REFETCH: keep the prior slate/picks rendered (status stays "ok", so the
+      // roster body stays mounted and the section height holds) and show a subtle
+      // "Updating…" hint instead of tearing the body down to a placeholder.
+      setRefreshing(true);
+    } else {
+      // Genuine FIRST load: no data yet, so the placeholder is correct.
+      setStatus("loading");
+    }
     setSlotError({});
 
     Promise.all([getSlate(season, week), getUserPicks(userId, season, week)])
@@ -124,10 +141,13 @@ export function useAdminPickEditor(
         setSlate(slateData.games);
         setPicks(indexPicks(userPicks));
         setStatus("ok");
+        hasLoadedRef.current = true;
+        setRefreshing(false);
       })
       .catch(() => {
         if (cancelled) return;
         setStatus("error");
+        setRefreshing(false);
       });
 
     return () => {
@@ -325,5 +345,5 @@ export function useAdminPickEditor(
     }
   }, []);
 
-  return { status, slate, picks, saving, slotError, set, clear, grade };
+  return { status, refreshing, slate, picks, saving, slotError, set, clear, grade };
 }
