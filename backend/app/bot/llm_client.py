@@ -40,6 +40,25 @@ _TEMPERATURE = 1.0
 _TOP_P = 0.95
 _TIMEOUT_SECONDS = 10.0
 
+# --------------------------------------------------------------------------- #
+# Deterministic JSON EXTRACTION seam (260709-k5w). The @mention Q&A classifier
+# needs the model to emit ONLY a compact JSON object — the exact opposite of the
+# chat-quip decode above. So :func:`classify` decodes near-deterministically (no
+# nucleus wandering into off-JSON prose), gives the object room to close (a larger
+# max_tokens than the 80-token chat cap), and — critically — does NOT append the
+# ``_CLOSER_VARIETY`` chat-styling directive, whose ~130 words of "vary your kicker"
+# sabotage an "emit ONLY JSON" instruction on the small local Gemma. It keeps the
+# SAME best-effort contract as :func:`phrase` (None on any failure, never raises)
+# and the SAME mandatory ``chat_template_kwargs.enable_thinking = False``.
+# --------------------------------------------------------------------------- #
+# Near-deterministic decode: greedy so the same question maps to the same JSON.
+_CLASSIFY_TEMPERATURE = 0.0
+_CLASSIFY_TOP_P = 1.0
+# JSON-appropriate cap: a compact ``{intent, team, week, subject}`` object needs
+# far more than the 80-token chat cap (which can truncate JSON to unparseable), but
+# nothing essay-sized.
+_CLASSIFY_MAX_TOKENS = 256
+
 # Style-only anti-repetition directive appended to EVERY phrasing call, AFTER the
 # caller's facts-first guard (so facts-first still leads). It fights the stock-closer
 # collapse — the model anchoring on one metaphor (e.g. reusing "maybe try a crystal
@@ -89,17 +108,27 @@ REPEATED_PICK_SYSTEM_PROMPT = compose_prompt(
 )
 
 
-async def phrase(fact_text: str, *, system_prompt: str) -> str | None:
-    """Phrase ``fact_text`` into one chat line under ``system_prompt``, or ``None``.
+async def _chat_completion(
+    *,
+    system_content: str,
+    user_content: str,
+    max_tokens: int,
+    temperature: float,
+    top_p: float,
+    log_prefix: str,
+) -> str | None:
+    """Shared best-effort POST/parse for the chat-completions endpoint.
 
-    The general best-effort core: POSTs an OpenAI-compatible chat-completions
-    request to ``{llm_api_server}/chat/completions`` with bearer auth, the
-    SUPPLIED ``system_prompt`` as the system message and ``fact_text`` as the user
-    message, the mandatory ``chat_template_kwargs.enable_thinking = False``, a small
-    ``max_tokens`` and a ~10s timeout. Returns the stripped assistant content on a
-    clean 200 with non-empty content; returns ``None`` (logging a structlog
-    warning) on a missing config, any exception/timeout, a non-200, or
-    empty/whitespace content. NEVER raises.
+    POSTs an OpenAI-compatible chat-completions request to
+    ``{llm_api_server}/chat/completions`` with bearer auth, ``system_content`` as
+    the system message (already fully built by the caller — this helper NEVER
+    appends any directive of its own) and ``user_content`` as the user message, the
+    mandatory ``chat_template_kwargs.enable_thinking = False``, the supplied
+    sampling knobs, and a ~10s timeout. Returns the stripped assistant content on a
+    clean 200 with non-empty content; returns ``None`` (logging a structlog warning
+    under ``log_prefix``) on missing config, any exception/timeout, a non-200, or
+    empty/whitespace content. NEVER raises. Shared by :func:`phrase` (chat decode +
+    closer-variety) and :func:`classify` (deterministic JSON decode, no directive).
     """
     server = settings.llm_api_server
     model = settings.llm_api_model
@@ -108,20 +137,17 @@ async def phrase(fact_text: str, *, system_prompt: str) -> str | None:
         return None  # feature disabled / not configured
 
     url = f"{server}/chat/completions"
-    # Append the style-only closer-variety directive AFTER the caller's guard-bearing
-    # prompt (facts-first still leads). Do NOT mutate the caller's argument.
-    system_content = f"{system_prompt} {_CLOSER_VARIETY}"
     body = {
         "model": model,
         "messages": [
             {"role": "system", "content": system_content},
-            {"role": "user", "content": fact_text},
+            {"role": "user", "content": user_content},
         ],
         # HARD RULE — without this the served gemma model returns empty content.
         "chat_template_kwargs": {"enable_thinking": False},
-        "max_tokens": _MAX_TOKENS,
-        "temperature": _TEMPERATURE,
-        "top_p": _TOP_P,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "top_p": top_p,
     }
     headers = {"Authorization": f"Bearer {key}"}
 
@@ -129,20 +155,66 @@ async def phrase(fact_text: str, *, system_prompt: str) -> str | None:
         async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
             response = await client.post(url, json=body, headers=headers)
         if response.status_code != 200:
-            logger.warning("llm_phrase_non_200", status_code=response.status_code)
+            logger.warning(f"{log_prefix}_non_200", status_code=response.status_code)
             return None
         payload = response.json()
         content = payload["choices"][0]["message"]["content"]
         content = (content or "").strip()
         if not content:
-            logger.warning("llm_phrase_empty_content")
+            logger.warning(f"{log_prefix}_empty_content")
             return None
         return content
     except Exception:
         # Best-effort: a timeout / connection error / malformed body must never
         # raise out of here (the caller falls back to the deterministic line).
-        logger.warning("llm_phrase_failed", exc_info=True)
+        logger.warning(f"{log_prefix}_failed", exc_info=True)
         return None
+
+
+async def phrase(fact_text: str, *, system_prompt: str) -> str | None:
+    """Phrase ``fact_text`` into one chat line under ``system_prompt``, or ``None``.
+
+    The general best-effort core: appends the style-only ``_CLOSER_VARIETY``
+    directive AFTER the caller's guard-bearing prompt (facts-first still leads; the
+    caller's argument is never mutated), then delegates to :func:`_chat_completion`
+    with the chat-quip sampling knobs (small ``max_tokens``, higher temperature +
+    nucleus ``top_p``). Returns the stripped assistant content on a clean 200 with
+    non-empty content; returns ``None`` on a missing config, any exception/timeout,
+    a non-200, or empty/whitespace content. NEVER raises.
+    """
+    system_content = f"{system_prompt} {_CLOSER_VARIETY}"
+    return await _chat_completion(
+        system_content=system_content,
+        user_content=fact_text,
+        max_tokens=_MAX_TOKENS,
+        temperature=_TEMPERATURE,
+        top_p=_TOP_P,
+        log_prefix="llm_phrase",
+    )
+
+
+async def classify(user_content: str, *, system_prompt: str) -> str | None:
+    """Extract a compact JSON object from ``user_content`` under ``system_prompt``.
+
+    The deterministic EXTRACTION seam for the @mention Q&A classifier (260709-k5w).
+    Unlike :func:`phrase` it does NOT append ``_CLOSER_VARIETY`` — the system
+    message is the caller's ``system_prompt`` VERBATIM — decodes
+    near-deterministically (``temperature`` 0.0 / ``top_p`` 1.0) so the same
+    question maps to the same JSON, and uses a JSON-appropriate ``max_tokens`` so a
+    compact object is not truncated to unparseable. Keeps the SAME best-effort
+    contract as :func:`phrase` (returns ``None`` on missing config / any exception /
+    non-200 / empty content, NEVER raises) and the SAME mandatory
+    ``chat_template_kwargs.enable_thinking = False``. Returns the raw stripped
+    content string (the caller parses the JSON), or ``None``.
+    """
+    return await _chat_completion(
+        system_content=system_prompt,
+        user_content=user_content,
+        max_tokens=_CLASSIFY_MAX_TOKENS,
+        temperature=_CLASSIFY_TEMPERATURE,
+        top_p=_CLASSIFY_TOP_P,
+        log_prefix="llm_classify",
+    )
 
 
 async def phrase_pattern(fact_text: str, *, voice: str | None = None) -> str | None:
