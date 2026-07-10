@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from unittest import mock
 
 from app.bot import db_bridge, qa
+from app.services import espn_extra
 
 
 def _run(coro):
@@ -61,6 +62,18 @@ def _voice(value="You are the snarky house bot for an NFL pick'em league."):
         return value
 
     return mock.patch.object(db_bridge, "resolve_active_voice_async", _fake)
+
+
+def _fetch_injuries_returns(value):
+    """Patch espn_extra.fetch_injuries to an async fake returning ``value``,
+    recording the positional args it was called with."""
+    calls: list[dict] = []
+
+    async def _fake(event_id):
+        calls.append({"args": (event_id,)})
+        return value
+
+    return mock.patch.object(espn_extra, "fetch_injuries", _fake), calls
 
 
 def _seam(name, value=None, *, raises=False):
@@ -487,6 +500,175 @@ class ListAnswerAndFormattingTests(unittest.TestCase):
         # Non-datetime / None -> None (never raises).
         self.assertIsNone(qa._fmt_when(None))
         self.assertIsNone(qa._fmt_when("2026-07-06"))
+
+
+class InjuriesIntentTests(unittest.TestCase):
+    """The Path-B injuries intent: routes to ESPN via the espn_extra seam, builds a
+    deterministic FACT, and NEVER invents an injury on any resolution/fetch failure."""
+
+    def _kc_multi_payload(self) -> dict:
+        # A summary carrying BOTH teams; KC has two players, LAC (the other team) one.
+        return {
+            "injuries": [
+                {
+                    "team": {"abbreviation": "KC"},
+                    "injuries": [
+                        {
+                            "status": "Out",
+                            "date": "2026-01-05T18:00Z",
+                            "athlete": {
+                                "displayName": "Player One",
+                                "position": {"abbreviation": "RB"},
+                            },
+                            "details": {"type": "Knee", "returnDate": "2026-01-19"},
+                        },
+                        {
+                            "status": "Questionable",
+                            "date": "2026-01-05T18:00Z",
+                            "athlete": {
+                                "displayName": "Player Two",
+                                "position": {"abbreviation": "WR"},
+                            },
+                            "details": {"type": "Ankle"},
+                        },
+                    ],
+                },
+                {
+                    "team": {"abbreviation": "LAC"},
+                    "injuries": [{"status": "Out", "athlete": {"displayName": "Other Team Guy"}}],
+                },
+            ]
+        }
+
+    def test_teamless_injuries_soft_declines_no_event_lookup(self) -> None:
+        # A teamless injuries question -> soft-decline, NO event lookup, no HTTP.
+        seam_patch, seam_calls = _seam("get_injuries_event_id_async", (123, "KC"))
+        fetch_patch, fetch_calls = _fetch_injuries_returns({"unused": True})
+        phrase_patch, _ = _phrase_returns(None)
+        with (
+            _classify_returns({"intent": "injuries", "team": None}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            fetch_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("any injuries this week?", discord_id=7))
+        self.assertEqual(out, qa._INJURIES_NO_TEAM_FACT)
+        self.assertEqual(seam_calls, [])  # stateless: no event lookup
+        self.assertEqual(fetch_calls, [])  # and no HTTP
+
+    def test_team_resolves_multi_player_yields_full_list_answer(self) -> None:
+        # The whole roster must survive: header phrased, every player verbatim, and
+        # the OTHER team's player filtered out.
+        seam_patch, seam_calls = _seam("get_injuries_event_id_async", (999, "KC"))
+        fetch_patch, fetch_calls = _fetch_injuries_returns(self._kc_multi_payload())
+        phrase_patch, calls = _phrase_returns("KC banged up 👇")
+        with (
+            _classify_returns({"intent": "injuries", "team": "Chiefs"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            fetch_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("any injuries for the Chiefs?", discord_id=7))
+        # The event id resolved by the seam is what the fetch was called with.
+        self.assertEqual(seam_calls[0]["args"], ("CHIEFS",))
+        self.assertEqual(fetch_calls[0]["args"], (999,))
+        # Phrased header on top, then BOTH KC players verbatim (list not trimmed).
+        self.assertTrue(out.startswith("KC banged up 👇"))
+        self.assertIn("Player One (RB): Out — Knee, expected back 2026-01-19", out)
+        self.assertIn("Player Two (WR): Questionable — Ankle", out)
+        # Team-filtered: the other team's injured player NEVER appears.
+        self.assertNotIn("Other Team Guy", out)
+        # ONLY the short header is phrased (not the player block).
+        self.assertIn("2 listed", calls[0]["fact"])
+        self.assertNotIn("Player One", calls[0]["fact"])
+
+    def test_team_resolves_single_player_is_one_liner(self) -> None:
+        payload = {
+            "injuries": [
+                {
+                    "team": {"abbreviation": "KC"},
+                    "injuries": [
+                        {
+                            "status": "Out",
+                            "date": "2026-01-05T18:00Z",
+                            "athlete": {
+                                "displayName": "Solo Guy",
+                                "position": {"abbreviation": "QB"},
+                            },
+                            "details": {"type": "Shoulder"},
+                        }
+                    ],
+                }
+            ]
+        }
+        seam_patch, _ = _seam("get_injuries_event_id_async", (7, "KC"))
+        fetch_patch, _ = _fetch_injuries_returns(payload)
+        phrase_patch, _ = _phrase_returns(None)  # fall back to the deterministic fact
+        with (
+            _classify_returns({"intent": "injuries", "team": "Chiefs"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            fetch_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("is anyone hurt on KC?", discord_id=7))
+        self.assertIn("Solo Guy (QB): Out — Shoulder", out)
+        self.assertIn("as of 2026-01-05T18:00Z", out)
+
+    def test_team_resolves_no_injuries_returns_clean_line(self) -> None:
+        payload = {"injuries": [{"team": {"abbreviation": "KC"}, "injuries": []}]}
+        seam_patch, _ = _seam("get_injuries_event_id_async", (1, "KC"))
+        fetch_patch, _ = _fetch_injuries_returns(payload)
+        phrase_patch, _ = _phrase_returns(None)
+        with (
+            _classify_returns({"intent": "injuries", "team": "Chiefs"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            fetch_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("any injuries for the Chiefs?", discord_id=7))
+        self.assertIn("No injuries listed for KC", out)
+
+    def test_event_id_unresolved_degrades_without_inventing(self) -> None:
+        # No game/event resolved -> the degrade line, and the fetch is NEVER attempted.
+        seam_patch, _ = _seam("get_injuries_event_id_async", None)
+        fetch_patch, fetch_calls = _fetch_injuries_returns({"should": "not be used"})
+        phrase_patch, _ = _phrase_returns(None)
+        with (
+            _classify_returns({"intent": "injuries", "team": "Chiefs"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            fetch_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("any injuries for the Chiefs?", discord_id=7))
+        self.assertEqual(out, qa._INJURIES_DEGRADE_FACT)
+        self.assertEqual(fetch_calls, [])  # no HTTP when the event can't be resolved
+
+    def test_fetch_failure_degrades_without_inventing(self) -> None:
+        # The event resolves but ESPN is down (fetch None) -> degrade, never an injury.
+        seam_patch, _ = _seam("get_injuries_event_id_async", (5, "KC"))
+        fetch_patch, fetch_calls = _fetch_injuries_returns(None)
+        phrase_patch, _ = _phrase_returns(None)
+        with (
+            _classify_returns({"intent": "injuries", "team": "Chiefs"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            fetch_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("any injuries for the Chiefs?", discord_id=7))
+        self.assertEqual(out, qa._INJURIES_DEGRADE_FACT)
+        self.assertEqual(fetch_calls[0]["args"], (5,))  # fetch was attempted
 
 
 if __name__ == "__main__":

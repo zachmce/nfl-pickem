@@ -195,6 +195,40 @@ class ValidateClassificationTests(unittest.TestCase):
         )
 
 
+class InjuriesClassificationTests(unittest.TestCase):
+    """The injuries intent is a REAL team-bearing intent (graduated out of coming_soon)."""
+
+    def test_injuries_validates_as_real_intent_with_resolved_team(self) -> None:
+        out = validate_classification(
+            {"intent": "injuries", "team": "Chiefs"}, known_team_tokens=_KNOWN_TEAMS
+        )
+        self.assertEqual(out.intent, QaIntent.injuries)
+        # A team-bearing intent: the real token is resolved + carried through.
+        self.assertEqual(out.team, "CHIEFS")
+
+    def test_injuries_non_real_team_coerces_to_unknown(self) -> None:
+        out = validate_classification(
+            {"intent": "injuries", "team": "Narnia"}, known_team_tokens=_KNOWN_TEAMS
+        )
+        self.assertEqual(out.intent, QaIntent.unknown)
+
+    def test_teamless_injuries_stays_injuries_with_no_team(self) -> None:
+        # A teamless injuries question is a VALID injuries result (team None) — the
+        # soft-decline is decided downstream in _build_fact, not coerced to unknown.
+        out = validate_classification(
+            {"intent": "injuries", "team": None}, known_team_tokens=_KNOWN_TEAMS
+        )
+        self.assertEqual(out.intent, QaIntent.injuries)
+        self.assertIsNone(out.team)
+
+    def test_injuries_left_the_coming_soon_lane_in_the_prompt(self) -> None:
+        # Regression: injuries must be a first-class intent in the prompt, and must no
+        # longer be listed among the coming_soon recognized-but-unsupported topics.
+        prompt = qa.CLASSIFIER_SYSTEM_PROMPT
+        self.assertIn("injuries (a team's injury report", prompt)
+        self.assertNotIn("injuries, weather, news", prompt)
+
+
 # --------------------------------------------------------------------------- #
 # REGRESSION: the classifier must NOT be fed the closer-variety directive and MUST
 # decode deterministically. Exercise the REAL llm_client.classify with httpx
