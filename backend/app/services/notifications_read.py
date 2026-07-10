@@ -1109,6 +1109,51 @@ def get_current_week_event_id_for_team(
     return (game.espn_event_id, canonical)
 
 
+def get_current_week_weather_target_for_team(
+    session: Session, season: int, week: int, *, team_abbr: str
+) -> tuple[str, datetime] | None:
+    """Resolve a real-team token to its game's ``(home_abbreviation, kickoff_at)``.
+
+    The read seam behind the Path-B weather intent (260710-29v). Reuses
+    :func:`_team_ids_for_token` (abbreviation OR display-name word) to map the
+    validator token to team id(s), finds the season/week :class:`~app.models.Game`
+    that team plays in, and returns:
+
+    * ``home_abbreviation`` — the HOME team's real abbreviation (weather is played at
+      the home stadium regardless of which side the asker named; this is the key into
+      :data:`app.services.weather.STADIUMS`), and
+    * ``kickoff_at`` — the game's kickoff normalized to tz-aware UTC via :func:`_as_aware`
+      (the index into the hourly Open-Meteo forecast).
+
+    Returns ``None`` when the token resolves no team, when it does not resolve to
+    EXACTLY ONE game this week (unknown / bye / ambiguous multi-team word), when the
+    resolved game's home abbreviation is unknown, or when ``kickoff_at`` is ``None``.
+    Display-only, pure read (no ``add``/``commit``); httpx-free; never raises on
+    well-typed inputs.
+    """
+    teams = list(session.exec(select(Team)).all())
+    team_ids = _team_ids_for_token(teams, team_abbr)
+    if not team_ids:
+        return None
+
+    games = list(session.exec(select(Game).where(Game.season == season, Game.week == week)).all())
+    matching = [g for g in games if g.home_team_id in team_ids or g.away_team_id in team_ids]
+    if len(matching) != 1:
+        return None
+    game = matching[0]
+
+    abbr_by_team_id = {t.id: t.abbreviation for t in teams if t.id is not None}
+    home_abbr = abbr_by_team_id.get(game.home_team_id)
+    if home_abbr is None:
+        return None
+
+    kickoff_at = _as_aware(game.kickoff_at)
+    if kickoff_at is None:
+        return None
+
+    return (home_abbr, kickoff_at)
+
+
 def get_real_team_tokens(session: Session) -> set[str]:
     """The real-team token set for the validator — abbreviations + name tokens.
 

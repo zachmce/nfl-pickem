@@ -30,11 +30,15 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from typing import TYPE_CHECKING
 
 import structlog
 
 from app.bot import chat_personality, llm_client
 from app.bot.personality import compose_prompt
+
+if TYPE_CHECKING:
+    from app.services.weather import Stadium
 
 logger = structlog.get_logger(__name__)
 
@@ -52,15 +56,16 @@ class QaIntent(str, Enum):
     lines_slate = "lines_slate"
     scores = "scores"
     injuries = "injuries"
+    weather = "weather"
     coming_soon = "coming_soon"
     unknown = "unknown"
 
 
 # Which validated intents carry which optional params. A field irrelevant to the
-# resolved intent is DROPPED (set to None), not treated as an error. ``injuries``
-# is team-BEARING and team-REQUIRED (a teamless injuries question soft-declines) —
-# it reuses the same real-team validation + coercion path as ``lines_slate``.
-_TEAM_INTENTS = frozenset({QaIntent.lines_slate, QaIntent.injuries})
+# resolved intent is DROPPED (set to None), not treated as an error. ``injuries`` and
+# ``weather`` are team-BEARING and team-REQUIRED (a teamless question soft-declines) —
+# they reuse the same real-team validation + coercion path as ``lines_slate``.
+_TEAM_INTENTS = frozenset({QaIntent.lines_slate, QaIntent.injuries, QaIntent.weather})
 _WEEK_INTENTS = frozenset({QaIntent.pick_status, QaIntent.lines_slate, QaIntent.scores})
 _SUBJECT_INTENTS = frozenset({QaIntent.lines_slate, QaIntent.unknown, QaIntent.coming_soon})
 
@@ -97,8 +102,9 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "(the leaderboard or someone's rank), lines_slate (the spread, total, this "
     "week's games, or when the window closes), scores (final or in-progress game "
     "scores), injuries (a team's injury report — who is hurt, out, doubtful, or "
-    "questionable), coming_soon (a recognized but unsupported topic: weather, "
-    "news, line movement, or a who-will-win prediction), unknown (anything you are "
+    "questionable), weather (the game-time forecast or conditions for a team's "
+    "game), coming_soon (a recognized but unsupported topic: news, line movement, "
+    "or a who-will-win prediction), unknown (anything you are "
     'not sure about). "team" is a team name or abbreviation the question is about, '
     'or null. "week" is an integer week number, or null. "subject" is a short noun '
     "phrase describing what they asked, or null. When in doubt use unknown."
@@ -260,9 +266,11 @@ _REGISTER_LINE = "You need a pick'em account first — run /register to get set 
 _ERROR_LINE = "Something went sideways pulling that up — give it another shot in a bit."
 
 # Tier-2 (coming_soon) wink: recognized-but-planned, NO capability menu, NO DB read.
+# Injuries + weather are now LIVE intents, so they are dropped from the wink text to
+# keep it honest (only genuinely-unsupported topics remain).
 _COMING_SOON_FACT = (
-    "That's not something tracked yet — injuries, weather, news, line movement, and "
-    "who-wins predictions are on the roadmap, not in the playbook today."
+    "That's not something tracked yet — news, line movement, and who-wins predictions "
+    "are on the roadmap, not in the playbook today."
 )
 
 # Tier-3 (unknown) decline: the capability MENU (the four things it can answer) + a
@@ -294,6 +302,20 @@ _INJURIES_NO_TEAM_FACT = "No team in that question — name one and ask again."
 _INJURIES_DEGRADE_FACT = (
     "Couldn't pull the injury report right now — give it another shot in a bit."
 )
+
+# Stateless soft-decline for a teamless weather question — the forecast is always
+# game-scoped (a specific stadium), so there is no whole-league answer. No HTTP, no DB.
+# REUSES the proven-neutral injuries wording VERBATIM (PHRASING-INVERSION lesson): the
+# small local phrasing model inverts terse topic-flavored declines, so a neutral
+# "you didn't name a team, ask again" line phrases faithfully where a weather-flavored
+# terse line would flip to "not supported". The weather context is obvious from the
+# member's own question.
+_WEATHER_NO_TEAM_FACT = "No team in that question — name one and ask again."
+
+# Best-effort degrade line when the team's game can't be resolved, the stadium is
+# missing from the table, OR the Open-Meteo fetch/parse fails. NEVER an invented
+# forecast (T-29v-01) — an unambiguous transient miss that survives phrasing.
+_WEATHER_DEGRADE_FACT = "Couldn't pull the forecast right now — give it another shot in a bit."
 
 # Subject hints that a lines question is about a SINGLE game (so a missing team is a
 # stateless soft-decline, not a whole-slate dump).
@@ -535,6 +557,37 @@ def _injuries_fact(team_abbr: str, players: list[dict]) -> str | _ListAnswer:
     return _ListAnswer(header_fact=header, body=body)
 
 
+def _indoor_fact(stadium: Stadium) -> str:
+    """The deterministic dome/indoor line — weather is a non-factor, NO fetch needed."""
+    return f"{stadium.name} is indoors — weather's a non-factor."
+
+
+def _weather_fact(home_abbr: str, stadium: Stadium, forecast: dict) -> str:
+    """Build the deterministic kickoff-time weather fact, ONLY from parsed fields.
+
+    Invents nothing: a missing metric is simply OMITTED from the line rather than
+    fabricated (T-29v-01). Anchored by the matched forecast hour so the reader can see
+    the line is a kickoff-hour reading, not an invented current condition. A 0 (or
+    absent) precip reads as "no precip expected".
+    """
+    parts: list[str] = []
+    temp = forecast.get("temperature_f")
+    if temp is not None:
+        parts.append(f"{temp}°F")
+    wind = forecast.get("wind_mph")
+    if wind is not None:
+        parts.append(f"wind {wind} mph")
+    precip = forecast.get("precip_in")
+    if precip is not None and precip > 0:
+        parts.append(f"{precip} in precip")
+    else:
+        parts.append("no precip expected")
+
+    hour = forecast.get("hour")
+    anchor = f" ({hour} GMT)" if hour else ""
+    return f"{stadium.name} at kickoff{anchor}: {', '.join(parts)}."
+
+
 async def _build_fact(result: QaResult, *, discord_id: int) -> str | _ListAnswer | None:
     """Route a validated intent to its deterministic reader and build the FACT.
 
@@ -586,6 +639,33 @@ async def _build_fact(result: QaResult, *, discord_id: int) -> str | _ListAnswer
         if players is None:
             return _INJURIES_DEGRADE_FACT  # unusable shape — never invent
         return _injuries_fact(canonical_abbr, players)
+
+    if result.intent is QaIntent.weather:
+        # Team-scoped by construction: a teamless weather question stateless-soft-
+        # declines (no HTTP, no DB lookup) — the forecast is always game-scoped.
+        if result.team is None:
+            return _WEATHER_NO_TEAM_FACT
+        # Resolve the asked team's current-week game -> HOME abbr + kickoff. None ->
+        # degrade (unresolvable game — never invent a forecast).
+        resolved = await db_bridge.get_weather_target_async(result.team)
+        if resolved is None:
+            return _WEATHER_DEGRADE_FACT
+        home_abbr, kickoff_at = resolved
+        # weather owns the stadium table + ALL HTTP + Redis; qa.py imports the seam.
+        from app.services import weather
+
+        stadium = weather.lookup_stadium(home_abbr)
+        if stadium is None:
+            return _WEATHER_DEGRADE_FACT  # no table row — never invent
+        if stadium.indoor:
+            return _indoor_fact(stadium)  # dome short-circuit — NO fetch
+        payload = await weather.fetch_forecast(stadium.lat, stadium.lon)
+        if payload is None:
+            return _WEATHER_DEGRADE_FACT  # best-effort fetch failed — never invent
+        forecast = weather.parse_forecast(payload, kickoff_at)
+        if forecast is None:
+            return _WEATHER_DEGRADE_FACT  # unusable / hour absent — never invent
+        return _weather_fact(home_abbr, stadium, forecast)
 
     if result.intent is QaIntent.coming_soon:
         return _COMING_SOON_FACT  # Tier 2 — no DB read
