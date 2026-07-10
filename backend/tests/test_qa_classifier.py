@@ -301,6 +301,47 @@ class NewsClassificationTests(unittest.TestCase):
         self.assertNotIn("topic: news", prompt)
 
 
+class PredictionClassificationTests(unittest.TestCase):
+    """The prediction intent is a REAL team-bearing, team-REQUIRED intent (260710-mpw)."""
+
+    def test_prediction_validates_as_real_intent_with_resolved_team(self) -> None:
+        out = validate_classification(
+            {"intent": "prediction", "team": "Chiefs"}, known_team_tokens=_KNOWN_TEAMS
+        )
+        self.assertEqual(out.intent, QaIntent.prediction)
+        # Team-bearing: the real token is resolved + carried through.
+        self.assertEqual(out.team, "CHIEFS")
+
+    def test_prediction_non_real_team_coerces_to_unknown(self) -> None:
+        # Team-REQUIRED: a non-real team named on a prediction is untrustworthy -> unknown.
+        out = validate_classification(
+            {"intent": "prediction", "team": "Narnia"}, known_team_tokens=_KNOWN_TEAMS
+        )
+        self.assertEqual(out.intent, QaIntent.unknown)
+
+    def test_teamless_prediction_stays_prediction_with_no_team(self) -> None:
+        # A null team stays a VALID prediction (team None) — the downstream soft-decline
+        # ("name a team") is decided in _build_fact, NOT coerced to unknown here.
+        out = validate_classification(
+            {"intent": "prediction", "team": None}, known_team_tokens=_KNOWN_TEAMS
+        )
+        self.assertEqual(out.intent, QaIntent.prediction)
+        self.assertIsNone(out.team)
+
+    def test_prediction_is_first_class_in_prompt_and_who_wins_left_coming_soon(self) -> None:
+        # Regression: prediction is a first-class prompt intent, and the who-will-win
+        # topic no longer rides in the coming_soon wink (only line movement remains there).
+        prompt = qa.CLASSIFIER_SYSTEM_PROMPT
+        self.assertIn("prediction (who will win a specific team's game", prompt)
+        self.assertIn("coming_soon (a recognized but unsupported topic: line movement)", prompt)
+        self.assertNotIn("who-will-win prediction", prompt)
+        self.assertNotIn("or a who-will-win", prompt)
+
+    def test_coming_soon_still_validates(self) -> None:
+        out = validate_classification({"intent": "coming_soon"}, known_team_tokens=_KNOWN_TEAMS)
+        self.assertEqual(out.intent, QaIntent.coming_soon)
+
+
 # A token set that CONTAINS the alias targets under test (real abbreviations only —
 # _normalize_team's real-set guard means an alias only resolves when its canonical
 # abbreviation is itself a member of this set).

@@ -22,7 +22,8 @@ from datetime import datetime, timezone
 from unittest import mock
 
 from app.bot import db_bridge, qa
-from app.services import espn_extra, weather
+from app.scoreboard.types import ScoreboardOdds
+from app.services import espn_extra, live_odds, weather
 
 
 def _run(coro):
@@ -1163,6 +1164,257 @@ class NewsIntentTests(unittest.TestCase):
         self.assertIn(self._KC_HEADLINE, out)  # fallback: the full feed, never empty
         self.assertIn(self._DEN_HEADLINE, out)
         self.assertEqual(calls, [])
+
+
+def _fetch_live_odds_returns(value):
+    """Patch live_odds.fetch_live_odds to an async fake returning ``value``, recording
+    the (season, week, event_id) it was called with."""
+    calls: list[dict] = []
+
+    async def _fake(season, week, event_id):
+        calls.append({"args": (season, week, event_id)})
+        return value
+
+    return mock.patch.object(live_odds, "fetch_live_odds", _fake), calls
+
+
+def _prediction_inputs(**overrides) -> dict:
+    """A hand-built merged prediction-inputs dict (what get_prediction_inputs_async
+    returns). KC (home) favored -3 over LAC (away); 4-1 SU, 3-2 ATS."""
+    base = {
+        "asked_team": "KC",
+        "home": "KC",
+        "away": "LAC",
+        "favorite": "KC",
+        "underdog": "LAC",
+        "spread": "3.0",
+        "total": "47.5",
+        "espn_event_id": 555,
+        "kickoff_at": datetime(2026, 1, 5, 18, 0, tzinfo=timezone.utc),
+        "season": 2025,
+        "week": 5,
+        "record": "4-1",
+        "ats": "3-2",
+    }
+    base.update(overrides)
+    return base
+
+
+def _live(spread: float) -> ScoreboardOdds:
+    """A live ScoreboardOdds with a signed home-relative ``spread`` (negative = home fav)."""
+    return ScoreboardOdds(provider="DraftKings", spread=spread, total=47.5)
+
+
+class PredictionFactTests(unittest.TestCase):
+    """The PURE derived-facts builder: code owns the pick + ALL cover math, the LLM
+    never re-derives arithmetic. No network — a hand-built inputs dict + optional odds."""
+
+    def test_full_signal_briefing_names_pick_cover_record_ats_injury_weather(self) -> None:
+        weather_note = "Arrowhead at kickoff (18 GMT): 34.0°F, wind 12.0 mph, no precip expected."
+        fact = qa._prediction_fact(
+            _prediction_inputs(),
+            live_odds=_live(-6.0),  # KC -6 live (frozen was KC -3)
+            injuries=[{"display_name": "Patrick Mahomes", "status": "questionable"}],
+            weather_note=weather_note,
+        )
+        self.assertIsInstance(fact, qa._ListAnswer)
+        assert isinstance(fact, qa._ListAnswer)
+        # Pick + cover read (from the LIVE line), every number from the inputs/odds.
+        # The call is a BOLD, verbatim body line so it stands out and can't be re-voiced.
+        self.assertIn("**My call: KC to cover — KC -6 (current market line).**", fact.body)
+        self.assertIn("win by more than 6", fact.body)
+        # Record + ATS verbatim.
+        self.assertIn("4-1 straight up and 3-2 against the spread", fact.body)
+        # Injury + weather notes.
+        self.assertIn("Injury watch: Patrick Mahomes (questionable)", fact.body)
+        self.assertIn(weather_note, fact.body)
+        # The phrased lead references the GAME, never the pick — the pick is body-only so
+        # the LLM can't misattribute it to the asker as a pick'em selection.
+        self.assertIn("KC", fact.header_fact)
+        self.assertNotIn("to cover", fact.header_fact)
+
+    def test_conflict_callout_fires_on_material_magnitude_delta(self) -> None:
+        fact = qa._prediction_fact(
+            _prediction_inputs(),  # frozen KC -3
+            live_odds=_live(-6.0),  # live KC -6 -> delta 3 >= 1.0
+            injuries=None,
+            weather_note=None,
+        )
+        assert isinstance(fact, qa._ListAnswer)
+        self.assertIn(
+            "Heads up: you locked this at KC -3, but the current market has KC -6", fact.body
+        )
+
+    def test_conflict_callout_fires_on_favorite_flip(self) -> None:
+        fact = qa._prediction_fact(
+            _prediction_inputs(),  # frozen KC favored
+            live_odds=_live(2.0),  # positive -> AWAY (LAC) favored -> favorite FLIP
+            injuries=None,
+            weather_note=None,
+        )
+        assert isinstance(fact, qa._ListAnswer)
+        self.assertIn("**My call: LAC to cover", fact.body)
+        self.assertIn("Heads up: you locked this at KC -3", fact.body)
+        # The pick (LAC) lives ONLY in the body — the pick-free lead never carries it.
+        self.assertNotIn("LAC", fact.header_fact)
+
+    def test_no_callout_when_live_agrees_with_frozen(self) -> None:
+        fact = qa._prediction_fact(
+            _prediction_inputs(),  # frozen KC -3
+            live_odds=_live(-3.0),  # live KC -3 -> same fav, delta 0
+            injuries=None,
+            weather_note=None,
+        )
+        assert isinstance(fact, qa._ListAnswer)
+        self.assertNotIn("Heads up", fact.body)
+        self.assertIn("**My call: KC to cover — KC -3 (current market line).**", fact.body)
+
+    def test_live_line_missing_falls_back_to_frozen_relabelled_still_picks(self) -> None:
+        fact = qa._prediction_fact(
+            _prediction_inputs(),  # frozen KC -3
+            live_odds=None,  # live market unreachable
+            injuries=None,
+            weather_note=None,
+        )
+        assert isinstance(fact, qa._ListAnswer)
+        # Still produces the pick + cover read off the FROZEN line, relabelled.
+        self.assertIn("**My call: KC to cover — KC -3.**", fact.body)
+        self.assertNotIn("current market line", fact.body)
+        self.assertIn(qa._PREDICTION_FROZEN_FALLBACK_NOTE, fact.body)
+        # No conflict callout when the live line never landed.
+        self.assertNotIn("Heads up", fact.body)
+
+    def test_injuries_and_weather_missing_degrade_to_concrete_notes(self) -> None:
+        fact = qa._prediction_fact(
+            _prediction_inputs(),
+            live_odds=_live(-3.0),
+            injuries=None,
+            weather_note=None,
+        )
+        assert isinstance(fact, qa._ListAnswer)
+        self.assertIn(qa._PREDICTION_INJURIES_DEGRADE_NOTE, fact.body)
+        self.assertIn(qa._PREDICTION_WEATHER_DEGRADE_NOTE, fact.body)
+
+    def test_no_line_at_all_declines_without_inventing_a_pick(self) -> None:
+        fact = qa._prediction_fact(
+            _prediction_inputs(favorite=None, underdog=None, spread=None),
+            live_odds=None,
+            injuries=None,
+            weather_note=None,
+        )
+        self.assertEqual(fact, qa._PREDICTION_NO_LINE_FACT)
+
+    def test_empty_injury_list_reads_as_clean_not_a_degrade(self) -> None:
+        fact = qa._prediction_fact(
+            _prediction_inputs(),
+            live_odds=_live(-3.0),
+            injuries=[],  # report present, nobody flagged
+            weather_note=None,
+        )
+        assert isinstance(fact, qa._ListAnswer)
+        self.assertIn("nobody flagged", fact.body)
+        self.assertNotIn(qa._PREDICTION_INJURIES_DEGRADE_NOTE, fact.body)
+
+
+class PredictionIntentRoutingTests(unittest.TestCase):
+    """The prediction branch of _build_fact: teamless soft-decline, unresolved degrade,
+    and a real-team route through to a non-empty derived-facts answer."""
+
+    def test_teamless_prediction_soft_declines_no_inputs_read(self) -> None:
+        seam_patch, seam_calls = _seam("get_prediction_inputs_async", _prediction_inputs())
+        phrase_patch, _ = _phrase_returns(None)
+        with (
+            _classify_returns({"intent": "prediction", "team": None}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("who's gonna win this week?", discord_id=7))
+        self.assertEqual(out, qa._PREDICTION_NO_TEAM_FACT)
+        self.assertEqual(seam_calls, [])  # stateless: no inputs read for a teamless ask
+
+    def test_unresolved_game_degrades_without_inventing(self) -> None:
+        seam_patch, _ = _seam("get_prediction_inputs_async", None)
+        phrase_patch, _ = _phrase_returns(None)
+        with (
+            _classify_returns({"intent": "prediction", "team": "Chiefs"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("who wins the Chiefs game?", discord_id=7))
+        self.assertEqual(out, qa._PREDICTION_UNRESOLVED_FACT)
+
+    def test_real_team_routes_through_to_non_empty_briefing(self) -> None:
+        seam_patch, seam_calls = _seam("get_prediction_inputs_async", _prediction_inputs())
+        odds_patch, odds_calls = _fetch_live_odds_returns(_live(-6.0))
+        inj_patch, _ = _fetch_injuries_returns(None)  # injuries degrade
+        lookup_patch, _ = _lookup_returns(None)  # no stadium -> weather degrade
+        phrase_patch, _ = _phrase_returns(None)  # fall back to the verbatim header
+        with (
+            _classify_returns({"intent": "prediction", "team": "Chiefs"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            odds_patch,
+            inj_patch,
+            lookup_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("who wins the Chiefs game?", discord_id=7))
+        # Routed with the resolved team; the live-odds fetch got the DB season/week/event.
+        self.assertEqual(seam_calls[0]["args"], ("CHIEFS",))
+        self.assertEqual(odds_calls[0]["args"], (2025, 5, 555))
+        # A non-empty derived-facts briefing: the pick + cover read reach Discord verbatim.
+        self.assertIn("**My call: KC to cover — KC -6 (current market line).**", out)
+        self.assertIn("Heads up: you locked this at KC -3", out)
+
+    def test_prediction_lead_phrases_with_analyst_prompt_not_pick_status_guard(self) -> None:
+        # The lead must NOT inherit QA_GUARD's pick-status framing — that primed Gemma to
+        # narrate "you have no recorded pick" onto an asker who never picked (live-test bug).
+        seam_patch, _ = _seam("get_prediction_inputs_async", _prediction_inputs())
+        odds_patch, _ = _fetch_live_odds_returns(None)
+        inj_patch, _ = _fetch_injuries_returns(None)
+        lookup_patch, _ = _lookup_returns(None)
+        phrase_patch, calls = _phrase_returns("Oh, the Chiefs? Bold. 🙄")
+        with (
+            _classify_returns({"intent": "prediction", "team": "Chiefs"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            odds_patch,
+            inj_patch,
+            lookup_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            _run(qa.answer_question("who wins the Chiefs game?", discord_id=7))
+        self.assertIn(qa.PREDICTION_GUARD, calls[0]["system_prompt"])
+        self.assertNotIn(qa.QA_GUARD, calls[0]["system_prompt"])
+
+    def test_prediction_lead_is_clamped_to_its_first_line(self) -> None:
+        # A small model sometimes appends a junk second line (a bare team name or an
+        # invented spread) after the snark; only the first line must reach Discord.
+        seam_patch, _ = _seam("get_prediction_inputs_async", _prediction_inputs())
+        odds_patch, _ = _fetch_live_odds_returns(None)  # frozen fallback: KC -3 favored
+        inj_patch, _ = _fetch_injuries_returns(None)
+        lookup_patch, _ = _lookup_returns(None)
+        phrase_patch, _ = _phrase_returns("Oh, you want my take on the Chiefs? 🙄\n\nChiefs -1.5")
+        with (
+            _classify_returns({"intent": "prediction", "team": "Chiefs"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            odds_patch,
+            inj_patch,
+            lookup_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("who wins the Chiefs game?", discord_id=7))
+        self.assertEqual(out.split("\n")[0], "Oh, you want my take on the Chiefs? 🙄")
+        self.assertNotIn("Chiefs -1.5", out)  # the junk second line is dropped
+        self.assertIn("**My call: KC to cover", out)  # the deterministic body is intact
 
 
 if __name__ == "__main__":

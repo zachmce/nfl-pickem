@@ -28,9 +28,11 @@ from app.services.notifications_read import (
     get_leaders_context,
     get_lines_slate,
     get_pick_status_for_user,
+    get_prediction_inputs_for_team,
     get_real_team_tokens,
     get_recap_context,
     get_roster_complete_context,
+    get_season_record_and_ats_for_team,
     get_team_topic_for_token,
     get_week_pick_keys,
     get_week_recap_context,
@@ -580,5 +582,41 @@ async def get_news_team_filter_async(team_abbr: str) -> tuple[str, str] | None:
     def _sync() -> tuple[str, str] | None:
         with task_session() as session:
             return get_team_topic_for_token(session, team_abbr=team_abbr)
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_prediction_inputs_async(team_abbr: str) -> dict | None:
+    """Async seam: the merged prediction data layer for ``team_abbr`` (260710-mpw).
+
+    Same posture as :func:`get_weather_target_async` (asyncio.to_thread + task_session()
+    + current_season + resolve_current_week inside the worker thread), merging the TWO
+    reads a prediction needs into one plain dict:
+
+    * the WEEK-scoped frozen inputs
+      (:func:`app.services.notifications_read.get_prediction_inputs_for_team` — the
+      target game's favorite/underdog/spread/total/event id/kickoff, the guaranteed
+      fallback the live line degrades to), and
+    * the SEASON-scoped record + ATS
+      (:func:`app.services.notifications_read.get_season_record_and_ats_for_team`).
+
+    Returns ``None`` on an ambiguous/empty season, an unresolved current week, or a team
+    that does not resolve to exactly one game this week (the frozen-inputs miss). Plain
+    dict out only; Discord-free.
+    """
+
+    def _sync() -> dict | None:
+        with task_session() as session:
+            season = current_season(session)
+            if season is None:
+                return None
+            week = resolve_current_week(session, season)
+            if week is None:
+                return None
+            inputs = get_prediction_inputs_for_team(session, season, week, team_abbr=team_abbr)
+            if inputs is None:
+                return None
+            record_ats = get_season_record_and_ats_for_team(session, season, team_abbr=team_abbr)
+            return {**inputs, **record_ats}
 
     return await asyncio.to_thread(_sync)

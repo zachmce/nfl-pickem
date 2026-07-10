@@ -34,9 +34,36 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+class _FakeTyping:
+    """A minimal async context manager standing in for ``channel.typing()``.
+
+    Records enter/exit on the owning channel so a test can assert the answer + send ran
+    INSIDE the typing indicator (the production path uses ``async with
+    message.channel.typing():``). Added to the fake rather than loosening production code.
+    """
+
+    def __init__(self, channel: "_FakeChannel") -> None:
+        self._channel = channel
+
+    async def __aenter__(self) -> "_FakeTyping":
+        self._channel.typing_entered = True
+        # The send must happen while typing is active — nothing sent yet at enter.
+        self._channel.sent_at_typing_enter = len(self._channel.sent)
+        return self
+
+    async def __aexit__(self, *exc) -> None:  # noqa: ANN002
+        self._channel.typing_exited = True
+
+
 class _FakeChannel:
     def __init__(self) -> None:
         self.sent: list[dict] = []
+        self.typing_entered = False
+        self.typing_exited = False
+        self.sent_at_typing_enter: int | None = None
+
+    def typing(self) -> "_FakeTyping":
+        return _FakeTyping(self)
 
     async def send(self, content, *, allowed_mentions=None, suppress_embeds=False):  # noqa: ANN001
         self.sent.append(
@@ -121,6 +148,29 @@ class MentionGateTests(unittest.TestCase):
         self.assertEqual(message.channel.sent[0]["content"], "KC 27, LAC 20 (final) 🔒")
         # Link embeds are suppressed so news source links don't unfurl into a card wall.
         self.assertTrue(message.channel.sent[0]["suppress_embeds"])
+
+    def test_answer_and_send_run_inside_the_typing_indicator(self) -> None:
+        cog = _cog()
+        message = _make_message(content="<@999> who wins the Chiefs game?")
+        patcher, _ = _answer_returns("Pick: KC to cover.")
+        with patcher:
+            _deliver(cog, message)
+        # The typing indicator wrapped the work: entered, sent while active, then exited.
+        self.assertTrue(message.channel.typing_entered)
+        self.assertTrue(message.channel.typing_exited)
+        self.assertEqual(message.channel.sent_at_typing_enter, 0)  # nothing sent before enter
+        self.assertEqual(len(message.channel.sent), 1)  # the reply landed inside the block
+
+    def test_guarded_out_message_never_shows_typing(self) -> None:
+        # A bare ping short-circuits BEFORE any typing/LLM work (the indicator only shows
+        # for a real answer).
+        cog = _cog()
+        message = _make_message(content="   <@999>   ")
+        patcher, calls = _answer_returns("nope")
+        with patcher:
+            _deliver(cog, message)
+        self.assertEqual(calls, [])
+        self.assertFalse(message.channel.typing_entered)
 
     def test_message_from_a_bot_is_ignored(self) -> None:
         cog = _cog()
