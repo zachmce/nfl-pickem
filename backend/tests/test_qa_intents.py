@@ -753,7 +753,8 @@ class WeatherIntentTests(unittest.TestCase):
         ):
             out = _run(qa.answer_question("weather for the Saints game?", discord_id=7))
         # The deterministic dome line names the stadium; NO forecast fetch happened.
-        self.assertIn("Test Dome is indoors", out)
+        self.assertIn("Test Dome", out)
+        self.assertIn("covered dome", out)
         self.assertEqual(seam_calls[0]["args"], ("SAINTS",))
         self.assertEqual(lookup_calls, ["NO"])  # looked up the HOME abbr
         self.assertEqual(fetch_calls, [])  # dome short-circuit — never fetched

@@ -558,8 +558,21 @@ def _injuries_fact(team_abbr: str, players: list[dict]) -> str | _ListAnswer:
 
 
 def _indoor_fact(stadium: Stadium) -> str:
-    """The deterministic dome/indoor line — weather is a non-factor, NO fetch needed."""
-    return f"{stadium.name} is indoors — weather's a non-factor."
+    """The deterministic dome/indoor line — weather is a non-factor, NO fetch needed.
+
+    NOTE: worded as a concrete game-anchored statement ("This game is at {name}, a
+    covered dome … the forecast does not apply") rather than a terse "is indoors —
+    weather's a non-factor." The small local phrasing model INVERTS the terse form —
+    it rewrote "{name} is indoors — weather's a non-factor." into "I don't have any
+    data on stadium roofs 🙄", denying the deterministic fact instead of relaying it
+    (same class of inversion as the injuries no-team line, PR #107). The concrete
+    "This game is at … a covered dome … the forecast does not apply." form phrases
+    faithfully (verified live).
+    """
+    return (
+        f"This game is at {stadium.name}, a covered dome — indoor conditions at "
+        f"kickoff, so the forecast does not apply."
+    )
 
 
 def _weather_fact(home_abbr: str, stadium: Stadium, forecast: dict) -> str:
