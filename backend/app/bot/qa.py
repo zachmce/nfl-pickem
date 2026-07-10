@@ -599,15 +599,38 @@ def _standings_fact(ctx: dict) -> str:
     return " ".join(parts)
 
 
-def _one_game_line_fact(game: dict, week: int | None, when: str | None, pick_open: bool) -> str:
-    """A single game's line fact (matchup + favorite/spread + total + close)."""
+def _spread_clause(favorite: str, underdog: str | None, spread: str, asked_team: str | None) -> str:
+    """The spread sentence, framed from the asked team's side when one was asked.
+
+    When the user asked about a specific team (single-game path, ``asked_team`` set),
+    phrase the line relative to THAT team and name the opponent — "FAV favored by N
+    vs. DOG" or "DOG are N-point underdogs vs. FAV". Otherwise (teamless / whole-slate,
+    or the opponent abbr is missing) keep the neutral favorite-anchored phrasing.
+    Deterministic FACT only — invents nothing beyond the two team abbrs + the spread.
+    """
+    if underdog:
+        if asked_team == favorite:
+            return f"{favorite} favored by {spread} vs. {underdog}."
+        if asked_team == underdog:
+            return f"{underdog} are {spread}-point underdogs vs. {favorite}."
+    return f"{favorite} favored by {spread}."
+
+
+def _one_game_line_fact(
+    game: dict, week: int | None, when: str | None, pick_open: bool, asked_team: str | None = None
+) -> str:
+    """A single game's line fact (matchup + favorite/spread + total + close).
+
+    ``asked_team`` (the canonical abbr of the team the user asked about, if any) frames
+    the spread from that team's perspective — see :func:`_spread_clause`.
+    """
     away = game.get("away")
     home = game.get("home")
     parts = [f"Week {week}: {away} at {home}."]
     favorite = game.get("favorite")
     spread = game.get("spread")
     if favorite and spread:
-        parts.append(f"{favorite} favored by {spread}.")
+        parts.append(_spread_clause(favorite, game.get("underdog"), spread, asked_team))
     total = game.get("total")
     if total:
         parts.append(f"Total is {total}.")
@@ -628,10 +651,11 @@ def _slate_fact(slate: dict) -> str | _ListAnswer:
     week = slate.get("week")
     when = _fmt_when(slate.get("close_at"))
     pick_open = bool(slate.get("pick_open"))
+    asked_team = slate.get("asked_team")
     if not games:
         return f"No games are posted for week {week} yet."
     if len(games) == 1:
-        return _one_game_line_fact(games[0], week, when, pick_open)
+        return _one_game_line_fact(games[0], week, when, pick_open, asked_team)
 
     body_lines = []
     for game in games:

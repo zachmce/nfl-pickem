@@ -1003,11 +1003,15 @@ def get_lines_slate(
 ) -> dict:
     """Display-only lines/slate for ``{season, week}`` — optionally one team's game.
 
-    Returns ``{week, close_at, games: [{away, home, favorite, spread, total}, ...]}``
-    where ``spread``/``total`` are stringified frozen line values (or ``None`` when
+    Returns ``{week, close_at, pick_open, asked_team,
+    games: [{away, home, favorite, underdog, spread, total}, ...]}`` where
+    ``spread``/``total`` are stringified frozen line values (or ``None`` when
     unposted) and ``close_at`` is the week's pick-window close (its first kickoff)
     via :func:`compute_window`. When ``team_abbr`` (a real validator token) is
-    given, ``games`` is narrowed to that team's game. Display-only; pure read.
+    given, ``games`` is narrowed to that team's game and ``asked_team`` carries that
+    team's canonical abbreviation (only when the token resolves to exactly one team;
+    otherwise ``None``) so a single-game answer can be framed from the asked team's
+    side. Display-only; pure read.
     """
     games = list(session.exec(select(Game).where(Game.season == season, Game.week == week)).all())
     teams = list(session.exec(select(Team)).all())
@@ -1017,9 +1021,15 @@ def get_lines_slate(
     # Window open/closed for tense-correct "picks close/closed <when>" phrasing.
     pick_open = close_at is not None and datetime.now(timezone.utc) < close_at
 
+    asked_team: str | None = None
     if team_abbr is not None:
         team_ids = _team_ids_for_token(teams, team_abbr)
         games = [g for g in games if g.home_team_id in team_ids or g.away_team_id in team_ids]
+        # Canonical abbr of the asked team — only when the token resolves to exactly
+        # one team — so the fact builder can anchor the spread to that team's side.
+        resolved_abbrs = {abbr_by_team_id.get(tid) for tid in team_ids} - {None}
+        if len(resolved_abbrs) == 1:
+            asked_team = next(iter(resolved_abbrs))
 
     game_dicts = [
         {
@@ -1028,13 +1038,22 @@ def get_lines_slate(
             "favorite": (
                 abbr_by_team_id.get(g.favorite_team_id) if g.favorite_team_id is not None else None
             ),
+            "underdog": (
+                abbr_by_team_id.get(g.underdog_team_id) if g.underdog_team_id is not None else None
+            ),
             "spread": str(g.spread) if g.spread is not None else None,
             "total": str(g.total) if g.total is not None else None,
         }
         for g in games
     ]
 
-    return {"week": week, "close_at": close_at, "pick_open": pick_open, "games": game_dicts}
+    return {
+        "week": week,
+        "close_at": close_at,
+        "pick_open": pick_open,
+        "asked_team": asked_team,
+        "games": game_dicts,
+    }
 
 
 def get_week_scores(session: Session, season: int, week: int) -> dict:

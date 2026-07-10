@@ -549,6 +549,60 @@ class ListAnswerAndFormattingTests(unittest.TestCase):
         self.assertIsNone(qa._fmt_when("2026-07-06"))
 
 
+class LinesTeamPerspectiveTests(unittest.TestCase):
+    """Issue #115: a single-game lines answer is framed from the ASKED team's side
+    (underdog/favorite + named opponent), while the teamless/whole-slate path stays
+    neutral (favorite-anchored). Deterministic FACT only — no LLM invention."""
+
+    @staticmethod
+    def _slate(asked_team):
+        return {
+            "week": 5,
+            "close_at": None,
+            "pick_open": False,
+            "asked_team": asked_team,
+            "games": [
+                {
+                    "away": "DAL",
+                    "home": "PHI",
+                    "favorite": "PHI",
+                    "underdog": "DAL",
+                    "spread": "7.5",
+                    "total": "47.5",
+                }
+            ],
+        }
+
+    def test_asked_underdog_is_framed_as_underdog_vs_opponent(self) -> None:
+        # "what's the line for the boys?" -> anchored to Dallas, the underdog.
+        out = qa._slate_fact(self._slate("DAL"))
+        assert isinstance(out, str)
+        self.assertIn("DAL are 7.5-point underdogs vs. PHI.", out)
+        self.assertNotIn("PHI favored by 7.5.", out)  # never the favorite's framing
+        self.assertIn("Total is 47.5.", out)
+
+    def test_asked_favorite_is_framed_as_favorite_vs_opponent(self) -> None:
+        out = qa._slate_fact(self._slate("PHI"))
+        assert isinstance(out, str)
+        self.assertIn("PHI favored by 7.5 vs. DAL.", out)
+
+    def test_no_asked_team_keeps_neutral_favorite_framing(self) -> None:
+        # Teamless single-game path (asked_team None) -> unchanged neutral phrasing.
+        out = qa._slate_fact(self._slate(None))
+        assert isinstance(out, str)
+        self.assertIn("PHI favored by 7.5.", out)
+        self.assertNotIn("vs.", out)
+
+    def test_missing_underdog_abbr_degrades_to_neutral(self) -> None:
+        # No opponent abbr to name -> fall back to neutral rather than invent one.
+        slate = self._slate("PHI")
+        slate["games"][0]["underdog"] = None
+        out = qa._slate_fact(slate)
+        assert isinstance(out, str)
+        self.assertIn("PHI favored by 7.5.", out)
+        self.assertNotIn("vs.", out)
+
+
 class InjuriesIntentTests(unittest.TestCase):
     """The Path-B injuries intent: routes to ESPN via the espn_extra seam, builds a
     deterministic FACT, and NEVER invents an injury on any resolution/fetch failure."""
