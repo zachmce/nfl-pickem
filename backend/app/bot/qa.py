@@ -442,12 +442,13 @@ PREDICTION_ROLE = (
     "not made any pick, and picks are not part of this at all."
 )
 PREDICTION_GUARD = (
-    "Re-voice the supplied one-line intro in character — it sets up your prediction of a "
-    "specific game. You may needle the teams or the matchup, but say NOTHING about the "
-    "member's picks, choices, account, or pick'em status (there are none here), and add NO "
-    "team, player, stat, spread, or number that is not in the intro — your actual call "
-    "lands verbatim on the next line, so do not restate or change it. Reply with ONE short "
-    "line and at most one emoji."
+    "Re-voice the supplied intro in character — it sets up your prediction of a specific "
+    "game. You may needle the teams or the matchup, but do NOT declare who wins, loses, or "
+    "covers, and do not name your pick — that verdict lands verbatim on the very next line, "
+    "so your intro only teases that your call is coming. Say NOTHING about the member's "
+    "picks, choices, account, or pick'em status (there are none here), and add NO stat, "
+    "spread, or number that is not in the intro. Keep it to one or two short lines with at "
+    "most one emoji."
 )
 
 # Deterministic short-circuit line for an unregistered asker (no LLM call needed).
