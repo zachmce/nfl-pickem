@@ -255,7 +255,19 @@ def decorate_team_logos(text: str, *, logo_map: dict[str, str] | None = None) ->
         # still get one. This fixes the abbr+nickname double-logo live-fire bug.
         inserted_logos: set[str] = set()
 
+        # Spans of Discord masked links ``[text](url)``: NEVER inject an emoji inside
+        # one — a ``<:name:id>`` token in the link text breaks Discord's masked-link
+        # parser (it renders as raw markdown), and the bracketed text is a VERBATIM news
+        # headline that must stay unchanged. Decoration outside the link (e.g. the news
+        # wrapper line) is unaffected.
+        protected_spans = [m.span() for m in re.finditer(r"\[[^\]]*\]\([^)\s]*\)", text)]
+
+        def _in_protected(index: int) -> bool:
+            return any(start <= index < end for start, end in protected_spans)
+
         def _sub(match: re.Match) -> str:
+            if _in_protected(match.start()):
+                return match.group(1)  # inside a masked link — leave verbatim
             tok = match.group(1)
             logo = targets[tok]
             # Skip if this token is ALREADY followed by its logo (don't double

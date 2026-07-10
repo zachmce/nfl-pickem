@@ -1154,6 +1154,32 @@ def get_current_week_weather_target_for_team(
     return (home_abbr, kickoff_at)
 
 
+def get_team_topic_for_token(session: Session, *, team_abbr: str) -> tuple[str, str] | None:
+    """Resolve a real-team token to its canonical ``(abbreviation, display_name)``.
+
+    The read seam behind the Path-B news intent (260710-ikf). News is league-wide —
+    there is NO game/event to find (unlike injuries/weather), so this is season- AND
+    week-INDEPENDENT: it just maps the validator token to a team via
+    :func:`_team_ids_for_token` (abbreviation OR display-name word) and, when it
+    resolves EXACTLY one team, returns that team's ``(abbreviation, display_name)``
+    both AS-STORED (the caller upper-cases for client-side headline filtering).
+
+    Returns ``None`` when the token resolves zero teams OR more than one (an ambiguous
+    multi-team word), so the caller degrades rather than filtering by the wrong team.
+    Display-only, pure read (no ``add``/``commit``); httpx-free; never raises on
+    well-typed inputs.
+    """
+    teams = list(session.exec(select(Team)).all())
+    team_ids = _team_ids_for_token(teams, team_abbr)
+    if len(team_ids) != 1:
+        return None
+    (team_id,) = tuple(team_ids)
+    for t in teams:
+        if t.id == team_id:
+            return (t.abbreviation, t.display_name)
+    return None
+
+
 def get_real_team_tokens(session: Session) -> set[str]:
     """The real-team token set for the validator — abbreviations + name tokens.
 

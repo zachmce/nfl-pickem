@@ -31,6 +31,7 @@ from app.services.notifications_read import (
     get_real_team_tokens,
     get_recap_context,
     get_roster_complete_context,
+    get_team_topic_for_token,
     get_week_pick_keys,
     get_week_recap_context,
     get_week_scores,
@@ -561,5 +562,23 @@ async def get_weather_target_async(team_abbr: str) -> tuple[str, datetime] | Non
             return get_current_week_weather_target_for_team(
                 session, season, week, team_abbr=team_abbr
             )
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_news_team_filter_async(team_abbr: str) -> tuple[str, str] | None:
+    """Async seam: resolve ``team_abbr`` to its canonical ``(abbreviation, display_name)``.
+
+    Same posture as :func:`get_injuries_event_id_async` (asyncio.to_thread +
+    task_session() inside the worker thread) but WITHOUT current_season /
+    resolve_current_week — news is league-wide, so there is NO week to resolve.
+    Delegates to :func:`app.services.notifications_read.get_team_topic_for_token` and
+    returns the ``(canonical_abbreviation, display_name)`` tuple, or ``None`` when the
+    token resolves zero or more-than-one team. Plain values out only; Discord-free.
+    """
+
+    def _sync() -> tuple[str, str] | None:
+        with task_session() as session:
+            return get_team_topic_for_token(session, team_abbr=team_abbr)
 
     return await asyncio.to_thread(_sync)

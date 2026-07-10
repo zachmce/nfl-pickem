@@ -60,6 +60,29 @@ def _cache_key(event_id: int) -> str:
     return f"qa:injuries:summary:{event_id}"
 
 
+# The public, no-auth ESPN league ``news`` endpoint (SAME host family as the
+# scoreboard/summary). Carries ONLY a fixed integer ``limit`` — never user text
+# (T-ikf-03: the SSRF surface is a constant). The team filter is applied AFTER the
+# fetch, client-side (the ``?team=`` param is unreliable — design note).
+NEWS_URL = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/news?limit={limit}"
+
+# Fetch a wide-ish page so client-side team filtering still yields enough headlines.
+NEWS_FETCH_LIMIT = 25
+
+# Short Redis cache: headlines move, but ~10 min cushions a flurry of asks into ONE
+# upstream call (same rationale as injuries).
+NEWS_CACHE_TTL_SECONDS = 600
+
+
+def _news_cache_key(limit: int) -> str:
+    """The Redis key for the cached league-news page.
+
+    The league page is NOT team-scoped — the team filter is applied AFTER the fetch,
+    so repeat asks for DIFFERENT teams reuse ONE cached page keyed only by ``limit``.
+    """
+    return f"qa:news:league:{limit}"
+
+
 # ---------------------------------------------------------------------------
 # Pure parsing (no network — unit-tested offline)
 # ---------------------------------------------------------------------------
@@ -153,6 +176,234 @@ def parse_injuries(payload: Any, team_abbr: str) -> list[dict[str, str | None]] 
     return None
 
 
+def _article_teams(article: dict) -> list[str]:
+    """Collect the upper-cased team descriptors an article is tagged with.
+
+    From ``article["categories"]`` (a list), per category dict, gather the non-empty
+    upper-cased strings among the category's ``team`` sub-dict (``abbreviation`` /
+    ``displayName`` / ``description``) AND the category's own ``description``. These
+    are matched against the ``(abbr, name)`` team filter — the ``?team=`` query param
+    is UNRELIABLE and intentionally not used. Defensive: a non-list ``categories`` or
+    a non-dict entry contributes nothing; never raises.
+    """
+    categories = article.get("categories")
+    if not isinstance(categories, list):
+        return []
+    descriptors: list[str] = []
+    for category in categories:
+        if not isinstance(category, dict):
+            continue
+        team = category.get("team")
+        team = team if isinstance(team, dict) else {}
+        for value in (
+            team.get("abbreviation"),
+            team.get("displayName"),
+            team.get("description"),
+            category.get("description"),
+        ):
+            token = _first_str(value)
+            if token is not None:
+                descriptors.append(token.upper())
+    return descriptors
+
+
+def _parse_one_article(article: Any) -> dict | None:
+    """Normalize one ``articles[]`` entry into a verbatim headline fact dict.
+
+    Defensive on every field (``isinstance`` guards + ``.get``); degrades a missing
+    field to ``None`` and never raises. Returns ``None`` for an unusable (non-dict)
+    entry OR one with no headline (NEVER fabricates a headline). The ``headline`` is
+    the EXACT ``_first_str`` result, unmodified (verbatim relay is the whole point).
+    Captures ``description``, ``published`` (from ``published`` then ``lastModified``
+    as the "as-of" stamp), the first usable ``link`` href, and the article's team
+    ``teams`` descriptors for client-side filtering.
+    """
+    if not isinstance(article, dict):
+        return None
+
+    headline = _first_str(article.get("headline"))
+    if headline is None:
+        return None  # never fabricate a headline
+
+    # First usable href for the article. ESPN's real shape is ``links`` as a DICT
+    # keyed by surface — ``links.web.href`` (preferred), then ``links.mobile.href``.
+    # Also tolerate a ``links`` LIST of {href} dicts and a singular ``link`` {href}
+    # (defensive across the unofficial schema).
+    link: str | None = None
+    links = article.get("links")
+    if isinstance(links, dict):
+        for key in ("web", "mobile"):
+            sub = links.get(key)
+            if isinstance(sub, dict):
+                href = _first_str(sub.get("href"))
+                if href is not None:
+                    link = href
+                    break
+    elif isinstance(links, list):
+        for entry in links:
+            if isinstance(entry, dict):
+                href = _first_str(entry.get("href"))
+                if href is not None:
+                    link = href
+                    break
+    if link is None:
+        link_obj = article.get("link")
+        if isinstance(link_obj, dict):
+            link = _first_str(link_obj.get("href"))
+
+    return {
+        "headline": headline,
+        "description": _first_str(article.get("description")),
+        "published": _first_str(article.get("published"), article.get("lastModified")),
+        "link": link,
+        "teams": _article_teams(article),
+    }
+
+
+def _team_filter_matches(descriptors: list[str], team_filter: tuple[str, str]) -> bool:
+    """Whether an article's team ``descriptors`` match the ``(abbr, name)`` filter.
+
+    A descriptor ``d`` matches when ``abbr == d`` OR ``name == d`` OR ``name in d``
+    (both filter values pre-upper-cased by the caller) — so the canonical
+    "KANSAS CITY CHIEFS" matches an ESPN category description regardless of exact shape.
+    """
+    abbr_upper, name_upper = team_filter
+    for d in descriptors:
+        if abbr_upper == d or name_upper == d or name_upper in d:
+            return True
+    return False
+
+
+def parse_news(
+    payload: Any, *, team_filter: tuple[str, str] | None = None, limit: int
+) -> list[dict] | None:
+    """Extract the top verbatim headline facts from a league ``news`` payload.
+
+    Pure and never-raising (mirrors :func:`parse_injuries`):
+
+    * Returns ``None`` when the top-level shape is unusable (non-dict payload, or
+      ``articles`` is not a list) — the distinct failure signal.
+    * Otherwise parses each ``articles[]`` entry via :func:`_parse_one_article`,
+      skipping the ones that return ``None`` (non-dict / headline-less — never
+      fabricated). When ``team_filter`` is given as ``(abbr_upper, name_upper)``, keeps
+      ONLY articles whose captured ``teams`` descriptors match (client-side; the
+      ``?team=`` param is never used).
+    * Returns the first ``limit`` surviving articles (top-first in payload order), or
+      ``[]`` when none survive (a VALID empty answer — distinct from the ``None``
+      failure signal).
+    """
+    if not isinstance(payload, dict):
+        return None
+    entries = payload.get("articles")
+    if not isinstance(entries, list):
+        return None
+
+    articles: list[dict] = []
+    for entry in entries:
+        parsed = _parse_one_article(entry)
+        if parsed is None:
+            continue
+        if team_filter is not None and not _team_filter_matches(parsed["teams"], team_filter):
+            continue
+        articles.append(parsed)
+        if len(articles) >= limit:
+            break
+    return articles
+
+
+# Generic query/news words that carry no subject signal — dropped before matching so
+# "recent news"/"latest update" narrow to nothing (i.e. no subject filter is applied).
+_SUBJECT_STOPWORDS = frozenset(
+    {
+        "news",
+        "latest",
+        "recent",
+        "update",
+        "updates",
+        "report",
+        "reports",
+        "story",
+        "stories",
+        "headline",
+        "headlines",
+        "return",
+        "returns",
+        "returning",
+        "back",
+        "season",
+        "seasons",
+        "game",
+        "games",
+        "week",
+        "weeks",
+        "about",
+        "this",
+        "that",
+        "the",
+        "any",
+        "out",
+        "for",
+        "from",
+        "what",
+        "whats",
+        "will",
+        "nfl",
+        "football",
+        "team",
+        "teams",
+        "roster",
+        "2024",
+        "2025",
+        "2026",
+        "2027",
+        "2028",
+    }
+)
+
+
+def _subject_tokens(subject: str) -> list[str]:
+    """Meaningful lowercased tokens from a classifier ``subject`` (>=3 chars, non-stop).
+
+    Pure. Splits on non-alphanumerics, lowercases, drops short and generic-news words.
+    An all-generic subject (e.g. "recent news") yields ``[]`` -> the caller applies NO
+    narrowing (returns the team/league feed unchanged).
+    """
+    import re as _re
+
+    raw = _re.split(r"[^a-z0-9]+", subject.lower()) if isinstance(subject, str) else []
+    return [t for t in raw if len(t) >= 3 and t not in _SUBJECT_STOPWORDS]
+
+
+def filter_news_by_subject(articles: list[dict], subject: str | None) -> list[dict] | None:
+    """Narrow parsed news ``articles`` to those matching a specific ``subject``.
+
+    Pure and never-raising. Returns:
+
+    * ``None`` when there is nothing to narrow by (no subject, or an all-generic subject
+      like "recent news") — the caller keeps the full team/league feed.
+    * otherwise the subset of articles whose text (headline + description + the captured
+      team/athlete descriptors, e.g. "Patrick Mahomes" from an ``athlete`` category)
+      contains EVERY meaningful subject token. Possibly ``[]`` (no article is about that
+      subject) — the caller then FALLS BACK to the full feed with a note, never empty.
+    """
+    if not subject:
+        return None
+    tokens = _subject_tokens(subject)
+    if not tokens:
+        return None
+    out: list[dict] = []
+    for article in articles:
+        parts = [
+            article.get("headline") or "",
+            article.get("description") or "",
+            " ".join(article.get("teams") or []),
+        ]
+        haystack = " ".join(parts).lower()
+        if all(token in haystack for token in tokens):
+            out.append(article)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Impure shell (best-effort HTTP + short Redis cache — never raises)
 # ---------------------------------------------------------------------------
@@ -244,4 +495,81 @@ async def fetch_injuries(espn_event_id: int) -> dict | None:
         return None
 
     await _cache_set(espn_event_id, payload)
+    return payload
+
+
+async def _news_cache_get(limit: int) -> dict | None:
+    """Return the cached league-news payload for ``limit``, or ``None`` (FAIL-OPEN).
+
+    Best-effort sibling of :func:`_cache_get` (kept separate so the injuries cache
+    path stays byte-identical): any Redis/JSON error logs a warning and returns
+    ``None`` so the caller degrades to a live fetch. A missing key also returns ``None``.
+    """
+    try:
+        client = _redis_client()
+        try:
+            raw = await client.get(_news_cache_key(limit))
+        finally:
+            await client.aclose()
+        if raw is None:
+            return None
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else None
+    except Exception:
+        logger.warning("news_cache_get_failed", limit=limit, exc_info=True)
+        return None
+
+
+async def _news_cache_set(limit: int, payload: dict) -> None:
+    """Best-effort write of the news ``payload`` under the news key + TTL.
+
+    FAIL-OPEN sibling of :func:`_cache_set`: any Redis/JSON error logs a warning and
+    returns normally — a cache outage must NOT block the fetch that already succeeded.
+    """
+    try:
+        client = _redis_client()
+        try:
+            await client.set(
+                _news_cache_key(limit),
+                json.dumps(payload),
+                ex=NEWS_CACHE_TTL_SECONDS,
+            )
+        finally:
+            await client.aclose()
+    except Exception:
+        logger.warning("news_cache_set_failed", limit=limit, exc_info=True)
+
+
+async def fetch_news(limit: int = NEWS_FETCH_LIMIT) -> dict | None:
+    """Fetch the raw ESPN league ``news`` payload — best-effort (mirrors ``fetch_injuries``).
+
+    Cache-first: on a cache HIT the cached payload is returned WITHOUT any HTTP call.
+    On a MISS it performs ONE ``httpx`` GET to the ``news?limit=`` endpoint (explicit
+    ~10s timeout, ``_USER_AGENT`` header), returns the parsed JSON dict, and best-effort
+    writes the raw payload back to the cache under the news key + TTL. NEVER raises: any
+    HTTP/timeout/non-200/parse error degrades to ``None`` (the caller shows a fixed
+    degrade line, never an invented headline); a Redis outage on either the read or the
+    write fails open (the read degrades to a live fetch, the write is skipped). The URL
+    carries ONLY the fixed integer ``limit`` — never user text (T-ikf-03).
+    """
+    cached = await _news_cache_get(limit)
+    if cached is not None:
+        return cached
+
+    url = NEWS_URL.format(limit=limit)
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            response = await client.get(url, headers={"User-Agent": _USER_AGENT})
+        if response.status_code != 200:
+            logger.warning("news_fetch_non_200", status_code=response.status_code)
+            return None
+        payload = response.json()
+    except Exception:
+        logger.warning("news_fetch_failed", limit=limit, exc_info=True)
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    await _news_cache_set(limit, payload)
     return payload

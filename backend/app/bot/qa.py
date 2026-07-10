@@ -57,6 +57,7 @@ class QaIntent(str, Enum):
     scores = "scores"
     injuries = "injuries"
     weather = "weather"
+    news = "news"
     coming_soon = "coming_soon"
     unknown = "unknown"
 
@@ -65,9 +66,15 @@ class QaIntent(str, Enum):
 # resolved intent is DROPPED (set to None), not treated as an error. ``injuries`` and
 # ``weather`` are team-BEARING and team-REQUIRED (a teamless question soft-declines) —
 # they reuse the same real-team validation + coercion path as ``lines_slate``.
-_TEAM_INTENTS = frozenset({QaIntent.lines_slate, QaIntent.injuries, QaIntent.weather})
+# ``news`` is team-BEARING but team-OPTIONAL: a present team is coerced to a real token
+# (non-real -> unknown), a null team stays valid and yields the LEAGUE answer downstream.
+_TEAM_INTENTS = frozenset(
+    {QaIntent.lines_slate, QaIntent.injuries, QaIntent.weather, QaIntent.news}
+)
 _WEEK_INTENTS = frozenset({QaIntent.pick_status, QaIntent.lines_slate, QaIntent.scores})
-_SUBJECT_INTENTS = frozenset({QaIntent.lines_slate, QaIntent.unknown, QaIntent.coming_soon})
+_SUBJECT_INTENTS = frozenset(
+    {QaIntent.lines_slate, QaIntent.unknown, QaIntent.coming_soon, QaIntent.news}
+)
 
 # Sane NFL week bounds for the coerced ``week`` param (regular season + playoffs);
 # anything outside becomes None.
@@ -103,7 +110,8 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "week's games, or when the window closes), scores (final or in-progress game "
     "scores), injuries (a team's injury report — who is hurt, out, doubtful, or "
     "questionable), weather (the game-time forecast or conditions for a team's "
-    "game), coming_soon (a recognized but unsupported topic: news, line movement, "
+    "game), news (recent ESPN headlines about a specific team or the league), "
+    "coming_soon (a recognized but unsupported topic: line movement, "
     "or a who-will-win prediction), unknown (anything you are "
     'not sure about). "team" is a team name or abbreviation the question is about, '
     'or null. "week" is an integer week number, or null. "subject" is a short noun '
@@ -269,7 +277,7 @@ _ERROR_LINE = "Something went sideways pulling that up — give it another shot 
 # Injuries + weather are now LIVE intents, so they are dropped from the wink text to
 # keep it honest (only genuinely-unsupported topics remain).
 _COMING_SOON_FACT = (
-    "That's not something tracked yet — news, line movement, and who-wins predictions "
+    "That's not something tracked yet — line movement and who-wins predictions "
     "are on the roadmap, not in the playbook today."
 )
 
@@ -317,6 +325,21 @@ _WEATHER_NO_TEAM_FACT = "No team in that question — name one and ask again."
 # forecast (T-29v-01) — an unambiguous transient miss that survives phrasing.
 _WEATHER_DEGRADE_FACT = "Couldn't pull the forecast right now — give it another shot in a bit."
 
+# Best-effort degrade line when the ESPN news fetch/parse fails OR a named team can't
+# be resolved. NEVER an invented/paraphrased headline (T-ikf-01) — a fixed, honest miss.
+# REUSES the exact locked wording proven to survive the local phrasing model (the
+# PHRASING-INVERSION lesson from injuries PR #107 / weather PR #108): a terse
+# news-flavored decline could be flipped to "not supported", so this reads as an
+# unambiguous transient "couldn't do X right now" sentence.
+_NEWS_DEGRADE_FACT = "Couldn't pull ESPN news right now — give it another shot in a bit."
+
+# Concrete empty line for a teamless (league) ask that returns no articles — a
+# transient, unambiguous "nothing right now", never an invented headline.
+_NEWS_EMPTY_LEAGUE_FACT = "No fresh NFL headlines from ESPN right now — check back in a bit."
+
+# Top N headlines shown for a news answer.
+NEWS_DISPLAY_LIMIT = 5
+
 # Subject hints that a lines question is about a SINGLE game (so a missing team is a
 # stateless soft-decline, not a whole-slate dump).
 _SINGLE_GAME_HINTS = (
@@ -345,13 +368,23 @@ class _ListAnswer:
     """A multi-item answer (whole slate / whole-week scores).
 
     A one-line phrasing guard would make the LLM DROP a long list, so list answers
-    are split: ``header_fact`` is the ONLY thing phrased in voice (a short in-character
-    lead), and ``body`` — the deterministic per-game block — is appended verbatim by
-    the orchestrator so the games/scores can never be summarized away.
+    are split: ``header_fact`` is the in-character lead and ``body`` — the deterministic
+    per-game block — is appended verbatim by the orchestrator so the games/scores can
+    never be summarized away.
+
+    ``phrase_header`` controls whether the header is run through the LLM voice. The
+    default (``True``) phrases it (slate/scores/injuries/weather leads). News sets it
+    ``False``: the wrapper is a FIXED deterministic line (the design's "personality
+    lives only in a fixed wrapper line"), because the small phrasing model INVERTS a
+    terse news wrapper — "Latest on KC (ESPN …):" came out as "The data for KC is not
+    yet supported 🙄" / "I have no facts to report." (the same inversion class as the
+    injuries no-team line PR #107 and the weather dome line PR #108). Not phrasing it
+    also makes the verbatim-relay guarantee absolute — the headlines never reach the LLM.
     """
 
     header_fact: str
     body: str
+    phrase_header: bool = True
 
 
 def _fmt_when(when: object) -> str | None:
@@ -601,6 +634,92 @@ def _weather_fact(home_abbr: str, stadium: Stadium, forecast: dict) -> str:
     return f"{stadium.name} at kickoff{anchor}: {', '.join(parts)}."
 
 
+def _news_as_of(articles: list[dict]) -> str | None:
+    """The first non-empty ``published`` stamp — the block's as-of, or ``None``."""
+    for article in articles:
+        as_of = article.get("published")
+        if as_of:
+            return as_of
+    return None
+
+
+def _news_headline_line(article: dict) -> str:
+    """One deterministic headline line — the VERBATIM headline linked to its source.
+
+    The raw headline string MUST survive unchanged (no truncation, no re-casing): this
+    line is appended via the :class:`_ListAnswer` body and is NEVER handed to the LLM,
+    so the headline can never be summarized or reinvented (T-ikf-01).
+
+    When a source link is present, the headline is rendered as a Discord masked link
+    ``[headline](url)`` so it is clickable (bot messages render masked links) while the
+    headline text stays verbatim inside the brackets. A headline containing ``[`` or
+    ``]`` would break the mask, so those fall back to the headline + a bare ``<url>``
+    (angle brackets suppress the auto-embed). No link -> the bare headline.
+    """
+    headline = article["headline"]
+    link = article.get("link")
+    if not link:
+        return headline
+    if "[" in headline or "]" in headline:
+        return f"{headline} — <{link}>"
+    return f"[{headline}]({link})"
+
+
+def _clean_subject(subject: str) -> str:
+    """A short, single-line rendering of the classifier ``subject`` for the wrapper.
+
+    The wrapper is deterministic (never phrased), so this user-derived text is inserted
+    verbatim — collapse whitespace and cap the length so a noisy subject can't blow up
+    the line. Not a security boundary (the subject already passed the classifier); this
+    is purely cosmetic tidying.
+    """
+    collapsed = " ".join(subject.split())
+    return collapsed[:60].strip()
+
+
+def _news_fact(
+    team_abbr: str | None,
+    articles: list[dict],
+    *,
+    subject: str | None = None,
+    subject_missed: bool = False,
+) -> str | _ListAnswer:
+    """Build the deterministic news answer — verbatim headlines under a FIXED wrapper.
+
+    * No articles -> a concrete transient empty line (team-scoped or the league line);
+      never an invented headline.
+    * Otherwise ALWAYS a :class:`_ListAnswer` (even for a single headline) so the
+      headline block is NEVER phrased: ``header_fact`` is the deterministic wrapper and
+      ``body`` is the VERBATIM headline block (one line per article).
+    * ``subject`` narrows the wrapper: when given and matched, the wrapper names it
+      ("Latest on KC — Patrick Mahomes …:"); ``subject_missed`` (a subject was asked but
+      no article matched, so we fell back to the general feed) says so honestly
+      ("No Patrick Mahomes-specific headlines — latest on KC …:").
+    """
+    if not articles:
+        if team_abbr is not None:
+            return f"No fresh ESPN headlines on {team_abbr} right now — check back in a bit."
+        return _NEWS_EMPTY_LEAGUE_FACT
+
+    as_of = _news_as_of(articles)
+    as_of_clause = f", as of {as_of}" if as_of else ""
+    scope = team_abbr if team_abbr is not None else "the NFL"
+    subj = _clean_subject(subject) if subject else ""
+    if subj and subject_missed:
+        header = f"No {subj}-specific headlines — latest on {scope} (ESPN{as_of_clause}):"
+    elif subj:
+        header = f"Latest on {scope} — {subj} (ESPN{as_of_clause}):"
+    elif team_abbr is not None:
+        header = f"Latest on {team_abbr} (ESPN{as_of_clause}):"
+    else:
+        header = f"Latest NFL headlines (ESPN{as_of_clause}):"
+    body = "\n".join(_news_headline_line(article) for article in articles)
+    # phrase_header=False: the wrapper is a FIXED deterministic line. The small phrasing
+    # model inverts a terse news wrapper into a "not supported / no facts" decline, and
+    # keeping it out of the LLM makes the verbatim-relay guarantee absolute.
+    return _ListAnswer(header_fact=header, body=body, phrase_header=False)
+
+
 async def _build_fact(result: QaResult, *, discord_id: int) -> str | _ListAnswer | None:
     """Route a validated intent to its deterministic reader and build the FACT.
 
@@ -680,6 +799,44 @@ async def _build_fact(result: QaResult, *, discord_id: int) -> str | _ListAnswer
             return _WEATHER_DEGRADE_FACT  # unusable / hour absent — never invent
         return _weather_fact(home_abbr, stadium, forecast)
 
+    if result.intent is QaIntent.news:
+        # Team is OPTIONAL: a named team filters the league page client-side; a teamless
+        # ask returns the top LEAGUE headlines (a null team is a VALID answer here, NOT
+        # a soft-decline). Headlines are relayed VERBATIM — never sent to the LLM.
+        team_filter: tuple[str, str] | None = None
+        team_abbr: str | None = None
+        if result.team is not None:
+            resolved = await db_bridge.get_news_team_filter_async(result.team)
+            if resolved is None:
+                return _NEWS_DEGRADE_FACT  # un-resolvable team — never invent
+            team_filter = (resolved[0].upper(), resolved[1].upper())
+            team_abbr = resolved[0]
+        # espn_extra owns ALL HTTP + Redis; qa.py imports the seam, never httpx.
+        from app.services import espn_extra
+
+        payload = await espn_extra.fetch_news()
+        if payload is None:
+            return _NEWS_DEGRADE_FACT  # best-effort fetch failed — never invent
+        # Parse the full candidate pool (team-filtered) so a subject filter has something
+        # to narrow; the display cap is applied AFTER narrowing.
+        pool = espn_extra.parse_news(
+            payload, team_filter=team_filter, limit=espn_extra.NEWS_FETCH_LIMIT
+        )
+        if pool is None:
+            return _NEWS_DEGRADE_FACT  # unusable shape — never invent
+        # Subject/player narrowing: "any news about Patrick Mahomes?" keeps only articles
+        # about that subject. None -> no meaningful subject (keep the whole feed); [] -> a
+        # subject was asked but nothing matched -> FALL BACK to the feed with an honest note
+        # (never an empty/invented answer).
+        narrowed = espn_extra.filter_news_by_subject(pool, result.subject)
+        if narrowed is None:
+            return _news_fact(team_abbr, pool[:NEWS_DISPLAY_LIMIT])
+        if narrowed:
+            return _news_fact(team_abbr, narrowed[:NEWS_DISPLAY_LIMIT], subject=result.subject)
+        return _news_fact(
+            team_abbr, pool[:NEWS_DISPLAY_LIMIT], subject=result.subject, subject_missed=True
+        )
+
     if result.intent is QaIntent.coming_soon:
         return _COMING_SOON_FACT  # Tier 2 — no DB read
 
@@ -716,9 +873,16 @@ async def answer_question(question: str, *, discord_id: int) -> str:
         if isinstance(fact, _ListAnswer):
             # List answer: phrase ONLY the short header in voice, then append the
             # deterministic block verbatim so the full slate/scoreboard always lands
-            # (a one-line phrasing guard would otherwise summarize the list away).
-            phrased_header = await llm_client.phrase(fact.header_fact, system_prompt=system_prompt)
-            header = phrased_header if phrased_header is not None else fact.header_fact
+            # (a one-line phrasing guard would otherwise summarize the list away). A
+            # header with phrase_header=False (news) is a FIXED deterministic wrapper —
+            # never sent to the LLM — so the verbatim relay is absolute.
+            if fact.phrase_header:
+                phrased_header = await llm_client.phrase(
+                    fact.header_fact, system_prompt=system_prompt
+                )
+                header = phrased_header if phrased_header is not None else fact.header_fact
+            else:
+                header = fact.header_fact
             return f"{header}\n{fact.body}"
 
         phrased = await llm_client.phrase(fact, system_prompt=system_prompt)

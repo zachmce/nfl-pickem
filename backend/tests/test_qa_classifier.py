@@ -265,6 +265,42 @@ class WeatherClassificationTests(unittest.TestCase):
         self.assertNotIn("weather, news", prompt)
 
 
+class NewsClassificationTests(unittest.TestCase):
+    """The news intent is a REAL team-OPTIONAL intent (graduated out of coming_soon)."""
+
+    def test_news_validates_as_real_intent_with_resolved_team(self) -> None:
+        out = validate_classification(
+            {"intent": "news", "team": "Chiefs"}, known_team_tokens=_KNOWN_TEAMS
+        )
+        self.assertEqual(out.intent, QaIntent.news)
+        # A team-bearing intent: the real token is resolved + carried through.
+        self.assertEqual(out.team, "CHIEFS")
+
+    def test_news_non_real_team_coerces_to_unknown(self) -> None:
+        out = validate_classification(
+            {"intent": "news", "team": "Narnia"}, known_team_tokens=_KNOWN_TEAMS
+        )
+        self.assertEqual(out.intent, QaIntent.unknown)
+
+    def test_teamless_news_stays_news_with_no_team(self) -> None:
+        # A teamless news question is a VALID news result (team None) — the LEAGUE
+        # answer is decided downstream in _build_fact, NOT coerced to unknown (this is
+        # the key news-specific difference from injuries/weather).
+        out = validate_classification(
+            {"intent": "news", "team": None}, known_team_tokens=_KNOWN_TEAMS
+        )
+        self.assertEqual(out.intent, QaIntent.news)
+        self.assertIsNone(out.team)
+
+    def test_news_left_the_coming_soon_lane_in_the_prompt(self) -> None:
+        # Regression: news must be a first-class intent in the prompt, and must no
+        # longer be listed among the coming_soon recognized-but-unsupported topics.
+        prompt = qa.CLASSIFIER_SYSTEM_PROMPT
+        self.assertIn("news (", prompt)
+        self.assertIn("news (recent ESPN headlines", prompt)
+        self.assertNotIn("topic: news", prompt)
+
+
 # --------------------------------------------------------------------------- #
 # REGRESSION: the classifier must NOT be fed the closer-variety directive and MUST
 # decode deterministically. Exercise the REAL llm_client.classify with httpx

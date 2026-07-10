@@ -76,6 +76,18 @@ def _fetch_injuries_returns(value):
     return mock.patch.object(espn_extra, "fetch_injuries", _fake), calls
 
 
+def _fetch_news_returns(value):
+    """Patch espn_extra.fetch_news to an async fake returning ``value``, recording the
+    ``limit`` it was called with."""
+    calls: list[dict] = []
+
+    async def _fake(limit=espn_extra.NEWS_FETCH_LIMIT):
+        calls.append({"limit": limit})
+        return value
+
+    return mock.patch.object(espn_extra, "fetch_news", _fake), calls
+
+
 def _fetch_forecast_returns(value):
     """Patch weather.fetch_forecast to an async fake returning ``value``, recording
     the (lat, lon) it was called with."""
@@ -892,6 +904,211 @@ class WeatherIntentTests(unittest.TestCase):
             out = _run(qa.answer_question("weather for the Bills game?", discord_id=7))
         self.assertEqual(out, qa._WEATHER_DEGRADE_FACT)
         self.assertEqual(len(parse_calls), 1)  # parse was attempted, returned None
+
+
+class NewsIntentTests(unittest.TestCase):
+    """The Path-B news intent: team-OPTIONAL, headlines relayed VERBATIM through the
+    _ListAnswer body and NEVER passed to the LLM (the no-rephrasing invariant), with a
+    fixed honest miss on any failure and a concrete empty line on nothing-to-show."""
+
+    # A distinctive KC headline whose EXACT text the no-rephrasing regression asserts
+    # survives unchanged in the reply and is absent from the phrased header.
+    _KC_HEADLINE = "Chiefs clinch the AFC West with a road rout of the Broncos"
+    _DEN_HEADLINE = "Broncos fire their offensive coordinator after the blowout"
+
+    def _payload(self) -> dict:
+        # A league news page carrying one KC-tagged and one Denver-tagged article; the
+        # REAL espn_extra.parse_news filters this client-side via categories[].team.
+        return {
+            "articles": [
+                {
+                    "headline": self._KC_HEADLINE,
+                    "description": "Kansas City wraps up the division.",
+                    "published": "2026-01-05T18:00Z",
+                    "links": [{"href": "https://www.espn.com/nfl/story/kc"}],
+                    "categories": [
+                        {
+                            "type": "team",
+                            "description": "Kansas City Chiefs",
+                            "team": {"abbreviation": "KC", "displayName": "Kansas City Chiefs"},
+                        }
+                    ],
+                },
+                {
+                    "headline": self._DEN_HEADLINE,
+                    "description": "Denver shakes up its staff.",
+                    "published": "2026-01-04T12:00Z",
+                    "links": [{"href": "https://www.espn.com/nfl/story/den"}],
+                    "categories": [
+                        {
+                            "type": "team",
+                            "description": "Denver Broncos",
+                            "team": {"abbreviation": "DEN", "displayName": "Denver Broncos"},
+                        }
+                    ],
+                },
+            ]
+        }
+
+    def test_team_resolves_headlines_relayed_verbatim_never_phrased(self) -> None:
+        seam_patch, seam_calls = _seam("get_news_team_filter_async", ("KC", "Kansas City Chiefs"))
+        fetch_patch, fetch_calls = _fetch_news_returns(self._payload())
+        phrase_patch, calls = _phrase_returns("Fresh off the wire 👇")
+        with (
+            _classify_returns({"intent": "news", "team": "Chiefs"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            fetch_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("any Chiefs news?", discord_id=7))
+        # The team-topic seam was called with the asked (validated) team token.
+        self.assertEqual(seam_calls[0]["args"], ("CHIEFS",))
+        self.assertEqual(len(fetch_calls), 1)  # the league page was fetched once
+        # Fixed deterministic wrapper on top, then the KC headline VERBATIM, rendered
+        # as a clickable masked link to the ESPN source (headline text unchanged).
+        self.assertTrue(out.startswith("Latest on KC (ESPN"))
+        self.assertIn(self._KC_HEADLINE, out)
+        self.assertIn(f"[{self._KC_HEADLINE}](https://www.espn.com/nfl/story/kc)", out)
+        # THE NO-REPHRASING REGRESSION (absolute): the whole news answer — wrapper AND
+        # headlines — is deterministic; the LLM is NEVER called, so nothing can be
+        # rephrased or inverted.
+        self.assertEqual(calls, [])
+        # Client-side team filter: the non-KC headline NEVER appears.
+        self.assertNotIn(self._DEN_HEADLINE, out)
+
+    def test_teamless_returns_league_headlines_no_seam_call(self) -> None:
+        seam_patch, seam_calls = _seam("get_news_team_filter_async", ("KC", "Kansas City Chiefs"))
+        fetch_patch, fetch_calls = _fetch_news_returns(self._payload())
+        phrase_patch, calls = _phrase_returns("Around the league 👇")
+        with (
+            _classify_returns({"intent": "news", "team": None}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            fetch_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("any NFL news?", discord_id=7))
+        # A null team is a VALID answer: the team-topic seam is NEVER called.
+        self.assertEqual(seam_calls, [])
+        self.assertEqual(len(fetch_calls), 1)
+        # Both league headlines land verbatim under the fixed deterministic league
+        # header, each a clickable masked link to its ESPN source.
+        self.assertTrue(out.startswith("Latest NFL headlines (ESPN"))
+        self.assertIn(f"[{self._KC_HEADLINE}](https://www.espn.com/nfl/story/kc)", out)
+        self.assertIn(f"[{self._DEN_HEADLINE}](https://www.espn.com/nfl/story/den)", out)
+        # Deterministic wrapper: the LLM is never called for a news answer.
+        self.assertEqual(calls, [])
+
+    def test_empty_league_news_is_concrete_empty_line_not_failure(self) -> None:
+        seam_patch, _ = _seam("get_news_team_filter_async", ("KC", "Kansas City Chiefs"))
+        fetch_patch, _ = _fetch_news_returns({"articles": []})
+        phrase_patch, _ = _phrase_returns(None)
+        with (
+            _classify_returns({"intent": "news", "team": None}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            fetch_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("any NFL news?", discord_id=7))
+        self.assertEqual(out, qa._NEWS_EMPTY_LEAGUE_FACT)
+        self.assertIn("No fresh NFL headlines", out)
+        self.assertNotEqual(out, qa._NEWS_DEGRADE_FACT)  # concrete empty, not the miss
+
+    def test_team_filtered_to_nothing_is_concrete_team_empty_line(self) -> None:
+        # A resolved team whose filter matches nothing -> a concrete team empty line.
+        seam_patch, _ = _seam("get_news_team_filter_async", ("SF", "San Francisco 49ers"))
+        fetch_patch, _ = _fetch_news_returns(self._payload())
+        phrase_patch, _ = _phrase_returns(None)
+        with (
+            _classify_returns({"intent": "news", "team": "49ers"}),
+            _tokens("SF", "49ERS"),
+            seam_patch,
+            fetch_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("any 49ers news?", discord_id=7))
+        self.assertIn("No fresh ESPN headlines on SF", out)
+        self.assertNotIn(self._KC_HEADLINE, out)  # never an invented/wrong headline
+
+    def test_fetch_none_degrades_without_inventing(self) -> None:
+        seam_patch, _ = _seam("get_news_team_filter_async", ("KC", "Kansas City Chiefs"))
+        fetch_patch, fetch_calls = _fetch_news_returns(None)  # ESPN down
+        phrase_patch, _ = _phrase_returns(None)
+        with (
+            _classify_returns({"intent": "news", "team": "Chiefs"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            fetch_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("any Chiefs news?", discord_id=7))
+        self.assertEqual(out, qa._NEWS_DEGRADE_FACT)
+        self.assertEqual(len(fetch_calls), 1)  # fetch was attempted, returned None
+
+    def test_unresolvable_team_degrades_without_fetch(self) -> None:
+        seam_patch, _ = _seam("get_news_team_filter_async", None)  # team un-resolvable
+        fetch_patch, fetch_calls = _fetch_news_returns({"should": "not be used"})
+        phrase_patch, _ = _phrase_returns(None)
+        with (
+            _classify_returns({"intent": "news", "team": "Chiefs"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            fetch_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("any Chiefs news?", discord_id=7))
+        self.assertEqual(out, qa._NEWS_DEGRADE_FACT)
+        self.assertEqual(fetch_calls, [])  # no HTTP when the team can't be resolved
+
+    def test_subject_narrows_to_matching_articles_with_named_wrapper(self) -> None:
+        # "any news about the AFC West?" -> only the article whose text matches every
+        # meaningful subject token; the fixed wrapper names the subject.
+        seam_patch, seam_calls = _seam("get_news_team_filter_async", ("KC", "Kansas City Chiefs"))
+        fetch_patch, _ = _fetch_news_returns(self._payload())
+        phrase_patch, calls = _phrase_returns("unused")
+        with (
+            _classify_returns({"intent": "news", "team": None, "subject": "AFC West"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            fetch_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("any news about the AFC West?", discord_id=7))
+        # Teamless: no team-filter seam call; the subject survives validation and narrows.
+        self.assertEqual(seam_calls, [])
+        self.assertIn("Latest on the NFL — AFC West", out)
+        self.assertIn(self._KC_HEADLINE, out)  # matches "AFC West"
+        self.assertNotIn(self._DEN_HEADLINE, out)  # narrowed out
+        self.assertEqual(calls, [])  # still deterministic — no LLM
+
+    def test_subject_no_match_falls_back_to_feed_with_honest_note(self) -> None:
+        # A subject that matches NOTHING falls back to the full feed (never empty) and
+        # says so honestly in the fixed wrapper.
+        seam_patch, _ = _seam("get_news_team_filter_async", ("KC", "Kansas City Chiefs"))
+        fetch_patch, _ = _fetch_news_returns(self._payload())
+        phrase_patch, calls = _phrase_returns("unused")
+        with (
+            _classify_returns({"intent": "news", "team": None, "subject": "Zubaz Nonexistent"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            fetch_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("any news about Zubaz Nonexistent?", discord_id=7))
+        self.assertIn("No Zubaz Nonexistent-specific headlines — latest on the NFL", out)
+        self.assertIn(self._KC_HEADLINE, out)  # fallback: the full feed, never empty
+        self.assertIn(self._DEN_HEADLINE, out)
+        self.assertEqual(calls, [])
 
 
 if __name__ == "__main__":
