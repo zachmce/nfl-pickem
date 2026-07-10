@@ -72,7 +72,9 @@ _TEAM_INTENTS = frozenset(
     {QaIntent.lines_slate, QaIntent.injuries, QaIntent.weather, QaIntent.news}
 )
 _WEEK_INTENTS = frozenset({QaIntent.pick_status, QaIntent.lines_slate, QaIntent.scores})
-_SUBJECT_INTENTS = frozenset({QaIntent.lines_slate, QaIntent.unknown, QaIntent.coming_soon})
+_SUBJECT_INTENTS = frozenset(
+    {QaIntent.lines_slate, QaIntent.unknown, QaIntent.coming_soon, QaIntent.news}
+)
 
 # Sane NFL week bounds for the coerced ``week`` param (regular season + playoffs);
 # anything outside becomes None.
@@ -663,14 +665,36 @@ def _news_headline_line(article: dict) -> str:
     return f"[{headline}]({link})"
 
 
-def _news_fact(team_abbr: str | None, articles: list[dict]) -> str | _ListAnswer:
-    """Build the deterministic news answer — verbatim headlines under a phrased header.
+def _clean_subject(subject: str) -> str:
+    """A short, single-line rendering of the classifier ``subject`` for the wrapper.
+
+    The wrapper is deterministic (never phrased), so this user-derived text is inserted
+    verbatim — collapse whitespace and cap the length so a noisy subject can't blow up
+    the line. Not a security boundary (the subject already passed the classifier); this
+    is purely cosmetic tidying.
+    """
+    collapsed = " ".join(subject.split())
+    return collapsed[:60].strip()
+
+
+def _news_fact(
+    team_abbr: str | None,
+    articles: list[dict],
+    *,
+    subject: str | None = None,
+    subject_missed: bool = False,
+) -> str | _ListAnswer:
+    """Build the deterministic news answer — verbatim headlines under a FIXED wrapper.
 
     * No articles -> a concrete transient empty line (team-scoped or the league line);
       never an invented headline.
     * Otherwise ALWAYS a :class:`_ListAnswer` (even for a single headline) so the
-      headline block is NEVER phrased: ``header_fact`` is the phrasable wrapper and
+      headline block is NEVER phrased: ``header_fact`` is the deterministic wrapper and
       ``body`` is the VERBATIM headline block (one line per article).
+    * ``subject`` narrows the wrapper: when given and matched, the wrapper names it
+      ("Latest on KC — Patrick Mahomes …:"); ``subject_missed`` (a subject was asked but
+      no article matched, so we fell back to the general feed) says so honestly
+      ("No Patrick Mahomes-specific headlines — latest on KC …:").
     """
     if not articles:
         if team_abbr is not None:
@@ -679,7 +703,13 @@ def _news_fact(team_abbr: str | None, articles: list[dict]) -> str | _ListAnswer
 
     as_of = _news_as_of(articles)
     as_of_clause = f", as of {as_of}" if as_of else ""
-    if team_abbr is not None:
+    scope = team_abbr if team_abbr is not None else "the NFL"
+    subj = _clean_subject(subject) if subject else ""
+    if subj and subject_missed:
+        header = f"No {subj}-specific headlines — latest on {scope} (ESPN{as_of_clause}):"
+    elif subj:
+        header = f"Latest on {scope} — {subj} (ESPN{as_of_clause}):"
+    elif team_abbr is not None:
         header = f"Latest on {team_abbr} (ESPN{as_of_clause}):"
     else:
         header = f"Latest NFL headlines (ESPN{as_of_clause}):"
@@ -787,10 +817,25 @@ async def _build_fact(result: QaResult, *, discord_id: int) -> str | _ListAnswer
         payload = await espn_extra.fetch_news()
         if payload is None:
             return _NEWS_DEGRADE_FACT  # best-effort fetch failed — never invent
-        articles = espn_extra.parse_news(payload, team_filter=team_filter, limit=NEWS_DISPLAY_LIMIT)
-        if articles is None:
+        # Parse the full candidate pool (team-filtered) so a subject filter has something
+        # to narrow; the display cap is applied AFTER narrowing.
+        pool = espn_extra.parse_news(
+            payload, team_filter=team_filter, limit=espn_extra.NEWS_FETCH_LIMIT
+        )
+        if pool is None:
             return _NEWS_DEGRADE_FACT  # unusable shape — never invent
-        return _news_fact(team_abbr, articles)
+        # Subject/player narrowing: "any news about Patrick Mahomes?" keeps only articles
+        # about that subject. None -> no meaningful subject (keep the whole feed); [] -> a
+        # subject was asked but nothing matched -> FALL BACK to the feed with an honest note
+        # (never an empty/invented answer).
+        narrowed = espn_extra.filter_news_by_subject(pool, result.subject)
+        if narrowed is None:
+            return _news_fact(team_abbr, pool[:NEWS_DISPLAY_LIMIT])
+        if narrowed:
+            return _news_fact(team_abbr, narrowed[:NEWS_DISPLAY_LIMIT], subject=result.subject)
+        return _news_fact(
+            team_abbr, pool[:NEWS_DISPLAY_LIMIT], subject=result.subject, subject_missed=True
+        )
 
     if result.intent is QaIntent.coming_soon:
         return _COMING_SOON_FACT  # Tier 2 — no DB read

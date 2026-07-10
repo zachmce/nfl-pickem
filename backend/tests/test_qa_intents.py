@@ -1068,6 +1068,48 @@ class NewsIntentTests(unittest.TestCase):
         self.assertEqual(out, qa._NEWS_DEGRADE_FACT)
         self.assertEqual(fetch_calls, [])  # no HTTP when the team can't be resolved
 
+    def test_subject_narrows_to_matching_articles_with_named_wrapper(self) -> None:
+        # "any news about the AFC West?" -> only the article whose text matches every
+        # meaningful subject token; the fixed wrapper names the subject.
+        seam_patch, seam_calls = _seam("get_news_team_filter_async", ("KC", "Kansas City Chiefs"))
+        fetch_patch, _ = _fetch_news_returns(self._payload())
+        phrase_patch, calls = _phrase_returns("unused")
+        with (
+            _classify_returns({"intent": "news", "team": None, "subject": "AFC West"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            fetch_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("any news about the AFC West?", discord_id=7))
+        # Teamless: no team-filter seam call; the subject survives validation and narrows.
+        self.assertEqual(seam_calls, [])
+        self.assertIn("Latest on the NFL — AFC West", out)
+        self.assertIn(self._KC_HEADLINE, out)  # matches "AFC West"
+        self.assertNotIn(self._DEN_HEADLINE, out)  # narrowed out
+        self.assertEqual(calls, [])  # still deterministic — no LLM
+
+    def test_subject_no_match_falls_back_to_feed_with_honest_note(self) -> None:
+        # A subject that matches NOTHING falls back to the full feed (never empty) and
+        # says so honestly in the fixed wrapper.
+        seam_patch, _ = _seam("get_news_team_filter_async", ("KC", "Kansas City Chiefs"))
+        fetch_patch, _ = _fetch_news_returns(self._payload())
+        phrase_patch, calls = _phrase_returns("unused")
+        with (
+            _classify_returns({"intent": "news", "team": None, "subject": "Zubaz Nonexistent"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            fetch_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("any news about Zubaz Nonexistent?", discord_id=7))
+        self.assertIn("No Zubaz Nonexistent-specific headlines — latest on the NFL", out)
+        self.assertIn(self._KC_HEADLINE, out)  # fallback: the full feed, never empty
+        self.assertIn(self._DEN_HEADLINE, out)
+        self.assertEqual(calls, [])
+
 
 if __name__ == "__main__":
     unittest.main()

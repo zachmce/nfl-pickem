@@ -38,8 +38,14 @@ class _FakeChannel:
     def __init__(self) -> None:
         self.sent: list[dict] = []
 
-    async def send(self, content, *, allowed_mentions=None):  # noqa: ANN001
-        self.sent.append({"content": content, "allowed_mentions": allowed_mentions})
+    async def send(self, content, *, allowed_mentions=None, suppress_embeds=False):  # noqa: ANN001
+        self.sent.append(
+            {
+                "content": content,
+                "allowed_mentions": allowed_mentions,
+                "suppress_embeds": suppress_embeds,
+            }
+        )
 
 
 def _make_message(
@@ -113,6 +119,8 @@ class MentionGateTests(unittest.TestCase):
         self.assertFalse(am.users)
         self.assertFalse(am.roles)
         self.assertEqual(message.channel.sent[0]["content"], "KC 27, LAC 20 (final) 🔒")
+        # Link embeds are suppressed so news source links don't unfurl into a card wall.
+        self.assertTrue(message.channel.sent[0]["suppress_embeds"])
 
     def test_message_from_a_bot_is_ignored(self) -> None:
         cog = _cog()

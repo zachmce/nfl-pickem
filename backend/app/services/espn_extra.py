@@ -311,6 +311,99 @@ def parse_news(
     return articles
 
 
+# Generic query/news words that carry no subject signal — dropped before matching so
+# "recent news"/"latest update" narrow to nothing (i.e. no subject filter is applied).
+_SUBJECT_STOPWORDS = frozenset(
+    {
+        "news",
+        "latest",
+        "recent",
+        "update",
+        "updates",
+        "report",
+        "reports",
+        "story",
+        "stories",
+        "headline",
+        "headlines",
+        "return",
+        "returns",
+        "returning",
+        "back",
+        "season",
+        "seasons",
+        "game",
+        "games",
+        "week",
+        "weeks",
+        "about",
+        "this",
+        "that",
+        "the",
+        "any",
+        "out",
+        "for",
+        "from",
+        "what",
+        "whats",
+        "will",
+        "nfl",
+        "football",
+        "team",
+        "teams",
+        "roster",
+        "2024",
+        "2025",
+        "2026",
+        "2027",
+        "2028",
+    }
+)
+
+
+def _subject_tokens(subject: str) -> list[str]:
+    """Meaningful lowercased tokens from a classifier ``subject`` (>=3 chars, non-stop).
+
+    Pure. Splits on non-alphanumerics, lowercases, drops short and generic-news words.
+    An all-generic subject (e.g. "recent news") yields ``[]`` -> the caller applies NO
+    narrowing (returns the team/league feed unchanged).
+    """
+    import re as _re
+
+    raw = _re.split(r"[^a-z0-9]+", subject.lower()) if isinstance(subject, str) else []
+    return [t for t in raw if len(t) >= 3 and t not in _SUBJECT_STOPWORDS]
+
+
+def filter_news_by_subject(articles: list[dict], subject: str | None) -> list[dict] | None:
+    """Narrow parsed news ``articles`` to those matching a specific ``subject``.
+
+    Pure and never-raising. Returns:
+
+    * ``None`` when there is nothing to narrow by (no subject, or an all-generic subject
+      like "recent news") — the caller keeps the full team/league feed.
+    * otherwise the subset of articles whose text (headline + description + the captured
+      team/athlete descriptors, e.g. "Patrick Mahomes" from an ``athlete`` category)
+      contains EVERY meaningful subject token. Possibly ``[]`` (no article is about that
+      subject) — the caller then FALLS BACK to the full feed with a note, never empty.
+    """
+    if not subject:
+        return None
+    tokens = _subject_tokens(subject)
+    if not tokens:
+        return None
+    out: list[dict] = []
+    for article in articles:
+        parts = [
+            article.get("headline") or "",
+            article.get("description") or "",
+            " ".join(article.get("teams") or []),
+        ]
+        haystack = " ".join(parts).lower()
+        if all(token in haystack for token in tokens):
+            out.append(article)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Impure shell (best-effort HTTP + short Redis cache — never raises)
 # ---------------------------------------------------------------------------

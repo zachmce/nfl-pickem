@@ -163,6 +163,25 @@ class DecorateTeamLogosTests(unittest.TestCase):
         bad = {"MIN": None}
         self.assertEqual(decorate_team_logos("MIN wins", logo_map=bad), "MIN wins")
 
+    def test_masked_link_text_is_not_decorated(self) -> None:
+        # A team token INSIDE a Discord masked link [text](url) must NOT get an emoji:
+        # a <:name:id> token in the link text breaks Discord's masked-link parser, and
+        # the bracketed text is a VERBATIM news headline. Decoration OUTSIDE the link
+        # (e.g. the wrapper line) still happens.
+        text = "Latest on KC (ESPN):\n[Why the Vikings roll and MIN thrives](https://espn.com/x)"
+        out = self._dec(text)
+        # Wrapper KC decorated; the link's Vikings/MIN left untouched.
+        self.assertEqual(out.splitlines()[0], "Latest on KC <:chiefs:2> (ESPN):")
+        self.assertEqual(
+            out.splitlines()[1], "[Why the Vikings roll and MIN thrives](https://espn.com/x)"
+        )
+
+    def test_token_immediately_after_masked_link_is_decorated(self) -> None:
+        # Protection is scoped to the link span only — a token after the closing paren
+        # is still decorated.
+        out = self._dec("[headline](https://espn.com/x) MIN next")
+        self.assertEqual(out, "[headline](https://espn.com/x) MIN <:vikingslogo:1> next")
+
     def test_default_map_uses_live_cache(self) -> None:
         # With no logo_map passed it builds from the module cache; an empty cache
         # leaves the line unchanged.

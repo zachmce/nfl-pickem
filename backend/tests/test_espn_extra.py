@@ -383,6 +383,32 @@ class ParseNewsTests(unittest.TestCase):
             assert articles is not None
             self.assertEqual(articles[0]["link"], expected, msg=str(extra))
 
+    def test_filter_news_by_subject_narrows_matches_and_fallbacks(self) -> None:
+        articles = [
+            {
+                "headline": "What is the Chiefs' ceiling this season?",
+                "description": "A look at Kansas City's upside.",
+                "teams": ["KC", "KANSAS CITY CHIEFS", "PATRICK MAHOMES"],  # athlete tag
+            },
+            {
+                "headline": "Chiefs sign a veteran guard",
+                "description": "Line depth for the playoff run.",
+                "teams": ["KC", "KANSAS CITY CHIEFS"],
+            },
+        ]
+        # A specific athlete matches only the article tagged with him (via descriptors,
+        # even though his name is NOT in that headline).
+        hit = espn_extra.filter_news_by_subject(articles, "Patrick Mahomes")
+        assert hit is not None
+        self.assertEqual([a["headline"] for a in hit], ["What is the Chiefs' ceiling this season?"])
+        # ALL meaningful tokens must appear — a subject no article satisfies -> [] (the
+        # caller then falls back to the full feed, never empty).
+        self.assertEqual(espn_extra.filter_news_by_subject(articles, "Travis Kelce"), [])
+        # An all-generic subject carries no signal -> None (NO narrowing applied).
+        self.assertIsNone(espn_extra.filter_news_by_subject(articles, "recent news"))
+        self.assertIsNone(espn_extra.filter_news_by_subject(articles, None))
+        self.assertIsNone(espn_extra.filter_news_by_subject(articles, "the latest"))
+
     def test_non_dict_payload_returns_none(self) -> None:
         for bad in (None, "garbage", 42, ["articles"]):
             self.assertIsNone(espn_extra.parse_news(bad, limit=10))

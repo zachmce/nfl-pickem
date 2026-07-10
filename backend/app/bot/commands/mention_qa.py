@@ -98,7 +98,15 @@ class MentionQaCog(commands.Cog):
 
             line = await qa.answer_question(question, discord_id=message.author.id)
             decorated = decorate_team_logos(line)
-            await message.channel.send(decorated, allowed_mentions=discord.AllowedMentions.none())
+            # suppress_embeds: a news reply carries source links (masked links) — without
+            # this Discord unfurls EVERY link into a wall of rich preview cards below the
+            # clean headline list. The Q&A replies are plain text lines, so suppressing
+            # link embeds is always the right call here.
+            await message.channel.send(
+                decorated,
+                allowed_mentions=discord.AllowedMentions.none(),
+                suppress_embeds=True,
+            )
         except Exception:
             # One bad message must never crash the gateway loop (mirrors the notifier
             # per-message guard). answer_question is best-effort too, but guard the
