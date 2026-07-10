@@ -966,13 +966,13 @@ class NewsIntentTests(unittest.TestCase):
         # The team-topic seam was called with the asked (validated) team token.
         self.assertEqual(seam_calls[0]["args"], ("CHIEFS",))
         self.assertEqual(len(fetch_calls), 1)  # the league page was fetched once
-        # Phrased header on top, then the KC headline VERBATIM.
-        self.assertTrue(out.startswith("Fresh off the wire 👇"))
+        # Fixed deterministic wrapper on top, then the KC headline VERBATIM.
+        self.assertTrue(out.startswith("Latest on KC (ESPN"))
         self.assertIn(self._KC_HEADLINE, out)
-        # THE NO-REPHRASING REGRESSION: the raw headline survives unchanged in the reply
-        # AND was never handed to the LLM (only the wrapper/header was phrased).
-        self.assertNotIn(self._KC_HEADLINE, calls[0]["fact"])
-        self.assertIn("Latest on KC", calls[0]["fact"])
+        # THE NO-REPHRASING REGRESSION (absolute): the whole news answer — wrapper AND
+        # headlines — is deterministic; the LLM is NEVER called, so nothing can be
+        # rephrased or inverted.
+        self.assertEqual(calls, [])
         # Client-side team filter: the non-KC headline NEVER appears.
         self.assertNotIn(self._DEN_HEADLINE, out)
 
@@ -992,11 +992,12 @@ class NewsIntentTests(unittest.TestCase):
         # A null team is a VALID answer: the team-topic seam is NEVER called.
         self.assertEqual(seam_calls, [])
         self.assertEqual(len(fetch_calls), 1)
-        # Both league headlines land verbatim under the phrased league header.
-        self.assertTrue(out.startswith("Around the league 👇"))
+        # Both league headlines land verbatim under the fixed deterministic league header.
+        self.assertTrue(out.startswith("Latest NFL headlines (ESPN"))
         self.assertIn(self._KC_HEADLINE, out)
         self.assertIn(self._DEN_HEADLINE, out)
-        self.assertIn("Latest NFL headlines", calls[0]["fact"])
+        # Deterministic wrapper: the LLM is never called for a news answer.
+        self.assertEqual(calls, [])
 
     def test_empty_league_news_is_concrete_empty_line_not_failure(self) -> None:
         seam_patch, _ = _seam("get_news_team_filter_async", ("KC", "Kansas City Chiefs"))

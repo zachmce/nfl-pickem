@@ -366,13 +366,23 @@ class _ListAnswer:
     """A multi-item answer (whole slate / whole-week scores).
 
     A one-line phrasing guard would make the LLM DROP a long list, so list answers
-    are split: ``header_fact`` is the ONLY thing phrased in voice (a short in-character
-    lead), and ``body`` — the deterministic per-game block — is appended verbatim by
-    the orchestrator so the games/scores can never be summarized away.
+    are split: ``header_fact`` is the in-character lead and ``body`` — the deterministic
+    per-game block — is appended verbatim by the orchestrator so the games/scores can
+    never be summarized away.
+
+    ``phrase_header`` controls whether the header is run through the LLM voice. The
+    default (``True``) phrases it (slate/scores/injuries/weather leads). News sets it
+    ``False``: the wrapper is a FIXED deterministic line (the design's "personality
+    lives only in a fixed wrapper line"), because the small phrasing model INVERTS a
+    terse news wrapper — "Latest on KC (ESPN …):" came out as "The data for KC is not
+    yet supported 🙄" / "I have no facts to report." (the same inversion class as the
+    injuries no-team line PR #107 and the weather dome line PR #108). Not phrasing it
+    also makes the verbatim-relay guarantee absolute — the headlines never reach the LLM.
     """
 
     header_fact: str
     body: str
+    phrase_header: bool = True
 
 
 def _fmt_when(when: object) -> str | None:
@@ -665,7 +675,10 @@ def _news_fact(team_abbr: str | None, articles: list[dict]) -> str | _ListAnswer
     else:
         header = f"Latest NFL headlines (ESPN{as_of_clause}):"
     body = "\n".join(_news_headline_line(article) for article in articles)
-    return _ListAnswer(header_fact=header, body=body)
+    # phrase_header=False: the wrapper is a FIXED deterministic line. The small phrasing
+    # model inverts a terse news wrapper into a "not supported / no facts" decline, and
+    # keeping it out of the LLM makes the verbatim-relay guarantee absolute.
+    return _ListAnswer(header_fact=header, body=body, phrase_header=False)
 
 
 async def _build_fact(result: QaResult, *, discord_id: int) -> str | _ListAnswer | None:
@@ -806,9 +819,16 @@ async def answer_question(question: str, *, discord_id: int) -> str:
         if isinstance(fact, _ListAnswer):
             # List answer: phrase ONLY the short header in voice, then append the
             # deterministic block verbatim so the full slate/scoreboard always lands
-            # (a one-line phrasing guard would otherwise summarize the list away).
-            phrased_header = await llm_client.phrase(fact.header_fact, system_prompt=system_prompt)
-            header = phrased_header if phrased_header is not None else fact.header_fact
+            # (a one-line phrasing guard would otherwise summarize the list away). A
+            # header with phrase_header=False (news) is a FIXED deterministic wrapper —
+            # never sent to the LLM — so the verbatim relay is absolute.
+            if fact.phrase_header:
+                phrased_header = await llm_client.phrase(
+                    fact.header_fact, system_prompt=system_prompt
+                )
+                header = phrased_header if phrased_header is not None else fact.header_fact
+            else:
+                header = fact.header_fact
             return f"{header}\n{fact.body}"
 
         phrased = await llm_client.phrase(fact, system_prompt=system_prompt)
