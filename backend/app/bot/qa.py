@@ -148,23 +148,77 @@ async def classify_question(question: str) -> dict | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+# Curated deterministic slang -> canonical-abbreviation aliases (DATA, not logic).
+# Keys are LOWERCASE common nicknames the classifier's ``known_team_tokens`` set does
+# NOT already carry (abbreviations + display-name words are covered by the real set);
+# values are the UPPERCASE canonical 32-team abbreviation. This is a pure FALLBACK
+# folded into :func:`_normalize_team` so a nickname resolves DETERMINISTICALLY across
+# every team-bearing intent (injuries/weather/news/lines_slate) instead of depending on
+# whether the local model happens to translate the slang that call.
+#
+# AMBIGUITY DISCIPLINE (mirrors ``team_emoji._ABBR_TO_MARKET_PHRASES``): any slang that
+# maps to more than one team is DELIBERATELY EXCLUDED — e.g. "birds" (Eagles / Cardinals
+# / Ravens / Seahawks) is absent, so it never resolves. Every entry is a single,
+# well-known, unambiguous nickname. The real-set guard in :func:`_normalize_team` is the
+# belt-and-suspenders backstop: an alias only resolves if its target is itself a real
+# token, so a typo here can never emit a non-real team.
+_TEAM_ALIASES: dict[str, str] = {
+    "donkeys": "DEN",
+    "jags": "JAX",
+    "niners": "SF",
+    "9ers": "SF",
+    "gmen": "NYG",
+    "bolts": "LAC",
+    "cards": "ARI",
+    "zona": "ARI",
+    "hawks": "SEA",
+    "bucs": "TB",
+    "pats": "NE",
+    "boys": "DAL",
+    "fins": "MIA",
+    "phins": "MIA",
+    "iggles": "PHI",
+    "pack": "GB",
+    "stillers": "PIT",
+    "vikes": "MIN",
+    "whodat": "NO",
+}
+
+
 def _normalize_team(value: object, known_team_tokens: set[str]) -> str | None:
     """Resolve ``value`` to a real 32-team token, or ``None`` if it is not real.
 
     Pure and case/whitespace insensitive: coerces the input to an upper-cased,
-    stripped token and returns it ONLY when it is a member of ``known_team_tokens``
-    (which the caller supplies with BOTH abbreviations and display-name tokens, all
-    real teams). Anything that does not normalize to a real token — a made-up team, a
-    non-string, blank — returns ``None``, which the validator turns into
-    :attr:`QaIntent.unknown` for a team-bearing intent.
+    stripped token and returns it when it is a member of ``known_team_tokens`` (which
+    the caller supplies with BOTH abbreviations and display-name tokens, all real
+    teams). This real-token match is checked FIRST and ALWAYS wins — the alias path
+    never shadows it.
+
+    Only on a real-set MISS does a pure FALLBACK consult the curated
+    :data:`_TEAM_ALIASES` slang map (case-insensitive lowercase key), returning the
+    mapped canonical abbreviation ONLY IF that abbreviation is ITSELF a member of the
+    real set (the defensive real-set guard — never emit a non-real team on a map typo
+    or an unseeded / partial DB). Anything that is neither a real token nor a curated,
+    real-targeting alias — a made-up team, ambiguous excluded slang, a non-string,
+    blank — returns ``None``, which the validator turns into :attr:`QaIntent.unknown`
+    for a team-bearing intent. Stays pure, synchronous and DB-free (the alias map is a
+    static module constant).
     """
     if not isinstance(value, str):
         return None
-    token = value.strip().upper()
-    if not token:
+    stripped = value.strip()
+    if not stripped:
         return None
     real = {t.strip().upper() for t in known_team_tokens}
-    return token if token in real else None
+    token = stripped.upper()
+    if token in real:
+        return token
+    # Pure fallback: a curated, unambiguous slang nickname resolves to its canonical
+    # abbreviation, but ONLY when that abbreviation is a real token (never emit a fake).
+    alias = _TEAM_ALIASES.get(stripped.lower())
+    if alias is not None and alias in real:
+        return alias
+    return None
 
 
 def _coerce_week(value: object) -> int | None:
