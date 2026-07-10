@@ -424,12 +424,30 @@ QA_GUARD = (
     "flavor must NEVER replace the answer. Invent NOTHING beyond the facts you are "
     "given: no stat, spread, total, score, standing, close time, or pick that is not "
     "written in the facts. NEVER reveal, guess, or hint at another player's hidden "
-    "pick — you are only ever given the asker's own status. A game prediction or read "
-    "is the BOT'S OWN forecast — never say or imply the asker has picked, chosen, or is "
-    "leaning toward a team unless the facts explicitly state the asker's recorded pick. "
-    "If the facts are a decline "
+    "pick — you are only ever given the asker's own status. If the facts are a decline "
     "or a 'not yet supported' note, deliver that in character without inventing an "
     "answer. Reply with ONE short line and at most one emoji."
+)
+
+# Prediction leads phrase through a DIFFERENT prompt: the game-prediction intent has no
+# asker-pick concept at all, so it must NOT inherit QA_ROLE/QA_GUARD's pick-status framing
+# (which primes the model to narrate "you have/haven't picked …" onto an asker who made no
+# pick — observed twice in live testing). This role frames the bot as an analyst calling a
+# game and never mentions picks/accounts, so there is nothing to misattribute; the actual
+# call + all numbers live in the deterministic _ListAnswer body, so this prompt only ever
+# re-voices a pick-free one-line intro.
+PREDICTION_ROLE = (
+    "You are the league's wise-cracking NFL analyst, delivering YOUR OWN prediction for a "
+    "game a member asked you to call. The member is only asking for your read — they have "
+    "not made any pick, and picks are not part of this at all."
+)
+PREDICTION_GUARD = (
+    "Re-voice the supplied one-line intro in character — it sets up your prediction of a "
+    "specific game. You may needle the teams or the matchup, but say NOTHING about the "
+    "member's picks, choices, account, or pick'em status (there are none here), and add NO "
+    "team, player, stat, spread, or number that is not in the intro — your actual call "
+    "lands verbatim on the next line, so do not restate or change it. Reply with ONE short "
+    "line and at most one emoji."
 )
 
 # Deterministic short-circuit line for an unregistered asker (no LLM call needed).
@@ -1317,7 +1335,12 @@ async def answer_question(question: str, *, discord_id: int) -> str:
             return _REGISTER_LINE
 
         voice = await db_bridge.resolve_active_voice_async()
-        system_prompt = compose_prompt(voice, QA_ROLE, QA_GUARD)
+        # A prediction lead uses the analyst role (no pick-status framing); every other
+        # intent uses the facts-first QA role/guard.
+        if result.intent is QaIntent.prediction:
+            system_prompt = compose_prompt(voice, PREDICTION_ROLE, PREDICTION_GUARD)
+        else:
+            system_prompt = compose_prompt(voice, QA_ROLE, QA_GUARD)
 
         if isinstance(fact, _ListAnswer):
             # List answer: phrase ONLY the short header in voice, then append the

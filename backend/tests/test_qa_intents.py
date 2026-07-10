@@ -1371,6 +1371,28 @@ class PredictionIntentRoutingTests(unittest.TestCase):
         self.assertIn("**My call: KC to cover — KC -6 (current market line).**", out)
         self.assertIn("Heads up: you locked this at KC -3", out)
 
+    def test_prediction_lead_phrases_with_analyst_prompt_not_pick_status_guard(self) -> None:
+        # The lead must NOT inherit QA_GUARD's pick-status framing — that primed Gemma to
+        # narrate "you have no recorded pick" onto an asker who never picked (live-test bug).
+        seam_patch, _ = _seam("get_prediction_inputs_async", _prediction_inputs())
+        odds_patch, _ = _fetch_live_odds_returns(None)
+        inj_patch, _ = _fetch_injuries_returns(None)
+        lookup_patch, _ = _lookup_returns(None)
+        phrase_patch, calls = _phrase_returns("Oh, the Chiefs? Bold. 🙄")
+        with (
+            _classify_returns({"intent": "prediction", "team": "Chiefs"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            odds_patch,
+            inj_patch,
+            lookup_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            _run(qa.answer_question("who wins the Chiefs game?", discord_id=7))
+        self.assertIn(qa.PREDICTION_GUARD, calls[0]["system_prompt"])
+        self.assertNotIn(qa.QA_GUARD, calls[0]["system_prompt"])
+
 
 if __name__ == "__main__":
     unittest.main()
