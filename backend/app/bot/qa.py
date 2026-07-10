@@ -57,6 +57,7 @@ class QaIntent(str, Enum):
     scores = "scores"
     injuries = "injuries"
     weather = "weather"
+    news = "news"
     coming_soon = "coming_soon"
     unknown = "unknown"
 
@@ -65,7 +66,11 @@ class QaIntent(str, Enum):
 # resolved intent is DROPPED (set to None), not treated as an error. ``injuries`` and
 # ``weather`` are team-BEARING and team-REQUIRED (a teamless question soft-declines) —
 # they reuse the same real-team validation + coercion path as ``lines_slate``.
-_TEAM_INTENTS = frozenset({QaIntent.lines_slate, QaIntent.injuries, QaIntent.weather})
+# ``news`` is team-BEARING but team-OPTIONAL: a present team is coerced to a real token
+# (non-real -> unknown), a null team stays valid and yields the LEAGUE answer downstream.
+_TEAM_INTENTS = frozenset(
+    {QaIntent.lines_slate, QaIntent.injuries, QaIntent.weather, QaIntent.news}
+)
 _WEEK_INTENTS = frozenset({QaIntent.pick_status, QaIntent.lines_slate, QaIntent.scores})
 _SUBJECT_INTENTS = frozenset({QaIntent.lines_slate, QaIntent.unknown, QaIntent.coming_soon})
 
@@ -103,7 +108,8 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "week's games, or when the window closes), scores (final or in-progress game "
     "scores), injuries (a team's injury report — who is hurt, out, doubtful, or "
     "questionable), weather (the game-time forecast or conditions for a team's "
-    "game), coming_soon (a recognized but unsupported topic: news, line movement, "
+    "game), news (recent ESPN headlines about a specific team or the league), "
+    "coming_soon (a recognized but unsupported topic: line movement, "
     "or a who-will-win prediction), unknown (anything you are "
     'not sure about). "team" is a team name or abbreviation the question is about, '
     'or null. "week" is an integer week number, or null. "subject" is a short noun '
@@ -269,7 +275,7 @@ _ERROR_LINE = "Something went sideways pulling that up — give it another shot 
 # Injuries + weather are now LIVE intents, so they are dropped from the wink text to
 # keep it honest (only genuinely-unsupported topics remain).
 _COMING_SOON_FACT = (
-    "That's not something tracked yet — news, line movement, and who-wins predictions "
+    "That's not something tracked yet — line movement and who-wins predictions "
     "are on the roadmap, not in the playbook today."
 )
 
@@ -316,6 +322,21 @@ _WEATHER_NO_TEAM_FACT = "No team in that question — name one and ask again."
 # missing from the table, OR the Open-Meteo fetch/parse fails. NEVER an invented
 # forecast (T-29v-01) — an unambiguous transient miss that survives phrasing.
 _WEATHER_DEGRADE_FACT = "Couldn't pull the forecast right now — give it another shot in a bit."
+
+# Best-effort degrade line when the ESPN news fetch/parse fails OR a named team can't
+# be resolved. NEVER an invented/paraphrased headline (T-ikf-01) — a fixed, honest miss.
+# REUSES the exact locked wording proven to survive the local phrasing model (the
+# PHRASING-INVERSION lesson from injuries PR #107 / weather PR #108): a terse
+# news-flavored decline could be flipped to "not supported", so this reads as an
+# unambiguous transient "couldn't do X right now" sentence.
+_NEWS_DEGRADE_FACT = "Couldn't pull ESPN news right now — give it another shot in a bit."
+
+# Concrete empty line for a teamless (league) ask that returns no articles — a
+# transient, unambiguous "nothing right now", never an invented headline.
+_NEWS_EMPTY_LEAGUE_FACT = "No fresh NFL headlines from ESPN right now — check back in a bit."
+
+# Top N headlines shown for a news answer.
+NEWS_DISPLAY_LIMIT = 5
 
 # Subject hints that a lines question is about a SINGLE game (so a missing team is a
 # stateless soft-decline, not a whole-slate dump).
@@ -601,6 +622,52 @@ def _weather_fact(home_abbr: str, stadium: Stadium, forecast: dict) -> str:
     return f"{stadium.name} at kickoff{anchor}: {', '.join(parts)}."
 
 
+def _news_as_of(articles: list[dict]) -> str | None:
+    """The first non-empty ``published`` stamp — the block's as-of, or ``None``."""
+    for article in articles:
+        as_of = article.get("published")
+        if as_of:
+            return as_of
+    return None
+
+
+def _news_headline_line(article: dict) -> str:
+    """One deterministic headline line — the VERBATIM headline (+ link when present).
+
+    The raw headline string MUST survive unchanged (no truncation, no re-casing): this
+    line is appended via the :class:`_ListAnswer` body and is NEVER handed to the LLM,
+    so the headline can never be summarized or reinvented (T-ikf-01).
+    """
+    line = article["headline"]
+    if article.get("link"):
+        line += f" — {article['link']}"
+    return line
+
+
+def _news_fact(team_abbr: str | None, articles: list[dict]) -> str | _ListAnswer:
+    """Build the deterministic news answer — verbatim headlines under a phrased header.
+
+    * No articles -> a concrete transient empty line (team-scoped or the league line);
+      never an invented headline.
+    * Otherwise ALWAYS a :class:`_ListAnswer` (even for a single headline) so the
+      headline block is NEVER phrased: ``header_fact`` is the phrasable wrapper and
+      ``body`` is the VERBATIM headline block (one line per article).
+    """
+    if not articles:
+        if team_abbr is not None:
+            return f"No fresh ESPN headlines on {team_abbr} right now — check back in a bit."
+        return _NEWS_EMPTY_LEAGUE_FACT
+
+    as_of = _news_as_of(articles)
+    as_of_clause = f", as of {as_of}" if as_of else ""
+    if team_abbr is not None:
+        header = f"Latest on {team_abbr} (ESPN{as_of_clause}):"
+    else:
+        header = f"Latest NFL headlines (ESPN{as_of_clause}):"
+    body = "\n".join(_news_headline_line(article) for article in articles)
+    return _ListAnswer(header_fact=header, body=body)
+
+
 async def _build_fact(result: QaResult, *, discord_id: int) -> str | _ListAnswer | None:
     """Route a validated intent to its deterministic reader and build the FACT.
 
@@ -679,6 +746,29 @@ async def _build_fact(result: QaResult, *, discord_id: int) -> str | _ListAnswer
         if forecast is None:
             return _WEATHER_DEGRADE_FACT  # unusable / hour absent — never invent
         return _weather_fact(home_abbr, stadium, forecast)
+
+    if result.intent is QaIntent.news:
+        # Team is OPTIONAL: a named team filters the league page client-side; a teamless
+        # ask returns the top LEAGUE headlines (a null team is a VALID answer here, NOT
+        # a soft-decline). Headlines are relayed VERBATIM — never sent to the LLM.
+        team_filter: tuple[str, str] | None = None
+        team_abbr: str | None = None
+        if result.team is not None:
+            resolved = await db_bridge.get_news_team_filter_async(result.team)
+            if resolved is None:
+                return _NEWS_DEGRADE_FACT  # un-resolvable team — never invent
+            team_filter = (resolved[0].upper(), resolved[1].upper())
+            team_abbr = resolved[0]
+        # espn_extra owns ALL HTTP + Redis; qa.py imports the seam, never httpx.
+        from app.services import espn_extra
+
+        payload = await espn_extra.fetch_news()
+        if payload is None:
+            return _NEWS_DEGRADE_FACT  # best-effort fetch failed — never invent
+        articles = espn_extra.parse_news(payload, team_filter=team_filter, limit=NEWS_DISPLAY_LIMIT)
+        if articles is None:
+            return _NEWS_DEGRADE_FACT  # unusable shape — never invent
+        return _news_fact(team_abbr, articles)
 
     if result.intent is QaIntent.coming_soon:
         return _COMING_SOON_FACT  # Tier 2 — no DB read
