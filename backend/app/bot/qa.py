@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 from typing import TYPE_CHECKING
 
@@ -38,6 +39,7 @@ from app.bot import chat_personality, llm_client
 from app.bot.personality import compose_prompt
 
 if TYPE_CHECKING:
+    from app.scoreboard.types import ScoreboardOdds
     from app.services.weather import Stadium
 
 logger = structlog.get_logger(__name__)
@@ -58,6 +60,7 @@ class QaIntent(str, Enum):
     injuries = "injuries"
     weather = "weather"
     news = "news"
+    prediction = "prediction"
     coming_soon = "coming_soon"
     unknown = "unknown"
 
@@ -69,7 +72,13 @@ class QaIntent(str, Enum):
 # ``news`` is team-BEARING but team-OPTIONAL: a present team is coerced to a real token
 # (non-real -> unknown), a null team stays valid and yields the LEAGUE answer downstream.
 _TEAM_INTENTS = frozenset(
-    {QaIntent.lines_slate, QaIntent.injuries, QaIntent.weather, QaIntent.news}
+    {
+        QaIntent.lines_slate,
+        QaIntent.injuries,
+        QaIntent.weather,
+        QaIntent.news,
+        QaIntent.prediction,
+    }
 )
 _WEEK_INTENTS = frozenset({QaIntent.pick_status, QaIntent.lines_slate, QaIntent.scores})
 _SUBJECT_INTENTS = frozenset(
@@ -111,8 +120,10 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "scores), injuries (a team's injury report — who is hurt, out, doubtful, or "
     "questionable), weather (the game-time forecast or conditions for a team's "
     "game), news (recent ESPN headlines about a specific team or the league), "
-    "coming_soon (a recognized but unsupported topic: line movement, "
-    "or a who-will-win prediction), unknown (anything you are "
+    "prediction (who will win a specific team's game — the pick, the cover or "
+    "margin read, who covers the spread), "
+    "coming_soon (a recognized but unsupported topic: line movement), "
+    "unknown (anything you are "
     'not sure about). "team" is a team name or abbreviation the question is about, '
     'or null. "week" is an integer week number, or null. "subject" is a short noun '
     "phrase describing what they asked, or null. When in doubt use unknown."
@@ -426,11 +437,11 @@ _REGISTER_LINE = "You need a pick'em account first — run /register to get set 
 _ERROR_LINE = "Something went sideways pulling that up — give it another shot in a bit."
 
 # Tier-2 (coming_soon) wink: recognized-but-planned, NO capability menu, NO DB read.
-# Injuries + weather are now LIVE intents, so they are dropped from the wink text to
-# keep it honest (only genuinely-unsupported topics remain).
+# Injuries + weather + who-wins predictions are now LIVE intents, so they are dropped
+# from the wink text to keep it honest (only line movement remains unsupported).
 _COMING_SOON_FACT = (
-    "That's not something tracked yet — line movement and who-wins predictions "
-    "are on the roadmap, not in the playbook today."
+    "That's not something tracked yet — live line movement is on the roadmap, "
+    "not in the playbook today."
 )
 
 # Tier-3 (unknown) decline: the capability MENU (the four things it can answer) + a
@@ -491,6 +502,48 @@ _NEWS_EMPTY_LEAGUE_FACT = "No fresh NFL headlines from ESPN right now — check 
 
 # Top N headlines shown for a news answer.
 NEWS_DISPLAY_LIMIT = 5
+
+# --- prediction intent (260710-mpw) --------------------------------------- #
+# A DERIVED-FACTS intent: code owns the pick + ALL cover arithmetic; the LLM only
+# voices the short lead. Every constant below is a CONCRETE, game-anchored sentence
+# (never a terse topic-flavored fragment) so the phrasing model can't invert it —
+# the degrade notes live in the _ListAnswer BODY (never phrased), and the plain-string
+# facts are phrased, so both must read as unambiguous statements (qa-phrasing-inversion).
+
+# Teamless prediction soft-decline — REUSES the proven-neutral injuries/weather wording
+# VERBATIM (a terse "who wins?" decline would flip to "not supported"; this neutral
+# "you didn't name a team" line phrases faithfully).
+_PREDICTION_NO_TEAM_FACT = "No team in that question — name one and ask again."
+
+# The team's current-week game couldn't be pinned down (unknown / bye / ambiguous).
+# A concrete transient miss — never an invented pick.
+_PREDICTION_UNRESOLVED_FACT = (
+    "I couldn't pin down that team's game this week — double-check the team name and ask again."
+)
+
+# Neither the live market nor the frozen sheet has a spread posted yet, so there is no
+# cover to call. Never an invented line/pick.
+_PREDICTION_NO_LINE_FACT = (
+    "There's no line posted on that game yet, so I can't call a cover for you — "
+    "check back once the spread is up."
+)
+
+# Per-factor degrade notes — each a full, game-anchored transient sentence that reads
+# as "couldn't check X this time", NOT a terse fragment. These sit in the verbatim body.
+_PREDICTION_INJURIES_DEGRADE_NOTE = (
+    "Couldn't pull the injury report this time, so this read leaves injuries out of it."
+)
+_PREDICTION_WEATHER_DEGRADE_NOTE = (
+    "Couldn't pull the game-time forecast this time, so this read leaves weather out of it."
+)
+# Live-line-missing relabel: fall back to the frozen pick'em spread, clearly relabelled.
+_PREDICTION_FROZEN_FALLBACK_NOTE = (
+    "Working off your locked pick'em line here — couldn't reach the live market for a fresh number."
+)
+
+# A material live-vs-frozen divergence (favorite flip OR magnitude delta >= this) fires
+# the conflict callout.
+_PREDICTION_CONFLICT_THRESHOLD = Decimal("1.0")
 
 # Subject hints that a lines question is about a SINGLE game (so a missing team is a
 # stateless soft-decline, not a whole-slate dump).
@@ -896,6 +949,143 @@ def _news_fact(
     return _ListAnswer(header_fact=header, body=body, phrase_header=False)
 
 
+def _to_decimal(value: object) -> Decimal | None:
+    """Coerce a stringified/number spread to a positive-or-any ``Decimal``, else ``None``.
+
+    Pure: the frozen spread arrives as a stringified magnitude (like ``"3.0"``); the live
+    spread as a float. Any unusable value degrades to ``None`` (the caller then treats the
+    line as absent) — never raises.
+    """
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
+    except InvalidOperation, ValueError, TypeError:
+        return None
+
+
+def _fmt_num(value: Decimal) -> str:
+    """Render a spread magnitude without trailing zeros (``3.0`` -> ``3``, ``3.5`` -> ``3.5``).
+
+    Uses fixed-point formatting (never scientific) so a whole number stays readable in the
+    cover read.
+    """
+    text = format(value, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text
+
+
+def _prediction_injury_note(injuries: list[dict] | None) -> str:
+    """A concrete injury note for the briefing body, derived ONLY from parsed fields.
+
+    * ``None`` (couldn't fetch/parse) -> the fixed degrade note (never invents "healthy").
+    * ``[]`` (report present, nobody listed) -> a clean "nobody flagged" line.
+    * otherwise names up to three players (with status when known) + a "+N more" tail.
+    """
+    if injuries is None:
+        return _PREDICTION_INJURIES_DEGRADE_NOTE
+    if not injuries:
+        return "Injury report is clean on that side right now — nobody flagged."
+    named: list[str] = []
+    for player in injuries[:3]:
+        name = player.get("display_name") or "an unnamed player"
+        status = player.get("status")
+        named.append(f"{name} ({status})" if status else name)
+    extra = "" if len(injuries) <= 3 else f", plus {len(injuries) - 3} more"
+    return f"Injury watch: {', '.join(named)}{extra}."
+
+
+def _prediction_fact(
+    inputs: dict,
+    *,
+    live_odds: ScoreboardOdds | None,
+    injuries: list[dict] | None,
+    weather_note: str | None,
+) -> str | _ListAnswer:
+    """Build the DERIVED-FACTS prediction briefing — code owns the pick + ALL math.
+
+    Pure and network-free. The pick is the EFFECTIVE line's favorite and every number
+    (cover read, record/ATS, conflict delta) is computed HERE, never by the LLM. Returns:
+
+    * a plain string for the no-line case (no pick can be called), or
+    * a :class:`_ListAnswer` whose ``header_fact`` is a short in-voice lead naming the
+      pick (phrased) and whose ``body`` is the deterministic VERBATIM factor block (cover
+      read, record/ATS, injury note, weather note, conflict callout). The list-answer
+      shape is what keeps the arithmetic out of the LLM's hands — the one-line ``QA_GUARD``
+      phrases ONLY the lead; the body reaches Discord byte-for-byte (T-mpw-02).
+
+    The EFFECTIVE line prefers the live market (labelled "current market"); when the live
+    line is absent it falls back to the FROZEN spread, relabelled. When neither carries a
+    usable spread it returns the no-line line — never an invented pick.
+    """
+    asked_team = inputs.get("asked_team")
+    home = inputs.get("home")
+    away = inputs.get("away")
+    frozen_fav = inputs.get("favorite")
+    frozen_dog = inputs.get("underdog")
+    frozen_spread = _to_decimal(inputs.get("spread"))
+    record = inputs.get("record") or "0-0"
+    ats = inputs.get("ats") or "0-0"
+
+    # Map the live signed home-relative spread back to favorite/underdog abbrs.
+    live_fav: str | None = None
+    live_dog: str | None = None
+    live_mag: Decimal | None = None
+    if live_odds is not None and live_odds.spread is not None and home and away:
+        live_mag = Decimal(str(abs(live_odds.spread)))
+        if live_odds.spread < 0:
+            live_fav, live_dog = home, away
+        elif live_odds.spread > 0:
+            live_fav, live_dog = away, home
+        # spread == 0 is a true pick'em — no favorite from the live line.
+
+    using_live = live_fav is not None and live_mag is not None and live_mag > 0
+    if using_live:
+        assert live_fav is not None and live_mag is not None
+        eff_fav, eff_dog, eff_mag = live_fav, live_dog, live_mag
+    elif frozen_fav is not None and frozen_spread is not None and frozen_spread > 0:
+        eff_fav, eff_dog, eff_mag = frozen_fav, frozen_dog, frozen_spread
+    else:
+        return _PREDICTION_NO_LINE_FACT
+
+    dog_label = eff_dog or "the other side"
+    lines: list[str] = []
+    if using_live:
+        lines.append(
+            f"Pick: {eff_fav} to cover (current market line, {eff_fav} -{_fmt_num(eff_mag)}). "
+            f"{eff_fav} has to win by more than {_fmt_num(eff_mag)} for it to cash; "
+            f"{dog_label} covers otherwise."
+        )
+    else:
+        lines.append(
+            f"Pick: {eff_fav} to cover ({eff_fav} -{_fmt_num(eff_mag)}). "
+            f"{eff_fav} has to win by more than {_fmt_num(eff_mag)} for it to cash; "
+            f"{dog_label} covers otherwise. {_PREDICTION_FROZEN_FALLBACK_NOTE}"
+        )
+
+    # Conflict callout — only when the live line is in play AND materially differs from the
+    # frozen sheet (favorite flip OR magnitude delta >= threshold).
+    if using_live and frozen_fav is not None and frozen_spread is not None and frozen_spread > 0:
+        assert live_mag is not None
+        favorite_flip = live_fav != frozen_fav
+        mag_delta = abs(live_mag - frozen_spread)
+        if favorite_flip or mag_delta >= _PREDICTION_CONFLICT_THRESHOLD:
+            lines.append(
+                f"Heads up: you locked this at {frozen_fav} -{_fmt_num(frozen_spread)}, "
+                f"but the current market has {eff_fav} -{_fmt_num(eff_mag)}."
+            )
+
+    lines.append(
+        f"{asked_team or 'They'} are {record} straight up and {ats} against the spread this season."
+    )
+    lines.append(_prediction_injury_note(injuries))
+    lines.append(weather_note if weather_note is not None else _PREDICTION_WEATHER_DEGRADE_NOTE)
+
+    header = f"Here's my read on the {asked_team or 'that'} game — I lean {eff_fav}."
+    return _ListAnswer(header_fact=header, body="\n".join(lines))
+
+
 async def _build_fact(result: QaResult, *, discord_id: int) -> str | _ListAnswer | None:
     """Route a validated intent to its deterministic reader and build the FACT.
 
@@ -1011,6 +1201,81 @@ async def _build_fact(result: QaResult, *, discord_id: int) -> str | _ListAnswer
             return _news_fact(team_abbr, narrowed[:NEWS_DISPLAY_LIMIT], subject=result.subject)
         return _news_fact(
             team_abbr, pool[:NEWS_DISPLAY_LIMIT], subject=result.subject, subject_missed=True
+        )
+
+    if result.intent is QaIntent.prediction:
+        # DERIVED-FACTS: code computes the pick + ALL cover math; the LLM only voices the
+        # lead. Team-required by construction — a teamless prediction soft-declines.
+        if result.team is None:
+            return _PREDICTION_NO_TEAM_FACT
+        inputs = await db_bridge.get_prediction_inputs_async(result.team)
+        if inputs is None:
+            return _PREDICTION_UNRESOLVED_FACT  # no single game this week — never invent
+
+        # The independent live factors run CONCURRENTLY; each degrades on its own without
+        # aborting the briefing (degrade-never-bail). qa.py imports the seams; it never
+        # touches httpx / redis itself.
+        import asyncio
+
+        from app.services import espn_extra, live_odds, weather
+
+        season = inputs.get("season")
+        week = inputs.get("week")
+        event_id = inputs.get("espn_event_id")
+        home_abbr = inputs.get("home")
+        asked_abbr = inputs.get("asked_team")
+        kickoff_at = inputs.get("kickoff_at")
+
+        # Resolve the home stadium synchronously so a DOME short-circuits the forecast
+        # fetch (weather is a non-factor indoors — reuse the existing indoor line).
+        stadium = weather.lookup_stadium(home_abbr) if home_abbr else None
+        fetch_weather = stadium is not None and not stadium.indoor
+
+        async def _none_result() -> None:
+            return None
+
+        odds_task = (
+            live_odds.fetch_live_odds(season, week, event_id)
+            if event_id is not None and season is not None and week is not None
+            else _none_result()
+        )
+        injuries_task = (
+            espn_extra.fetch_injuries(event_id) if event_id is not None else _none_result()
+        )
+        weather_task = (
+            weather.fetch_forecast(stadium.lat, stadium.lon)
+            if fetch_weather and stadium is not None
+            else _none_result()
+        )
+
+        odds_res, injuries_res, weather_res = await asyncio.gather(
+            odds_task, injuries_task, weather_task, return_exceptions=True
+        )
+
+        # Live line: fetch_live_odds already returns the target event's ScoreboardOdds or
+        # None; any raised exception degrades to None (fall back to the frozen spread).
+        live = odds_res if not isinstance(odds_res, BaseException) else None
+
+        # Injuries: parse the asked team's block defensively; any failure -> None note.
+        injuries: list[dict] | None = None
+        injuries_payload = injuries_res if not isinstance(injuries_res, BaseException) else None
+        if injuries_payload is not None and asked_abbr:
+            injuries = espn_extra.parse_injuries(injuries_payload, asked_abbr)
+
+        # Weather: a dome is a concrete non-factor line (no fetch); an outdoor game uses the
+        # matched-hour forecast; any miss leaves the note None -> the degrade note.
+        weather_note: str | None = None
+        if stadium is not None and stadium.indoor:
+            weather_note = _indoor_fact(stadium)
+        elif fetch_weather and stadium is not None:
+            weather_payload = weather_res if not isinstance(weather_res, BaseException) else None
+            if weather_payload is not None and kickoff_at is not None:
+                forecast = weather.parse_forecast(weather_payload, kickoff_at)
+                if forecast is not None and home_abbr is not None:
+                    weather_note = _weather_fact(home_abbr, stadium, forecast)
+
+        return _prediction_fact(
+            inputs, live_odds=live, injuries=injuries, weather_note=weather_note
         )
 
     if result.intent is QaIntent.coming_soon:
