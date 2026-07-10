@@ -1393,6 +1393,29 @@ class PredictionIntentRoutingTests(unittest.TestCase):
         self.assertIn(qa.PREDICTION_GUARD, calls[0]["system_prompt"])
         self.assertNotIn(qa.QA_GUARD, calls[0]["system_prompt"])
 
+    def test_prediction_lead_is_clamped_to_its_first_line(self) -> None:
+        # A small model sometimes appends a junk second line (a bare team name or an
+        # invented spread) after the snark; only the first line must reach Discord.
+        seam_patch, _ = _seam("get_prediction_inputs_async", _prediction_inputs())
+        odds_patch, _ = _fetch_live_odds_returns(None)  # frozen fallback: KC -3 favored
+        inj_patch, _ = _fetch_injuries_returns(None)
+        lookup_patch, _ = _lookup_returns(None)
+        phrase_patch, _ = _phrase_returns("Oh, you want my take on the Chiefs? 🙄\n\nChiefs -1.5")
+        with (
+            _classify_returns({"intent": "prediction", "team": "Chiefs"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            odds_patch,
+            inj_patch,
+            lookup_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("who wins the Chiefs game?", discord_id=7))
+        self.assertEqual(out.split("\n")[0], "Oh, you want my take on the Chiefs? 🙄")
+        self.assertNotIn("Chiefs -1.5", out)  # the junk second line is dropped
+        self.assertIn("**My call: KC to cover", out)  # the deterministic body is intact
+
 
 if __name__ == "__main__":
     unittest.main()

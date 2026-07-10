@@ -447,8 +447,8 @@ PREDICTION_GUARD = (
     "covers, and do not name your pick — that verdict lands verbatim on the very next line, "
     "so your intro only teases that your call is coming. Say NOTHING about the member's "
     "picks, choices, account, or pick'em status (there are none here), and add NO stat, "
-    "spread, or number that is not in the intro. Keep it to one or two short lines with at "
-    "most one emoji."
+    "spread, or number that is not in the intro. Reply with ONE short line and at most one "
+    "emoji."
 )
 
 # Deterministic short-circuit line for an unregistered asker (no LLM call needed).
@@ -1354,6 +1354,16 @@ async def answer_question(question: str, *, discord_id: int) -> str:
                 header = phrased_header if phrased_header is not None else fact.header_fact
             else:
                 header = fact.header_fact
+            if result.intent is QaIntent.prediction:
+                # The analyst lead is phrased, and a small model sometimes tacks a junk
+                # second line after the snark (a bare team name or an invented spread —
+                # observed in live testing). Keep ONLY the first non-empty line; the pick
+                # and every number live in the deterministic body below, so nothing of
+                # substance is lost.
+                header = next(
+                    (line for line in header.splitlines() if line.strip()),
+                    fact.header_fact,
+                ).strip()
             return f"{header}\n{fact.body}"
 
         phrased = await llm_client.phrase(fact, system_prompt=system_prompt)
