@@ -225,10 +225,21 @@ def _parse_one_article(article: Any) -> dict | None:
     if headline is None:
         return None  # never fabricate a headline
 
-    # First usable href among ``links`` (a list of {href} dicts) then ``link`` ({href}).
+    # First usable href for the article. ESPN's real shape is ``links`` as a DICT
+    # keyed by surface — ``links.web.href`` (preferred), then ``links.mobile.href``.
+    # Also tolerate a ``links`` LIST of {href} dicts and a singular ``link`` {href}
+    # (defensive across the unofficial schema).
     link: str | None = None
     links = article.get("links")
-    if isinstance(links, list):
+    if isinstance(links, dict):
+        for key in ("web", "mobile"):
+            sub = links.get(key)
+            if isinstance(sub, dict):
+                href = _first_str(sub.get("href"))
+                if href is not None:
+                    link = href
+                    break
+    elif isinstance(links, list):
         for entry in links:
             if isinstance(entry, dict):
                 href = _first_str(entry.get("href"))

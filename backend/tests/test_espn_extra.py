@@ -366,6 +366,23 @@ class ParseNewsTests(unittest.TestCase):
         )
         self.assertEqual(intl["published"], "2026-01-03T12:00Z")
 
+    def test_link_extraction_handles_espn_dict_shape_and_fallbacks(self) -> None:
+        # ESPN's real shape is links as a DICT keyed by surface: prefer web.href,
+        # fall back to mobile.href, then a list of {href}, then a singular link.href.
+        cases = [
+            ({"links": {"web": {"href": "W"}, "mobile": {"href": "M"}}}, "W"),
+            ({"links": {"mobile": {"href": "M"}}}, "M"),  # no web -> mobile fallback
+            ({"links": [{"href": "L1"}, {"href": "L2"}]}, "L1"),  # list tolerance
+            ({"link": {"href": "S"}}, "S"),  # singular link fallback
+            ({"links": {"web": {}}}, None),  # web present but no href -> None
+            ({}, None),  # nothing -> None, never fabricated
+        ]
+        for extra, expected in cases:
+            payload = {"articles": [{"headline": "H", **extra}]}
+            articles = espn_extra.parse_news(payload, limit=10)
+            assert articles is not None
+            self.assertEqual(articles[0]["link"], expected, msg=str(extra))
+
     def test_non_dict_payload_returns_none(self) -> None:
         for bad in (None, "garbage", 42, ["articles"]):
             self.assertIsNone(espn_extra.parse_news(bad, limit=10))

@@ -642,16 +642,25 @@ def _news_as_of(articles: list[dict]) -> str | None:
 
 
 def _news_headline_line(article: dict) -> str:
-    """One deterministic headline line — the VERBATIM headline (+ link when present).
+    """One deterministic headline line — the VERBATIM headline linked to its source.
 
     The raw headline string MUST survive unchanged (no truncation, no re-casing): this
     line is appended via the :class:`_ListAnswer` body and is NEVER handed to the LLM,
     so the headline can never be summarized or reinvented (T-ikf-01).
+
+    When a source link is present, the headline is rendered as a Discord masked link
+    ``[headline](url)`` so it is clickable (bot messages render masked links) while the
+    headline text stays verbatim inside the brackets. A headline containing ``[`` or
+    ``]`` would break the mask, so those fall back to the headline + a bare ``<url>``
+    (angle brackets suppress the auto-embed). No link -> the bare headline.
     """
-    line = article["headline"]
-    if article.get("link"):
-        line += f" — {article['link']}"
-    return line
+    headline = article["headline"]
+    link = article.get("link")
+    if not link:
+        return headline
+    if "[" in headline or "]" in headline:
+        return f"{headline} — <{link}>"
+    return f"[{headline}]({link})"
 
 
 def _news_fact(team_abbr: str | None, articles: list[dict]) -> str | _ListAnswer:

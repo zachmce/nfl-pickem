@@ -966,9 +966,11 @@ class NewsIntentTests(unittest.TestCase):
         # The team-topic seam was called with the asked (validated) team token.
         self.assertEqual(seam_calls[0]["args"], ("CHIEFS",))
         self.assertEqual(len(fetch_calls), 1)  # the league page was fetched once
-        # Fixed deterministic wrapper on top, then the KC headline VERBATIM.
+        # Fixed deterministic wrapper on top, then the KC headline VERBATIM, rendered
+        # as a clickable masked link to the ESPN source (headline text unchanged).
         self.assertTrue(out.startswith("Latest on KC (ESPN"))
         self.assertIn(self._KC_HEADLINE, out)
+        self.assertIn(f"[{self._KC_HEADLINE}](https://www.espn.com/nfl/story/kc)", out)
         # THE NO-REPHRASING REGRESSION (absolute): the whole news answer — wrapper AND
         # headlines — is deterministic; the LLM is NEVER called, so nothing can be
         # rephrased or inverted.
@@ -992,10 +994,11 @@ class NewsIntentTests(unittest.TestCase):
         # A null team is a VALID answer: the team-topic seam is NEVER called.
         self.assertEqual(seam_calls, [])
         self.assertEqual(len(fetch_calls), 1)
-        # Both league headlines land verbatim under the fixed deterministic league header.
+        # Both league headlines land verbatim under the fixed deterministic league
+        # header, each a clickable masked link to its ESPN source.
         self.assertTrue(out.startswith("Latest NFL headlines (ESPN"))
-        self.assertIn(self._KC_HEADLINE, out)
-        self.assertIn(self._DEN_HEADLINE, out)
+        self.assertIn(f"[{self._KC_HEADLINE}](https://www.espn.com/nfl/story/kc)", out)
+        self.assertIn(f"[{self._DEN_HEADLINE}](https://www.espn.com/nfl/story/den)", out)
         # Deterministic wrapper: the LLM is never called for a news answer.
         self.assertEqual(calls, [])
 
