@@ -558,9 +558,7 @@ _PREDICTION_WEATHER_DEGRADE_NOTE = (
     "Couldn't pull the game-time forecast this time, so this read leaves weather out of it."
 )
 # Live-line-missing relabel: fall back to the frozen pick'em spread, clearly relabelled.
-_PREDICTION_FROZEN_FALLBACK_NOTE = (
-    "Working off your locked pick'em line here — couldn't reach the live market for a fresh number."
-)
+_PREDICTION_FROZEN_FALLBACK_NOTE = "Working off the line we've got locked here — couldn't reach the live market for a fresh number."
 
 # A material live-vs-frozen divergence (favorite flip OR magnitude delta >= this) fires
 # the conflict callout.
