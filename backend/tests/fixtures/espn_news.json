@@ -1,0 +1,74 @@
+{
+  "articles": [
+    {
+      "headline": "Patrick Mahomes throws for 5 touchdowns as Chiefs storm past Bills 38-20",
+      "description": "Kansas City's offense was unstoppable in a statement road win over Buffalo.",
+      "published": "2026-01-05T18:00Z",
+      "lastModified": "2026-01-05T19:30Z",
+      "links": [
+        {"href": "https://www.espn.com/nfl/story/_/id/1001/chiefs-bills"},
+        {"href": "https://m.espn.com/nfl/story/_/id/1001"}
+      ],
+      "categories": [
+        {
+          "type": "team",
+          "description": "Kansas City Chiefs",
+          "team": {
+            "id": "12",
+            "abbreviation": "KC",
+            "displayName": "Kansas City Chiefs",
+            "description": "Kansas City Chiefs"
+          }
+        },
+        {"type": "league", "description": "National Football League"}
+      ]
+    },
+    {
+      "headline": "Bills sign veteran cornerback ahead of playoff push",
+      "description": "Buffalo adds secondary depth for a January run.",
+      "published": "2026-01-04T15:00Z",
+      "links": [
+        {"href": "https://www.espn.com/nfl/story/_/id/1002/bills-cb"}
+      ],
+      "categories": [
+        {
+          "type": "team",
+          "description": "Buffalo Bills",
+          "team": {
+            "id": "2",
+            "abbreviation": "BUF",
+            "displayName": "Buffalo Bills",
+            "description": "Buffalo Bills"
+          }
+        }
+      ]
+    },
+    {
+      "headline": "NFL announces 2026 international games slate",
+      "description": "Five games abroad headline next season's schedule.",
+      "lastModified": "2026-01-03T12:00Z",
+      "links": [
+        {"href": "https://www.espn.com/nfl/story/_/id/1003/intl-games"}
+      ],
+      "categories": [
+        {"type": "league", "description": "National Football League"}
+      ]
+    },
+    {
+      "headline": "Chiefs place starting guard on injured reserve",
+      "description": "Kansas City reshuffles its offensive line for the postseason.",
+      "published": "2026-01-02T20:15Z",
+      "categories": [
+        {
+          "type": "team",
+          "description": "Kansas City Chiefs",
+          "team": {
+            "id": "12",
+            "abbreviation": "KC",
+            "displayName": "Kansas City Chiefs"
+          }
+        }
+      ]
+    }
+  ]
+}
