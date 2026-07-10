@@ -17,10 +17,18 @@ from __future__ import annotations
 
 import json
 import unittest
+from decimal import Decimal
 from unittest.mock import patch
 
-from app.models import PickType
+from sqlalchemy.pool import StaticPool
+from sqlmodel import Session, SQLModel, create_engine
+
+from app.models import Game, GameStatus, PickType, Team, Week
 from app.services import notifications
+from app.services.notifications_read import (
+    get_prediction_inputs_for_team,
+    get_season_record_and_ats_for_team,
+)
 from app.services.notifications import (
     EVENTS_CHANNEL,
     admin_pick_cleared_event,
@@ -718,6 +726,337 @@ class MiscPickedEventBuilderTests(unittest.TestCase):
         self.assertNotIn(secret_text, repr(event))
         for value in event.values():
             self.assertNotEqual(value, secret_text)
+
+
+# --------------------------------------------------------------------------- #
+# 260710-mpw — prediction data layer readers (record + ATS, frozen inputs).
+# Offline on an in-memory SQLite engine (mirrors tests.test_active_season): no
+# Postgres, no network. Deterministic dicts / None per the plan's behavior cases.
+# --------------------------------------------------------------------------- #
+
+
+def _memory_engine():
+    return create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+
+
+class PredictionDataLayerTests(unittest.TestCase):
+    """Record + ATS + frozen prediction-inputs readers (260710-mpw Task 1)."""
+
+    SEASON = 2025
+
+    def setUp(self) -> None:
+        self.engine = _memory_engine()
+        SQLModel.metadata.create_all(self.engine)
+        with Session(self.engine) as s:
+            # Home team id 1 = KC, away id 2 = LAC (both real-ish tokens).
+            s.add_all(
+                [
+                    Team(espn_team_id=1, abbreviation="KC", display_name="Kansas City Chiefs"),
+                    Team(espn_team_id=2, abbreviation="LAC", display_name="Los Angeles Chargers"),
+                    Team(espn_team_id=3, abbreviation="DEN", display_name="Denver Broncos"),
+                ]
+            )
+            s.commit()
+
+    def tearDown(self) -> None:
+        self.engine.dispose()
+
+    def _week(self, s: Session, week: int) -> int:
+        row = Week(season=self.SEASON, week=week)
+        s.add(row)
+        s.commit()
+        s.refresh(row)
+        assert row.id is not None
+        return row.id
+
+    def _add_game(
+        self,
+        s: Session,
+        *,
+        week: int,
+        week_id: int,
+        event_id: int,
+        home_id: int,
+        away_id: int,
+        status: GameStatus = GameStatus.SCHEDULED,
+        home_score: int | None = None,
+        away_score: int | None = None,
+        spread: Decimal | None = None,
+        total: Decimal | None = None,
+        favorite_id: int | None = None,
+        underdog_id: int | None = None,
+    ) -> None:
+        s.add(
+            Game(
+                espn_event_id=event_id,
+                week_id=week_id,
+                season=self.SEASON,
+                week=week,
+                home_team_id=home_id,
+                away_team_id=away_id,
+                status=status,
+                home_score=home_score,
+                away_score=away_score,
+                spread=spread,
+                total=total,
+                favorite_team_id=favorite_id,
+                underdog_team_id=underdog_id,
+            )
+        )
+        s.commit()
+
+    # --- record + ATS ---------------------------------------------------------
+
+    def test_record_counts_wins_and_losses(self) -> None:
+        with Session(self.engine) as s:
+            wk1 = self._week(s, 1)
+            # 3 KC wins + 2 KC losses (all FINAL).
+            self._add_game(
+                s,
+                week=1,
+                week_id=wk1,
+                event_id=101,
+                home_id=1,
+                away_id=2,
+                status=GameStatus.FINAL,
+                home_score=27,
+                away_score=20,
+            )
+            self._add_game(
+                s,
+                week=1,
+                week_id=wk1,
+                event_id=102,
+                home_id=2,
+                away_id=1,
+                status=GameStatus.FINAL,
+                home_score=10,
+                away_score=30,
+            )
+            self._add_game(
+                s,
+                week=1,
+                week_id=wk1,
+                event_id=103,
+                home_id=1,
+                away_id=3,
+                status=GameStatus.FINAL,
+                home_score=24,
+                away_score=13,
+            )
+            self._add_game(
+                s,
+                week=1,
+                week_id=wk1,
+                event_id=104,
+                home_id=1,
+                away_id=2,
+                status=GameStatus.FINAL,
+                home_score=14,
+                away_score=21,
+            )
+            self._add_game(
+                s,
+                week=1,
+                week_id=wk1,
+                event_id=105,
+                home_id=3,
+                away_id=1,
+                status=GameStatus.FINAL,
+                home_score=28,
+                away_score=17,
+            )
+            out = get_season_record_and_ats_for_team(s, self.SEASON, team_abbr="KC")
+        self.assertEqual(out["record"], "3-2")
+
+    def test_ats_favorite_by_3_wins_by_2_did_not_cover(self) -> None:
+        with Session(self.engine) as s:
+            wk1 = self._week(s, 1)
+            # KC favored by 3, wins by 2 (27-25) -> favorite did NOT cover.
+            self._add_game(
+                s,
+                week=1,
+                week_id=wk1,
+                event_id=201,
+                home_id=1,
+                away_id=2,
+                status=GameStatus.FINAL,
+                home_score=27,
+                away_score=25,
+                spread=Decimal("3.0"),
+                favorite_id=1,
+                underdog_id=2,
+            )
+            out = get_season_record_and_ats_for_team(s, self.SEASON, team_abbr="KC")
+        self.assertEqual(out["ats"], "0-1")
+
+    def test_ats_favorite_by_3_wins_by_7_did_cover(self) -> None:
+        with Session(self.engine) as s:
+            wk1 = self._week(s, 1)
+            # KC favored by 3, wins by 7 (28-21) -> favorite DID cover.
+            self._add_game(
+                s,
+                week=1,
+                week_id=wk1,
+                event_id=202,
+                home_id=1,
+                away_id=2,
+                status=GameStatus.FINAL,
+                home_score=28,
+                away_score=21,
+                spread=Decimal("3.0"),
+                favorite_id=1,
+                underdog_id=2,
+            )
+            out = get_season_record_and_ats_for_team(s, self.SEASON, team_abbr="KC")
+        self.assertEqual(out["ats"], "1-0")
+
+    def test_ats_underdog_covers_when_losing_by_less_than_spread(self) -> None:
+        with Session(self.engine) as s:
+            wk1 = self._week(s, 1)
+            # LAC are the +7 dog, lose by 3 (24-21) -> underdog COVERS.
+            self._add_game(
+                s,
+                week=1,
+                week_id=wk1,
+                event_id=203,
+                home_id=1,
+                away_id=2,
+                status=GameStatus.FINAL,
+                home_score=24,
+                away_score=21,
+                spread=Decimal("7.0"),
+                favorite_id=1,
+                underdog_id=2,
+            )
+            out = get_season_record_and_ats_for_team(s, self.SEASON, team_abbr="LAC")
+        self.assertEqual(out["ats"], "1-0")
+
+    def test_ats_underdog_covers_on_outright_win(self) -> None:
+        with Session(self.engine) as s:
+            wk1 = self._week(s, 1)
+            # LAC are the dog, win outright -> underdog COVERS.
+            self._add_game(
+                s,
+                week=1,
+                week_id=wk1,
+                event_id=204,
+                home_id=1,
+                away_id=2,
+                status=GameStatus.FINAL,
+                home_score=17,
+                away_score=20,
+                spread=Decimal("6.0"),
+                favorite_id=1,
+                underdog_id=2,
+            )
+            out = get_season_record_and_ats_for_team(s, self.SEASON, team_abbr="LAC")
+        self.assertEqual(out["ats"], "1-0")
+
+    def test_ats_push_is_skipped(self) -> None:
+        with Session(self.engine) as s:
+            wk1 = self._week(s, 1)
+            # KC favored by 3, wins by exactly 3 -> push, no ATS result either way.
+            self._add_game(
+                s,
+                week=1,
+                week_id=wk1,
+                event_id=205,
+                home_id=1,
+                away_id=2,
+                status=GameStatus.FINAL,
+                home_score=24,
+                away_score=21,
+                spread=Decimal("3.0"),
+                favorite_id=1,
+                underdog_id=2,
+            )
+            out = get_season_record_and_ats_for_team(s, self.SEASON, team_abbr="KC")
+        self.assertEqual(out["ats"], "0-0")
+        self.assertEqual(out["record"], "1-0")  # still a straight-up win
+
+    def test_no_scored_games_reads_zero_zero(self) -> None:
+        with Session(self.engine) as s:
+            wk1 = self._week(s, 1)
+            self._add_game(
+                s,
+                week=1,
+                week_id=wk1,
+                event_id=301,
+                home_id=1,
+                away_id=2,
+                status=GameStatus.SCHEDULED,
+                spread=Decimal("3.0"),
+                favorite_id=1,
+                underdog_id=2,
+            )
+            out = get_season_record_and_ats_for_team(s, self.SEASON, team_abbr="KC")
+        self.assertEqual(out, {"record": "0-0", "ats": "0-0"})
+
+    def test_unresolved_team_reads_zero_zero(self) -> None:
+        with Session(self.engine) as s:
+            self._week(s, 1)
+            out = get_season_record_and_ats_for_team(s, self.SEASON, team_abbr="NARNIA")
+        self.assertEqual(out, {"record": "0-0", "ats": "0-0"})
+
+    # --- frozen prediction inputs --------------------------------------------
+
+    def test_prediction_inputs_returns_frozen_game_fields(self) -> None:
+        with Session(self.engine) as s:
+            wk5 = self._week(s, 5)
+            self._add_game(
+                s,
+                week=5,
+                week_id=wk5,
+                event_id=555,
+                home_id=1,
+                away_id=2,
+                spread=Decimal("3.0"),
+                total=Decimal("47.5"),
+                favorite_id=1,
+                underdog_id=2,
+            )
+            out = get_prediction_inputs_for_team(s, self.SEASON, 5, team_abbr="Chiefs")
+        self.assertIsNotNone(out)
+        assert out is not None
+        self.assertEqual(out["asked_team"], "KC")
+        self.assertEqual(out["home"], "KC")
+        self.assertEqual(out["away"], "LAC")
+        self.assertEqual(out["favorite"], "KC")
+        self.assertEqual(out["underdog"], "LAC")
+        self.assertEqual(out["spread"], "3.0")
+        self.assertEqual(out["total"], "47.5")
+        self.assertEqual(out["espn_event_id"], 555)
+        self.assertEqual(out["season"], self.SEASON)
+        self.assertEqual(out["week"], 5)
+
+    def test_prediction_inputs_unposted_line_is_none(self) -> None:
+        with Session(self.engine) as s:
+            wk5 = self._week(s, 5)
+            self._add_game(s, week=5, week_id=wk5, event_id=556, home_id=1, away_id=2)
+            out = get_prediction_inputs_for_team(s, self.SEASON, 5, team_abbr="KC")
+        self.assertIsNotNone(out)
+        assert out is not None
+        self.assertIsNone(out["favorite"])
+        self.assertIsNone(out["spread"])
+        self.assertIsNone(out["total"])
+
+    def test_prediction_inputs_none_when_no_team(self) -> None:
+        with Session(self.engine) as s:
+            wk5 = self._week(s, 5)
+            self._add_game(s, week=5, week_id=wk5, event_id=557, home_id=1, away_id=2)
+            self.assertIsNone(get_prediction_inputs_for_team(s, self.SEASON, 5, team_abbr="NARNIA"))
+
+    def test_prediction_inputs_none_when_team_has_no_game_this_week(self) -> None:
+        with Session(self.engine) as s:
+            wk5 = self._week(s, 5)
+            self._add_game(s, week=5, week_id=wk5, event_id=558, home_id=1, away_id=2)
+            # DEN (id 3) does not play in week 5 -> not exactly one game -> None.
+            self.assertIsNone(get_prediction_inputs_for_team(s, self.SEASON, 5, team_abbr="DEN"))
 
 
 if __name__ == "__main__":

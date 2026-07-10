@@ -1215,3 +1215,154 @@ def get_real_team_tokens(session: Session) -> set[str]:
         tokens.add(name)
         tokens.update(name.split())
     return tokens
+
+
+def get_prediction_inputs_for_team(
+    session: Session, season: int, week: int, *, team_abbr: str
+) -> dict | None:
+    """The asked team's current-week game frozen inputs for a prediction (260710-mpw).
+
+    The FROZEN half of the prediction data layer — the guaranteed fallback the live
+    line degrades to. Mirrors the "exactly one game this week" resolution rules of
+    :func:`get_current_week_event_id_for_team` /
+    :func:`get_current_week_weather_target_for_team`: resolves the validator token via
+    :func:`_team_ids_for_token`, finds the season/week :class:`~app.models.Game` that
+    team plays in, and returns a plain dict (never an ORM row) carrying:
+
+    * ``asked_team`` — the asked team's canonical abbreviation,
+    * ``home`` / ``away`` — both sides' canonical abbreviations (``away`` lets the
+      caller map the live signed home-relative spread back to a favorite),
+    * ``favorite`` / ``underdog`` — the frozen line's favorite/underdog abbreviations
+      (each ``None`` when the line is unposted),
+    * ``spread`` — the frozen positive magnitude stringified (like ``_slate_fact``),
+      or ``None`` when unposted,
+    * ``total`` — the frozen total stringified, or ``None``,
+    * ``espn_event_id`` — the stored ESPN event id (the SSRF-safe int input to the
+      live-odds/injuries fetch; may be ``None`` on partial data — the caller then
+      skips the live fetch and still uses the frozen line),
+    * ``kickoff_at`` — the game kickoff as tz-aware UTC (via :func:`_as_aware`),
+    * ``season`` / ``week`` — echoed so the caller can build the live-odds URL.
+
+    Returns ``None`` on the SAME misses the sibling readers use: the token resolves no
+    team, or it does not resolve to EXACTLY ONE game this week. Display-only, pure read
+    (no ``add``/``commit``); httpx-free; never raises on well-typed inputs.
+    """
+    teams = list(session.exec(select(Team)).all())
+    team_ids = _team_ids_for_token(teams, team_abbr)
+    if not team_ids:
+        return None
+
+    games = list(session.exec(select(Game).where(Game.season == season, Game.week == week)).all())
+    matching = [g for g in games if g.home_team_id in team_ids or g.away_team_id in team_ids]
+    if len(matching) != 1:
+        return None
+    game = matching[0]
+
+    abbr_by_team_id = {t.id: t.abbreviation for t in teams if t.id is not None}
+    if game.home_team_id in team_ids:
+        asked = abbr_by_team_id.get(game.home_team_id)
+    else:
+        asked = abbr_by_team_id.get(game.away_team_id)
+    if asked is None:
+        return None
+
+    return {
+        "asked_team": asked,
+        "home": abbr_by_team_id.get(game.home_team_id),
+        "away": abbr_by_team_id.get(game.away_team_id),
+        "favorite": (
+            abbr_by_team_id.get(game.favorite_team_id)
+            if game.favorite_team_id is not None
+            else None
+        ),
+        "underdog": (
+            abbr_by_team_id.get(game.underdog_team_id)
+            if game.underdog_team_id is not None
+            else None
+        ),
+        "spread": str(game.spread) if game.spread is not None else None,
+        "total": str(game.total) if game.total is not None else None,
+        "espn_event_id": game.espn_event_id,
+        "kickoff_at": _as_aware(game.kickoff_at),
+        "season": season,
+        "week": week,
+    }
+
+
+def _favorite_covered(favorite_margin: Decimal, spread: Decimal) -> bool | None:
+    """Deterministic ATS verdict for ONE past game — pure, the offline test pins it.
+
+    ``favorite_margin`` is the favorite's final margin (favorite score minus underdog
+    score, negative when the favorite lost outright). Returns:
+
+    * ``None`` on a PUSH (the margin exactly equals the spread — no ATS result), so the
+      caller skips it;
+    * ``True`` when the FAVORITE covered (margin strictly greater than the spread);
+    * ``False`` when the UNDERDOG covered (margin strictly less than the spread — the
+      underdog lost by fewer than the spread, or won outright).
+    """
+    if favorite_margin == spread:
+        return None
+    return favorite_margin > spread
+
+
+def get_season_record_and_ats_for_team(session: Session, season: int, *, team_abbr: str) -> dict:
+    """The asked team's straight-up record + ATS record for ``season`` (260710-mpw).
+
+    Both are derived ONLY from FINAL games and their frozen line — nothing invented:
+
+    * ``record`` — ``"W-L"`` counting FINAL games this season where the team's score is
+      greater (win) vs. less (loss) than its opponent's (ties are skipped).
+    * ``ats`` — ``"W-L"`` counting, over FINAL games that carry a frozen ``spread`` +
+      ``favorite_team_id``, whether the ASKED team covered per :func:`_favorite_covered`
+      (pushes and games with no frozen spread are skipped).
+
+    Returns ``{"record": "0-0", "ats": "0-0"}`` on an unresolved token or a season with
+    no scored games — never raises, never invents. Display-only, pure read.
+    """
+    teams = list(session.exec(select(Team)).all())
+    team_ids = _team_ids_for_token(teams, team_abbr)
+    if not team_ids:
+        return {"record": "0-0", "ats": "0-0"}
+
+    games = list(session.exec(select(Game).where(Game.season == season)).all())
+    wins = losses = 0
+    ats_wins = ats_losses = 0
+    for g in games:
+        if g.status is not GameStatus.FINAL:
+            continue
+        is_home = g.home_team_id in team_ids
+        is_away = g.away_team_id in team_ids
+        if not (is_home or is_away):
+            continue
+        if g.home_score is None or g.away_score is None:
+            continue
+
+        team_score, opp_score = (
+            (g.home_score, g.away_score) if is_home else (g.away_score, g.home_score)
+        )
+        if team_score > opp_score:
+            wins += 1
+        elif team_score < opp_score:
+            losses += 1
+
+        # ATS — only when the game carries a frozen spread + a resolved favorite side.
+        if g.spread is None or g.favorite_team_id is None:
+            continue
+        if g.favorite_team_id == g.home_team_id:
+            fav_score, dog_score = g.home_score, g.away_score
+        elif g.favorite_team_id == g.away_team_id:
+            fav_score, dog_score = g.away_score, g.home_score
+        else:
+            continue
+        covered = _favorite_covered(Decimal(fav_score - dog_score), g.spread)
+        if covered is None:
+            continue  # push — no ATS result
+        asked_is_favorite = g.favorite_team_id in team_ids
+        asked_covered = covered if asked_is_favorite else not covered
+        if asked_covered:
+            ats_wins += 1
+        else:
+            ats_losses += 1
+
+    return {"record": f"{wins}-{losses}", "ats": f"{ats_wins}-{ats_losses}"}
