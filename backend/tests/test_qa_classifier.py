@@ -354,6 +354,65 @@ class NormalizeTeamAliasTests(unittest.TestCase):
         )
         self.assertEqual(out, QaResult(intent=QaIntent.news, team="SF"))
 
+    def test_alias_key_normalizes_spaces_hyphens_apostrophes(self) -> None:
+        # Multi-word / punctuated slang all hits the same normalized alias entry, so
+        # "big blue", "Big-Blue", "'boys" resolve like their compact keys.
+        self.assertEqual(_normalize_team("big blue", _ALIAS_TOKENS), "NYG")
+        self.assertEqual(_normalize_team("Big-Blue", _ALIAS_TOKENS), "NYG")
+        self.assertEqual(_normalize_team("'boys", _ALIAS_TOKENS), "DAL")
+        self.assertEqual(_normalize_team("go birds", _ALIAS_TOKENS), "PHI")
+
+    def test_crude_and_user_added_aliases_resolve(self) -> None:
+        # Crude fan slang is intentional (routes a fan's input to the team); "chefs" is
+        # the hand-added KC alias.
+        self.assertEqual(_normalize_team("qweefs", _ALIAS_TOKENS), "KC")
+        self.assertEqual(_normalize_team("chefs", _ALIAS_TOKENS), "KC")
+        self.assertEqual(_normalize_team("cowgirls", _ALIAS_TOKENS), "DAL")
+
+    def test_all_alias_targets_are_real_abbreviations_and_unambiguous(self) -> None:
+        # Every alias must target one of the 32 real abbreviations, and no key may be a
+        # bare display-word that would shadow (each maps to EXACTLY one team).
+        from app.bot.qa import _TEAM_ALIASES
+
+        real_abbrs = {
+            "ARI",
+            "ATL",
+            "BAL",
+            "BUF",
+            "CAR",
+            "CHI",
+            "CIN",
+            "CLE",
+            "DAL",
+            "DEN",
+            "DET",
+            "GB",
+            "HOU",
+            "IND",
+            "JAX",
+            "KC",
+            "LV",
+            "LAC",
+            "LAR",
+            "MIA",
+            "MIN",
+            "NE",
+            "NO",
+            "NYG",
+            "NYJ",
+            "PHI",
+            "PIT",
+            "SF",
+            "SEA",
+            "TB",
+            "TEN",
+            "WSH",
+        }
+        for key, abbr in _TEAM_ALIASES.items():
+            self.assertIn(abbr, real_abbrs, msg=f"{key!r} -> {abbr!r} is not a real abbr")
+            # keys are already normalized (lowercase alphanumerics only)
+            self.assertEqual(key, "".join(c for c in key.lower() if c.isalnum()), msg=key)
+
 
 # --------------------------------------------------------------------------- #
 # REGRESSION: the classifier must NOT be fed the closer-variety directive and MUST

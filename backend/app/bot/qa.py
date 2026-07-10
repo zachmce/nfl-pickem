@@ -163,25 +163,120 @@ async def classify_question(question: str) -> dict | None:
 # belt-and-suspenders backstop: an alias only resolves if its target is itself a real
 # token, so a typo here can never emit a non-real team.
 _TEAM_ALIASES: dict[str, str] = {
-    "donkeys": "DEN",
-    "jags": "JAX",
-    "niners": "SF",
-    "9ers": "SF",
-    "gmen": "NYG",
-    "bolts": "LAC",
+    # KEYS ARE NORMALIZED to lowercase alphanumerics ONLY (no spaces/hyphens/
+    # apostrophes) — _normalize_team strips the input the same way, so "big blue",
+    # "gang-green" and "'boys" all match. AMBIGUOUS slang that maps to >1 team is
+    # DELIBERATELY OMITTED (e.g. "birds" = ARI/ATL/BAL/PHI/SEA; "cats" = CAR/CIN/DET/
+    # JAX; bare "purple" = MIN/BAL), mirroring team_emoji's ambiguity discipline. City/
+    # display-name WORDS that already resolve as real tokens ("vegas", "philadelphia")
+    # are not repeated here. Crude/derogatory fan slang is intentional — these are
+    # inputs a real NFL fan types; the deterministic map just routes them to the team.
+    # ARI
     "cards": "ARI",
     "zona": "ARI",
-    "hawks": "SEA",
-    "bucs": "TB",
-    "pats": "NE",
+    "redbirds": "ARI",
+    "birdgang": "ARI",
+    # ATL
+    "falcs": "ATL",
+    "dirtybirds": "ATL",
+    # BUF
+    "mafia": "BUF",
+    "billsmafia": "BUF",
+    # CHI
+    "dabears": "CHI",
+    # CIN
+    "bungles": "CIN",
+    "whodey": "CIN",
+    # CLE
+    "dawgs": "CLE",
+    "dawgpound": "CLE",
+    "factoryofsadness": "CLE",
+    # DAL
     "boys": "DAL",
+    "cowgirls": "DAL",
+    "jerryworld": "DAL",
+    "americasteam": "DAL",
+    # DEN
+    "donkeys": "DEN",
+    "orangecrush": "DEN",
+    # GB
+    "pack": "GB",
+    "cheeseheads": "GB",
+    # IND
+    "dolts": "IND",
+    # JAX
+    "jags": "JAX",
+    "jagoffs": "JAX",
+    "sacksonville": "JAX",
+    "duval": "JAX",
+    # KC
+    "chefs": "KC",
+    "qweefs": "KC",
+    "kingdom": "KC",
+    "chiefskingdom": "KC",
+    # LV
+    "faiders": "LV",
+    "raidernation": "LV",
+    "silverandblack": "LV",
+    # LAC
+    "bolts": "LAC",
+    "chargas": "LAC",
+    # MIA
     "fins": "MIA",
     "phins": "MIA",
-    "iggles": "PHI",
-    "pack": "GB",
-    "stillers": "PIT",
+    "tunas": "MIA",
+    # MIN
     "vikes": "MIN",
+    "skol": "MIN",
+    "purplepeople": "MIN",
+    "minny": "MIN",
+    # NE
+    "pats": "NE",
+    "cheatriots": "NE",
+    # NO
     "whodat": "NO",
+    "aints": "NO",
+    "geaux": "NO",
+    # NYG
+    "gmen": "NYG",
+    "bigblue": "NYG",
+    "jints": "NYG",
+    # NYJ
+    "ganggreen": "NYJ",
+    "sackexchange": "NYJ",
+    # PHI
+    "iggles": "PHI",
+    "philly": "PHI",
+    "gobirds": "PHI",
+    "tushpush": "PHI",
+    # PIT
+    "stillers": "PIT",
+    "yinz": "PIT",
+    "yinzers": "PIT",
+    "blitzburgh": "PIT",
+    "sixburgh": "PIT",
+    # SF
+    "niners": "SF",
+    "9ers": "SF",
+    "fortyniners": "SF",
+    "faithful": "SF",
+    "frisco": "SF",
+    # SEA
+    "hawks": "SEA",
+    "12s": "SEA",
+    "twelves": "SEA",
+    "legionofboom": "SEA",
+    # TB
+    "bucs": "TB",
+    "pewter": "TB",
+    "tompa": "TB",
+    # TEN
+    "tits": "TEN",
+    "flamingthumbtack": "TEN",
+    "twotoneblue": "TEN",
+    # WSH
+    "commies": "WSH",
+    "footballteam": "WSH",
 }
 
 
@@ -215,7 +310,10 @@ def _normalize_team(value: object, known_team_tokens: set[str]) -> str | None:
         return token
     # Pure fallback: a curated, unambiguous slang nickname resolves to its canonical
     # abbreviation, but ONLY when that abbreviation is a real token (never emit a fake).
-    alias = _TEAM_ALIASES.get(stripped.lower())
+    # The lookup key is normalized to lowercase alphanumerics so punctuation/spacing
+    # variants ("big blue", "gang-green", "'boys") all hit the same alias entry.
+    alias_key = "".join(ch for ch in stripped.lower() if ch.isalnum())
+    alias = _TEAM_ALIASES.get(alias_key)
     if alias is not None and alias in real:
         return alias
     return None
