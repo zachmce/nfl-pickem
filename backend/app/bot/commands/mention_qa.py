@@ -96,17 +96,24 @@ class MentionQaCog(commands.Cog):
             if self._is_rate_limited(message):
                 return
 
-            line = await qa.answer_question(question, discord_id=message.author.id)
-            decorated = decorate_team_logos(line)
-            # suppress_embeds: a news reply carries source links (masked links) — without
-            # this Discord unfurls EVERY link into a wall of rich preview cards below the
-            # clean headline list. The Q&A replies are plain text lines, so suppressing
-            # link embeds is always the right call here.
-            await message.channel.send(
-                decorated,
-                allowed_mentions=discord.AllowedMentions.none(),
-                suppress_embeds=True,
-            )
+            # Show the "Pick'em Bot is typing…" indicator for the whole answer + send.
+            # Placed AFTER the cheap guards + cooldown so it only fires for a real answer.
+            # Clean here (unlike a slash command) because this is an on_message listener
+            # with NO 3s interaction ACK deadline; discord.py auto-refreshes the indicator
+            # every ~10s until the block exits — covering the two Gemma calls + any live
+            # fetches a prediction makes (#117 / the prediction-intent design).
+            async with message.channel.typing():
+                line = await qa.answer_question(question, discord_id=message.author.id)
+                decorated = decorate_team_logos(line)
+                # suppress_embeds: a news reply carries source links (masked links) —
+                # without this Discord unfurls EVERY link into a wall of rich preview
+                # cards below the clean headline list. The Q&A replies are plain text
+                # lines, so suppressing link embeds is always the right call here.
+                await message.channel.send(
+                    decorated,
+                    allowed_mentions=discord.AllowedMentions.none(),
+                    suppress_embeds=True,
+                )
         except Exception:
             # One bad message must never crash the gateway loop (mirrors the notifier
             # per-message guard). answer_question is best-effort too, but guard the
