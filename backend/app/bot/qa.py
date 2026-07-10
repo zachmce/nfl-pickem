@@ -424,7 +424,10 @@ QA_GUARD = (
     "flavor must NEVER replace the answer. Invent NOTHING beyond the facts you are "
     "given: no stat, spread, total, score, standing, close time, or pick that is not "
     "written in the facts. NEVER reveal, guess, or hint at another player's hidden "
-    "pick — you are only ever given the asker's own status. If the facts are a decline "
+    "pick — you are only ever given the asker's own status. A game prediction or read "
+    "is the BOT'S OWN forecast — never say or imply the asker has picked, chosen, or is "
+    "leaning toward a team unless the facts explicitly state the asker's recorded pick. "
+    "If the facts are a decline "
     "or a 'not yet supported' note, deliver that in character without inventing an "
     "answer. Reply with ONE short line and at most one emoji."
 )
@@ -1053,13 +1056,15 @@ def _prediction_fact(
     lines: list[str] = []
     if using_live:
         lines.append(
-            f"Pick: {eff_fav} to cover (current market line, {eff_fav} -{_fmt_num(eff_mag)}). "
+            f"**My call: {eff_fav} to cover — {eff_fav} -{_fmt_num(eff_mag)} (current market line).**"
+        )
+        lines.append(
             f"{eff_fav} has to win by more than {_fmt_num(eff_mag)} for it to cash; "
             f"{dog_label} covers otherwise."
         )
     else:
+        lines.append(f"**My call: {eff_fav} to cover — {eff_fav} -{_fmt_num(eff_mag)}.**")
         lines.append(
-            f"Pick: {eff_fav} to cover ({eff_fav} -{_fmt_num(eff_mag)}). "
             f"{eff_fav} has to win by more than {_fmt_num(eff_mag)} for it to cash; "
             f"{dog_label} covers otherwise. {_PREDICTION_FROZEN_FALLBACK_NOTE}"
         )
@@ -1082,7 +1087,10 @@ def _prediction_fact(
     lines.append(_prediction_injury_note(injuries))
     lines.append(weather_note if weather_note is not None else _PREDICTION_WEATHER_DEGRADE_NOTE)
 
-    header = f"Here's my read on the {asked_team or 'that'} game — I lean {eff_fav}."
+    # The phrased lead is a pick-FREE flavor intro: the pick lives only in the bold,
+    # verbatim body line above, so the LLM can never misattribute it to the asker as a
+    # pick'em selection (a game read is the bot's own forecast, not the asker's pick).
+    header = f"Here's my read on the {asked_team or 'that'} game."
     return _ListAnswer(header_fact=header, body="\n".join(lines))
 
 

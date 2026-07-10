@@ -1220,15 +1220,18 @@ class PredictionFactTests(unittest.TestCase):
         self.assertIsInstance(fact, qa._ListAnswer)
         assert isinstance(fact, qa._ListAnswer)
         # Pick + cover read (from the LIVE line), every number from the inputs/odds.
-        self.assertIn("Pick: KC to cover (current market line, KC -6)", fact.body)
+        # The call is a BOLD, verbatim body line so it stands out and can't be re-voiced.
+        self.assertIn("**My call: KC to cover — KC -6 (current market line).**", fact.body)
         self.assertIn("win by more than 6", fact.body)
         # Record + ATS verbatim.
         self.assertIn("4-1 straight up and 3-2 against the spread", fact.body)
         # Injury + weather notes.
         self.assertIn("Injury watch: Patrick Mahomes (questionable)", fact.body)
         self.assertIn(weather_note, fact.body)
-        # The in-voice lead names the pick.
+        # The phrased lead references the GAME, never the pick — the pick is body-only so
+        # the LLM can't misattribute it to the asker as a pick'em selection.
         self.assertIn("KC", fact.header_fact)
+        self.assertNotIn("to cover", fact.header_fact)
 
     def test_conflict_callout_fires_on_material_magnitude_delta(self) -> None:
         fact = qa._prediction_fact(
@@ -1250,9 +1253,10 @@ class PredictionFactTests(unittest.TestCase):
             weather_note=None,
         )
         assert isinstance(fact, qa._ListAnswer)
-        self.assertIn("Pick: LAC to cover", fact.body)
+        self.assertIn("**My call: LAC to cover", fact.body)
         self.assertIn("Heads up: you locked this at KC -3", fact.body)
-        self.assertIn("LAC", fact.header_fact)
+        # The pick (LAC) lives ONLY in the body — the pick-free lead never carries it.
+        self.assertNotIn("LAC", fact.header_fact)
 
     def test_no_callout_when_live_agrees_with_frozen(self) -> None:
         fact = qa._prediction_fact(
@@ -1263,7 +1267,7 @@ class PredictionFactTests(unittest.TestCase):
         )
         assert isinstance(fact, qa._ListAnswer)
         self.assertNotIn("Heads up", fact.body)
-        self.assertIn("Pick: KC to cover (current market line, KC -3)", fact.body)
+        self.assertIn("**My call: KC to cover — KC -3 (current market line).**", fact.body)
 
     def test_live_line_missing_falls_back_to_frozen_relabelled_still_picks(self) -> None:
         fact = qa._prediction_fact(
@@ -1274,7 +1278,7 @@ class PredictionFactTests(unittest.TestCase):
         )
         assert isinstance(fact, qa._ListAnswer)
         # Still produces the pick + cover read off the FROZEN line, relabelled.
-        self.assertIn("Pick: KC to cover (KC -3)", fact.body)
+        self.assertIn("**My call: KC to cover — KC -3.**", fact.body)
         self.assertNotIn("current market line", fact.body)
         self.assertIn(qa._PREDICTION_FROZEN_FALLBACK_NOTE, fact.body)
         # No conflict callout when the live line never landed.
@@ -1364,7 +1368,7 @@ class PredictionIntentRoutingTests(unittest.TestCase):
         self.assertEqual(seam_calls[0]["args"], ("CHIEFS",))
         self.assertEqual(odds_calls[0]["args"], (2025, 5, 555))
         # A non-empty derived-facts briefing: the pick + cover read reach Discord verbatim.
-        self.assertIn("Pick: KC to cover (current market line, KC -6)", out)
+        self.assertIn("**My call: KC to cover — KC -6 (current market line).**", out)
         self.assertIn("Heads up: you locked this at KC -3", out)
 
 

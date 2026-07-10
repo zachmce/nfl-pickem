@@ -102,7 +102,7 @@ class PredictionIntentRoutingTests(unittest.TestCase):
             out = asyncio.run(qa.answer_question("who wins the Chiefs game?", discord_id=7))
 
         self.assertTrue(out)
-        self.assertIn("Pick: KC to cover", out)
+        self.assertIn("**My call: KC to cover", out)
         self.assertIn("4-1 straight up and 3-2 against the spread", out)
 
 
