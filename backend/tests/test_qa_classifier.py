@@ -27,7 +27,7 @@ from unittest import mock
 import httpx
 
 from app.bot import chat_personality, llm_client, qa
-from app.bot.qa import QaIntent, QaResult, validate_classification
+from app.bot.qa import QaIntent, QaResult, _normalize_team, validate_classification
 from app.config import settings
 
 
@@ -299,6 +299,119 @@ class NewsClassificationTests(unittest.TestCase):
         self.assertIn("news (", prompt)
         self.assertIn("news (recent ESPN headlines", prompt)
         self.assertNotIn("topic: news", prompt)
+
+
+# A token set that CONTAINS the alias targets under test (real abbreviations only —
+# _normalize_team's real-set guard means an alias only resolves when its canonical
+# abbreviation is itself a member of this set).
+_ALIAS_TOKENS = {"SF", "PHI", "DEN", "NYG", "SEA", "DAL", "KC", "CHIEFS"}
+
+
+class NormalizeTeamAliasTests(unittest.TestCase):
+    """Deterministic slang nickname aliases folded into the shared _normalize_team
+    chokepoint — a pure FALLBACK that never shadows real resolution and never emits
+    a non-real team."""
+
+    def test_alias_resolves_to_canonical_abbr(self) -> None:
+        # A curated slang nickname resolves to its canonical team abbreviation,
+        # independent of the classifier.
+        self.assertEqual(_normalize_team("niners", _ALIAS_TOKENS), "SF")
+        self.assertEqual(_normalize_team("iggles", _ALIAS_TOKENS), "PHI")
+
+    def test_alias_is_case_and_whitespace_insensitive(self) -> None:
+        self.assertEqual(_normalize_team("  Donkeys ", _ALIAS_TOKENS), "DEN")
+        self.assertEqual(_normalize_team("9ERS", _ALIAS_TOKENS), "SF")
+
+    def test_real_tokens_unchanged_alias_is_pure_fallback(self) -> None:
+        # The alias path NEVER shadows real resolution: a real abbreviation / display
+        # token resolves exactly as before (the alias branch is only reached on a miss).
+        self.assertEqual(_normalize_team("KC", _ALIAS_TOKENS), "KC")
+        self.assertEqual(_normalize_team("Chiefs", _ALIAS_TOKENS), "CHIEFS")
+
+    def test_unknown_garbage_still_none(self) -> None:
+        self.assertIsNone(_normalize_team("narnia", _ALIAS_TOKENS))
+
+    def test_defensive_guard_alias_target_absent_from_set(self) -> None:
+        # Even though "donkeys"->DEN is in the map, DEN is NOT in this set (an unseeded
+        # / partial DB or a map typo): never emit a non-real team.
+        tokens_without_den = {"SF", "PHI", "KC", "CHIEFS"}
+        self.assertIsNone(_normalize_team("donkeys", tokens_without_den))
+
+    def test_ambiguous_slang_excluded_from_map(self) -> None:
+        # "birds" maps to >1 team (Eagles/Cardinals/Ravens/Seahawks) so it is NOT in
+        # the map and does not resolve.
+        self.assertIsNone(_normalize_team("birds", _ALIAS_TOKENS))
+
+    def test_alias_resolves_end_to_end_through_injuries(self) -> None:
+        out = validate_classification(
+            {"intent": "injuries", "team": "donkeys"}, known_team_tokens=_ALIAS_TOKENS
+        )
+        self.assertEqual(out, QaResult(intent=QaIntent.injuries, team="DEN"))
+
+    def test_alias_resolves_end_to_end_through_news(self) -> None:
+        out = validate_classification(
+            {"intent": "news", "team": "niners"}, known_team_tokens=_ALIAS_TOKENS
+        )
+        self.assertEqual(out, QaResult(intent=QaIntent.news, team="SF"))
+
+    def test_alias_key_normalizes_spaces_hyphens_apostrophes(self) -> None:
+        # Multi-word / punctuated slang all hits the same normalized alias entry, so
+        # "big blue", "Big-Blue", "'boys" resolve like their compact keys.
+        self.assertEqual(_normalize_team("big blue", _ALIAS_TOKENS), "NYG")
+        self.assertEqual(_normalize_team("Big-Blue", _ALIAS_TOKENS), "NYG")
+        self.assertEqual(_normalize_team("'boys", _ALIAS_TOKENS), "DAL")
+        self.assertEqual(_normalize_team("go birds", _ALIAS_TOKENS), "PHI")
+
+    def test_crude_and_user_added_aliases_resolve(self) -> None:
+        # Crude fan slang is intentional (routes a fan's input to the team); "chefs" is
+        # the hand-added KC alias.
+        self.assertEqual(_normalize_team("qweefs", _ALIAS_TOKENS), "KC")
+        self.assertEqual(_normalize_team("chefs", _ALIAS_TOKENS), "KC")
+        self.assertEqual(_normalize_team("cowgirls", _ALIAS_TOKENS), "DAL")
+
+    def test_all_alias_targets_are_real_abbreviations_and_unambiguous(self) -> None:
+        # Every alias must target one of the 32 real abbreviations, and no key may be a
+        # bare display-word that would shadow (each maps to EXACTLY one team).
+        from app.bot.qa import _TEAM_ALIASES
+
+        real_abbrs = {
+            "ARI",
+            "ATL",
+            "BAL",
+            "BUF",
+            "CAR",
+            "CHI",
+            "CIN",
+            "CLE",
+            "DAL",
+            "DEN",
+            "DET",
+            "GB",
+            "HOU",
+            "IND",
+            "JAX",
+            "KC",
+            "LV",
+            "LAC",
+            "LAR",
+            "MIA",
+            "MIN",
+            "NE",
+            "NO",
+            "NYG",
+            "NYJ",
+            "PHI",
+            "PIT",
+            "SF",
+            "SEA",
+            "TB",
+            "TEN",
+            "WSH",
+        }
+        for key, abbr in _TEAM_ALIASES.items():
+            self.assertIn(abbr, real_abbrs, msg=f"{key!r} -> {abbr!r} is not a real abbr")
+            # keys are already normalized (lowercase alphanumerics only)
+            self.assertEqual(key, "".join(c for c in key.lower() if c.isalnum()), msg=key)
 
 
 # --------------------------------------------------------------------------- #
