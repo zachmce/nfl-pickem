@@ -20,6 +20,7 @@
  */
 import { useAuth } from "../auth/useAuth";
 import Avatar from "../components/Avatar";
+import { finalScoreLabel } from "../lib/picks";
 import type { PickType, SlateGame } from "../lib/picks";
 import type { UserWeekResult, WeekResultPickRead } from "../lib/results";
 import { EMPTY_WEEKLY, ERROR_WEEKLY, LOADING_WEEKLY } from "../lib/strings";
@@ -99,6 +100,11 @@ function PickRow({
 }) {
   const game = slateByGameId[pick.game_id];
   const matchup = game ? matchupLabel(game) : `Game #${pick.game_id}`;
+  // On a FINAL game, show the score-carrying matchup ("AWAY n @ HOME n") in
+  // place of the plain "AWAY @ HOME" subline; non-final rows keep the plain
+  // matchup (finalScoreLabel returns null for them).
+  const score = game ? finalScoreLabel(game) : null;
+  const matchupText = score ?? matchup;
 
   // MISC is a non-base type with NO resolved side and NO mortal lock: the primary
   // label is its free-text prediction (NOT routed through the spread/total side
@@ -111,7 +117,7 @@ function PickRow({
     : game
       ? sideLabel(pick.pick_type, game)
       : pick.pick_type;
-  const subline = isMisc ? `Misc · ${matchup}` : matchup;
+  const subline = isMisc ? `Misc · ${matchupText}` : matchupText;
 
   return (
     <li className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
