@@ -33,6 +33,15 @@ export const ERROR_CALENDAR =
  */
 export const ERROR_WEEK_STATUS = "Week status unavailable";
 
+// --- Auth notices --------------------------------------------------------- //
+/**
+ * Shown on /login after a successful password change: the server invalidates the
+ * current session, so the user must sign in again with the new password. Pinned
+ * by a test — keep the exact wording.
+ */
+export const PASSWORD_CHANGED_NOTICE =
+  "Password changed — sign in again with your new password.";
+
 // --- Empty ---------------------------------------------------------------- //
 export const EMPTY_STANDINGS =
   "No scores have been posted yet — the scoreboard will fill in once the season is underway.";
