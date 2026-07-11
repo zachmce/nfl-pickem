@@ -135,6 +135,8 @@ class SlateTests(unittest.TestCase):
         favorite_team_id: int | None = None,
         underdog_team_id: int | None = None,
         status: GameStatus = GameStatus.SCHEDULED,
+        home_score: int | None = None,
+        away_score: int | None = None,
     ) -> int:
         """Add a single game with explicit line + kickoff; returns its id."""
         with self._session() as session:
@@ -151,6 +153,8 @@ class SlateTests(unittest.TestCase):
                 total=total,
                 favorite_team_id=favorite_team_id,
                 underdog_team_id=underdog_team_id,
+                home_score=home_score,
+                away_score=away_score,
             )
             session.add(g)
             session.commit()
@@ -375,6 +379,50 @@ class SlateTests(unittest.TestCase):
         games = resp.json()["games"]
         self.assertEqual(len(games), 1)
         self.assertEqual(games[0]["status"], "FINAL")
+
+    # -- case 5c: scores surface for FINAL, null for SCHEDULED -------------
+
+    def test_scores_present_for_final_null_for_scheduled(self) -> None:
+        """A FINAL game surfaces its concrete home/away score; a SCHEDULED game in
+        the same week carries null scores end-to-end (no invented 0-0). Mirrors
+        the persisted-null pass-through convention (issue #120)."""
+        now = datetime.now(timezone.utc)
+        wk_id = self._seed_week_row(1)
+        # FINAL game with concrete scores; kicked off in the past.
+        self._add_game(
+            week_id=wk_id,
+            week=1,
+            espn_event_id=1001,
+            kickoff_at=now - timedelta(hours=4),
+            home_team_id=self.tid[0],
+            away_team_id=self.tid[1],
+            status=GameStatus.FINAL,
+            home_score=24,
+            away_score=17,
+        )
+        # SCHEDULED game with no scores; kicks off later.
+        self._add_game(
+            week_id=wk_id,
+            week=1,
+            espn_event_id=1002,
+            kickoff_at=now + timedelta(days=1),
+            home_team_id=self.tid[2],
+            away_team_id=self.tid[3],
+            status=GameStatus.SCHEDULED,
+        )
+
+        resp = self._get(1)
+        self.assertEqual(resp.status_code, 200, resp.text)
+        games = resp.json()["games"]
+        by_status = {g["status"]: g for g in games}
+
+        final = by_status["FINAL"]
+        self.assertEqual(final["home_score"], 24)
+        self.assertEqual(final["away_score"], 17)
+
+        scheduled = by_status["SCHEDULED"]
+        self.assertIsNone(scheduled["home_score"])
+        self.assertIsNone(scheduled["away_score"])
 
     # -- case 6: demo-shift -> everything future, all unlocked -------------
 

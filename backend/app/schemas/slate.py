@@ -44,8 +44,10 @@ class SlateGame(BaseModel):
     per-game PROGRESS, distinct from ``locked`` (pick-lock): the My Picks page
     surfaces it so a read-only week (locked at its first kickoff) can still show
     which individual games are underway or final. The line fields
-    (``spread`` / ``total`` / ``favorite_team_id`` / ``underdog_team_id``) and
-    ``kickoff_at`` preserve their persisted nulls.
+    (``spread`` / ``total`` / ``favorite_team_id`` / ``underdog_team_id``),
+    ``kickoff_at`` and the ``home_score`` / ``away_score`` all preserve their
+    persisted nulls — SCHEDULED games have no score, so their scores stay null
+    (only meaningful when ``status`` is FINAL; mirrors the Calendar schema).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -58,6 +60,8 @@ class SlateGame(BaseModel):
     total: Decimal | None
     favorite_team_id: int | None
     underdog_team_id: int | None
+    home_score: int | None
+    away_score: int | None
     locked: bool
     status: GameStatus
     eligibility: dict[PickType, bool]
