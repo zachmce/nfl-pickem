@@ -25,7 +25,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/standings", label: "Standings" },
   { to: "/weekly", label: "Weekly" },
   { to: "/calendar", label: "Calendar" },
-  { to: "/rules", label: "Rules" },
+  { to: "/help", label: "Help" },
 ];
 
 function navLinkClass({ isActive }: { isActive: boolean }): string {
