@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.3] - 2026-07-11
+
+Bug-fix patch — a single frontend fix for confusing post-password-change behavior.
+User-facing behavior improves; no API or schema changes.
+
+### Fixed
+
+- **Password change now redirects to the login page (#119).** Changing a password
+  invalidates the current session server-side (correct), but the app left the user on the
+  Profile page holding a dead session — the next navigation failed with no explanation.
+  On a successful change the app now clears the local session and redirects to `/login`
+  with a notice ("Password changed — sign in again with your new password."), so the user
+  understands they must sign in again with the new password. Error paths (confirmation
+  mismatch, wrong current password) are unchanged and still report inline on the Profile
+  page.
+
 ## [1.2.2] - 2026-07-09
 
 Bug-fix patch — two frontend data-freshness fixes surfaced during exploration.
