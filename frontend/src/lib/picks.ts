@@ -63,7 +63,28 @@ export interface SlateGame {
    * pick-lock: picks lock week-wide at the first kickoff, but a game reports its
    * own SCHEDULED/IN_PROGRESS/FINAL state independently. */
   status: GameStatus;
+  /** Final game scores — only meaningful (rendered) when `status === "FINAL"`;
+   * SCHEDULED/IN_PROGRESS games carry null (never invent 0-0). Mirrors the
+   * lib/calendar.ts CalendarGame convention. */
+  home_score: number | null;
+  away_score: number | null;
   eligibility: Record<PickType, boolean>;
+}
+
+/**
+ * The `"AWAY n @ HOME n"` final-score label for a game, or `null` when it should
+ * not render — i.e. any game that is not `FINAL`, or a FINAL game missing either
+ * score (persisted-null pass-through; never invent 0-0). Mirrors the lib/calendar.ts
+ * "only meaningful when FINAL" convention.
+ */
+export function finalScoreLabel(game: SlateGame): string | null {
+  if (game.status !== "FINAL" || game.home_score === null || game.away_score === null) {
+    return null;
+  }
+  return (
+    `${game.away_team.abbreviation} ${game.away_score} @ ` +
+    `${game.home_team.abbreviation} ${game.home_score}`
+  );
 }
 
 /** The pickable slate for a {season, week}: one entry per game. */

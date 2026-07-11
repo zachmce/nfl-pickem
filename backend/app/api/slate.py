@@ -151,6 +151,11 @@ def read_slate(
                 total=g.total,
                 favorite_team_id=g.favorite_team_id,
                 underdog_team_id=g.underdog_team_id,
+                # Persisted-null pass-through (same convention as the line fields
+                # above): SCHEDULED rows carry null, FINAL rows carry the score —
+                # no default-to-0, no status branch. Mirrors calendar.py:137-138.
+                home_score=g.home_score,
+                away_score=g.away_score,
                 locked=is_game_locked(locked_game, now),
                 status=g.status,
                 eligibility={t: is_pick_type_eligible(g, t) for t in PickType},
