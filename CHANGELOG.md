@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.4] - 2026-07-11
+
+Enhancement patch — the Rules page becomes a Help page that also documents the
+Discord bot. User-facing content/navigation change; no API or schema changes.
+
+### Changed
+
+- **The "Rules" page is now a "Help" page (#124).** The dedicated Rules page is
+  replaced by a single `/help` page that folds in all the existing rules content
+  (picks, roster, pick window, lines lock, scoring, standings) **and** adds a guide to
+  using the Discord bot — how to @mention it, the questions it can answer (with example
+  phrasings), and the updates it posts automatically. Every topic is a collapsible
+  accordion. The old `/rules` URL redirects to `/help`, so existing links keep working.
+
 ## [1.2.3] - 2026-07-11
 
 Bug-fix patch — a single frontend fix for confusing post-password-change behavior.
