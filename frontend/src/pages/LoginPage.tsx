@@ -8,7 +8,7 @@
  * above the card so the demo signal shows even pre-auth.
  */
 import { useEffect, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/useAuth";
 import DemoBanner from "../components/DemoBanner";
@@ -17,6 +17,9 @@ import { ApiError, api, type UserRead } from "../lib/api";
 export default function LoginPage() {
   const { refresh } = useAuth();
   const navigate = useNavigate();
+  // Optional one-off notice carried in router state (e.g. redirected here after
+  // a password change). Read defensively — state is unknown/null on a fresh nav.
+  const notice = (useLocation().state as { notice?: string } | null)?.notice ?? null;
 
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
@@ -61,6 +64,12 @@ export default function LoginPage() {
           <h1 className="mb-6 text-center text-xl font-bold text-fg">
             🏈 NFL Pick'em
           </h1>
+
+          {notice && (
+            <p className="mb-4 rounded bg-success-bg px-3 py-2 text-sm text-success-fg">
+              {notice}
+            </p>
+          )}
 
           {error && (
             <p className="mb-4 rounded bg-danger-bg px-3 py-2 text-sm text-danger-fg">

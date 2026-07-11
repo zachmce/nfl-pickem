@@ -16,20 +16,22 @@
  * hex — matching LoginPage's token usage.
  */
 import { useState, type FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/useAuth";
 import Avatar from "../components/Avatar";
 import { ApiError, api } from "../lib/api";
 import { formatLocalDateTime } from "../lib/datetime";
+import { PASSWORD_CHANGED_NOTICE } from "../lib/strings";
 
 export default function ProfilePage() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   // RequireAuth gates the route, so this is a type guard only.
@@ -40,7 +42,6 @@ export default function ProfilePage() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    setSuccess(null);
 
     if (newPassword !== confirmPassword) {
       // Client-side check — do NOT hit the API when the confirmation mismatches.
@@ -57,10 +58,19 @@ export default function ProfilePage() {
           new_password: newPassword,
         }),
       });
-      setSuccess("Password changed.");
+      // The server invalidates the current session on a password change, so the
+      // SPA's session is now dead. Clear the fields, then redirect to /login with
+      // a notice — navigate FIRST (route leaves RequireAuth) so logout()'s
+      // setUser(null) can't trigger a RequireAuth redirect that would drop the
+      // notice; logout() is fire-and-forget local-state cleanup.
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
+      navigate("/login", {
+        replace: true,
+        state: { notice: PASSWORD_CHANGED_NOTICE },
+      });
+      void logout();
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setError("Current password is incorrect");
@@ -100,11 +110,6 @@ export default function ProfilePage() {
         {error && (
           <p className="mb-4 rounded bg-danger-bg px-3 py-2 text-sm text-danger-fg">
             {error}
-          </p>
-        )}
-        {success && (
-          <p className="mb-4 rounded bg-success-bg px-3 py-2 text-sm text-success-fg">
-            {success}
           </p>
         )}
 
