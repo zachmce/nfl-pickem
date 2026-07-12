@@ -41,9 +41,11 @@ export function useStandings(): UseStandings {
   const [standings, setStandings] = useState<SeasonStandingRow[]>([]);
   const [seasonComplete, setSeasonComplete] = useState(false);
 
+  // Mount-only load (deps []). Status already starts at "loading", so an
+  // in-effect setStatus("loading") would be redundant (and trips
+  // react-hooks/set-state-in-effect); the .then/.catch set "ok"/"error".
   useEffect(() => {
     let cancelled = false;
-    setStatus("loading");
 
     getCurrentWeek()
       .then((cw) => {

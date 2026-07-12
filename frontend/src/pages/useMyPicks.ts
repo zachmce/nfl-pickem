@@ -93,9 +93,11 @@ export function useMyPicks(): UseMyPicks {
   // the saving state flushes) is reliably ignored.
   const inFlightRef = useRef<Set<string>>(new Set());
 
+  // Mount-only load (deps []). Status already starts at "loading", so an
+  // in-effect setStatus("loading") would be redundant (and trips
+  // react-hooks/set-state-in-effect); the .then/.catch set "ok"/"error".
   useEffect(() => {
     let cancelled = false;
-    setStatus("loading");
 
     getCurrentWeek()
       .then(async (cw) => {

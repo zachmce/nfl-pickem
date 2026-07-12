@@ -51,10 +51,22 @@ export function useWeekly(): UseWeekly {
     Record<number, SlateGame>
   >({});
 
-  // Resolve season + default week once on mount.
+  // Re-show the "loading" placeholder whenever the fetched key (season+week)
+  // changes, WITHOUT calling setState inside the fetch effect. This is React's
+  // endorsed "adjust state during render on a key change" pattern: the key is
+  // computed only once season resolves, so season-resolution AND any subsequent
+  // week change both re-enter "loading" — byte-for-byte the prior UX.
+  const fetchKey = season === null ? null : `${season}:${week}`;
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  if (fetchKey !== null && fetchKey !== loadedKey) {
+    setLoadedKey(fetchKey);
+    setStatus("loading");
+  }
+
+  // Resolve season + default week once on mount. Status already starts at
+  // "loading" (initial state), so no in-effect setStatus is needed here.
   useEffect(() => {
     let cancelled = false;
-    setStatus("loading");
 
     getCurrentWeek()
       .then((cw) => {
@@ -77,7 +89,6 @@ export function useWeekly(): UseWeekly {
   useEffect(() => {
     if (season === null) return;
     let cancelled = false;
-    setStatus("loading");
 
     Promise.all([getWeekResults(season, week), getSlate(season, week)])
       .then(([weekResults, slate]) => {

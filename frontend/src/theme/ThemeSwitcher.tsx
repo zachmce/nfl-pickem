@@ -4,7 +4,7 @@
  * choice (☀️ light / 🌙 dark / 💻 system). Lives inline in the header user menu
  * (between username and Sign out), so it also surfaces in the mobile menu.
  */
-import type { Theme, ThemeState } from "./ThemeContext";
+import type { Theme, ThemeState } from "./theme-context";
 import { useTheme } from "./useTheme";
 
 const NEXT: Record<Theme, Theme> = {

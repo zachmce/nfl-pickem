@@ -547,9 +547,11 @@ function BotPersonalityPanel() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Mount-only load (deps []). Status already starts at "loading", so an
+  // in-effect setStatus("loading") would be redundant (and trips
+  // react-hooks/set-state-in-effect); the .then/.catch set "ok"/"error".
   useEffect(() => {
     let cancelled = false;
-    setStatus("loading");
     getBotPersonality()
       .then((p) => {
         if (cancelled) return;
@@ -1014,11 +1016,17 @@ function MiscOverridePanel({
   const [gradePoints, setGradePoints] = useState<string>("0");
 
   // Editable content text for an existing MISC pick. Seeded from the current
-  // pick and re-synced to server truth after each re-GET (Save text or grade).
-  const [editText, setEditText] = useState<string>(miscPick?.misc_text ?? "");
-  useEffect(() => {
-    setEditText(miscPick?.misc_text ?? "");
-  }, [miscPick?.misc_text]);
+  // pick and re-synced to server truth after each re-GET (Save text or grade),
+  // while staying user-editable between syncs. Uses React's endorsed "reset
+  // state during render on a key change" pattern (keyed on the server text) so
+  // there is no setState inside an effect (react-hooks/set-state-in-effect).
+  const serverText = miscPick?.misc_text ?? "";
+  const [editText, setEditText] = useState<string>(serverText);
+  const [syncedText, setSyncedText] = useState<string>(serverText);
+  if (serverText !== syncedText) {
+    setSyncedText(serverText);
+    setEditText(serverText);
+  }
 
   const trimmedEdit = editText.trim();
   const textDirty =
