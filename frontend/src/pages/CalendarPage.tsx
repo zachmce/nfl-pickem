@@ -138,9 +138,20 @@ export default function CalendarPage() {
   const fromDate = grid[0].key;
   const toDate = grid[grid.length - 1].key;
 
+  // Re-show the "loading" placeholder whenever the visible range changes (month
+  // navigation) WITHOUT calling setState inside the fetch effect. React's
+  // endorsed "adjust state during render on key change" pattern: the initial
+  // range seeds loadedRange (status already starts "loading"), and any month
+  // change re-enters "loading" exactly as the in-effect setStatus did.
+  const rangeKey = `${fromDate}:${toDate}`;
+  const [loadedRange, setLoadedRange] = useState(rangeKey);
+  if (rangeKey !== loadedRange) {
+    setLoadedRange(rangeKey);
+    setStatus("loading");
+  }
+
   useEffect(() => {
     let cancelled = false;
-    setStatus("loading");
     getCalendar(fromDate, toDate)
       .then((res: CalendarResponse) => {
         if (cancelled) return;

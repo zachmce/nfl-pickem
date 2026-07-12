@@ -36,22 +36,19 @@ export default tseslint.config(
       // error. Currently clean (0 findings), so the gate is green today.
       "react-hooks/exhaustive-deps": "error",
 
-      // ── Residue tracked as warn (see .planning/todos/pending/frontend-react-hooks-v7-residue.md) ──
-      // This task's target was the `react-hooks/exhaustive-deps` bug class, which is
-      // ALREADY clean (0 findings). eslint-plugin-react-hooks@7's flat `recommended`
-      // set additionally ships three newer, React-Compiler-adjacent rules that fire 14x
-      // across pre-existing, deliberate patterns (loading-state effects, latest-value
-      // refs, context+provider co-location) — none are bugs, and this project does not
-      // use the React Compiler. Fixing them means real refactors with behavior risk
-      // (deriving effect state, splitting context files, retiming ref writes) — out of
-      // scope for "add a linter". Rather than turn them OFF (which would also stop
-      // catching NEW violations), they are set to WARN: still visible on every lint run
-      // and on new code, but non-blocking (the `eslint src` gate fails only on ERRORs).
-      // The follow-up todo triages the 14 to zero and then promotes these back to ERROR.
-      // The value rules — `exhaustive-deps` + rules-of-hooks — stay ERROR: the standing gate.
-      "react-hooks/set-state-in-effect": "warn", // 10: setStatus("loading") before async fetch (correct, intentional)
+      // ── react-hooks@7 residue triage (issue #112) ──
+      // eslint-plugin-react-hooks@7's flat `recommended` set ships three newer,
+      // React-Compiler-adjacent rules beyond exhaustive-deps. They were parked at WARN
+      // when the linter was first added (real refactors with behavior risk, out of scope
+      // for "add a linter"); issue #112 triages them to zero and promotes them back to
+      // ERROR one group at a time so the gate stays green incrementally.
+      //   - set-state-in-effect: RESOLVED (loading-state effects rewritten to the
+      //     endorsed "adjust state during render on key change" pattern; auth bootstrap
+      //     inlined into .then/.catch/.finally; theme `resolved` derived via
+      //     useSyncExternalStore). Promoted to ERROR — a standing gate now.
+      "react-hooks/set-state-in-effect": "error",
       "react-hooks/refs": "warn", // 2: latest-value ref writes during render
-      "react-refresh/only-export-components": "warn", // 2: Auth/Theme context+provider co-located (HMR-only opinion)
+      "react-refresh/only-export-components": "warn", // 3: context+provider co-located (HMR-only opinion)
     },
   },
 );

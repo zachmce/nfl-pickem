@@ -50,9 +50,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  // Bootstrap the user on mount. The fetch is inlined (rather than calling
+  // refresh()) so every setState lives in a .then/.catch/.finally continuation
+  // — not synchronously in the effect body (react-hooks/set-state-in-effect).
+  // Behavior is identical to `void refresh()`: mount fetch, 401/error -> null,
+  // loading -> false. `refresh` stays exposed on the context for post-login use.
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    let cancelled = false;
+    api<UserRead>("/api/auth/me")
+      .then((me) => {
+        if (!cancelled) setUser(me);
+      })
+      .catch(() => {
+        // 401 / network error -> treat as logged out; never throw to the tree.
+        if (!cancelled) setUser(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <AuthContext.Provider value={{ user, loading, refresh, logout }}>
