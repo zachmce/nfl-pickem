@@ -187,12 +187,15 @@ def grade_pick(game: Game, pick: Pick) -> GradeResult:
     Resolution order:
 
     * **MISC** first — the ONE manually-graded type. Its outcome is NOT derived
-      from the game; instead the admin-set stored ``pick.result`` / ``pick.points``
-      are passed THROUGH verbatim (see below). The game is irrelevant to a MISC
-      grade, so MISC never reaches the FINAL/score guard or the spread/total
-      routing.
-    * **UNGRADEABLE** next — game not :attr:`GameStatus.FINAL`, or either score
-      is ``None``.
+      from the game score; instead the admin-set stored ``pick.result`` /
+      ``pick.points`` are passed THROUGH verbatim (see below). MISC now REQUIRES
+      its own game to be :attr:`GameStatus.FINAL` before that passthrough resolves:
+      a graded MISC on a not-yet-FINAL game grades to UNGRADEABLE/0 (every MISC
+      has a NOT-NULL ``game_id`` in its own week), which stops a future-week MISC
+      from leaking its admin-set points into the week-unfiltered season total.
+      MISC still never touches the spread/total routing or a score comparison.
+    * **UNGRADEABLE** next — for the non-MISC types, game not
+      :attr:`GameStatus.FINAL`, or either score is ``None``.
     * Spread picks: **INELIGIBLE** on a true pick'em, else compare the favorite's
       margin to the spread (equality is **PUSH**).
     * Total picks: compare the combined score to the total (equality is
@@ -202,21 +205,32 @@ def grade_pick(game: Game, pick: Pick) -> GradeResult:
     ---------------------------------------------
 
     :attr:`PickType.MISC` is the single pick type whose stored ``result`` /
-    ``points`` are AUTHORITATIVE rather than vestigial. For a MISC pick the engine
-    maps the stored :class:`~app.models.PickResult` to a :class:`GradeOutcome` and
-    returns the admin-set ``pick.points`` UNCHANGED:
+    ``points`` are AUTHORITATIVE rather than vestigial. A MISC grade is gated on
+    its own game being :attr:`GameStatus.FINAL`; until then it grades to
+    UNGRADEABLE/0 regardless of the stored result. Once the game is FINAL the
+    engine maps the stored :class:`~app.models.PickResult` to a
+    :class:`GradeOutcome` and returns the admin-set ``pick.points`` UNCHANGED:
 
-    * ``PickResult.WIN``  -> ``GradeResult(GradeOutcome.WIN,  pick.points)``
-    * ``PickResult.LOSS`` -> ``GradeResult(GradeOutcome.LOSS, pick.points)``
-    * ``PickResult.PENDING`` (ungraded) -> ``GradeResult(GradeOutcome.UNGRADEABLE, 0)``
+    * game not FINAL -> ``GradeResult(GradeOutcome.UNGRADEABLE, 0)`` (regardless
+      of the stored result — the admin grade is withheld until the game finalizes)
+    * FINAL + ``PickResult.WIN``  -> ``GradeResult(GradeOutcome.WIN,  pick.points)``
+    * FINAL + ``PickResult.LOSS`` -> ``GradeResult(GradeOutcome.LOSS, pick.points)``
+    * FINAL + ``PickResult.PENDING`` (ungraded) -> ``GradeResult(GradeOutcome.UNGRADEABLE, 0)``
 
-    ``pick.points`` flows through verbatim (it may be any int — including a value
-    outside the historical ``[-1, 6]`` weekly band, or a negative penalty the
-    admin set explicitly). MISC is never routed into ``_spread_outcome`` /
-    ``_total_outcome`` and its points are never recomputed via ``_points_for`` —
-    so an admin's grade survives every recompute-on-read and is never overwritten.
+    Once FINAL, ``pick.points`` flows through verbatim (it may be any int —
+    including a value outside the historical ``[-1, 6]`` weekly band, or a
+    negative penalty the admin set explicitly). MISC is never routed into
+    ``_spread_outcome`` / ``_total_outcome`` and its points are never recomputed
+    via ``_points_for`` — so an admin's grade survives every recompute-on-read
+    and is never overwritten.
     """
     if pick.pick_type is PickType.MISC:
+        # MISC is gated on its own game being FINAL (mirroring the guard below):
+        # every MISC has a NOT-NULL game_id in its own week, so a graded MISC
+        # contributes 0 until that game is FINAL. This stops a future-week MISC's
+        # admin-set points from leaking into the (week-unfiltered) season total.
+        if game.status is not GameStatus.FINAL:
+            return GradeResult(GradeOutcome.UNGRADEABLE, 0)
         if pick.result is PickResult.WIN:
             return GradeResult(GradeOutcome.WIN, pick.points)
         if pick.result is PickResult.LOSS:
