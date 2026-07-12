@@ -98,23 +98,32 @@ export function useAdminPickEditor(
   const [slotError, setSlotError] = useState<Record<string, string>>({});
 
   // Stable view of the target/week for the mutation callbacks (avoids stale
-  // closures and re-creating set()/clear() on every load tick).
+  // closures and re-creating set()/clear() on every load tick). The write is in
+  // an effect (canonical latest-value-ref pattern) rather than during render, so
+  // react-hooks/refs stays clean; the refs are read ONLY inside the click-fired
+  // mutation callbacks (set/clear/grade), long after commit, so an effect-time
+  // write is always current by the time any callback reads it.
   const targetRef = useRef<{ userId: number; season: number; week: number }>({
     userId,
     season,
     week,
   });
-  targetRef.current = { userId, season, week };
+  useEffect(() => {
+    targetRef.current = { userId, season, week };
+  }, [userId, season, week]);
 
   // Synchronous in-flight guard so a double-fire within the same tick (before
   // the saving state flushes) is reliably ignored — shared by set()/clear()/grade().
+  // Written INSIDE the callbacks (never during render), so it is unaffected here.
   const inFlightRef = useRef<Set<string>>(new Set());
 
   // Latest picks map for the stable grade() callback to read the MISC pick's
   // game_id (only used to SCOPE the inline error — the grade endpoint identifies
-  // the target by user/season/week, not game).
+  // the target by user/season/week, not game). Effect-time write (see above).
   const picksRef = useRef<PicksBySlot>({});
-  picksRef.current = picks;
+  useEffect(() => {
+    picksRef.current = picks;
+  }, [picks]);
 
   // Flips to true the first time a load SUCCEEDS. Gates the "loading" placeholder
   // to a genuine first open — subsequent week/user changes are REFETCHES that keep

@@ -47,7 +47,10 @@ export default tseslint.config(
       //     inlined into .then/.catch/.finally; theme `resolved` derived via
       //     useSyncExternalStore). Promoted to ERROR — a standing gate now.
       "react-hooks/set-state-in-effect": "error",
-      "react-hooks/refs": "warn", // 2: latest-value ref writes during render
+      //   - refs: RESOLVED (the two latest-value ref writes in useAdminPickEditor
+      //     moved from render into effects; the refs are read only in click-fired
+      //     callbacks, so effect-time writes are always current). ERROR now.
+      "react-hooks/refs": "error",
       "react-refresh/only-export-components": "warn", // 3: context+provider co-located (HMR-only opinion)
     },
   },
