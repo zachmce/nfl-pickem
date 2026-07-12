@@ -706,6 +706,87 @@ class BustPreferringImpactTests(unittest.TestCase):
         self.assertNotIn("cashed", fact)
 
 
+class NoPicksAngleRotationTests(unittest.TestCase):
+    """Deterministic per-matchup ANGLE rotation for the no-picks game.final quip
+    (issue #113).
+
+    OFFLINE plumbing tests ONLY. They stub the phrase layer (or call the pure fact
+    builder directly), so they prove the deterministic angle PLUMBING — that the
+    selector is STABLE per matchup, that a batch of distinct matchups SPREADS across
+    the pool, and that the selected angle actually REACHES the fact string handed to
+    the LLM call. They CANNOT prove the LLM's rendered phrasing actually varies
+    (the phrase layer is stubbed): that is the post-merge LIVE-FIRE check on the dev
+    stack with real Gemma (see the plan's post-merge verification note).
+    """
+
+    # Six DISTINCT matchups — used for the batch-spread proof.
+    _BATCH = [
+        ("LAC", "KC"),
+        ("NYJ", "PIT"),
+        ("DEN", "LV"),
+        ("CHI", "GB"),
+        ("MIA", "BUF"),
+        ("SEA", "SF"),
+    ]
+
+    def _no_picks_ctx(self) -> dict:
+        return {
+            "found": True,
+            "home": "PIT",
+            "away": "NYJ",
+            "home_score": 24,
+            "away_score": 7,
+            "spread_result": None,
+            "total_result": None,
+            "narrative": {},
+            "pick_impacts": [],
+        }
+
+    def test_same_matchup_selects_same_angle(self) -> None:
+        # STABILITY / reproducibility: identical matchup -> identical angle, and the
+        # result is always a member of the pool.
+        first = chat_personality._select_no_picks_angle("LAC", "KC")
+        second = chat_personality._select_no_picks_angle("LAC", "KC")
+        self.assertEqual(first, second)
+        self.assertIn(first, chat_personality._NO_PICKS_ANGLES)
+
+    def test_batch_of_distinct_matchups_spreads_across_angles(self) -> None:
+        # STRUCTURAL DIVERGENCE: a batch of distinct matchups must NOT all collapse
+        # to one angle — that spread is exactly what stops the #113 body clustering.
+        angles = {chat_personality._select_no_picks_angle(a, h) for a, h in self._BATCH}
+        self.assertGreater(len(angles), 1)  # strictly more than one distinct angle
+        self.assertGreaterEqual(len(angles), 3)  # and a healthy spread
+
+    def test_selected_angle_reaches_the_fact(self) -> None:
+        # The exact selected angle text reaches the fact, alongside the preserved
+        # no-one-picked clause and the D-05.2 leak-safety (never a phantom bettor).
+        ctx = self._no_picks_ctx()
+        angle = chat_personality._select_no_picks_angle(ctx["away"], ctx["home"])
+        fact = chat_personality._enriched_game_final_fact({"week": 5}, ctx)
+        self.assertIsNotNone(fact)
+        assert fact is not None  # narrow for basedpyright
+        low = fact.lower()
+        self.assertIn(angle, fact)  # the deterministic angle is carried verbatim
+        self.assertIn("no one", low)  # existing no-picks clause preserved (D-05.2)
+        self.assertIn("picked this game", low)
+        self.assertNotIn("your pick", low)  # leak-safety re-asserted after injection
+        self.assertNotIn("your spread", low)
+
+    def test_angle_reaches_the_prompt_via_embellish_chat(self) -> None:
+        # End-to-end through the real path: the fact recorded by the (patched) phrase
+        # call carries the selected angle — proving the angle reaches the prompt the
+        # LLM call actually receives (the fact becomes user_content in llm_client).
+        ctx = self._no_picks_ctx()
+        angle = chat_personality._select_no_picks_angle(ctx["away"], ctx["home"])
+        event = game_final_event(
+            week=5, away_abbr="NYJ", home_abbr="PIT", away_score=7, home_score=24
+        )
+        patcher, calls = _phrase_returns("nobody had a dog in this one 🥱")
+        with _ctx_seam("_game_final_context", ctx), patcher:
+            _run(chat_personality.embellish_chat(event))
+        self.assertIn(angle, calls[0]["fact"])
+
+
 class EmbellishChatEnrichedRosterCompleteTests(unittest.TestCase):
     """roster.complete FACT STATES the actor's rank + season total and the
     completion COUNT — never names of the outstanding, never pick content."""
