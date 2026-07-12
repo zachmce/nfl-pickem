@@ -37,6 +37,8 @@ line — :func:`embellish_chat` NEVER raises (T-t5u-03 / T-vpc).
 
 from __future__ import annotations
 
+import hashlib
+
 import structlog
 
 from app.bot import llm_client
@@ -348,6 +350,60 @@ def _select_notable_win(impacts: list[dict]) -> dict | None:
     return sorted(wins, key=_impact_priority)[0]
 
 
+# --------------------------------------------------------------------------- #
+# Deterministic per-matchup ANGLE rotation for the no-picks game.final quip
+# (issue #113). When several nobody-picked games finalize at once, each fires an
+# INDEPENDENT llm_client.phrase call against the SAME narrow "nobody picked"
+# situation, so the highest-probability completion clusters on one stock body
+# phrase (temperature/top_p + _CLOSER_VARIETY spread the sign-off but not the
+# narrow body). Injecting a DETERMINISTIC, per-matchup ANGLE into the fact forces
+# each independent call to be prompted from a genuinely different FRAMING, so the
+# batch can no longer collapse onto one phrase — while the LLM call, the active
+# voice, the phrase-bans, and _CLOSER_VARIETY all stay unchanged.
+#
+# CRITICAL (the project's hard-won lesson): these are DIRECTIONS/tones, NOT
+# quotable stock lines. Seeding example PHRASES gets them parroted across the
+# independent calls; an angle/direction token does not. None of these reintroduce
+# a phrase banned in _GAME_FINAL_ROLE ("lack of interest", "not one soul had a
+# stake", "empty room", "tree in an empty forest"). Eight angles is comfortably
+# more than a realistic simultaneous no-picks batch.
+_NO_PICKS_ANGLES = (
+    "take a deadpan stats-desk footnote tone about the untouched pick sheet",
+    "mock the effort it would have taken to pick this one at all",
+    "note the blank slate in passing and move right along to what matters",
+    "shrug it off as a game the league quietly skipped over",
+    "treat the total absence of picks with mock gravity, like breaking news",
+    "wonder aloud whether anyone even remembered this game was on the slate",
+    "adopt a bored scorekeeper's flat indifference to the whole thing",
+    "give it a backhanded nod for being too forgettable to draw a single pick",
+)
+
+# Stable, greppable lead phrase for the injected angle wrapper — mirrors how
+# _CLOSER_VARIETY carries a stable lead so a wire-format test can find it. The
+# angle rides as a FRAMING DIRECTION, never a phrase to quote.
+_NO_PICKS_ANGLE_LEAD = "For this no-picks reaction,"
+
+
+def _select_no_picks_angle(away: object, home: object) -> str:
+    """Deterministically pick a no-picks framing ANGLE for a matchup (issue #113).
+
+    Pure and side-effect-free: builds a stable key from the two team abbrs and
+    selects an angle by a STABLE hash of that key, so the SAME matchup always maps
+    to the SAME angle (reproducible across processes) while a batch of DISTINCT
+    matchups spreads across the pool.
+
+    HARD REQUIREMENT — uses :mod:`hashlib` (sha256), NOT the builtin ``hash()``:
+    Python salts ``hash()`` of a ``str`` per process (PYTHONHASHSEED), so it is
+    neither stable nor reproducible across runs, which would defeat both the
+    "same matchup -> same angle" guarantee and the unit test. No ``random`` and no
+    wall-clock input is used.
+    """
+    key = f"{away}\x1f{home}".encode()
+    digest = hashlib.sha256(key).digest()
+    index = int.from_bytes(digest[:8], "big") % len(_NO_PICKS_ANGLES)
+    return _NO_PICKS_ANGLES[index]
+
+
 def _enriched_game_final_fact(event: dict, context: dict) -> str | None:
     """Build the STATE-FACTS-FIRST game.final fact, or ``None`` to fall back.
 
@@ -428,6 +484,18 @@ def _enriched_game_final_fact(event: dict, context: dict) -> str | None:
         # No one in the league picked this game — say so explicitly and name NO
         # bettor, so the phrasing layer never invents a phantom pick (D-05.2).
         parts.append("No one in the league picked this game.")
+        # Then inject a DETERMINISTIC, per-matchup ANGLE so a batch of simultaneous
+        # no-picks game.final calls is each prompted from a genuinely different
+        # FRAMING (issue #113) — the fact becomes the LLM user_content (see
+        # llm_client.phrase), so per-game variation here spreads the body the model
+        # would otherwise collapse onto. The angle is a framing DIRECTION for the
+        # model's OWN wording, never a phrase to quote (leak-safety unchanged: still
+        # names NO bettor, still no "your pick" / "your spread").
+        angle = _select_no_picks_angle(away, home)
+        parts.append(
+            f"{_NO_PICKS_ANGLE_LEAD} {angle}; treat that purely as a framing "
+            "direction for your own fresh wording, not a phrase to quote."
+        )
 
     return " ".join(parts)
 
