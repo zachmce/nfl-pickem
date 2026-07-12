@@ -38,6 +38,7 @@ from app.models import (
     Game,
     GameStatus,
     Pick,
+    PickResult,
     PickType,
     Team,
     User,
@@ -191,6 +192,8 @@ class ResultsTests(unittest.TestCase):
         game_id: int,
         pick_type: PickType,
         is_mortal_lock: bool = False,
+        result: PickResult | None = None,
+        points: int | None = None,
     ) -> int:
         with self._session() as session:
             pick = Pick(
@@ -200,6 +203,10 @@ class ResultsTests(unittest.TestCase):
                 pick_type=pick_type,
                 is_mortal_lock=is_mortal_lock,
             )
+            if result is not None:
+                pick.result = result
+            if points is not None:
+                pick.points = points
             session.add(pick)
             session.commit()
             session.refresh(pick)
@@ -350,6 +357,46 @@ class ResultsTests(unittest.TestCase):
         with self._session() as session:
             standings, _ = season_standings(session, season=SEASON)
         self.assertEqual([r.display_name for r in standings.results], ["alice"])
+
+    def test_future_week_misc_does_not_leak_into_season_total(self) -> None:
+        """A graded MISC on a not-yet-FINAL game contributes 0 to the season total.
+
+        Regression for issue #127: season_standings sums all weeks with no week
+        filter, so before the FINAL gate an admin-graded MISC (WIN/99) on a
+        SCHEDULED game leaked its points into the current total. alice has no
+        other picks, so a leak would surface as a season_total of 99.
+        """
+        future_game_id = self._seed_future_game()
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=future_game_id,
+            pick_type=PickType.MISC,
+            result=PickResult.WIN,
+            points=99,
+        )
+        with self._session() as session:
+            standings, _ = season_standings(session, season=SEASON)
+        alice = next(r for r in standings.results if r.display_name == "alice")
+        self.assertEqual(alice.season_total, 0)
+
+    def test_final_game_misc_does_flow_into_season_total(self) -> None:
+        """Companion to the leak test: the gate is status-driven, not a blanket 0.
+
+        The SAME admin-graded MISC (WIN/99) on a FINAL game DOES pass its
+        admin-set points into the season total, proving the FINAL gate only
+        withholds until the game is final rather than zeroing MISC outright.
+        """
+        self._seed_pick(
+            user_id=self.user_a_id,
+            game_id=self.game_fav_id,
+            pick_type=PickType.MISC,
+            result=PickResult.WIN,
+            points=99,
+        )
+        with self._session() as session:
+            standings, _ = season_standings(session, season=SEASON)
+        alice = next(r for r in standings.results if r.display_name == "alice")
+        self.assertEqual(alice.season_total, 99)
 
     def test_season_is_complete_all_final(self) -> None:
         """All seeded games are FINAL -> the season is complete."""

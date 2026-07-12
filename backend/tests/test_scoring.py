@@ -485,9 +485,13 @@ def _misc_pick(
 class GradeMiscPassthroughTests(unittest.TestCase):
     """MISC is the ONE type whose stored result/points pass through verbatim.
 
-    The game is irrelevant to a MISC grade: these tests deliberately hand the
-    engine a game that would make the OLD (spread/total) path return
-    INELIGIBLE/0 (a true pick'em with no total) to prove MISC never routes there.
+    MISC passthrough now REQUIRES the game to be FINAL: a graded MISC on a
+    non-FINAL game grades to UNGRADEABLE/0 so a future-week MISC cannot leak its
+    admin-set points into the standings. Once the game is FINAL the admin-set
+    result/points still pass through verbatim. These passthrough tests therefore
+    hand the engine a FINAL game (via ``_ungradeable_misc_game``) that would make
+    the OLD (spread/total) path return INELIGIBLE/0 (a true pick'em with no total)
+    to prove MISC still never routes through spread/total once FINAL.
     """
 
     def _ungradeable_misc_game(self) -> Game:
@@ -508,8 +512,10 @@ class GradeMiscPassthroughTests(unittest.TestCase):
         res = grade_pick(game, _misc_pick(result=PickResult.WIN, points=3))
         self.assertEqual(res, GradeResult(GradeOutcome.WIN, 3))
 
-    def test_misc_win_independent_of_game_score_and_status(self) -> None:
-        # Even on a SCHEDULED game (no score yet) the admin grade still flows.
+    def test_misc_on_non_final_game_is_ungradeable(self) -> None:
+        # On a SCHEDULED game (not yet FINAL) a graded MISC no longer flows: the
+        # admin grade is gated until the game is FINAL, so it grades to
+        # UNGRADEABLE/0 and cannot leak its points into the standings early.
         game = _game(
             home_score=None,
             away_score=None,
@@ -518,7 +524,7 @@ class GradeMiscPassthroughTests(unittest.TestCase):
             spread=Decimal("0"),
         )
         res = grade_pick(game, _misc_pick(result=PickResult.WIN, points=5))
-        self.assertEqual(res, GradeResult(GradeOutcome.WIN, 5))
+        self.assertEqual(res, GradeResult(GradeOutcome.UNGRADEABLE, 0))
 
     def test_misc_loss_zero_points(self) -> None:
         game = self._ungradeable_misc_game()
