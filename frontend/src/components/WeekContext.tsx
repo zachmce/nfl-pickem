@@ -11,23 +11,11 @@
  * visible during a background refresh (status is NOT reset to "loading" on
  * nav/focus) to avoid a loading flash on every navigation.
  */
-import {
-  createContext,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 
 import { getCurrentWeek, type CurrentWeek } from "../lib/currentWeek";
-
-export interface WeekState {
-  data: CurrentWeek | null;
-  status: "loading" | "ok" | "error";
-}
-
-export const WeekContext = createContext<WeekState | null>(null);
+import { WeekContext, type WeekState } from "./week-context";
 
 export function WeekProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<CurrentWeek | null>(null);

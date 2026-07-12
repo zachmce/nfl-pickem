@@ -1,7 +1,7 @@
 /** Hook to read the theme context; throws if used outside a ThemeProvider. */
 import { useContext } from "react";
 
-import { ThemeContext, type ThemeState } from "./ThemeContext";
+import { ThemeContext, type ThemeState } from "./theme-context";
 
 export function useTheme(): ThemeState {
   const ctx = useContext(ThemeContext);

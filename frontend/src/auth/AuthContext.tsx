@@ -6,24 +6,10 @@
  * /api/auth/me is treated as "logged out" (user = null), which RequireAuth turns
  * into a redirect to /login. This is the standard SPA pattern.
  */
-import {
-  createContext,
-  useCallback,
-  useEffect,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { api, type UserRead } from "../lib/api";
-
-export interface AuthState {
-  user: UserRead | null;
-  loading: boolean;
-  refresh: () => Promise<void>;
-  logout: () => Promise<void>;
-}
-
-export const AuthContext = createContext<AuthState | null>(null);
+import { AuthContext } from "./auth-context";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserRead | null>(null);

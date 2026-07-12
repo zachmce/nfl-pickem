@@ -9,7 +9,6 @@
  * in index.html (same key, same rule) so there is no post-mount reflow.
  */
 import {
-  createContext,
   useCallback,
   useEffect,
   useState,
@@ -17,17 +16,7 @@ import {
   type ReactNode,
 } from "react";
 
-export type Theme = "light" | "dark" | "system";
-
-export interface ThemeState {
-  /** The user's stored choice (light | dark | system). */
-  theme: Theme;
-  /** The effective rendered mode after resolving 'system' against the OS. */
-  resolved: "light" | "dark";
-  setTheme: (theme: Theme) => void;
-}
-
-export const ThemeContext = createContext<ThemeState | null>(null);
+import { ThemeContext, type Theme } from "./theme-context";
 
 const STORAGE_KEY = "theme";
 

@@ -36,22 +36,16 @@ export default tseslint.config(
       // error. Currently clean (0 findings), so the gate is green today.
       "react-hooks/exhaustive-deps": "error",
 
-      // ── react-hooks@7 residue triage (issue #112) ──
-      // eslint-plugin-react-hooks@7's flat `recommended` set ships three newer,
-      // React-Compiler-adjacent rules beyond exhaustive-deps. They were parked at WARN
-      // when the linter was first added (real refactors with behavior risk, out of scope
-      // for "add a linter"); issue #112 triages them to zero and promotes them back to
-      // ERROR one group at a time so the gate stays green incrementally.
-      //   - set-state-in-effect: RESOLVED (loading-state effects rewritten to the
-      //     endorsed "adjust state during render on key change" pattern; auth bootstrap
-      //     inlined into .then/.catch/.finally; theme `resolved` derived via
-      //     useSyncExternalStore). Promoted to ERROR — a standing gate now.
+      // ── react-hooks@7 / react-refresh standing gates (issue #112 CLOSED) ──
+      // eslint-plugin-react-hooks@7's flat `recommended` ships three newer,
+      // React-Compiler-adjacent rules beyond exhaustive-deps. They were parked at
+      // WARN when the linter was first added (real refactors with behavior risk);
+      // issue #112 triaged all findings to zero — behavior-preserving effect/ref/
+      // context refactors — and promoted every rule back to ERROR. They are now
+      // standing gates: new violations fail CI, same as exhaustive-deps.
       "react-hooks/set-state-in-effect": "error",
-      //   - refs: RESOLVED (the two latest-value ref writes in useAdminPickEditor
-      //     moved from render into effects; the refs are read only in click-fired
-      //     callbacks, so effect-time writes are always current). ERROR now.
       "react-hooks/refs": "error",
-      "react-refresh/only-export-components": "warn", // 3: context+provider co-located (HMR-only opinion)
+      "react-refresh/only-export-components": "error",
     },
   },
 );

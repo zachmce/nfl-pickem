@@ -10,7 +10,7 @@ vi.mock("../lib/api", async (importOriginal) => ({
 
 import ProfilePage from "./ProfilePage";
 import { api, ApiError, type UserRead } from "../lib/api";
-import { AuthContext } from "../auth/AuthContext";
+import { AuthContext } from "../auth/auth-context";
 import { PASSWORD_CHANGED_NOTICE } from "../lib/strings";
 
 // Minimal fake user — only the fields ProfilePage reads. Cast to satisfy the type.
