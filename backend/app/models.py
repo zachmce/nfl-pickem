@@ -150,10 +150,20 @@ class AppSetting(SQLModel, table=True):
     """
 
     __tablename__ = "app_setting"
+    # Migration 0010 created BOTH a named UNIQUE CONSTRAINT and a separate named
+    # unique INDEX on setting_key. Declare both explicitly here (matching the
+    # Week/Pick __table_args__ idiom) so autogenerate is a no-op — column-level
+    # unique=True+index=True folds into ONE unnamed-convention unique index and
+    # emits no named constraint, which is what caused the false-positive
+    # remove_constraint(uq_app_setting_setting_key) drift (issue #111).
+    __table_args__ = (
+        sa.UniqueConstraint("setting_key", name="uq_app_setting_setting_key"),
+        sa.Index("ix_app_setting_setting_key", "setting_key", unique=True),
+    )
 
     id: int | None = Field(default=None, primary_key=True)
     setting_key: str = Field(
-        sa_column=sa.Column(sa.String(100), nullable=False, unique=True, index=True),
+        sa_column=sa.Column(sa.String(100), nullable=False),
     )
     setting_value: str = Field(sa_column=sa.Column(sa.String, nullable=False))
     updated_at: datetime = Field(
