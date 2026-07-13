@@ -1165,6 +1165,34 @@ class NewsIntentTests(unittest.TestCase):
         self.assertIn(self._DEN_HEADLINE, out)
         self.assertEqual(calls, [])
 
+    def test_non_real_team_on_news_falls_through_to_subject_narrowed_league(self) -> None:
+        # END-TO-END reproduction of issue #114: the classifier put a DIVISION into the
+        # team slot ({intent: news, team: "AFC West", subject: "AFC West"}) — a NON-REAL
+        # team, distinct from the team=None subject test above. The team-OPTIONAL
+        # fall-through scrubs the team to None so this is a LEAGUE ask; the surviving
+        # subject narrows the feed. This used to return the unknown capability menu.
+        seam_patch, seam_calls = _seam("get_news_team_filter_async", ("KC", "Kansas City Chiefs"))
+        fetch_patch, _ = _fetch_news_returns(self._payload())
+        phrase_patch, calls = _phrase_returns("unused")
+        with (
+            _classify_returns({"intent": "news", "team": "AFC West", "subject": "AFC West"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            fetch_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("news about the AFC West?", discord_id=7))
+        # The non-real team fell through to None -> a LEAGUE ask: the team-filter seam is
+        # NEVER called (proves it did not resolve as a team).
+        self.assertEqual(seam_calls, [])
+        # Not the unknown capability menu (the #114 bug) — the league news wrapper.
+        self.assertNotIn("What can be answered", out)
+        self.assertTrue(out.startswith("Latest on the NFL — AFC West"))
+        self.assertIn(self._KC_HEADLINE, out)  # matches "AFC West"
+        self.assertNotIn(self._DEN_HEADLINE, out)  # narrowed out by the subject
+        self.assertEqual(calls, [])  # deterministic verbatim relay — the LLM is never called
+
 
 def _fetch_live_odds_returns(value):
     """Patch live_odds.fetch_live_odds to an async fake returning ``value``, recording

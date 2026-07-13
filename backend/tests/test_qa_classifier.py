@@ -148,6 +148,16 @@ class ValidateClassificationTests(unittest.TestCase):
         out = validate_classification({"intent": "teleport"}, known_team_tokens=_KNOWN_TEAMS)
         self.assertEqual(out.intent, QaIntent.unknown)
 
+    def test_model_emitted_unknown_stays_unknown(self) -> None:
+        # The genuine-nonsense path is untouched by the news team-OPTIONAL fix: an
+        # intent the MODEL itself classified as unknown stays unknown (unknown is not a
+        # team-bearing intent, so a stray team is simply dropped, never resurrected).
+        out = validate_classification(
+            {"intent": "unknown", "team": "moon"}, known_team_tokens=_KNOWN_TEAMS
+        )
+        self.assertEqual(out.intent, QaIntent.unknown)
+        self.assertIsNone(out.team)
+
     def test_none_input_coerces_to_unknown(self) -> None:
         out = validate_classification(None, known_team_tokens=_KNOWN_TEAMS)
         self.assertEqual(out.intent, QaIntent.unknown)
@@ -276,11 +286,29 @@ class NewsClassificationTests(unittest.TestCase):
         # A team-bearing intent: the real token is resolved + carried through.
         self.assertEqual(out.team, "CHIEFS")
 
-    def test_news_non_real_team_coerces_to_unknown(self) -> None:
+    def test_news_non_real_team_falls_back_to_league_team_none(self) -> None:
+        # news is team-OPTIONAL: a NON-REAL team (a division like "AFC West", "NFC", or
+        # a misspelled team) is NOT a coercion trigger — it falls through to team=None so
+        # the LEAGUE answer is delivered downstream, NOT the unknown capability menu. This
+        # is the flipped issue-#114 contract (the old behavior coerced this to unknown).
         out = validate_classification(
             {"intent": "news", "team": "Narnia"}, known_team_tokens=_KNOWN_TEAMS
         )
-        self.assertEqual(out.intent, QaIntent.unknown)
+        self.assertEqual(out.intent, QaIntent.news)
+        self.assertIsNone(out.team)
+
+    def test_news_non_real_team_keeps_subject_for_league_narrowing(self) -> None:
+        # The exact issue-#114 shape at the validator level: the classifier put the
+        # division into the team slot AND the subject. The non-real team falls through to
+        # None, but the subject SURVIVES (news is in _SUBJECT_INTENTS) so it can narrow the
+        # league feed via filter_news_by_subject downstream.
+        out = validate_classification(
+            {"intent": "news", "team": "AFC West", "subject": "AFC West"},
+            known_team_tokens=_KNOWN_TEAMS,
+        )
+        self.assertEqual(
+            out, QaResult(intent=QaIntent.news, team=None, week=None, subject="AFC West")
+        )
 
     def test_teamless_news_stays_news_with_no_team(self) -> None:
         # A teamless news question is a VALID news result (team None) — the LEAGUE
