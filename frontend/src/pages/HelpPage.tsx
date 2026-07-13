@@ -70,6 +70,92 @@ export default function HelpPage() {
         </ul>
       </details>
 
+      {/* Outcomes and points below are documentation of the backend scoring
+          engine — keep in sync with app/services/scoring.py (`_spread_outcome`,
+          `_total_outcome`, `_points_for`) if it changes. */}
+      <details className="space-y-3 rounded-lg border border-border bg-surface p-4">
+        <summary className="cursor-pointer text-lg font-bold text-fg">
+          See it in action
+        </summary>
+        <p className="text-sm text-fg-muted">
+          Say the Chiefs are favored by 6.5 over the Broncos, with the total set
+          at 44.5. Final: Chiefs 27, Broncos 20. Here's how each pick type grades
+          out:
+        </p>
+        <div className="overflow-x-auto rounded-lg border border-border bg-surface">
+          <table className="min-w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-border text-fg-muted">
+                <th className="px-3 py-2 text-left font-semibold">Your pick</th>
+                <th className="px-3 py-2 text-left font-semibold">Why</th>
+                <th className="px-3 py-2 text-left font-semibold">Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-b border-border last:border-0">
+                <td className="px-3 py-2 text-left text-fg">
+                  Favorite cover (Chiefs −6.5)
+                </td>
+                <td className="px-3 py-2 text-left text-fg-muted">
+                  won by 7 — more than 6.5
+                </td>
+                <td className="px-3 py-2 text-left tabular-nums text-fg-muted">
+                  Win +1
+                </td>
+              </tr>
+              <tr className="border-b border-border last:border-0">
+                <td className="px-3 py-2 text-left text-fg">
+                  Underdog cover (Broncos +6.5)
+                </td>
+                <td className="px-3 py-2 text-left text-fg-muted">
+                  didn't stay within 6.5
+                </td>
+                <td className="px-3 py-2 text-left tabular-nums text-fg-muted">
+                  Loss 0
+                </td>
+              </tr>
+              <tr className="border-b border-border last:border-0">
+                <td className="px-3 py-2 text-left text-fg">Over (44.5)</td>
+                <td className="px-3 py-2 text-left text-fg-muted">
+                  27 + 20 = 47, over the total
+                </td>
+                <td className="px-3 py-2 text-left tabular-nums text-fg-muted">
+                  Win +1
+                </td>
+              </tr>
+              <tr className="border-b border-border last:border-0">
+                <td className="px-3 py-2 text-left text-fg">Under (44.5)</td>
+                <td className="px-3 py-2 text-left text-fg-muted">
+                  47 isn't under 44.5
+                </td>
+                <td className="px-3 py-2 text-left tabular-nums text-fg-muted">
+                  Loss 0
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <ul className="list-disc space-y-1 pl-5 text-sm text-fg-muted">
+          <li>
+            <span className="font-semibold">Mortal Lock</span>: if that Favorite
+            cover were your lock → +2 (a losing lock costs −1).
+          </li>
+          <li>
+            <span className="font-semibold">Underdog cover</span> doesn't need the
+            underdog to win — just to lose by less than the spread. Had the Chiefs
+            won 24–20 (by 4), the Broncos would cover → that pick Wins.
+          </li>
+          <li>
+            <span className="font-semibold">Push</span>: on a whole-number line
+            (e.g. −3) landing exactly — Chiefs by 3 — both cover picks score 0.
+          </li>
+          <li>
+            <span className="font-semibold">Misc</span> isn't tied to the line —
+            an admin grades it.
+          </li>
+        </ul>
+      </details>
+
       <details className="space-y-3 rounded-lg border border-border bg-surface p-4">
         <summary className="cursor-pointer text-lg font-bold text-fg">
           Roster rules
