@@ -370,6 +370,49 @@ class PredictionClassificationTests(unittest.TestCase):
         self.assertEqual(out.intent, QaIntent.coming_soon)
 
 
+class SlatePredictionsClassificationTests(unittest.TestCase):
+    """slate_predictions is the whole-slate model-opinion intent (260713-k6z), first-class
+    and disambiguated from single-team prediction and factual lines_slate."""
+
+    def test_slate_predictions_validates_as_real_intent_no_team(self) -> None:
+        # A "what are your picks this week?" style ask -> the whole-slate intent. It is NOT
+        # team-bearing, so a stray team is simply dropped (never resurrected).
+        out = validate_classification(
+            {"intent": "slate_predictions"}, known_team_tokens=_KNOWN_TEAMS
+        )
+        self.assertEqual(out.intent, QaIntent.slate_predictions)
+        self.assertIsNone(out.team)
+
+    def test_slate_predictions_drops_a_stray_team(self) -> None:
+        out = validate_classification(
+            {"intent": "slate_predictions", "team": "Chiefs"}, known_team_tokens=_KNOWN_TEAMS
+        )
+        self.assertEqual(out.intent, QaIntent.slate_predictions)
+        self.assertIsNone(out.team)  # not team-bearing -> dropped, not an error
+
+    def test_single_team_prediction_still_validates_prediction(self) -> None:
+        # Disambiguation: a single-team "will KC cover?" stays the single-game prediction.
+        out = validate_classification(
+            {"intent": "prediction", "team": "Chiefs"}, known_team_tokens=_KNOWN_TEAMS
+        )
+        self.assertEqual(out.intent, QaIntent.prediction)
+        self.assertEqual(out.team, "CHIEFS")
+
+    def test_factual_spread_ask_stays_lines_slate(self) -> None:
+        # Disambiguation: a factual "what's the spread this week?" stays lines_slate.
+        out = validate_classification(
+            {"intent": "lines_slate", "team": None, "subject": "the spread"},
+            known_team_tokens=_KNOWN_TEAMS,
+        )
+        self.assertEqual(out.intent, QaIntent.lines_slate)
+
+    def test_slate_predictions_is_first_class_in_prompt(self) -> None:
+        prompt = qa.CLASSIFIER_SYSTEM_PROMPT
+        self.assertIn("slate_predictions (", prompt)
+        # The disambiguation guidance must NOT reintroduce the negative-asserted phrase.
+        self.assertNotIn("who-will-win prediction", prompt)
+
+
 # A token set that CONTAINS the alias targets under test (real abbreviations only —
 # _normalize_team's real-set guard means an alias only resolves when its canonical
 # abbreviation is itself a member of this set).

@@ -1445,5 +1445,190 @@ class PredictionIntentRoutingTests(unittest.TestCase):
         self.assertIn("**My call: KC to cover", out)  # the deterministic body is intact
 
 
+def _home_fav_game(model_margin: float, *, spread: str = "3.0") -> dict:
+    """A HOME-favorite game dict (KC home favored over LAC), model margin injected."""
+    return {
+        "away": "LAC",
+        "home": "KC",
+        "favorite": "KC",
+        "underdog": "LAC",
+        "spread": spread,
+        "model_margin": model_margin,
+    }
+
+
+def _away_fav_game(model_margin: float, *, spread: str = "3.0") -> dict:
+    """An AWAY-favorite game dict (KC away favored at LAC), model margin injected."""
+    return {
+        "away": "KC",
+        "home": "LAC",
+        "favorite": "KC",
+        "underdog": "LAC",
+        "spread": spread,
+        "model_margin": model_margin,
+    }
+
+
+class SlatePredictionFactTests(unittest.TestCase):
+    """The PURE whole-slate derived-facts builder: code owns EVERY number + the model's
+    lean with correct home-fav/away-fav sign handling; the LLM never re-derives it. No
+    network — hand-built slate dicts only."""
+
+    def test_home_favorite_sign_leans_home_then_away(self) -> None:
+        # line implied HOME margin = +spread (favorite is HOME). A model home margin well
+        # ABOVE it (divergence > threshold) leans the HOME/favorite side to cover...
+        leans_home = qa._slate_prediction_block(_home_fav_game(7.0))
+        self.assertIn("the market has KC -3", leans_home)
+        self.assertIn("my model makes it KC by 7.0", leans_home)
+        self.assertIn("leans KC to cover", leans_home)
+        # ...and a model home margin well BELOW it leans the AWAY side.
+        leans_away = qa._slate_prediction_block(_home_fav_game(-1.0))
+        self.assertIn("leans LAC to cover", leans_away)
+
+    def test_away_favorite_sign_leans_favorite_then_underdog(self) -> None:
+        # line implied HOME margin = -spread (favorite is AWAY). A model home margin BELOW
+        # that (more negative, divergence < -threshold) leans the AWAY/favorite side...
+        leans_fav = qa._slate_prediction_block(_away_fav_game(-7.0))
+        self.assertIn("the market has KC -3", leans_fav)
+        self.assertIn("leans KC to cover", leans_fav)  # KC is the AWAY favorite
+        # ...and ABOVE that (divergence > threshold) leans the HOME/underdog side.
+        leans_dog = qa._slate_prediction_block(_away_fav_game(-1.0))
+        self.assertIn("leans LAC to cover", leans_dog)  # LAC is the HOME underdog
+
+    def test_small_divergence_agrees_with_the_market_no_lean(self) -> None:
+        # |divergence| <= threshold => "about right", NO lean claimed. Home-fav +3, model
+        # +3.5 => divergence 0.5.
+        agree = qa._slate_prediction_block(_home_fav_game(3.5))
+        self.assertIn("about right", agree)
+        self.assertNotIn("to cover", agree)
+        # Boundary: divergence EXACTLY at the threshold (1.0) still agrees (strict compare).
+        boundary = qa._slate_prediction_block(_home_fav_game(4.0))
+        self.assertIn("about right", boundary)
+        self.assertNotIn("to cover", boundary)
+
+    def test_no_line_degrades_to_a_concrete_model_only_sentence(self) -> None:
+        no_line = {
+            "away": "LAC",
+            "home": "KC",
+            "favorite": None,
+            "underdog": None,
+            "spread": None,
+            "model_margin": 5.0,
+        }
+        block = qa._slate_prediction_block(no_line)
+        # A full sentence (phrasing-inversion safe), model number present, NEVER a cover.
+        self.assertIn("no line is posted", block)
+        self.assertIn("my model makes it KC by 5.0", block)
+        self.assertNotIn("to cover", block)
+
+    def test_whole_slate_body_covers_every_game_header_is_pick_free(self) -> None:
+        slate = {
+            "week": 5,
+            "close_at": None,
+            "pick_open": False,
+            "games": [
+                _home_fav_game(7.0),
+                _away_fav_game(-7.0, spread="2.5"),
+                {
+                    "away": "DAL",
+                    "home": "PHI",
+                    "favorite": None,
+                    "underdog": None,
+                    "spread": None,
+                    "model_margin": 1.0,
+                },
+            ],
+        }
+        fact = qa._slate_predictions_fact(slate)
+        self.assertIsInstance(fact, qa._ListAnswer)
+        assert isinstance(fact, qa._ListAnswer)
+        # EVERY seeded game has a block in the (never-phrased) body.
+        self.assertIn("LAC @ KC", fact.body)
+        self.assertIn("KC @ LAC", fact.body)
+        self.assertIn("DAL @ PHI", fact.body)
+        self.assertIn("no line is posted", fact.body)
+        # The header is a pick-FREE analyst lead: no per-game numbers, no "to cover".
+        self.assertNotIn("to cover", fact.header_fact)
+        self.assertIn("model", fact.header_fact.lower())
+
+    def test_empty_slate_returns_concrete_no_games_sentence(self) -> None:
+        fact = qa._slate_predictions_fact({"week": 9, "games": []})
+        self.assertIsInstance(fact, str)
+        assert isinstance(fact, str)
+        self.assertIn("No games are posted for week 9", fact)
+
+
+class SlatePredictionIntentRoutingTests(unittest.TestCase):
+    """The slate_predictions branch of _build_fact + answer_question: routed end-to-end
+    under the analyst SLATE prompt with the deterministic body relayed verbatim."""
+
+    @staticmethod
+    def _slate() -> dict:
+        return {
+            "week": 5,
+            "close_at": None,
+            "pick_open": False,
+            "games": [
+                {
+                    "away": "LAC",
+                    "home": "KC",
+                    "favorite": "KC",
+                    "underdog": "LAC",
+                    "spread": "3.0",
+                    "model_margin": 7.0,
+                },
+                {
+                    "away": "DAL",
+                    "home": "PHI",
+                    "favorite": "PHI",
+                    "underdog": "DAL",
+                    "spread": "2.5",
+                    "model_margin": 1.0,
+                },
+            ],
+        }
+
+    def test_real_slate_routes_through_under_slate_guard_body_verbatim(self) -> None:
+        seam_patch, seam_calls = _seam("get_slate_predictions_async", self._slate())
+        phrase_patch, calls = _phrase_returns("Model's slate read 👇")
+        with (
+            _classify_returns({"intent": "slate_predictions"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("what are your picks this week?", discord_id=7))
+        # The whole-week seam takes no team param.
+        self.assertEqual(len(seam_calls), 1)
+        self.assertEqual(seam_calls[0]["args"], ())
+        # Phrased pick-free header on top, then EVERY game's block verbatim.
+        self.assertTrue(out.startswith("Model's slate read 👇"))
+        self.assertIn("LAC @ KC: the market has KC -3, my model makes it KC by 7.0", out)
+        self.assertIn("leans KC to cover", out)
+        self.assertIn("DAL @ PHI: the market has PHI -2.5, my model makes it PHI by 1.0", out)
+        self.assertIn("leans DAL to cover", out)
+        # The SLATE guard drives the phrasing — NOT the pick-status QA guard.
+        self.assertIn(qa.SLATE_PREDICTION_GUARD, calls[0]["system_prompt"])
+        self.assertNotIn(qa.QA_GUARD, calls[0]["system_prompt"])
+        # Leak guard: the reply carries no player pick/user content.
+        self.assertNotIn("pick", out.lower())
+
+    def test_multiline_phrased_header_is_clamped_to_first_line(self) -> None:
+        seam_patch, _ = _seam("get_slate_predictions_async", self._slate())
+        phrase_patch, _ = _phrase_returns("Here's the slate 🙄\n\nKC -1.5")
+        with (
+            _classify_returns({"intent": "slate_predictions"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("what's your take on the slate?", discord_id=7))
+        self.assertEqual(out.split("\n")[0], "Here's the slate 🙄")
+        self.assertNotIn("KC -1.5", out)  # the junk second line is dropped
+        self.assertIn("my model makes it KC by 7.0", out)  # deterministic body intact
+
+
 if __name__ == "__main__":
     unittest.main()

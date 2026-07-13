@@ -61,6 +61,7 @@ class QaIntent(str, Enum):
     weather = "weather"
     news = "news"
     prediction = "prediction"
+    slate_predictions = "slate_predictions"
     coming_soon = "coming_soon"
     unknown = "unknown"
 
@@ -90,10 +91,16 @@ _TEAM_INTENTS = frozenset(
 # (injuries / weather / lines_slate / prediction) stay team-REQUIRED: a non-real team on
 # those still coerces to ``unknown``.
 _TEAM_OPTIONAL_INTENTS = frozenset({QaIntent.news})
-_WEEK_INTENTS = frozenset({QaIntent.pick_status, QaIntent.lines_slate, QaIntent.scores})
+_WEEK_INTENTS = frozenset(
+    {QaIntent.pick_status, QaIntent.lines_slate, QaIntent.scores, QaIntent.slate_predictions}
+)
 _SUBJECT_INTENTS = frozenset(
     {QaIntent.lines_slate, QaIntent.unknown, QaIntent.coming_soon, QaIntent.news}
 )
+# The analyst-lead intents: their phrased header is a pick-free lead (clamped to its first
+# line) ahead of a deterministic _ListAnswer body carrying every number. Both use an
+# analyst prompt with no pick-status framing (single-game vs whole-slate).
+_ANALYST_INTENTS = frozenset({QaIntent.prediction, QaIntent.slate_predictions})
 
 # Sane NFL week bounds for the coerced ``week`` param (regular season + playoffs);
 # anything outside becomes None.
@@ -132,6 +139,10 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "game), news (recent ESPN headlines about a specific team or the league), "
     "prediction (who will win a specific team's game — the pick, the cover or "
     "margin read, who covers the spread), "
+    "slate_predictions (your OWN opinion across the whole week's slate — your "
+    "picks, who you like, or what your model says about all this week's games, as "
+    "opposed to prediction, which is about one specific team's game, and "
+    "lines_slate, which is the factual market spreads), "
     "coming_soon (a recognized but unsupported topic: line movement), "
     "unknown (anything you are "
     'not sure about). "team" is a team name or abbreviation the question is about, '
@@ -465,6 +476,30 @@ PREDICTION_GUARD = (
     "picks, choices, account, or pick'em status (there are none here), and add NO stat, "
     "spread, or number that is not in the intro. Reply with ONE short line and at most one "
     "emoji."
+)
+
+# The whole-slate predictions lead phrases through its OWN analyst prompt (260713-k6z),
+# distinct from both QA_ROLE/QA_GUARD (which primes pick-status framing) and the single-
+# game PREDICTION_ROLE/GUARD. The locked framing (bot-picks-model-architecture.md, D-06):
+# the bot is an EXPLAINER + independent cross-check on the market, NOT a betting tipster.
+# Every number and lean lands verbatim in the _ListAnswer body, so this prompt only ever
+# re-voices a pick-free one-line intro. Both the role and guard are CONCRETE full sentences
+# (phrasing-inversion discipline) so the small local model can't invert a terse fragment.
+SLATE_PREDICTION_ROLE = (
+    "You are the league's NFL analyst giving your own read on the whole slate of games "
+    "this week, after a member asked what your model makes of them. You are an explainer "
+    "and an independent cross-check on the betting market, not a tipster handing out bets, "
+    "and the picks members make are not part of this at all."
+)
+SLATE_PREDICTION_GUARD = (
+    "Re-voice the supplied intro in character — it leads a game-by-game breakdown that "
+    "lands verbatim on the lines right below it. Your job across those lines is to explain "
+    "why each market line sits where it does and to offer your model's own number as an "
+    "independent cross-check, never as a bet-this signal. In THIS intro do NOT declare a "
+    "winner, name a side to cover, or add any spread, margin, or number, because every "
+    "figure and lean is written verbatim on the following lines. Say NOTHING about any "
+    "member's picks, choices, account, or pick'em status, because there are none here. "
+    "Reply with ONE short line and at most one emoji."
 )
 
 # Deterministic short-circuit line for an unregistered asker (no LLM call needed).
@@ -1127,6 +1162,91 @@ def _prediction_fact(
     return _ListAnswer(header_fact=header, body="\n".join(lines))
 
 
+# --- slate_predictions intent (260713-k6z) -------------------------------- #
+# The whole-slate proactive sibling of the single-game prediction intent. A DERIVED-
+# FACTS intent: code owns EVERY number + the model's lean; the LLM only voices the
+# pick-free lead. The bot's model number sits ALONGSIDE the frozen line as an explainer
+# / independent cross-check, never a bet signal (framing locked by spike 002).
+
+# The model-vs-line divergence (in points) beyond which the model is said to LEAN a side.
+# Kept a float (so the model-margin float arithmetic never mixes Decimal/float) and tied
+# to the same magnitude as the single-game conflict threshold.
+_SLATE_LEAN_THRESHOLD = float(_PREDICTION_CONFLICT_THRESHOLD)
+
+
+def _model_side_and_mag(home: object, away: object, model_home_margin: float) -> tuple[str, str]:
+    """The model's favored side + its margin magnitude (one decimal) for a game.
+
+    ``model_home_margin`` is the predicted HOME-relative margin (``+`` => home favored).
+    Returns the abbreviation of the side the MODEL favors and the magnitude rendered to
+    one decimal — the bot's own number, shown next to the market line.
+    """
+    if model_home_margin >= 0:
+        side = str(home) if home is not None else "the home side"
+        return side, f"{model_home_margin:.1f}"
+    side = str(away) if away is not None else "the away side"
+    return side, f"{abs(model_home_margin):.1f}"
+
+
+def _slate_prediction_block(game: dict) -> str:
+    """One deterministic per-game cross-check block — code owns every number + the lean.
+
+    Computes the line's implied HOME margin from the frozen favorite + spread
+    (``+spread`` when the favorite is the HOME side, ``-spread`` when it is the AWAY side;
+    ``Game.spread`` is a POSITIVE magnitude), then ``divergence = model_home_margin -
+    line_home_margin``. A divergence beyond ``+_SLATE_LEAN_THRESHOLD`` leans the HOME side
+    to cover, below ``-_SLATE_LEAN_THRESHOLD`` leans the AWAY side, and within the band
+    means the market looks about right (no lean). A game with NO posted line degrades to a
+    concrete, full-sentence model-only note (never a terse fragment). The lean is always
+    framed as an independent cross-check, NEVER a bet signal.
+    """
+    away = game.get("away")
+    home = game.get("home")
+    matchup = f"{away} @ {home}"
+
+    raw_margin = game.get("model_margin")
+    model_home_margin = float(raw_margin) if isinstance(raw_margin, (int, float)) else 0.0
+    model_side, model_mag = _model_side_and_mag(home, away, model_home_margin)
+    model_clause = f"my model makes it {model_side} by {model_mag}"
+
+    favorite = game.get("favorite")
+    spread = _to_decimal(game.get("spread"))
+    if favorite is None or spread is None or spread <= 0:
+        # No posted line to cross-check against — a concrete model-only full sentence.
+        return (
+            f"{matchup}: no line is posted yet, but {model_clause}, so there's nothing "
+            f"to cross-check against the market this time."
+        )
+
+    line_home_margin = float(spread) if favorite == home else -float(spread)
+    divergence = model_home_margin - line_home_margin
+    if divergence > _SLATE_LEAN_THRESHOLD:
+        lean = f"As an independent cross-check my model leans {home} to cover — a lean, not a bet."
+    elif divergence < -_SLATE_LEAN_THRESHOLD:
+        lean = f"As an independent cross-check my model leans {away} to cover — a lean, not a bet."
+    else:
+        lean = "My model lands about where the market is, so the line looks about right."
+    return f"{matchup}: the market has {favorite} -{_fmt_num(spread)}, {model_clause}. {lean}"
+
+
+def _slate_predictions_fact(slate: dict) -> str | _ListAnswer:
+    """Build the whole-slate model-vs-line answer — a pure derived-facts builder.
+
+    Mirrors :func:`_prediction_fact`'s discipline (code owns ALL numbers + the lean, the
+    LLM never sees them). Returns a :class:`_ListAnswer` whose ``body`` carries one
+    deterministic cross-check block per game (EVERY game present) and whose ``header_fact``
+    is a pick-FREE analyst lead (no per-game numbers, no "to cover"). On an empty slate
+    returns a plain, concrete "no games posted" sentence.
+    """
+    games = slate.get("games") or []
+    week = slate.get("week")
+    if not games:
+        return f"No games are posted for week {week} yet, so my model has nothing to weigh in on."
+    blocks = [_slate_prediction_block(game) for game in games]
+    header = f"Here's my model's read on all {len(games)} of week {week}'s games, line by line."
+    return _ListAnswer(header_fact=header, body="\n".join(blocks))
+
+
 async def _build_fact(result: QaResult, *, discord_id: int) -> str | _ListAnswer | None:
     """Route a validated intent to its deterministic reader and build the FACT.
 
@@ -1156,6 +1276,11 @@ async def _build_fact(result: QaResult, *, discord_id: int) -> str | _ListAnswer
 
     if result.intent is QaIntent.scores:
         return _scores_fact(await db_bridge.get_week_scores_async())
+
+    if result.intent is QaIntent.slate_predictions:
+        # DERIVED-FACTS whole-week: code owns every model number + the lean; the LLM only
+        # voices the pick-free lead. No team param — this is the whole current-week slate.
+        return _slate_predictions_fact(await db_bridge.get_slate_predictions_async())
 
     if result.intent is QaIntent.injuries:
         # Team-scoped by construction: a teamless injuries question stateless-soft-
@@ -1350,10 +1475,13 @@ async def answer_question(question: str, *, discord_id: int) -> str:
             return _REGISTER_LINE
 
         voice = await db_bridge.resolve_active_voice_async()
-        # A prediction lead uses the analyst role (no pick-status framing); every other
-        # intent uses the facts-first QA role/guard.
+        # The analyst leads (single-game prediction + whole-slate slate_predictions) use an
+        # analyst role with NO pick-status framing; every other intent uses the facts-first
+        # QA role/guard.
         if result.intent is QaIntent.prediction:
             system_prompt = compose_prompt(voice, PREDICTION_ROLE, PREDICTION_GUARD)
+        elif result.intent is QaIntent.slate_predictions:
+            system_prompt = compose_prompt(voice, SLATE_PREDICTION_ROLE, SLATE_PREDICTION_GUARD)
         else:
             system_prompt = compose_prompt(voice, QA_ROLE, QA_GUARD)
 
@@ -1370,7 +1498,7 @@ async def answer_question(question: str, *, discord_id: int) -> str:
                 header = phrased_header if phrased_header is not None else fact.header_fact
             else:
                 header = fact.header_fact
-            if result.intent is QaIntent.prediction:
+            if result.intent in _ANALYST_INTENTS:
                 # The analyst lead is phrased, and a small model sometimes tacks a junk
                 # second line after the snark (a bare team name or an invented spread —
                 # observed in live testing). Keep ONLY the first non-empty line; the pick
