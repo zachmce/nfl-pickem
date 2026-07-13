@@ -61,6 +61,7 @@ class PredictionIntentRoutingTests(unittest.TestCase):
         "total": "47.5",
         "espn_event_id": 555,
         "kickoff_at": datetime(2026, 1, 5, 18, 0, tzinfo=timezone.utc),
+        "model_margin": 1.0,
         "season": 2025,
         "week": 5,
         "record": "4-1",
@@ -102,7 +103,8 @@ class PredictionIntentRoutingTests(unittest.TestCase):
             out = asyncio.run(qa.answer_question("who wins the Chiefs game?", discord_id=7))
 
         self.assertTrue(out)
-        self.assertIn("**My call: KC to cover", out)
+        # Model (KC +1.0) vs the KC -3 line diverges -2 -> the shared lean is the AWAY side.
+        self.assertIn("**My read: I lean LAC here — a cross-check, not a bet.**", out)
         self.assertIn("4-1 straight up and 3-2 against the spread", out)
 
 
