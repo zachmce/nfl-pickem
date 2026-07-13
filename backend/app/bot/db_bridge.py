@@ -33,6 +33,7 @@ from app.services.notifications_read import (
     get_recap_context,
     get_roster_complete_context,
     get_season_record_and_ats_for_team,
+    get_slate_predictions_for_week,
     get_team_topic_for_token,
     get_week_pick_keys,
     get_week_recap_context,
@@ -489,6 +490,31 @@ async def get_lines_slate_async(team_abbr: str | None = None) -> dict:
             if week is None:
                 return {"week": None, "close_at": None, "games": []}
             return get_lines_slate(session, season, week, team_abbr=team_abbr)
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_slate_predictions_async() -> dict:
+    """Async wrapper: this week's whole-slate model margins vs the frozen line.
+
+    Same posture as :func:`get_lines_slate_async` (asyncio.to_thread + task_session() +
+    current_season + resolve_current_week inside the worker thread) — the whole-slate
+    proactive sibling of the single-team prediction seam. Delegates to
+    :func:`app.services.notifications_read.get_slate_predictions_for_week`. Returns the
+    safe empty shape ``{week: None, close_at: None, pick_open: False, games: []}`` on an
+    ambiguous/empty season. Display-only by construction (abbrs + numbers only — no
+    pick/user data). Plain dict out only; Discord-free.
+    """
+
+    def _sync() -> dict:
+        with task_session() as session:
+            season = current_season(session)
+            if season is None:
+                return {"week": None, "close_at": None, "pick_open": False, "games": []}
+            week = resolve_current_week(session, season)
+            if week is None:
+                return {"week": None, "close_at": None, "pick_open": False, "games": []}
+            return get_slate_predictions_for_week(session, season, week)
 
     return await asyncio.to_thread(_sync)
 
