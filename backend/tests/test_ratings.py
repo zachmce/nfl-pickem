@@ -38,6 +38,7 @@ from app.services.ratings import (
     estimate,
     expected_margin,
     regress_toward_mean,
+    win_probability,
 )
 
 
@@ -173,6 +174,48 @@ class RatingEngineTests(unittest.TestCase):
         self.assertAlmostEqual(est.expected_margin, 10.2)
         self.assertAlmostEqual(est.home_rating, 1700.0)
         self.assertAlmostEqual(est.away_rating, 1500.0)
+
+    # --- (b2) outright win probability ------------------------------------
+    def test_win_probability_edge_gap_and_bounds(self) -> None:
+        # Equal (defaulted) ratings: the home side carries the HFA edge, so its
+        # outright win probability is strictly above a coin flip.
+        equal = win_probability(self.home_id, self.away_id, {})
+        self.assertGreater(equal, 0.5)
+        self.assertLess(equal, 1.0)
+
+        # A heavily higher-rated home team is nearly certain to win outright (but
+        # never exactly 1.0 — the logistic is open at both ends).
+        lopsided = {self.home_id: 2100.0, self.away_id: 1300.0}
+        big = win_probability(self.home_id, self.away_id, lopsided)
+        self.assertGreater(big, 0.95)
+        self.assertLess(big, 1.0)
+
+        # A heavily lower-rated home team is nearly certain to lose, but still > 0.
+        weak = win_probability(
+            self.home_id, self.away_id, {self.home_id: 1300.0, self.away_id: 2100.0}
+        )
+        self.assertGreater(weak, 0.0)
+        self.assertLess(weak, 0.05)
+
+    def test_win_probability_sign_consistent_with_expected_margin(self) -> None:
+        # A positive expected home margin must imply a home win probability > 0.5, and a
+        # negative expected home margin < 0.5 — the two read off the same elo_diff.
+        fav = {self.home_id: 1700.0, self.away_id: 1500.0}
+        self.assertGreater(expected_margin(self.home_id, self.away_id, fav), 0.0)
+        self.assertGreater(win_probability(self.home_id, self.away_id, fav), 0.5)
+
+        # Away much stronger than home, enough to overcome HFA -> negative home margin.
+        dog = {self.home_id: 1400.0, self.away_id: 1800.0}
+        self.assertLess(expected_margin(self.home_id, self.away_id, dog), 0.0)
+        self.assertLess(win_probability(self.home_id, self.away_id, dog), 0.5)
+
+    def test_estimate_populates_home_win_prob(self) -> None:
+        hand = {self.home_id: 1700.0, self.away_id: 1500.0}
+        est = estimate(self.home_id, self.away_id, hand)
+        # The estimate carries the win probability off the SAME snapshot.
+        self.assertAlmostEqual(est.home_win_prob, win_probability(self.home_id, self.away_id, hand))
+        self.assertGreater(est.home_win_prob, 0.5)
+        self.assertLess(est.home_win_prob, 1.0)
 
     # --- (c) cross-season regression toward 1500 --------------------------
     def test_regress_toward_mean(self) -> None:

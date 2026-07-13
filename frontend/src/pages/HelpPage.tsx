@@ -385,6 +385,25 @@ export default function HelpPage() {
               (name a team) — "who's gonna cover the Chiefs game?" That's the
               bot's own analyst call, not your pick.
             </li>
+            <li>
+              <span className="font-semibold">
+                Who it likes as a favorite or underdog
+              </span>{" "}
+              — "who do you like as a favorite this week?" or "best underdog?"
+              It names the game where its model most disagrees with the market —
+              a cross-check on the line, not a bet.
+            </li>
+            <li>
+              <span className="font-semibold">Your safest mortal lock</span> —
+              "what's your best mortal lock?" It ranks games by the model's
+              outright win probability (the safest game, a different question
+              than who covers).
+            </li>
+            <li>
+              <span className="font-semibold">Over/under</span> — not modeled.
+              The bot only has a point-spread number, so if you ask for a totals
+              read it will honestly tell you it has none.
+            </li>
           </ul>
           <p className="text-sm text-fg-muted">
             Team nicknames work too — "niners", "pack", "boys", "gang green",

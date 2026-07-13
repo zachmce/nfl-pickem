@@ -33,7 +33,15 @@ SEASON = 2025
 WEEK = 5
 
 # The exact display-only key set every per-game dict must carry — the leak guard.
-_EXPECTED_GAME_KEYS = {"away", "home", "favorite", "underdog", "spread", "model_margin"}
+_EXPECTED_GAME_KEYS = {
+    "away",
+    "home",
+    "favorite",
+    "underdog",
+    "spread",
+    "model_margin",
+    "model_win_prob",
+}
 
 
 class SlatePredictionsReaderTests(unittest.TestCase):
@@ -195,7 +203,22 @@ class SlatePredictionsReaderTests(unittest.TestCase):
         posted = next(g for g in slate["games"] if g["home"] == fav_abbr)
         self.assertGreater(posted["model_margin"], 0.0)
 
-    # --- (c) the no-line game still carries a model_margin ----------------
+    # --- (b2) each game carries a win probability in (0, 1) ----------------
+    def test_every_game_carries_a_win_probability_in_the_open_unit_interval(self) -> None:
+        self._seed()
+        with Session(self.engine) as session:
+            slate = get_slate_predictions_for_week(session, SEASON, WEEK)
+        for g in slate["games"]:
+            self.assertIsInstance(g["model_win_prob"], float)
+            self.assertGreater(g["model_win_prob"], 0.0)
+            self.assertLess(g["model_win_prob"], 1.0)
+        # The home-favorite team beat the away team three times historically, so it is
+        # the model's outright home favorite: its home win probability is above a coin flip.
+        fav_abbr = self.abbr_by_id[self.home_fav_id]
+        posted = next(g for g in slate["games"] if g["home"] == fav_abbr)
+        self.assertGreater(posted["model_win_prob"], 0.5)
+
+    # --- (c) the no-line game still carries a model_margin -----------------
     def test_unposted_line_game_still_has_model_margin(self) -> None:
         self._seed()
         with Session(self.engine) as session:
@@ -205,8 +228,11 @@ class SlatePredictionsReaderTests(unittest.TestCase):
         self.assertIsNone(unposted["favorite"])
         self.assertIsNone(unposted["underdog"])
         self.assertIsNone(unposted["spread"])
-        # No line, but the model still has a number for the matchup.
+        # No line, but the model still has both a margin and a win probability.
         self.assertIsInstance(unposted["model_margin"], float)
+        self.assertIsInstance(unposted["model_win_prob"], float)
+        self.assertGreater(unposted["model_win_prob"], 0.0)
+        self.assertLess(unposted["model_win_prob"], 1.0)
 
     # --- (d) LEAK ASSERTION: display-only key set, no pick/user data ------
     def test_no_pick_or_user_data_crosses_the_boundary(self) -> None:

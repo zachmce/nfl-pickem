@@ -140,9 +140,10 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "prediction (who will win a specific team's game — the pick, the cover or "
     "margin read, who covers the spread), "
     "slate_predictions (your OWN opinion across the whole week's slate — your "
-    "picks, who you like, or what your model says about all this week's games, as "
-    "opposed to prediction, which is about one specific team's game, and "
-    "lines_slate, which is the factual market spreads), "
+    "picks, who you like, who you like as a favorite or an underdog, your safest "
+    "mortal lock, an over/under read, or what your model says about all this "
+    "week's games, as opposed to prediction, which is about one specific team's "
+    "game, and lines_slate, which is the factual market spreads), "
     "coming_soon (a recognized but unsupported topic: line movement), "
     "unknown (anything you are "
     'not sure about). "team" is a team name or abbreviation the question is about, '
@@ -1305,30 +1306,207 @@ def _slate_prediction_block(game: dict) -> str:
     return f"{matchup}: the market has {favorite} -{_fmt_num(spread)}, {model_clause} → {lean}."
 
 
-def _slate_predictions_fact(slate: dict) -> str | _ListAnswer:
-    """Build the whole-slate model-vs-line answer — a pure derived-facts builder.
+# The "cross-check, not a bet" framing, stated ONCE per answer (was repeated per game,
+# which roughly doubled a 16-game body and read poorly). Lives in the never-phrased body.
+# Hoisted to a module constant so every branch (whole-slate + each pick-type facet) emits
+# the SAME honest disclaimer bytes — the framing is locked (spike 002), never re-worded.
+_SLATE_NOT_A_BET = (
+    "(These are my model's leans as an independent cross-check on the market — not bets.)"
+)
 
-    Mirrors :func:`_prediction_fact`'s discipline (code owns ALL numbers + the lean, the
-    LLM never sees them). Returns a :class:`_ListAnswer` whose ``body`` carries one
-    deterministic cross-check block per game (EVERY game present) and whose ``header_fact``
-    is a pick-FREE analyst lead (no per-game numbers, no "to cover"). On an empty slate
-    returns a plain, concrete "no games posted" sentence.
+# The honest over/under decline: the Elo engine yields only a point-margin, so there is NO
+# totals model. A concrete, full-sentence, game-anchored line (phrasing-inversion discipline
+# — a terse fragment gets flipped to "not supported / no data" by the local model). It
+# invents no number and no side.
+_SLATE_NO_TOTALS = (
+    "I don't model totals — my number is a point-spread read only, so I've got no "
+    "over/under lean for you this week."
+)
+
+# The deterministic pick-type facets a user can ask about WITHIN the whole-slate opinion
+# intent. Each is a (facet, keyword-group) pair; detection is a pure lowercase substring
+# scan of the RAW question, checked in THIS priority order so an incidental token can't
+# outrank a more specific one (e.g. "safest lock" beats a stray "over"). Code owns the
+# facet AND every number, so the analyst-intent contract holds — the classifier LLM never
+# emits a facet param. The " over "/" under " tokens are space-fenced so "coverage" /
+# "cover" never trip the totals facet.
+_SLATE_FACET_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("mortal_lock", ("mortal lock", "lock", "safest")),
+    ("total", ("over/under", "over or under", "o/u", "total", " over ", " under ")),
+    ("underdog", ("underdog", "upset", "dog")),
+    ("favorite", ("favorite", "favourite", "chalk", "fav")),
+)
+
+
+def _slate_facet(question: str) -> str | None:
+    """Deterministically map a raw whole-slate question to a pick-type facet, or ``None``.
+
+    Lowercase-scans the RAW ``question`` (padded with spaces so the ``" over "`` / ``" under "``
+    word-boundary tokens match at the string ends) for the first matching keyword group in
+    PRIORITY order — mortal_lock, then total, then underdog, then favorite. A plain
+    whole-slate ask with no pick-type keyword returns ``None`` (the existing line-by-line
+    breakdown). Pure and network-free — no LLM, no I/O.
     """
+    if not question:
+        return None
+    padded = f" {question.lower()} "
+    for facet, keywords in _SLATE_FACET_KEYWORDS:
+        if any(keyword in padded for keyword in keywords):
+            return facet
+    return None
+
+
+def _posted_line(game: dict) -> tuple[object, object, float] | None:
+    """A game's ``(favorite, underdog, spread_magnitude)`` when a real line is posted, else
+    ``None`` (favorite/underdog/spread absent or a non-positive spread) — the shared
+    "is this game pickable against the market?" guard."""
+    favorite = game.get("favorite")
+    underdog = game.get("underdog")
+    spread = _to_decimal(game.get("spread"))
+    if favorite is None or underdog is None or spread is None or spread <= 0:
+        return None
+    return favorite, underdog, float(spread)
+
+
+def _slate_cover_facet(games: list, week: object, *, side: str) -> str | _ListAnswer:
+    """Name the single strongest FAVORITE- or UNDERDOG-cover lean, ranked by |divergence|.
+
+    Iterates posted-line games, runs the SHARED :func:`_model_line_lean` (single source of
+    truth), keeps the games whose lean lands on the requested side (``"favorite"`` =>
+    lean_team is the game's favorite; ``"underdog"`` => the underdog) with a real lean
+    (verdict != about_right), sorts by ``abs(divergence)`` descending, and NAMES the top one
+    (reusing the byte-for-byte per-game :func:`_slate_prediction_block` phrasing). When no
+    such lean exists, returns a concrete full-sentence plain string — never an invented pick.
+    """
+    word = "favorite" if side == "favorite" else "underdog"
+    ranked: list[tuple[float, dict]] = []
+    for game in games:
+        posted = _posted_line(game)
+        if posted is None:
+            continue
+        favorite, underdog, spread_mag = posted
+        raw_margin = game.get("model_margin")
+        model_home_margin = float(raw_margin) if isinstance(raw_margin, (int, float)) else 0.0
+        verdict, lean_team, divergence = _model_line_lean(
+            game.get("home"), game.get("away"), favorite, spread_mag, model_home_margin
+        )
+        if verdict == "about_right":
+            continue
+        target = favorite if side == "favorite" else underdog
+        if lean_team == target:
+            ranked.append((abs(divergence), game))
+
+    if not ranked:
+        return (
+            f"None of this week's games have my model leaning the {word} past the line — "
+            "the market looks about right across the board."
+        )
+
+    ranked.sort(key=lambda pair: pair[0], reverse=True)
+    header = f"Here's the {word} my model likes best against the market this week."
+    lines = [
+        _SLATE_NOT_A_BET,
+        f"My strongest {word}-cover lean: {_slate_prediction_block(ranked[0][1])}",
+    ]
+    if len(ranked) > 1:
+        lines.append(f"Next in line: {_slate_prediction_block(ranked[1][1])}")
+    return _ListAnswer(header_fact=header, body="\n".join(lines))
+
+
+def _slate_mortal_lock_facet(games: list, week: object) -> str | _ListAnswer:
+    """Name the SAFEST game by outright model win probability — a DIFFERENT axis than cover
+    divergence. For each posted-line game, ``p = max(model_win_prob, 1 - model_win_prob)``
+    and the favored side is the home team when ``model_win_prob >= 0.5`` else the away team.
+    Sorts by ``p`` descending, highlights the top (a don't-lose read, NOT a cover claim), and
+    may list a couple behind it. When no game has a posted line, returns a concrete plain
+    "no line posted" sentence."""
+    ranked: list[tuple[float, object, object, dict]] = []
+    for game in games:
+        if _posted_line(game) is None:
+            continue
+        raw_wp = game.get("model_win_prob")
+        win_prob = float(raw_wp) if isinstance(raw_wp, (int, float)) else 0.5
+        p = max(win_prob, 1.0 - win_prob)
+        home = game.get("home")
+        away = game.get("away")
+        favored = home if win_prob >= 0.5 else away
+        other = away if win_prob >= 0.5 else home
+        ranked.append((p, favored, other, game))
+
+    if not ranked:
+        return (
+            f"No games have a posted line for week {week} yet, so I've got no mortal-lock "
+            "read to point you at."
+        )
+
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    header = "Here's the safest game on my board this week."
+    p, favored, other, top = ranked[0]
+    lines = [
+        _SLATE_NOT_A_BET,
+        (
+            f"Safest game: {top.get('away')} @ {top.get('home')} — my model makes {favored} "
+            f"about {round(p * 100)}% to win outright over {other}. That's a don't-lose read "
+            "(my model's own confidence in who wins, a different axis than the cover leans), "
+            "not a bet."
+        ),
+    ]
+    for p2, favored2, _other2, game2 in ranked[1:3]:
+        lines.append(
+            f"Next safest: {game2.get('away')} @ {game2.get('home')} — {favored2} "
+            f"~{round(p2 * 100)}% to win outright."
+        )
+    return _ListAnswer(header_fact=header, body="\n".join(lines))
+
+
+def _slate_predictions_fact(slate: dict, *, facet: str | None = None) -> str | _ListAnswer:
+    """Build the whole-slate model answer — a pure derived-facts builder (code owns EVERY
+    number + the selection; the LLM never sees them).
+
+    ``facet`` (code-derived by :func:`_slate_facet`, never the LLM) selects the pick-type
+    axis:
+
+    * ``None`` — the whole-slate line-by-line breakdown (one deterministic
+      :func:`_slate_prediction_block` per game, EVERY game present, pick-free header).
+    * ``"favorite"`` / ``"underdog"`` — the single strongest cover lean by market divergence.
+    * ``"mortal_lock"`` — the safest game by outright model win probability (a different axis).
+    * ``"total"`` — an honest, concrete over/under decline (no totals model exists).
+
+    On an empty slate returns a plain, concrete "no games posted" sentence. The
+    "cross-check, not a bet" framing (:data:`_SLATE_NOT_A_BET`) is preserved byte-for-byte.
+    """
+    if facet == "total":
+        # Honest decline regardless of the slate — the engine has no totals model at all.
+        # MUST ride in the never-phrased _ListAnswer body: a bare plain string is handed to
+        # the phrasing LLM, which live-DROPPED the honest sentence and voiced snark implying
+        # a total WAS computed (the exact phrasing-inversion trap; found in Task 3 live-verify
+        # against real Gemma). No _SLATE_NOT_A_BET disclaimer here — there is no lean, just
+        # the decline. The pick-free header is voiced; the concrete decline lands verbatim.
+        return _ListAnswer(
+            header_fact="Here's the straight talk on over/unders this week.",
+            body=_SLATE_NO_TOTALS,
+        )
+
     games = slate.get("games") or []
     week = slate.get("week")
     if not games:
         return f"No games are posted for week {week} yet, so my model has nothing to weigh in on."
+
+    if facet == "favorite":
+        return _slate_cover_facet(games, week, side="favorite")
+    if facet == "underdog":
+        return _slate_cover_facet(games, week, side="underdog")
+    if facet == "mortal_lock":
+        return _slate_mortal_lock_facet(games, week)
+
     blocks = [_slate_prediction_block(game) for game in games]
     header = f"Here's my model's read on all {len(games)} of week {week}'s games, line by line."
-    # The "cross-check, not a bet" framing stated ONCE (was repeated per game, which
-    # roughly doubled a 16-game body and read poorly). Lives in the never-phrased body.
-    disclaimer = (
-        "(These are my model's leans as an independent cross-check on the market — not bets.)"
-    )
-    return _ListAnswer(header_fact=header, body=disclaimer + "\n" + "\n".join(blocks))
+    return _ListAnswer(header_fact=header, body=_SLATE_NOT_A_BET + "\n" + "\n".join(blocks))
 
 
-async def _build_fact(result: QaResult, *, discord_id: int) -> str | _ListAnswer | None:
+async def _build_fact(
+    result: QaResult, *, discord_id: int, slate_facet: str | None = None
+) -> str | _ListAnswer | None:
     """Route a validated intent to its deterministic reader and build the FACT.
 
     Returns the fact string to phrase, or ``None`` for the pick_status
@@ -1359,9 +1537,12 @@ async def _build_fact(result: QaResult, *, discord_id: int) -> str | _ListAnswer
         return _scores_fact(await db_bridge.get_week_scores_async())
 
     if result.intent is QaIntent.slate_predictions:
-        # DERIVED-FACTS whole-week: code owns every model number + the lean; the LLM only
-        # voices the pick-free lead. No team param — this is the whole current-week slate.
-        return _slate_predictions_fact(await db_bridge.get_slate_predictions_async())
+        # DERIVED-FACTS whole-week: code owns every model number + the lean AND the pick-type
+        # facet selection; the LLM only voices the pick-free lead. No team param — this is the
+        # whole current-week slate. ``slate_facet`` is the code-derived pick-type axis.
+        return _slate_predictions_fact(
+            await db_bridge.get_slate_predictions_async(), facet=slate_facet
+        )
 
     if result.intent is QaIntent.injuries:
         # Team-scoped by construction: a teamless injuries question stateless-soft-
@@ -1550,7 +1731,12 @@ async def answer_question(question: str, *, discord_id: int) -> str:
         known_team_tokens = await db_bridge.get_real_team_tokens_async()
         result = validate_classification(raw, known_team_tokens=known_team_tokens)
 
-        fact = await _build_fact(result, discord_id=discord_id)
+        # The pick-type facet is a DETERMINISTIC code scan of the RAW question, computed ONLY
+        # for the whole-slate opinion intent (else None) — never emitted by the classifier LLM.
+        slate_facet = (
+            _slate_facet(question) if result.intent is QaIntent.slate_predictions else None
+        )
+        fact = await _build_fact(result, discord_id=discord_id, slate_facet=slate_facet)
         if fact is None:
             # pick_status, unregistered asker — deterministic, no phrasing.
             return _REGISTER_LINE
