@@ -25,6 +25,10 @@ describe("HelpPage", () => {
     // A rules topic (exact match targets the "Scoring" accordion summary,
     // not the "(see Scoring)" cross-reference in another section).
     expect(screen.getByText("Scoring")).toBeTruthy();
+    // The worked-example accordion (exact summary match).
+    expect(screen.getByText("See it in action")).toBeTruthy();
+    // Guard the worked-example numbers (regex — text sits inside a table cell).
+    expect(screen.getByText(/27 \+ 20 = 47/)).toBeTruthy();
   });
 
   it("redirects /rules to /help", () => {
