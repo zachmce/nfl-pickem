@@ -5,7 +5,8 @@ out — no Postgres, no live Alembic migrations, no network. They prove the
 Python entrypoint preserves the retired ``sh -c "alembic upgrade head && ... "``
 chain's two guarantees:
 
-* **strict step order** — migrations, then teams -> demo -> admins, and
+* **strict step order** — migrations, then teams -> historical_games -> demo
+  -> admins, and
 * **fail-fast short-circuit** — the first step that raises propagates and no
   later step runs (mirroring ``A && B && C && D``).
 
@@ -37,11 +38,13 @@ class BootstrapOrderTests(unittest.TestCase):
             mock.patch.object(bootstrap, "configure_logging"),
             mock.patch.object(bootstrap, "run_migrations") as m_migrate,
             mock.patch("app.seeds.teams.main") as m_teams,
+            mock.patch("app.seeds.historical_games.main") as m_historical,
             mock.patch("app.seeds.demo.main") as m_demo,
             mock.patch("app.seeds.admins.main") as m_admins,
         ):
             parent.attach_mock(m_migrate, "migrate")
             parent.attach_mock(m_teams, "teams")
+            parent.attach_mock(m_historical, "historical_games")
             parent.attach_mock(m_demo, "demo")
             parent.attach_mock(m_admins, "admins")
 
@@ -52,6 +55,7 @@ class BootstrapOrderTests(unittest.TestCase):
             [
                 mock.call.migrate(),
                 mock.call.teams(),
+                mock.call.historical_games(),
                 mock.call.demo(),
                 mock.call.admins(),
             ],
@@ -62,6 +66,7 @@ class BootstrapOrderTests(unittest.TestCase):
             mock.patch.object(bootstrap, "configure_logging"),
             mock.patch.object(bootstrap, "run_migrations", side_effect=RuntimeError("boom")),
             mock.patch("app.seeds.teams.main") as m_teams,
+            mock.patch("app.seeds.historical_games.main") as m_historical,
             mock.patch("app.seeds.demo.main") as m_demo,
             mock.patch("app.seeds.admins.main") as m_admins,
         ):
@@ -69,21 +74,25 @@ class BootstrapOrderTests(unittest.TestCase):
                 bootstrap.main()
 
             m_teams.assert_not_called()
+            m_historical.assert_not_called()
             m_demo.assert_not_called()
             m_admins.assert_not_called()
 
     def test_seed_failure_short_circuits(self) -> None:
-        # Migrations + teams succeed; teams then raises -> demo/admins never run.
+        # Migrations succeed; teams then raises -> historical_games/demo/admins
+        # never run.
         with (
             mock.patch.object(bootstrap, "configure_logging"),
             mock.patch.object(bootstrap, "run_migrations"),
             mock.patch("app.seeds.teams.main", side_effect=RuntimeError("seed boom")),
+            mock.patch("app.seeds.historical_games.main") as m_historical,
             mock.patch("app.seeds.demo.main") as m_demo,
             mock.patch("app.seeds.admins.main") as m_admins,
         ):
             with self.assertRaises(RuntimeError):
                 bootstrap.main()
 
+            m_historical.assert_not_called()
             m_demo.assert_not_called()
             m_admins.assert_not_called()
 

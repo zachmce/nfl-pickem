@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from enum import Enum
 from typing import ClassVar
@@ -391,4 +391,61 @@ class PickEditAudit(SQLModel, table=True):
     created_at: datetime = Field(
         sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False),
         default_factory=_utcnow,
+    )
+
+
+class HistoricalGame(SQLModel, table=True):
+    """A final historical NFL game + its consensus line, for the bot-picks prior.
+
+    This is a **SEPARATE** table from :class:`Game`. It carries NONE of ``Game``'s
+    live operational state (no poller/status, no odds-freeze, no notify latches):
+    it is a static, append-only corpus of completed games (1999 -> last completed
+    season) seeded from a committed CSV artifact. Keeping it separate is
+    deliberate — historical rows must NEVER enter the active-season
+    ``max(Game.season)`` computation (see ``notes/active-season-model.md``), so a
+    prior-season row here can never be mistaken for the live season the ESPN
+    poller owns.
+
+    Sign conventions (verified against nflverse, mirroring
+    ``.planning/spikes/002-rating-model-vs-line/backtest.py``):
+
+    * ``result`` = ``home_score - away_score`` (home margin; positive => home won).
+      It is COMPUTED at seed time, never read from a column.
+    * ``spread_line`` keeps nflverse's HOME-perspective sign: POSITIVE means the
+      home team was favored by that many points. It is a **consensus** number, not
+      strictly the closing line, and there is no moneyline here (the
+      AusSportsBetting overlay is future work, out of scope).
+
+    Defaults are correct WITHOUT the 0017 migration doing any backfill because the
+    table starts empty: ``id``/``total_line`` default to ``None`` and the remaining
+    columns are NOT NULL and always supplied by the upsert — the same reasoning
+    class as ``Week.*_notified`` (no existing-row backfill, so no ``server_default``
+    is required). No PG enum is involved (``game_type`` is a plain string), so the
+    PG enum-reuse caveat does not apply.
+    """
+
+    __tablename__ = "historical_game"
+
+    id: int | None = Field(default=None, primary_key=True)
+    # The nflverse ``game_id`` — unique natural key that drives idempotent upsert.
+    nflverse_game_id: str = Field(
+        sa_column=sa.Column(sa.String(50), nullable=False, unique=True),
+        description="nflverse game_id — unique column, never the PK.",
+    )
+    season: int = Field(nullable=False)
+    week: int = Field(nullable=False)
+    # Plain str REG/WC/DIV/CON/SB — NOT a PG enum, to avoid enum churn.
+    game_type: str = Field(sa_column=sa.Column(sa.String(10), nullable=False))
+    gameday: date = Field(sa_column=sa.Column(sa.Date, nullable=False))
+    home_team_id: int = Field(foreign_key="team.id", nullable=False)
+    away_team_id: int = Field(foreign_key="team.id", nullable=False)
+    home_score: int = Field(nullable=False)
+    away_score: int = Field(nullable=False)
+    # Home margin (home_score - away_score); computed by the upsert.
+    result: int = Field(nullable=False)
+    # Home-perspective consensus spread (positive => home favored), mirroring
+    # Game.spread's Numeric(4, 1).
+    spread_line: Decimal = Field(sa_column=sa.Column(sa.Numeric(4, 1), nullable=False))
+    total_line: Decimal | None = Field(
+        default=None, sa_column=sa.Column(sa.Numeric(5, 1), nullable=True)
     )

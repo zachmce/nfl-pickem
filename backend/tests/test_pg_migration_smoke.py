@@ -58,7 +58,7 @@ from sqlalchemy.engine import make_url
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 # The single expected head after `alembic upgrade head`.
-EXPECTED_HEAD = "0016"
+EXPECTED_HEAD = "0017"
 
 # The exact picktype enum labels the schema must carry — exactly once, not
 # duplicated. Mirrors app.models.PickType (kept literal here so the test does NOT
@@ -204,10 +204,10 @@ class PgMigrationSmokeTest(unittest.TestCase):
         )
         return cur.fetchone()[0]
 
-    # --- Invariant A: single head 0016 ----------------------------------------
+    # --- Invariant A: single head 0017 ----------------------------------------
 
-    def test_invariant_a_single_head_0016(self) -> None:
-        """`alembic heads`/`current` reports exactly one head and it is 0016."""
+    def test_invariant_a_single_head_0017(self) -> None:
+        """`alembic heads`/`current` reports exactly one head and it is 0017."""
         heads = _alembic(["heads"], self.child_env)
         self.assertEqual(heads.returncode, 0, heads.stderr)
         head_lines = [ln for ln in heads.stdout.splitlines() if ln.strip()]
@@ -301,21 +301,21 @@ class PgMigrationSmokeTest(unittest.TestCase):
             labels = {row[0] for row in cur.fetchall()}
         self.assertEqual(labels, EXPECTED_PICKTYPE_LABELS)
 
-    # --- Scoped 0016 down/up round-trip ----------------------------------------
+    # --- Scoped 0017 down/up round-trip ----------------------------------------
 
-    def test_invariant_f_scoped_0016_round_trip(self) -> None:
-        """downgrade -1 (0016 -> 0015) then upgrade head both succeed.
+    def test_invariant_f_scoped_0017_round_trip(self) -> None:
+        """downgrade -1 (0017 -> 0016) then upgrade head both succeed.
 
-        Proves 0016's additive one-column freeze-latch ADD COLUMN
-        (lines_frozen_notified) reverses cleanly — downgrade drops the column and
-        lands on 0015. Scoped to the single 0016 step ONLY — 0012's backfill is
-        irreversible-by-design (see its docstring), so we do NOT downgrade further.
+        Proves 0017's additive CREATE TABLE (historical_game) reverses cleanly —
+        downgrade drops the table and lands on 0016. Scoped to the single 0017 step
+        ONLY — 0012's backfill is irreversible-by-design (see its docstring), so we
+        do NOT downgrade further.
         """
         down = _alembic(["downgrade", "-1"], self.child_env)
         self.assertEqual(down.returncode, 0, f"downgrade -1 failed:\n{down.stderr}")
 
         current = _alembic(["current"], self.child_env)
-        self.assertIn("0015", current.stdout, current.stdout)
+        self.assertIn("0016", current.stdout, current.stdout)
 
         up = _alembic(["upgrade", "head"], self.child_env)
         self.assertEqual(up.returncode, 0, f"upgrade head failed:\n{up.stderr}")

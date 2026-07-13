@@ -406,6 +406,14 @@
                     "endColumn": 17,
                     "lineCount": 1
                 }
+            },
+            {
+                "code": "reportAssignmentType",
+                "range": {
+                    "startColumn": 20,
+                    "endColumn": 37,
+                    "lineCount": 1
+                }
             }
         ],
         "./app/scoreboard/demo.py": [
