@@ -1767,5 +1767,206 @@ class SlatePredictionIntentRoutingTests(unittest.TestCase):
         self.assertIn("my model makes it KC by 7", out)  # deterministic body intact
 
 
+def _facet_game(
+    *,
+    away: str,
+    home: str,
+    favorite: str,
+    underdog: str,
+    spread: str,
+    model_margin: float,
+    model_win_prob: float,
+) -> dict:
+    """A slate game dict carrying BOTH the model margin (cover axis) and the outright win
+    probability (mortal-lock axis), so the two facet selections can be exercised."""
+    return {
+        "away": away,
+        "home": home,
+        "favorite": favorite,
+        "underdog": underdog,
+        "spread": spread,
+        "model_margin": model_margin,
+        "model_win_prob": model_win_prob,
+    }
+
+
+def _facet_slate() -> dict:
+    """A hand-built slate where the top favorite-cover, top underdog-cover, and safest-lock
+    games are all DIFFERENT, so each facet's distinct selection axis is provable."""
+    return {
+        "week": 5,
+        "close_at": None,
+        "pick_open": False,
+        "games": [
+            # KC home fav -3, model +7 => leans KC (favorite) to cover, |div|=4. Coin-flip WP.
+            _facet_game(
+                away="LAC",
+                home="KC",
+                favorite="KC",
+                underdog="LAC",
+                spread="3.0",
+                model_margin=7.0,
+                model_win_prob=0.55,
+            ),
+            # PHI home fav -2.5, model +9 => leans PHI (favorite), |div|=6.5 -> TOP favorite.
+            _facet_game(
+                away="DAL",
+                home="PHI",
+                favorite="PHI",
+                underdog="DAL",
+                spread="2.5",
+                model_margin=9.0,
+                model_win_prob=0.58,
+            ),
+            # BUF home fav -6, model -1 => div -7 leans MIA (away underdog) -> TOP underdog.
+            _facet_game(
+                away="MIA",
+                home="BUF",
+                favorite="BUF",
+                underdog="MIA",
+                spread="6.0",
+                model_margin=-1.0,
+                model_win_prob=0.52,
+            ),
+            # SF home fav -1.5, model +2 => div 0.5 about_right (NO cover lean), but WP 0.90
+            # -> the SAFEST mortal lock (a different axis than divergence).
+            _facet_game(
+                away="SEA",
+                home="SF",
+                favorite="SF",
+                underdog="SEA",
+                spread="1.5",
+                model_margin=2.0,
+                model_win_prob=0.90,
+            ),
+        ],
+    }
+
+
+class SlateFacetTests(unittest.TestCase):
+    """The code-owned pick-type facet on slate_predictions: favorite / underdog rank by
+    market divergence, mortal-lock ranks by outright win probability (a DIFFERENT axis),
+    over/under declines honestly, and the plain whole-slate default is unchanged. All
+    assertions are on the deterministic FACT body (numbers + selection), never phrased text."""
+
+    def test_slate_facet_keyword_mapping_and_priority(self) -> None:
+        # Each pick-type keyword routes to its facet.
+        self.assertEqual(qa._slate_facet("who do you like as a favorite this week?"), "favorite")
+        self.assertEqual(qa._slate_facet("best underdog this week?"), "underdog")
+        self.assertEqual(qa._slate_facet("what's your best mortal lock?"), "mortal_lock")
+        self.assertEqual(qa._slate_facet("you got an over/under read on any game?"), "total")
+        self.assertEqual(qa._slate_facet("give me an o/u lean"), "total")
+        # A plain whole-slate ask -> None (the line-by-line default).
+        self.assertIsNone(qa._slate_facet("what are your picks this week?"))
+        self.assertIsNone(qa._slate_facet(""))
+        # PRIORITY: mortal_lock outranks an incidental totals token ("safest lock" wins).
+        self.assertEqual(qa._slate_facet("safest lock even if it's an over?"), "mortal_lock")
+        # " over " is space-fenced so "coverage" / "cover" never trip the totals facet.
+        self.assertIsNone(qa._slate_facet("who has the best coverage this week?"))
+
+    def test_favorite_facet_names_top_divergence_favorite(self) -> None:
+        fact = qa._slate_predictions_fact(_facet_slate(), facet="favorite")
+        self.assertIsInstance(fact, qa._ListAnswer)
+        assert isinstance(fact, qa._ListAnswer)
+        # PHI is the strongest favorite-cover lean (|div| 6.5 > KC's 4).
+        self.assertIn("DAL @ PHI", fact.body)
+        self.assertIn("leans PHI to cover", fact.body)
+        # The header is a pick-FREE lead (no team, no number, no "to cover").
+        self.assertNotIn("to cover", fact.header_fact)
+        self.assertNotIn("PHI", fact.header_fact)
+        # The honest framing is preserved byte-for-byte and appears once.
+        self.assertIn(qa._SLATE_NOT_A_BET, fact.body)
+
+    def test_underdog_facet_names_top_divergence_underdog(self) -> None:
+        fact = qa._slate_predictions_fact(_facet_slate(), facet="underdog")
+        self.assertIsInstance(fact, qa._ListAnswer)
+        assert isinstance(fact, qa._ListAnswer)
+        # MIA (away underdog in BUF/MIA) is the lone underdog-cover lean.
+        self.assertIn("MIA @ BUF", fact.body)
+        self.assertIn("leans MIA to cover", fact.body)
+        self.assertNotIn("PHI", fact.body)  # a favorite-cover lean, not an underdog one
+
+    def test_favorite_facet_empty_returns_concrete_no_lean_sentence(self) -> None:
+        # A slate where the ONLY posted game is about_right -> no favorite lean, honest decline.
+        flat = {
+            "week": 7,
+            "games": [
+                _facet_game(
+                    away="SEA",
+                    home="SF",
+                    favorite="SF",
+                    underdog="SEA",
+                    spread="3.0",
+                    model_margin=3.5,
+                    model_win_prob=0.60,
+                )
+            ],
+        }
+        fact = qa._slate_predictions_fact(flat, facet="favorite")
+        self.assertIsInstance(fact, str)
+        assert isinstance(fact, str)
+        self.assertIn("None of this week's games", fact)
+        self.assertIn("favorite", fact)
+        self.assertNotIn("to cover", fact)  # never an invented pick
+
+    def test_mortal_lock_facet_names_safest_by_win_prob_not_divergence(self) -> None:
+        fact = qa._slate_predictions_fact(_facet_slate(), facet="mortal_lock")
+        self.assertIsInstance(fact, qa._ListAnswer)
+        assert isinstance(fact, qa._ListAnswer)
+        # SF is the safest (WP 0.90) even though SF/SEA is about_right on the cover axis —
+        # the two axes point at DIFFERENT games (PHI/MIA lead on divergence, SF on safety).
+        self.assertIn("SEA @ SF", fact.body)
+        self.assertIn("SF", fact.body)
+        self.assertIn("90%", fact.body)
+        self.assertIn("win outright", fact.body)
+        # It is NOT the top divergence favorite (PHI) — proving the distinct axis.
+        self.assertNotIn("DAL @ PHI", fact.body.split("Next safest")[0])
+        self.assertIn(qa._SLATE_NOT_A_BET, fact.body)
+
+    def test_total_facet_declines_with_no_number_or_side(self) -> None:
+        fact = qa._slate_predictions_fact(_facet_slate(), facet="total")
+        self.assertIsInstance(fact, str)
+        assert isinstance(fact, str)
+        self.assertIn("don't model totals", fact)
+        # No invented over/under number or side.
+        self.assertNotIn("over/under lean for you this week", fact.replace(qa._SLATE_NO_TOTALS, ""))
+        self.assertNotIn("cover", fact)
+
+    def test_none_facet_is_byte_identical_to_the_whole_slate_default(self) -> None:
+        slate = _facet_slate()
+        default = qa._slate_predictions_fact(slate)
+        explicit_none = qa._slate_predictions_fact(slate, facet=None)
+        self.assertIsInstance(default, qa._ListAnswer)
+        assert isinstance(default, qa._ListAnswer)
+        assert isinstance(explicit_none, qa._ListAnswer)
+        self.assertEqual(default.body, explicit_none.body)
+        self.assertEqual(default.header_fact, explicit_none.header_fact)
+        # Every game still appears, and the disclaimer lands exactly once.
+        self.assertIn("LAC @ KC", default.body)
+        self.assertIn("DAL @ PHI", default.body)
+        self.assertIn("MIA @ BUF", default.body)
+        self.assertIn("SEA @ SF", default.body)
+        self.assertEqual(default.body.count(qa._SLATE_NOT_A_BET), 1)
+
+    def test_facet_threads_end_to_end_through_answer_question(self) -> None:
+        # The facet is derived from the RAW question inside answer_question and reaches the
+        # body verbatim: a "favorite" question names PHI (top divergence favorite).
+        seam_patch, _ = _seam("get_slate_predictions_async", _facet_slate())
+        phrase_patch, _ = _phrase_returns("Model's favorite read 👇")
+        with (
+            _classify_returns({"intent": "slate_predictions"}),
+            _tokens("KC", "PHI"),
+            seam_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("who do you like as a favorite this week?", discord_id=7))
+        self.assertTrue(out.startswith("Model's favorite read 👇"))
+        self.assertIn("DAL @ PHI", out)
+        self.assertIn("leans PHI to cover", out)
+        # Leak guard: no player pick/user content.
+        self.assertNotIn("pick", out.lower())
+
+
 if __name__ == "__main__":
     unittest.main()
