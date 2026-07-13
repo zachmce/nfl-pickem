@@ -37,6 +37,7 @@ import structlog
 from sqlmodel import Session, select
 
 from app.models import Game, GameStatus, Pick, PickType, Team, User, Week
+from app.services import ratings
 from app.services.pick_submission import main_picks_complete
 from app.services.pick_window import compute_window
 from app.services.scoring import GradeOutcome, grade_pick
@@ -1056,6 +1057,70 @@ def get_lines_slate(
     }
 
 
+def get_slate_predictions_for_week(session: Session, season: int, week: int) -> dict:
+    """Display-only whole-slate model margins vs the frozen line for ``{season, week}``.
+
+    The READ side behind the ``slate_predictions`` @mention Q&A intent (260713-k6z):
+    the bot's OWN number (the deterministic Elo rating engine's expected HOME margin)
+    surfaced ALONGSIDE the frozen line for every game in the week, as an explainer /
+    independent cross-check — NOT a tipster's bet signal (framing locked by spike 002,
+    ``notes/bot-picks-model-architecture.md``).
+
+    Mirrors :func:`get_lines_slate`'s DISPLAY-ONLY posture exactly — abbreviations +
+    numbers only, reading ZERO pick/user rows (T-k6z-01). Calls
+    :func:`app.services.ratings.compute_ratings` ONCE, then iterates the season/week
+    :class:`~app.models.Game` rows (same query shape as ``get_lines_slate``). Each
+    per-game dict carries:
+
+    * ``away`` / ``home`` — canonical abbreviations,
+    * ``favorite`` / ``underdog`` — the frozen line's abbreviations (each ``None`` when
+      the line is unposted, exactly like ``get_lines_slate``),
+    * ``spread`` — the frozen positive magnitude stringified (or ``None``),
+    * ``model_margin`` — the raw predicted HOME-relative margin (a float; ``+`` means the
+      home side is favored by the model) from
+      :func:`app.services.ratings.estimate_for_game`.
+
+    Carries NO totals, NO picks, and NO user field. ``close_at`` / ``pick_open`` are the
+    week's pick-window close + tense flag (reusing :func:`_slate_close_at`), same as
+    ``get_lines_slate``. Returns ``{week, close_at, pick_open, games:[...]}``. Pure read —
+    no ``add``/``commit``; never fetches live odds.
+    """
+    games = list(session.exec(select(Game).where(Game.season == season, Game.week == week)).all())
+    teams = list(session.exec(select(Team)).all())
+    abbr_by_team_id = {t.id: t.abbreviation for t in teams if t.id is not None}
+
+    # The bot's independent "number": compute the current Elo snapshot ONCE, then read
+    # a per-game expected HOME margin off it (no add/commit — a pure read).
+    ratings_map = ratings.compute_ratings(session)
+
+    close_at = _slate_close_at(games)
+    # Window open/closed for tense-correct "picks close/closed <when>" phrasing.
+    pick_open = close_at is not None and datetime.now(timezone.utc) < close_at
+
+    game_dicts = [
+        {
+            "away": abbr_by_team_id.get(g.away_team_id),
+            "home": abbr_by_team_id.get(g.home_team_id),
+            "favorite": (
+                abbr_by_team_id.get(g.favorite_team_id) if g.favorite_team_id is not None else None
+            ),
+            "underdog": (
+                abbr_by_team_id.get(g.underdog_team_id) if g.underdog_team_id is not None else None
+            ),
+            "spread": str(g.spread) if g.spread is not None else None,
+            "model_margin": ratings.estimate_for_game(g, ratings_map).expected_margin,
+        }
+        for g in games
+    ]
+
+    return {
+        "week": week,
+        "close_at": close_at,
+        "pick_open": pick_open,
+        "games": game_dicts,
+    }
+
+
 def get_week_scores(session: Session, season: int, week: int) -> dict:
     """Display-only final + in-progress scores for ``{season, week}``.
 
@@ -1241,6 +1306,11 @@ def get_prediction_inputs_for_team(
       live-odds/injuries fetch; may be ``None`` on partial data — the caller then
       skips the live fetch and still uses the frozen line),
     * ``kickoff_at`` — the game kickoff as tz-aware UTC (via :func:`_as_aware`),
+    * ``model_margin`` — the raw predicted HOME-relative margin (a float; ``+`` means
+      the home side is favored by the model) from
+      :func:`app.services.ratings.estimate_for_game`, mirroring
+      :func:`get_slate_predictions_for_week`. The bot's OWN number, surfaced as an
+      independent cross-check on the frozen line — never a bet signal,
     * ``season`` / ``week`` — echoed so the caller can build the live-odds URL.
 
     Returns ``None`` on the SAME misses the sibling readers use: the token resolves no
@@ -1266,6 +1336,11 @@ def get_prediction_inputs_for_team(
     if asked is None:
         return None
 
+    # The bot's independent "number": compute the current Elo snapshot ONCE, then read
+    # this game's expected HOME margin off it (no add/commit — a pure read), mirroring
+    # get_slate_predictions_for_week. Flows to _prediction_fact as the model-vs-line lean.
+    ratings_map = ratings.compute_ratings(session)
+
     return {
         "asked_team": asked,
         "home": abbr_by_team_id.get(game.home_team_id),
@@ -1284,6 +1359,7 @@ def get_prediction_inputs_for_team(
         "total": str(game.total) if game.total is not None else None,
         "espn_event_id": game.espn_event_id,
         "kickoff_at": _as_aware(game.kickoff_at),
+        "model_margin": ratings.estimate_for_game(game, ratings_map).expected_margin,
         "season": season,
         "week": week,
     }

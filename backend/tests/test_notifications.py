@@ -17,13 +17,14 @@ from __future__ import annotations
 
 import json
 import unittest
+from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
-from app.models import Game, GameStatus, PickType, Team, Week
+from app.models import Game, GameStatus, HistoricalGame, PickType, Team, Week
 from app.services import notifications
 from app.services.notifications_read import (
     get_prediction_inputs_for_team,
@@ -809,6 +810,27 @@ class PredictionDataLayerTests(unittest.TestCase):
         )
         s.commit()
 
+    def _seed_history(self, s: Session) -> None:
+        # A handful of prior-season HISTORICAL games (KC beats LAC big) so compute_ratings
+        # yields a real, non-uniform snapshot and the model_margin is a genuine number.
+        for i in range(3):
+            s.add(
+                HistoricalGame(
+                    nflverse_game_id=f"2011_{i + 1:02d}_KC_LAC",
+                    season=2011,
+                    week=i + 1,
+                    game_type="REG",
+                    gameday=date(2011, 9, 11 + i),
+                    home_team_id=1,  # KC
+                    away_team_id=2,  # LAC
+                    home_score=31,
+                    away_score=10,
+                    result=21,
+                    spread_line=Decimal("0"),
+                )
+            )
+        s.commit()
+
     # --- record + ATS ---------------------------------------------------------
 
     def test_record_counts_wins_and_losses(self) -> None:
@@ -1007,6 +1029,7 @@ class PredictionDataLayerTests(unittest.TestCase):
 
     def test_prediction_inputs_returns_frozen_game_fields(self) -> None:
         with Session(self.engine) as s:
+            self._seed_history(s)
             wk5 = self._week(s, 5)
             self._add_game(
                 s,
@@ -1031,6 +1054,8 @@ class PredictionDataLayerTests(unittest.TestCase):
         self.assertEqual(out["spread"], "3.0")
         self.assertEqual(out["total"], "47.5")
         self.assertEqual(out["espn_event_id"], 555)
+        # The bot's own number now rides along: a real HOME-relative model margin float.
+        self.assertIsInstance(out["model_margin"], float)
         self.assertEqual(out["season"], self.SEASON)
         self.assertEqual(out["week"], 5)
 

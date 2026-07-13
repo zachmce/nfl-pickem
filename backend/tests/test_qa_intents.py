@@ -1208,7 +1208,9 @@ def _fetch_live_odds_returns(value):
 
 def _prediction_inputs(**overrides) -> dict:
     """A hand-built merged prediction-inputs dict (what get_prediction_inputs_async
-    returns). KC (home) favored -3 over LAC (away); 4-1 SU, 3-2 ATS."""
+    returns). KC (home) favored -3 over LAC (away); 4-1 SU, 3-2 ATS. ``model_margin`` is
+    a small positive HOME margin (+1.0) so the model agrees the home side is favored but
+    by LESS than the -3 line — i.e. the shared lean lands within the about-right band."""
     base = {
         "asked_team": "KC",
         "home": "KC",
@@ -1219,6 +1221,7 @@ def _prediction_inputs(**overrides) -> dict:
         "total": "47.5",
         "espn_event_id": 555,
         "kickoff_at": datetime(2026, 1, 5, 18, 0, tzinfo=timezone.utc),
+        "model_margin": 1.0,
         "season": 2025,
         "week": 5,
         "record": "4-1",
@@ -1237,29 +1240,33 @@ class PredictionFactTests(unittest.TestCase):
     """The PURE derived-facts builder: code owns the pick + ALL cover math, the LLM
     never re-derives arithmetic. No network — a hand-built inputs dict + optional odds."""
 
-    def test_full_signal_briefing_names_pick_cover_record_ats_injury_weather(self) -> None:
+    def test_full_signal_briefing_names_lean_model_number_record_ats_injury_weather(self) -> None:
         weather_note = "Arrowhead at kickoff (18 GMT): 34.0°F, wind 12.0 mph, no precip expected."
         fact = qa._prediction_fact(
-            _prediction_inputs(),
+            _prediction_inputs(),  # model_margin +1.0
             live_odds=_live(-6.0),  # KC -6 live (frozen was KC -3)
             injuries=[{"display_name": "Patrick Mahomes", "status": "questionable"}],
             weather_note=weather_note,
         )
         self.assertIsInstance(fact, qa._ListAnswer)
         assert isinstance(fact, qa._ListAnswer)
-        # Pick + cover read (from the LIVE line), every number from the inputs/odds.
-        # The call is a BOLD, verbatim body line so it stands out and can't be re-voiced.
-        self.assertIn("**My call: KC to cover — KC -6 (current market line).**", fact.body)
-        self.assertIn("win by more than 6", fact.body)
+        # The model (KC only +1.0) makes the LIVE KC -6 line too rich, so the shared lean
+        # lands on the AWAY/underdog (LAC). The lean + both numbers are BOLD, verbatim body
+        # lines (never re-voiced), framed as a cross-check — NOT a bet.
+        self.assertIn("**My read: I lean LAC here — a cross-check, not a bet.**", fact.body)
+        self.assertIn("The market has KC -6, but my model makes it KC by 1.", fact.body)
+        # The old "My call: {fav} to cover" line-parrot is gone.
+        self.assertNotIn("to cover", fact.body)
         # Record + ATS verbatim.
         self.assertIn("4-1 straight up and 3-2 against the spread", fact.body)
         # Injury + weather notes.
         self.assertIn("Injury watch: Patrick Mahomes (questionable)", fact.body)
         self.assertIn(weather_note, fact.body)
-        # The phrased lead references the GAME, never the pick — the pick is body-only so
+        # The phrased lead references the GAME, never the lean — the lean is body-only so
         # the LLM can't misattribute it to the asker as a pick'em selection.
         self.assertIn("KC", fact.header_fact)
         self.assertNotIn("to cover", fact.header_fact)
+        self.assertNotIn("lean", fact.header_fact)
 
     def test_conflict_callout_fires_on_material_magnitude_delta(self) -> None:
         fact = qa._prediction_fact(
@@ -1275,16 +1282,19 @@ class PredictionFactTests(unittest.TestCase):
 
     def test_conflict_callout_fires_on_favorite_flip(self) -> None:
         fact = qa._prediction_fact(
-            _prediction_inputs(),  # frozen KC favored
+            _prediction_inputs(),  # frozen KC favored, model_margin +1.0
             live_odds=_live(2.0),  # positive -> AWAY (LAC) favored -> favorite FLIP
             injuries=None,
             weather_note=None,
         )
         assert isinstance(fact, qa._ListAnswer)
-        self.assertIn("**My call: LAC to cover", fact.body)
+        # Live line makes LAC -2 (line home margin -2); model (KC +1.0) diverges +3 -> the
+        # shared lean lands on the HOME side (KC). The lean is body-only; the flip fires.
+        self.assertIn("**My read: I lean KC here — a cross-check, not a bet.**", fact.body)
+        self.assertIn("The market has LAC -2, but my model makes it KC by 1.", fact.body)
         self.assertIn("Heads up: you locked this at KC -3", fact.body)
-        # The pick (LAC) lives ONLY in the body — the pick-free lead never carries it.
-        self.assertNotIn("LAC", fact.header_fact)
+        # The lean lives ONLY in the body — the pick-free lead never carries a lean.
+        self.assertNotIn("lean", fact.header_fact)
 
     def test_no_callout_when_live_agrees_with_frozen(self) -> None:
         fact = qa._prediction_fact(
@@ -1295,19 +1305,22 @@ class PredictionFactTests(unittest.TestCase):
         )
         assert isinstance(fact, qa._ListAnswer)
         self.assertNotIn("Heads up", fact.body)
-        self.assertIn("**My call: KC to cover — KC -3 (current market line).**", fact.body)
+        # Model (KC +1.0) vs the KC -3 line diverges -2 -> the shared lean is the AWAY side.
+        self.assertIn("**My read: I lean LAC here — a cross-check, not a bet.**", fact.body)
+        self.assertIn("The market has KC -3, but my model makes it KC by 1.", fact.body)
 
-    def test_live_line_missing_falls_back_to_frozen_relabelled_still_picks(self) -> None:
+    def test_live_line_missing_falls_back_to_frozen_relabelled_still_reads(self) -> None:
         fact = qa._prediction_fact(
-            _prediction_inputs(),  # frozen KC -3
+            _prediction_inputs(),  # frozen KC -3, model_margin +1.0
             live_odds=None,  # live market unreachable
             injuries=None,
             weather_note=None,
         )
         assert isinstance(fact, qa._ListAnswer)
-        # Still produces the pick + cover read off the FROZEN line, relabelled.
-        self.assertIn("**My call: KC to cover — KC -3.**", fact.body)
-        self.assertNotIn("current market line", fact.body)
+        # Still produces the model-vs-line read off the FROZEN line, relabelled.
+        self.assertIn("**My read: I lean LAC here — a cross-check, not a bet.**", fact.body)
+        self.assertIn("The market has KC -3, but my model makes it KC by 1.", fact.body)
+        self.assertNotIn("current market", fact.body)
         self.assertIn(qa._PREDICTION_FROZEN_FALLBACK_NOTE, fact.body)
         # No conflict callout when the live line never landed.
         self.assertNotIn("Heads up", fact.body)
@@ -1323,14 +1336,24 @@ class PredictionFactTests(unittest.TestCase):
         self.assertIn(qa._PREDICTION_INJURIES_DEGRADE_NOTE, fact.body)
         self.assertIn(qa._PREDICTION_WEATHER_DEGRADE_NOTE, fact.body)
 
-    def test_no_line_at_all_declines_without_inventing_a_pick(self) -> None:
+    def test_no_line_at_all_reads_model_only_without_inventing_a_line(self) -> None:
         fact = qa._prediction_fact(
-            _prediction_inputs(favorite=None, underdog=None, spread=None),
+            _prediction_inputs(favorite=None, underdog=None, spread=None),  # model_margin +1.0
             live_odds=None,
             injuries=None,
             weather_note=None,
         )
-        self.assertEqual(fact, qa._PREDICTION_NO_LINE_FACT)
+        assert isinstance(fact, qa._ListAnswer)
+        # No posted line anywhere -> a model-ONLY read that still states the model's own
+        # number (KC by 1.0) and never invents a spread. Still keeps the context notes.
+        self.assertIn("no line is posted on that game yet", fact.body)
+        self.assertIn("My model makes it KC by 1.", fact.body)
+        self.assertNotIn("to cover", fact.body)
+        # Never a fabricated market spread.
+        self.assertNotIn("The market has", fact.body)
+        # Context notes still ride along.
+        self.assertIn("4-1 straight up and 3-2 against the spread", fact.body)
+        self.assertIn(qa._PREDICTION_INJURIES_DEGRADE_NOTE, fact.body)
 
     def test_empty_injury_list_reads_as_clean_not_a_degrade(self) -> None:
         fact = qa._prediction_fact(
@@ -1395,8 +1418,10 @@ class PredictionIntentRoutingTests(unittest.TestCase):
         # Routed with the resolved team; the live-odds fetch got the DB season/week/event.
         self.assertEqual(seam_calls[0]["args"], ("CHIEFS",))
         self.assertEqual(odds_calls[0]["args"], (2025, 5, 555))
-        # A non-empty derived-facts briefing: the pick + cover read reach Discord verbatim.
-        self.assertIn("**My call: KC to cover — KC -6 (current market line).**", out)
+        # A non-empty derived-facts briefing: the model lean + both numbers reach Discord
+        # verbatim (model KC +1.0 vs live KC -6 -> lean the AWAY/underdog LAC).
+        self.assertIn("**My read: I lean LAC here — a cross-check, not a bet.**", out)
+        self.assertIn("The market has KC -6, but my model makes it KC by 1.", out)
         self.assertIn("Heads up: you locked this at KC -3", out)
 
     def test_prediction_lead_phrases_with_analyst_prompt_not_pick_status_guard(self) -> None:
@@ -1442,7 +1467,304 @@ class PredictionIntentRoutingTests(unittest.TestCase):
             out = _run(qa.answer_question("who wins the Chiefs game?", discord_id=7))
         self.assertEqual(out.split("\n")[0], "Oh, you want my take on the Chiefs? 🙄")
         self.assertNotIn("Chiefs -1.5", out)  # the junk second line is dropped
-        self.assertIn("**My call: KC to cover", out)  # the deterministic body is intact
+        self.assertIn("**My read: I lean LAC here", out)  # the deterministic body is intact
+
+
+def _home_fav_game(model_margin: float, *, spread: str = "3.0") -> dict:
+    """A HOME-favorite game dict (KC home favored over LAC), model margin injected."""
+    return {
+        "away": "LAC",
+        "home": "KC",
+        "favorite": "KC",
+        "underdog": "LAC",
+        "spread": spread,
+        "model_margin": model_margin,
+    }
+
+
+def _away_fav_game(model_margin: float, *, spread: str = "3.0") -> dict:
+    """An AWAY-favorite game dict (KC away favored at LAC), model margin injected."""
+    return {
+        "away": "KC",
+        "home": "LAC",
+        "favorite": "KC",
+        "underdog": "LAC",
+        "spread": spread,
+        "model_margin": model_margin,
+    }
+
+
+class SlatePredictionFactTests(unittest.TestCase):
+    """The PURE whole-slate derived-facts builder: code owns EVERY number + the model's
+    lean with correct home-fav/away-fav sign handling; the LLM never re-derives it. No
+    network — hand-built slate dicts only."""
+
+    def test_home_favorite_sign_leans_home_then_away(self) -> None:
+        # line implied HOME margin = +spread (favorite is HOME). A model home margin well
+        # ABOVE it (divergence > threshold) leans the HOME/favorite side to cover...
+        leans_home = qa._slate_prediction_block(_home_fav_game(7.0))
+        self.assertIn("the market has KC -3", leans_home)
+        self.assertIn("my model makes it KC by 7", leans_home)
+        self.assertIn("leans KC to cover", leans_home)
+        # ...and a model home margin well BELOW it leans the AWAY side.
+        leans_away = qa._slate_prediction_block(_home_fav_game(-1.0))
+        self.assertIn("leans LAC to cover", leans_away)
+
+    def test_away_favorite_sign_leans_favorite_then_underdog(self) -> None:
+        # line implied HOME margin = -spread (favorite is AWAY). A model home margin BELOW
+        # that (more negative, divergence < -threshold) leans the AWAY/favorite side...
+        leans_fav = qa._slate_prediction_block(_away_fav_game(-7.0))
+        self.assertIn("the market has KC -3", leans_fav)
+        self.assertIn("leans KC to cover", leans_fav)  # KC is the AWAY favorite
+        # ...and ABOVE that (divergence > threshold) leans the HOME/underdog side.
+        leans_dog = qa._slate_prediction_block(_away_fav_game(-1.0))
+        self.assertIn("leans LAC to cover", leans_dog)  # LAC is the HOME underdog
+
+    def test_small_divergence_agrees_with_the_market_no_lean(self) -> None:
+        # |divergence| <= threshold => "about right", NO lean claimed. Home-fav +3, model
+        # +3.5 => divergence 0.5.
+        agree = qa._slate_prediction_block(_home_fav_game(3.5))
+        self.assertIn("about right", agree)
+        self.assertNotIn("to cover", agree)
+        # Boundary: divergence EXACTLY at the threshold (1.0) still agrees (strict compare).
+        boundary = qa._slate_prediction_block(_home_fav_game(4.0))
+        self.assertIn("about right", boundary)
+        self.assertNotIn("to cover", boundary)
+
+    def test_no_line_degrades_to_a_concrete_model_only_sentence(self) -> None:
+        no_line = {
+            "away": "LAC",
+            "home": "KC",
+            "favorite": None,
+            "underdog": None,
+            "spread": None,
+            "model_margin": 5.0,
+        }
+        block = qa._slate_prediction_block(no_line)
+        # A full sentence (phrasing-inversion safe), model number present, NEVER a cover.
+        self.assertIn("no line is posted", block)
+        self.assertIn("my model makes it KC by 5", block)
+        self.assertNotIn("to cover", block)
+
+    def test_big_divergence_appends_low_confidence_hedge(self) -> None:
+        # Home-fav by 3, model home margin +12 => divergence 9 (>= _SLATE_BIG_DIVERGENCE):
+        # the lean is flagged low-confidence so a wild model number never reads as a lock.
+        big = qa._slate_prediction_block(_home_fav_game(12.0))
+        self.assertIn("leans KC to cover", big)
+        self.assertIn("low confidence", big)
+        # A modest divergence (model +6 => 3) keeps the lean but gets NO hedge.
+        modest = qa._slate_prediction_block(_home_fav_game(6.0))
+        self.assertIn("leans KC to cover", modest)
+        self.assertNotIn("low confidence", modest)
+
+    def test_sub_point_model_margin_reads_as_a_pickem_not_false_precision(self) -> None:
+        # A ~0 model margin renders "a hair" (rounded to the model's real precision), not a
+        # bogus "0.3"; the lean math still uses the raw margin (here => leans the dog LAC).
+        block = qa._slate_prediction_block(_home_fav_game(0.3))
+        self.assertIn("my model makes it KC by a hair", block)
+        self.assertNotIn("0.3", block)
+
+    def test_whole_slate_body_covers_every_game_header_is_pick_free(self) -> None:
+        slate = {
+            "week": 5,
+            "close_at": None,
+            "pick_open": False,
+            "games": [
+                _home_fav_game(7.0),
+                _away_fav_game(-7.0, spread="2.5"),
+                {
+                    "away": "DAL",
+                    "home": "PHI",
+                    "favorite": None,
+                    "underdog": None,
+                    "spread": None,
+                    "model_margin": 1.0,
+                },
+            ],
+        }
+        fact = qa._slate_predictions_fact(slate)
+        self.assertIsInstance(fact, qa._ListAnswer)
+        assert isinstance(fact, qa._ListAnswer)
+        # EVERY seeded game has a block in the (never-phrased) body.
+        self.assertIn("LAC @ KC", fact.body)
+        self.assertIn("KC @ LAC", fact.body)
+        self.assertIn("DAL @ PHI", fact.body)
+        self.assertIn("no line is posted", fact.body)
+        # The "cross-check, not a bet" framing appears ONCE (body intro), not per game.
+        self.assertIn("not bets", fact.body)
+        self.assertEqual(fact.body.count("not bets"), 1)
+        # The header is a pick-FREE analyst lead: no per-game numbers, no "to cover".
+        self.assertNotIn("to cover", fact.header_fact)
+        self.assertIn("model", fact.header_fact.lower())
+
+    def test_empty_slate_returns_concrete_no_games_sentence(self) -> None:
+        fact = qa._slate_predictions_fact({"week": 9, "games": []})
+        self.assertIsInstance(fact, str)
+        assert isinstance(fact, str)
+        self.assertIn("No games are posted for week 9", fact)
+
+
+class ModelLineLeanTests(unittest.TestCase):
+    """The SHARED lean helper — the single source of truth both prediction intents call,
+    so they are structurally incapable of leaning different teams for the same line."""
+
+    def test_home_favorite_sign_leans_home_then_away(self) -> None:
+        # Home favored by 3 => line home margin +3. A model home margin ABOVE it (past the
+        # threshold) leans HOME; well BELOW it leans AWAY.
+        # Third tuple element is the signed divergence (model_home_margin - line_home_margin).
+        self.assertEqual(qa._model_line_lean("KC", "LAC", "KC", 3.0, 7.0), ("home", "KC", 4.0))
+        self.assertEqual(qa._model_line_lean("KC", "LAC", "KC", 3.0, -1.0), ("away", "LAC", -4.0))
+
+    def test_away_favorite_sign_leans_favorite_then_underdog(self) -> None:
+        # Away (KC) favored by 3 => line home margin -3. A model home margin BELOW that
+        # (more negative) leans the AWAY favorite; ABOVE it leans the HOME underdog.
+        self.assertEqual(qa._model_line_lean("LAC", "KC", "KC", 3.0, -7.0), ("away", "KC", -4.0))
+        self.assertEqual(qa._model_line_lean("LAC", "KC", "KC", 3.0, -1.0), ("home", "LAC", 2.0))
+
+    def test_about_right_band_and_boundary(self) -> None:
+        # |divergence| within the threshold => about_right, None. Home-fav +3, model +3.5 =>
+        # divergence 0.5.
+        self.assertEqual(
+            qa._model_line_lean("KC", "LAC", "KC", 3.0, 3.5), ("about_right", None, 0.5)
+        )
+        # Boundary: divergence EXACTLY at the threshold (1.0) still agrees (strict compare).
+        self.assertEqual(
+            qa._model_line_lean("KC", "LAC", "KC", 3.0, 4.0), ("about_right", None, 1.0)
+        )
+        self.assertEqual(
+            qa._model_line_lean("KC", "LAC", "KC", 3.0, 2.0), ("about_right", None, -1.0)
+        )
+
+    def test_big_divergence_is_reported_for_the_low_confidence_hedge(self) -> None:
+        # A large model-vs-line gap is surfaced (magnitude >= _SLATE_BIG_DIVERGENCE) so the
+        # renderers can flag it low-confidence. Home-fav +3, model +12 => divergence 9.0.
+        verdict, lean_team, divergence = qa._model_line_lean("KC", "LAC", "KC", 3.0, 12.0)
+        self.assertEqual((verdict, lean_team), ("home", "KC"))
+        self.assertGreaterEqual(abs(divergence), qa._SLATE_BIG_DIVERGENCE)
+
+
+class CrossIntentPredictionConsistencyTests(unittest.TestCase):
+    """THE acceptance criterion (D-05): for the same game + same frozen line, the single-
+    game `prediction` and the whole-slate `slate_predictions` blocks lean the SAME team.
+    Both route through `_model_line_lean`, so they cannot diverge by construction."""
+
+    def test_kc_at_nyg_style_line_both_paths_lean_the_away_underdog(self) -> None:
+        # KC @ NYG: NYG (home) favored by 5.5, but the model makes NYG only +1.5 -> the
+        # line is too rich, so the shared lean lands on the AWAY/underdog (KC) for BOTH.
+        # NOTE the one acceptable residual: a LIVE line materially different from the frozen
+        # line the slate uses MAY differ — that is fresher data, not a methodology
+        # contradiction. This test holds the line EQUAL on both sides, so they must match.
+        model_margin = 1.5
+        spread = "5.5"
+
+        # Single-game path: frozen NYG -5.5 (no live odds), model +1.5.
+        single = qa._prediction_fact(
+            _prediction_inputs(
+                asked_team="NYG",
+                home="NYG",
+                away="KC",
+                favorite="NYG",
+                underdog="KC",
+                spread=spread,
+                model_margin=model_margin,
+            ),
+            live_odds=None,
+            injuries=None,
+            weather_note=None,
+        )
+        assert isinstance(single, qa._ListAnswer)
+        self.assertIn("I lean KC here", single.body)
+        self.assertNotIn("I lean NYG here", single.body)
+
+        # Slate path: the SAME game dict + the SAME frozen line.
+        block = qa._slate_prediction_block(
+            {
+                "away": "KC",
+                "home": "NYG",
+                "favorite": "NYG",
+                "underdog": "KC",
+                "spread": spread,
+                "model_margin": model_margin,
+            }
+        )
+        self.assertIn("leans KC to cover", block)
+        self.assertNotIn("leans NYG to cover", block)
+
+        # And the shared helper itself yields the away/underdog for this line.
+        verdict, lean_team, _divergence = qa._model_line_lean("NYG", "KC", "NYG", 5.5, model_margin)
+        self.assertEqual((verdict, lean_team), ("away", "KC"))
+
+
+class SlatePredictionIntentRoutingTests(unittest.TestCase):
+    """The slate_predictions branch of _build_fact + answer_question: routed end-to-end
+    under the analyst SLATE prompt with the deterministic body relayed verbatim."""
+
+    @staticmethod
+    def _slate() -> dict:
+        return {
+            "week": 5,
+            "close_at": None,
+            "pick_open": False,
+            "games": [
+                {
+                    "away": "LAC",
+                    "home": "KC",
+                    "favorite": "KC",
+                    "underdog": "LAC",
+                    "spread": "3.0",
+                    "model_margin": 7.0,
+                },
+                {
+                    "away": "DAL",
+                    "home": "PHI",
+                    "favorite": "PHI",
+                    "underdog": "DAL",
+                    "spread": "2.5",
+                    "model_margin": 1.0,
+                },
+            ],
+        }
+
+    def test_real_slate_routes_through_under_slate_guard_body_verbatim(self) -> None:
+        seam_patch, seam_calls = _seam("get_slate_predictions_async", self._slate())
+        phrase_patch, calls = _phrase_returns("Model's slate read 👇")
+        with (
+            _classify_returns({"intent": "slate_predictions"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("what are your picks this week?", discord_id=7))
+        # The whole-week seam takes no team param.
+        self.assertEqual(len(seam_calls), 1)
+        self.assertEqual(seam_calls[0]["args"], ())
+        # Phrased pick-free header on top, then EVERY game's block verbatim.
+        self.assertTrue(out.startswith("Model's slate read 👇"))
+        self.assertIn("LAC @ KC: the market has KC -3, my model makes it KC by 7", out)
+        self.assertIn("leans KC to cover", out)
+        self.assertIn("DAL @ PHI: the market has PHI -2.5, my model makes it PHI by 1", out)
+        self.assertIn("leans DAL to cover", out)
+        # The SLATE guard drives the phrasing — NOT the pick-status QA guard.
+        self.assertIn(qa.SLATE_PREDICTION_GUARD, calls[0]["system_prompt"])
+        self.assertNotIn(qa.QA_GUARD, calls[0]["system_prompt"])
+        # Leak guard: the reply carries no player pick/user content.
+        self.assertNotIn("pick", out.lower())
+
+    def test_multiline_phrased_header_is_clamped_to_first_line(self) -> None:
+        seam_patch, _ = _seam("get_slate_predictions_async", self._slate())
+        phrase_patch, _ = _phrase_returns("Here's the slate 🙄\n\nKC -1.5")
+        with (
+            _classify_returns({"intent": "slate_predictions"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("what's your take on the slate?", discord_id=7))
+        self.assertEqual(out.split("\n")[0], "Here's the slate 🙄")
+        self.assertNotIn("KC -1.5", out)  # the junk second line is dropped
+        self.assertIn("my model makes it KC by 7", out)  # deterministic body intact
 
 
 if __name__ == "__main__":

@@ -50,6 +50,47 @@ def _strip_bot_mention(content: str, bot_id: int) -> str:
     return " ".join(stripped.split())
 
 
+# Discord rejects any message body over 2000 chars with a 400 (error 50035). The
+# whole-slate answers (e.g. slate_predictions over a full 16-game week, each line
+# further inflated by team-logo <:name:id> tokens from decorate_team_logos) can blow
+# past that, which previously crashed the send. Splitting is done here, AFTER logo
+# decoration, so every emitted chunk is guaranteed within the real posted length.
+_DISCORD_MAX_CHARS = 2000
+
+
+def _split_for_discord(text: str, *, limit: int = _DISCORD_MAX_CHARS) -> list[str]:
+    """Split a (already logo-decorated) reply into Discord-sendable chunks.
+
+    Splits on NEWLINE boundaries so no per-game line — nor a ``<:name:id>`` logo token
+    inside one — is ever cut mid-way; whole lines are greedily packed into each chunk.
+    A single line longer than ``limit`` (not expected for these one-line-per-game
+    bodies) is hard-sliced as a last resort so a chunk can never exceed ``limit``.
+    Short replies (the common case) return a single-element list unchanged.
+    """
+    if len(text) <= limit:
+        return [text]
+    chunks: list[str] = []
+    current = ""
+    for line in text.split("\n"):
+        # Defensive: a single line over the limit is emitted in limit-sized slices.
+        while len(line) > limit:
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.append(line[:limit])
+            line = line[limit:]
+        candidate = line if not current else f"{current}\n{line}"
+        if len(candidate) <= limit:
+            current = candidate
+        else:
+            if current:
+                chunks.append(current)
+            current = line
+    if current:
+        chunks.append(current)
+    return chunks
+
+
 class MentionQaCog(commands.Cog):
     """Answers a genuine user->bot @mention with a public in-voice line."""
 
@@ -109,11 +150,14 @@ class MentionQaCog(commands.Cog):
                 # without this Discord unfurls EVERY link into a wall of rich preview
                 # cards below the clean headline list. The Q&A replies are plain text
                 # lines, so suppressing link embeds is always the right call here.
-                await message.channel.send(
-                    decorated,
-                    allowed_mentions=discord.AllowedMentions.none(),
-                    suppress_embeds=True,
-                )
+                # Split so a long whole-slate answer (>2000 chars after logo tokens)
+                # sends as multiple messages instead of 400-ing the gateway send.
+                for chunk in _split_for_discord(decorated):
+                    await message.channel.send(
+                        chunk,
+                        allowed_mentions=discord.AllowedMentions.none(),
+                        suppress_embeds=True,
+                    )
         except Exception:
             # One bad message must never crash the gateway loop (mirrors the notifier
             # per-message guard). answer_question is best-effort too, but guard the

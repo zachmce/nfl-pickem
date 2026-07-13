@@ -61,6 +61,7 @@ class QaIntent(str, Enum):
     weather = "weather"
     news = "news"
     prediction = "prediction"
+    slate_predictions = "slate_predictions"
     coming_soon = "coming_soon"
     unknown = "unknown"
 
@@ -90,10 +91,16 @@ _TEAM_INTENTS = frozenset(
 # (injuries / weather / lines_slate / prediction) stay team-REQUIRED: a non-real team on
 # those still coerces to ``unknown``.
 _TEAM_OPTIONAL_INTENTS = frozenset({QaIntent.news})
-_WEEK_INTENTS = frozenset({QaIntent.pick_status, QaIntent.lines_slate, QaIntent.scores})
+_WEEK_INTENTS = frozenset(
+    {QaIntent.pick_status, QaIntent.lines_slate, QaIntent.scores, QaIntent.slate_predictions}
+)
 _SUBJECT_INTENTS = frozenset(
     {QaIntent.lines_slate, QaIntent.unknown, QaIntent.coming_soon, QaIntent.news}
 )
+# The analyst-lead intents: their phrased header is a pick-free lead (clamped to its first
+# line) ahead of a deterministic _ListAnswer body carrying every number. Both use an
+# analyst prompt with no pick-status framing (single-game vs whole-slate).
+_ANALYST_INTENTS = frozenset({QaIntent.prediction, QaIntent.slate_predictions})
 
 # Sane NFL week bounds for the coerced ``week`` param (regular season + playoffs);
 # anything outside becomes None.
@@ -132,6 +139,10 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "game), news (recent ESPN headlines about a specific team or the league), "
     "prediction (who will win a specific team's game — the pick, the cover or "
     "margin read, who covers the spread), "
+    "slate_predictions (your OWN opinion across the whole week's slate — your "
+    "picks, who you like, or what your model says about all this week's games, as "
+    "opposed to prediction, which is about one specific team's game, and "
+    "lines_slate, which is the factual market spreads), "
     "coming_soon (a recognized but unsupported topic: line movement), "
     "unknown (anything you are "
     'not sure about). "team" is a team name or abbreviation the question is about, '
@@ -453,18 +464,43 @@ QA_GUARD = (
 # call + all numbers live in the deterministic _ListAnswer body, so this prompt only ever
 # re-voices a pick-free one-line intro.
 PREDICTION_ROLE = (
-    "You are the league's wise-cracking NFL analyst, delivering YOUR OWN prediction for a "
-    "game a member asked you to call. The member is only asking for your read — they have "
-    "not made any pick, and picks are not part of this at all."
+    "You are the league's wise-cracking NFL analyst, giving your OWN read on a game a member "
+    "asked you about. You are an explainer and an independent cross-check on the betting "
+    "market, not a tipster handing out bets. The member is only asking for your read — they "
+    "have not made any pick, and picks are not part of this at all."
 )
 PREDICTION_GUARD = (
-    "Re-voice the supplied intro in character — it sets up your prediction of a specific "
-    "game. You may needle the teams or the matchup, but do NOT declare who wins, loses, or "
-    "covers, and do not name your pick — that verdict lands verbatim on the very next line, "
-    "so your intro only teases that your call is coming. Say NOTHING about the member's "
-    "picks, choices, account, or pick'em status (there are none here), and add NO stat, "
-    "spread, or number that is not in the intro. Reply with ONE short line and at most one "
-    "emoji."
+    "Re-voice the supplied intro in character — it leads your read on a specific game, which "
+    "lands verbatim on the lines right below it. You may needle the teams or the matchup, but "
+    "do NOT declare who wins, loses, or covers, and add NO stat, spread, margin, or number "
+    "that is not in the intro, because your model's own number and its lean are written "
+    "verbatim on the following lines as an independent cross-check on the market. Say NOTHING "
+    "about the member's picks, choices, account, or pick'em status, because there are none "
+    "here. Reply with ONE short line and at most one emoji."
+)
+
+# The whole-slate predictions lead phrases through its OWN analyst prompt (260713-k6z),
+# distinct from both QA_ROLE/QA_GUARD (which primes pick-status framing) and the single-
+# game PREDICTION_ROLE/GUARD. The locked framing (bot-picks-model-architecture.md, D-06):
+# the bot is an EXPLAINER + independent cross-check on the market, NOT a betting tipster.
+# Every number and lean lands verbatim in the _ListAnswer body, so this prompt only ever
+# re-voices a pick-free one-line intro. Both the role and guard are CONCRETE full sentences
+# (phrasing-inversion discipline) so the small local model can't invert a terse fragment.
+SLATE_PREDICTION_ROLE = (
+    "You are the league's NFL analyst giving your own read on the whole slate of games "
+    "this week, after a member asked what your model makes of them. You are an explainer "
+    "and an independent cross-check on the betting market, not a tipster handing out bets, "
+    "and the picks members make are not part of this at all."
+)
+SLATE_PREDICTION_GUARD = (
+    "Re-voice the supplied intro in character — it leads a game-by-game breakdown that "
+    "lands verbatim on the lines right below it. Your job across those lines is to explain "
+    "why each market line sits where it does and to offer your model's own number as an "
+    "independent cross-check, never as a bet-this signal. In THIS intro do NOT declare a "
+    "winner, name a side to cover, or add any spread, margin, or number, because every "
+    "figure and lean is written verbatim on the following lines. Say NOTHING about any "
+    "member's picks, choices, account, or pick'em status, because there are none here. "
+    "Reply with ONE short line and at most one emoji."
 )
 
 # Deterministic short-circuit line for an unregistered asker (no LLM call needed).
@@ -557,13 +593,6 @@ _PREDICTION_NO_TEAM_FACT = "No team in that question — name one and ask again.
 # A concrete transient miss — never an invented pick.
 _PREDICTION_UNRESOLVED_FACT = (
     "I couldn't pin down that team's game this week — double-check the team name and ask again."
-)
-
-# Neither the live market nor the frozen sheet has a spread posted yet, so there is no
-# cover to call. Never an invented line/pick.
-_PREDICTION_NO_LINE_FACT = (
-    "There's no line posted on that game yet, so I can't call a cover for you — "
-    "check back once the spread is up."
 )
 
 # Per-factor degrade notes — each a full, game-anchored transient sentence that reads
@@ -1039,79 +1068,107 @@ def _prediction_fact(
     injuries: list[dict] | None,
     weather_note: str | None,
 ) -> str | _ListAnswer:
-    """Build the DERIVED-FACTS prediction briefing — code owns the pick + ALL math.
+    """Build the DERIVED-FACTS prediction briefing — code owns the lean + ALL math.
 
-    Pure and network-free. The pick is the EFFECTIVE line's favorite and every number
-    (cover read, record/ATS, conflict delta) is computed HERE, never by the LLM. Returns:
-
-    * a plain string for the no-line case (no pick can be called), or
-    * a :class:`_ListAnswer` whose ``header_fact`` is a short in-voice lead naming the
-      pick (phrased) and whose ``body`` is the deterministic VERBATIM factor block (cover
-      read, record/ATS, injury note, weather note, conflict callout). The list-answer
-      shape is what keeps the arithmetic out of the LLM's hands — the one-line ``QA_GUARD``
-      phrases ONLY the lead; the body reaches Discord byte-for-byte (T-mpw-02).
+    Pure and network-free. The lean is derived from the model's own margin vs the
+    EFFECTIVE line via the shared :func:`_model_line_lean` helper (the SAME computation
+    the whole-slate block uses, so the two intents can never contradict), and every
+    number (the model's number next to the market's, record/ATS, conflict delta) is
+    computed HERE, never by the LLM. Always returns a :class:`_ListAnswer` whose
+    ``header_fact`` is a short pick-FREE in-voice lead (phrased) and whose ``body`` is the
+    deterministic VERBATIM factor block (the model-vs-line read, record/ATS, injury note,
+    weather note, conflict callout). The list-answer shape is what keeps the arithmetic
+    out of the LLM's hands — the one-line guard phrases ONLY the lead; the body reaches
+    Discord byte-for-byte (T-mpw-02).
 
     The EFFECTIVE line prefers the live market (labelled "current market"); when the live
-    line is absent it falls back to the FROZEN spread, relabelled. When neither carries a
-    usable spread it returns the no-line line — never an invented pick.
+    line is absent it falls back to the FROZEN spread, relabelled. When NEITHER carries a
+    usable spread the read degrades to the model's OWN number only — never an invented line.
     """
     asked_team = inputs.get("asked_team")
     home = inputs.get("home")
     away = inputs.get("away")
     frozen_fav = inputs.get("favorite")
-    frozen_dog = inputs.get("underdog")
     frozen_spread = _to_decimal(inputs.get("spread"))
     record = inputs.get("record") or "0-0"
     ats = inputs.get("ats") or "0-0"
 
+    # The bot's OWN number — the model's predicted HOME-relative margin (+ => home
+    # favored). Defensive float coercion so an absent/non-numeric value never raises.
+    raw_margin = inputs.get("model_margin")
+    model_home_margin = float(raw_margin) if isinstance(raw_margin, (int, float)) else 0.0
+    model_side, model_mag = _model_side_and_mag(home, away, model_home_margin)
+
     # Map the live signed home-relative spread back to favorite/underdog abbrs.
     live_fav: str | None = None
-    live_dog: str | None = None
     live_mag: Decimal | None = None
     if live_odds is not None and live_odds.spread is not None and home and away:
         live_mag = Decimal(str(abs(live_odds.spread)))
         if live_odds.spread < 0:
-            live_fav, live_dog = home, away
+            live_fav = home
         elif live_odds.spread > 0:
-            live_fav, live_dog = away, home
+            live_fav = away
         # spread == 0 is a true pick'em — no favorite from the live line.
 
     using_live = live_fav is not None and live_mag is not None and live_mag > 0
+    has_frozen = frozen_fav is not None and frozen_spread is not None and frozen_spread > 0
+
+    eff_fav: str | None
+    eff_mag: Decimal | None
     if using_live:
         assert live_fav is not None and live_mag is not None
-        eff_fav, eff_dog, eff_mag = live_fav, live_dog, live_mag
-    elif frozen_fav is not None and frozen_spread is not None and frozen_spread > 0:
-        eff_fav, eff_dog, eff_mag = frozen_fav, frozen_dog, frozen_spread
+        eff_fav, eff_mag = live_fav, live_mag
+    elif has_frozen:
+        assert frozen_fav is not None and frozen_spread is not None
+        eff_fav, eff_mag = frozen_fav, frozen_spread
     else:
-        return _PREDICTION_NO_LINE_FACT
+        eff_fav, eff_mag = None, None
 
-    dog_label = eff_dog or "the other side"
     lines: list[str] = []
-    if using_live:
-        lines.append(
-            f"**My call: {eff_fav} to cover — {eff_fav} -{_fmt_num(eff_mag)} (current market line).**"
+    if eff_fav is not None and eff_mag is not None:
+        # A line is posted — the model's number is a cross-check against it, NOT a bet.
+        # BOTH intents route the lean through the shared _model_line_lean helper, so the
+        # single-game read can never lean a different side than the whole-slate block.
+        verdict, lean_team, divergence = _model_line_lean(
+            home, away, eff_fav, eff_mag, model_home_margin
         )
-        lines.append(
-            f"{eff_fav} has to win by more than {_fmt_num(eff_mag)} for it to cash; "
-            f"{dog_label} covers otherwise."
-        )
+        if verdict == "about_right":
+            lines.append(
+                f"**My read: the market looks about right here** — "
+                f"{eff_fav} -{_fmt_num(eff_mag)}, and my number lands about the same."
+            )
+        else:
+            lines.append(f"**My read: I lean {lean_team} here — a cross-check, not a bet.**")
+            model_line = (
+                f"The market has {eff_fav} -{_fmt_num(eff_mag)}, "
+                f"but my model makes it {model_side} by {model_mag}."
+            )
+            if abs(divergence) >= _SLATE_BIG_DIVERGENCE:
+                model_line += " That's a big gap from the market, so it's a low-confidence read."
+            lines.append(model_line)
+        if not using_live:
+            # Fell back to the frozen sheet (no live market) — say so, relabelled.
+            lines.append(_PREDICTION_FROZEN_FALLBACK_NOTE)
     else:
-        lines.append(f"**My call: {eff_fav} to cover — {eff_fav} -{_fmt_num(eff_mag)}.**")
+        # No line posted anywhere — a model-only read that STILL states the model's own
+        # number (never invents a spread), then keeps the context notes below.
         lines.append(
-            f"{eff_fav} has to win by more than {_fmt_num(eff_mag)} for it to cash; "
-            f"{dog_label} covers otherwise. {_PREDICTION_FROZEN_FALLBACK_NOTE}"
+            "**My read: no line is posted on that game yet, so this is just my model's "
+            "own number as a cross-check.**"
         )
+        lines.append(f"My model makes it {model_side} by {model_mag}.")
 
     # Conflict callout — only when the live line is in play AND materially differs from the
     # frozen sheet (favorite flip OR magnitude delta >= threshold).
-    if using_live and frozen_fav is not None and frozen_spread is not None and frozen_spread > 0:
-        assert live_mag is not None
+    if using_live and has_frozen:
+        assert live_mag is not None and frozen_spread is not None
         favorite_flip = live_fav != frozen_fav
         mag_delta = abs(live_mag - frozen_spread)
         if favorite_flip or mag_delta >= _PREDICTION_CONFLICT_THRESHOLD:
+            # using_live => the effective line IS the live line (live_fav / live_mag).
             lines.append(
                 f"Heads up: you locked this at {frozen_fav} -{_fmt_num(frozen_spread)}, "
-                f"but the current market has {eff_fav} -{_fmt_num(eff_mag)}."
+                f"but the current market has {live_fav} -{_fmt_num(live_mag)}."
             )
 
     lines.append(
@@ -1120,11 +1177,155 @@ def _prediction_fact(
     lines.append(_prediction_injury_note(injuries))
     lines.append(weather_note if weather_note is not None else _PREDICTION_WEATHER_DEGRADE_NOTE)
 
-    # The phrased lead is a pick-FREE flavor intro: the pick lives only in the bold,
-    # verbatim body line above, so the LLM can never misattribute it to the asker as a
-    # pick'em selection (a game read is the bot's own forecast, not the asker's pick).
+    # The phrased lead is a pick-FREE flavor intro: the model's lean + number live only in
+    # the bold, verbatim body lines above, so the LLM can never misattribute the read to the
+    # asker as a pick'em selection (a game read is the bot's own cross-check, not a pick).
     header = f"Here's my read on the {asked_team or 'that'} game."
     return _ListAnswer(header_fact=header, body="\n".join(lines))
+
+
+# --- slate_predictions intent (260713-k6z) -------------------------------- #
+# The whole-slate proactive sibling of the single-game prediction intent. A DERIVED-
+# FACTS intent: code owns EVERY number + the model's lean; the LLM only voices the
+# pick-free lead. The bot's model number sits ALONGSIDE the frozen line as an explainer
+# / independent cross-check, never a bet signal (framing locked by spike 002).
+
+# The model-vs-line divergence (in points) beyond which the model is said to LEAN a side.
+# Kept a float (so the model-margin float arithmetic never mixes Decimal/float) and tied
+# to the same magnitude as the single-game conflict threshold.
+_SLATE_LEAN_THRESHOLD = float(_PREDICTION_CONFLICT_THRESHOLD)
+
+# A model-vs-line gap at least this large (points) is almost always the un-tuned Elo
+# overshooting on a single game, NOT a real edge — spike 002 showed big model-vs-line
+# divergences don't beat the closing line. When a lean clears this, flag it low-confidence
+# so a "leans SEA (my model by 17)" doesn't read as authoritative.
+_SLATE_BIG_DIVERGENCE = 7.0
+
+
+def _model_line_lean(
+    home: object,
+    away: object,
+    favorite: object,
+    spread_magnitude: object,
+    model_home_margin: float,
+) -> tuple[str, object | None, float]:
+    """The SINGLE source of truth for which side the model leans vs the frozen line.
+
+    Called by BOTH :func:`_slate_prediction_block` (whole-slate) and
+    :func:`_prediction_fact` (single-game), so the two sibling intents are
+    structurally incapable of leaning different teams for the SAME game + line.
+
+    ``model_home_margin`` is the model's predicted HOME-relative margin (``+`` =>
+    home favored). ``spread_magnitude`` is the frozen line's POSITIVE magnitude and
+    ``favorite`` its favored side. The line's implied HOME margin is ``+spread`` when
+    the favorite is the HOME side and ``-spread`` when it is the AWAY side; the model
+    LEANS a side only when ``model_home_margin - line_home_margin`` clears
+    ``_SLATE_LEAN_THRESHOLD`` in magnitude (strict compare — the boundary agrees).
+
+    Returns a ``(verdict, lean_team)`` pair: ``("home", home)`` /  ``("away", away)``
+    when a side is favored, or ``("about_right", None)`` when the market looks right.
+    """
+    margin = float(model_home_margin) if isinstance(model_home_margin, (int, float)) else 0.0
+    line_home_margin = (
+        float(spread_magnitude) if favorite == home else -float(spread_magnitude)  # type: ignore[arg-type]
+    )
+    divergence = margin - line_home_margin
+    if divergence > _SLATE_LEAN_THRESHOLD:
+        return "home", home, divergence
+    if divergence < -_SLATE_LEAN_THRESHOLD:
+        return "away", away, divergence
+    return "about_right", None, divergence
+
+
+def _fmt_model_margin(magnitude: float) -> str:
+    """Render a model margin magnitude honestly to the model's real precision.
+
+    An Elo point estimate is not accurate to a tenth of a point, so a false-precise
+    ``"0.3"`` / ``"17.3"`` oversells it. Round to the NEAREST WHOLE POINT; a sub-point
+    margin reads as a virtual pick'em (``"a hair"``) rather than a bogus decimal. This
+    is DISPLAY only — the lean math (:func:`_model_line_lean`) always uses the raw
+    margin, so rounding can never flip which side is leaned.
+    """
+    rounded = round(magnitude)
+    return "a hair" if rounded == 0 else str(rounded)
+
+
+def _model_side_and_mag(home: object, away: object, model_home_margin: float) -> tuple[str, str]:
+    """The model's favored side + its margin magnitude (rounded) for a game.
+
+    ``model_home_margin`` is the predicted HOME-relative margin (``+`` => home favored).
+    Returns the abbreviation of the side the MODEL favors and the magnitude rendered by
+    :func:`_fmt_model_margin` — the bot's own number, shown next to the market line.
+    """
+    if model_home_margin >= 0:
+        side = str(home) if home is not None else "the home side"
+        return side, _fmt_model_margin(model_home_margin)
+    side = str(away) if away is not None else "the away side"
+    return side, _fmt_model_margin(abs(model_home_margin))
+
+
+def _slate_prediction_block(game: dict) -> str:
+    """One deterministic per-game cross-check block — code owns every number + the lean.
+
+    Computes the line's implied HOME margin from the frozen favorite + spread
+    (``+spread`` when the favorite is the HOME side, ``-spread`` when it is the AWAY side;
+    ``Game.spread`` is a POSITIVE magnitude), then ``divergence = model_home_margin -
+    line_home_margin``. A divergence beyond ``+_SLATE_LEAN_THRESHOLD`` leans the HOME side
+    to cover, below ``-_SLATE_LEAN_THRESHOLD`` leans the AWAY side, and within the band
+    means the market looks about right (no lean). A game with NO posted line degrades to a
+    concrete, full-sentence model-only note (never a terse fragment). The lean is always
+    framed as an independent cross-check, NEVER a bet signal.
+    """
+    away = game.get("away")
+    home = game.get("home")
+    matchup = f"{away} @ {home}"
+
+    raw_margin = game.get("model_margin")
+    model_home_margin = float(raw_margin) if isinstance(raw_margin, (int, float)) else 0.0
+    model_side, model_mag = _model_side_and_mag(home, away, model_home_margin)
+    model_clause = f"my model makes it {model_side} by {model_mag}"
+
+    favorite = game.get("favorite")
+    spread = _to_decimal(game.get("spread"))
+    if favorite is None or spread is None or spread <= 0:
+        # No posted line to cross-check against — a concrete model-only full sentence.
+        # Kept terse (one line/game): a full slate can run 16 games, and the shared
+        # body disclaimer already carries the "cross-check, not a bet" framing once.
+        return f"{matchup}: no line is posted yet, {model_clause}."
+
+    verdict, lean_team, divergence = _model_line_lean(
+        home, away, favorite, float(spread), model_home_margin
+    )
+    if verdict == "about_right":
+        lean = "market's about right"
+    else:
+        lean = f"leans {lean_team} to cover"
+        if abs(divergence) >= _SLATE_BIG_DIVERGENCE:
+            lean += " (big gap from the market — low confidence)"
+    return f"{matchup}: the market has {favorite} -{_fmt_num(spread)}, {model_clause} → {lean}."
+
+
+def _slate_predictions_fact(slate: dict) -> str | _ListAnswer:
+    """Build the whole-slate model-vs-line answer — a pure derived-facts builder.
+
+    Mirrors :func:`_prediction_fact`'s discipline (code owns ALL numbers + the lean, the
+    LLM never sees them). Returns a :class:`_ListAnswer` whose ``body`` carries one
+    deterministic cross-check block per game (EVERY game present) and whose ``header_fact``
+    is a pick-FREE analyst lead (no per-game numbers, no "to cover"). On an empty slate
+    returns a plain, concrete "no games posted" sentence.
+    """
+    games = slate.get("games") or []
+    week = slate.get("week")
+    if not games:
+        return f"No games are posted for week {week} yet, so my model has nothing to weigh in on."
+    blocks = [_slate_prediction_block(game) for game in games]
+    header = f"Here's my model's read on all {len(games)} of week {week}'s games, line by line."
+    # The "cross-check, not a bet" framing stated ONCE (was repeated per game, which
+    # roughly doubled a 16-game body and read poorly). Lives in the never-phrased body.
+    disclaimer = (
+        "(These are my model's leans as an independent cross-check on the market — not bets.)"
+    )
+    return _ListAnswer(header_fact=header, body=disclaimer + "\n" + "\n".join(blocks))
 
 
 async def _build_fact(result: QaResult, *, discord_id: int) -> str | _ListAnswer | None:
@@ -1156,6 +1357,11 @@ async def _build_fact(result: QaResult, *, discord_id: int) -> str | _ListAnswer
 
     if result.intent is QaIntent.scores:
         return _scores_fact(await db_bridge.get_week_scores_async())
+
+    if result.intent is QaIntent.slate_predictions:
+        # DERIVED-FACTS whole-week: code owns every model number + the lean; the LLM only
+        # voices the pick-free lead. No team param — this is the whole current-week slate.
+        return _slate_predictions_fact(await db_bridge.get_slate_predictions_async())
 
     if result.intent is QaIntent.injuries:
         # Team-scoped by construction: a teamless injuries question stateless-soft-
@@ -1350,10 +1556,13 @@ async def answer_question(question: str, *, discord_id: int) -> str:
             return _REGISTER_LINE
 
         voice = await db_bridge.resolve_active_voice_async()
-        # A prediction lead uses the analyst role (no pick-status framing); every other
-        # intent uses the facts-first QA role/guard.
+        # The analyst leads (single-game prediction + whole-slate slate_predictions) use an
+        # analyst role with NO pick-status framing; every other intent uses the facts-first
+        # QA role/guard.
         if result.intent is QaIntent.prediction:
             system_prompt = compose_prompt(voice, PREDICTION_ROLE, PREDICTION_GUARD)
+        elif result.intent is QaIntent.slate_predictions:
+            system_prompt = compose_prompt(voice, SLATE_PREDICTION_ROLE, SLATE_PREDICTION_GUARD)
         else:
             system_prompt = compose_prompt(voice, QA_ROLE, QA_GUARD)
 
@@ -1370,7 +1579,7 @@ async def answer_question(question: str, *, discord_id: int) -> str:
                 header = phrased_header if phrased_header is not None else fact.header_fact
             else:
                 header = fact.header_fact
-            if result.intent is QaIntent.prediction:
+            if result.intent in _ANALYST_INTENTS:
                 # The analyst lead is phrased, and a small model sometimes tacks a junk
                 # second line after the snark (a bare team name or an invented spread —
                 # observed in live testing). Keep ONLY the first non-empty line; the pick
