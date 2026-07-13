@@ -51,9 +51,7 @@ class SlatePredictionsReaderTests(unittest.TestCase):
             self.home_noline_id: int = ids[2]
             self.away_noline_id: int = ids[3]
             self.abbr_by_id = {
-                t.id: t.abbreviation
-                for t in session.exec(select(Team)).all()
-                if t.id is not None
+                t.id: t.abbreviation for t in session.exec(select(Team)).all() if t.id is not None
             }
 
     def tearDown(self) -> None:
