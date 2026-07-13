@@ -148,6 +148,16 @@ class ValidateClassificationTests(unittest.TestCase):
         out = validate_classification({"intent": "teleport"}, known_team_tokens=_KNOWN_TEAMS)
         self.assertEqual(out.intent, QaIntent.unknown)
 
+    def test_model_emitted_unknown_stays_unknown(self) -> None:
+        # The genuine-nonsense path is untouched by the news team-OPTIONAL fix: an
+        # intent the MODEL itself classified as unknown stays unknown (unknown is not a
+        # team-bearing intent, so a stray team is simply dropped, never resurrected).
+        out = validate_classification(
+            {"intent": "unknown", "team": "moon"}, known_team_tokens=_KNOWN_TEAMS
+        )
+        self.assertEqual(out.intent, QaIntent.unknown)
+        self.assertIsNone(out.team)
+
     def test_none_input_coerces_to_unknown(self) -> None:
         out = validate_classification(None, known_team_tokens=_KNOWN_TEAMS)
         self.assertEqual(out.intent, QaIntent.unknown)
