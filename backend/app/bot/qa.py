@@ -1129,7 +1129,9 @@ def _prediction_fact(
         # A line is posted — the model's number is a cross-check against it, NOT a bet.
         # BOTH intents route the lean through the shared _model_line_lean helper, so the
         # single-game read can never lean a different side than the whole-slate block.
-        verdict, lean_team = _model_line_lean(home, away, eff_fav, eff_mag, model_home_margin)
+        verdict, lean_team, divergence = _model_line_lean(
+            home, away, eff_fav, eff_mag, model_home_margin
+        )
         if verdict == "about_right":
             lines.append(
                 f"**My read: the market looks about right here** — "
@@ -1137,10 +1139,13 @@ def _prediction_fact(
             )
         else:
             lines.append(f"**My read: I lean {lean_team} here — a cross-check, not a bet.**")
-            lines.append(
+            model_line = (
                 f"The market has {eff_fav} -{_fmt_num(eff_mag)}, "
                 f"but my model makes it {model_side} by {model_mag}."
             )
+            if abs(divergence) >= _SLATE_BIG_DIVERGENCE:
+                model_line += " That's a big gap from the market, so it's a low-confidence read."
+            lines.append(model_line)
         if not using_live:
             # Fell back to the frozen sheet (no live market) — say so, relabelled.
             lines.append(_PREDICTION_FROZEN_FALLBACK_NOTE)
@@ -1190,6 +1195,12 @@ def _prediction_fact(
 # to the same magnitude as the single-game conflict threshold.
 _SLATE_LEAN_THRESHOLD = float(_PREDICTION_CONFLICT_THRESHOLD)
 
+# A model-vs-line gap at least this large (points) is almost always the un-tuned Elo
+# overshooting on a single game, NOT a real edge — spike 002 showed big model-vs-line
+# divergences don't beat the closing line. When a lean clears this, flag it low-confidence
+# so a "leans SEA (my model by 17)" doesn't read as authoritative.
+_SLATE_BIG_DIVERGENCE = 7.0
+
 
 def _model_line_lean(
     home: object,
@@ -1197,7 +1208,7 @@ def _model_line_lean(
     favorite: object,
     spread_magnitude: object,
     model_home_margin: float,
-) -> tuple[str, object | None]:
+) -> tuple[str, object | None, float]:
     """The SINGLE source of truth for which side the model leans vs the frozen line.
 
     Called by BOTH :func:`_slate_prediction_block` (whole-slate) and
@@ -1220,24 +1231,37 @@ def _model_line_lean(
     )
     divergence = margin - line_home_margin
     if divergence > _SLATE_LEAN_THRESHOLD:
-        return "home", home
+        return "home", home, divergence
     if divergence < -_SLATE_LEAN_THRESHOLD:
-        return "away", away
-    return "about_right", None
+        return "away", away, divergence
+    return "about_right", None, divergence
+
+
+def _fmt_model_margin(magnitude: float) -> str:
+    """Render a model margin magnitude honestly to the model's real precision.
+
+    An Elo point estimate is not accurate to a tenth of a point, so a false-precise
+    ``"0.3"`` / ``"17.3"`` oversells it. Round to the NEAREST WHOLE POINT; a sub-point
+    margin reads as a virtual pick'em (``"a hair"``) rather than a bogus decimal. This
+    is DISPLAY only — the lean math (:func:`_model_line_lean`) always uses the raw
+    margin, so rounding can never flip which side is leaned.
+    """
+    rounded = round(magnitude)
+    return "a hair" if rounded == 0 else str(rounded)
 
 
 def _model_side_and_mag(home: object, away: object, model_home_margin: float) -> tuple[str, str]:
-    """The model's favored side + its margin magnitude (one decimal) for a game.
+    """The model's favored side + its margin magnitude (rounded) for a game.
 
     ``model_home_margin`` is the predicted HOME-relative margin (``+`` => home favored).
-    Returns the abbreviation of the side the MODEL favors and the magnitude rendered to
-    one decimal — the bot's own number, shown next to the market line.
+    Returns the abbreviation of the side the MODEL favors and the magnitude rendered by
+    :func:`_fmt_model_margin` — the bot's own number, shown next to the market line.
     """
     if model_home_margin >= 0:
         side = str(home) if home is not None else "the home side"
-        return side, f"{model_home_margin:.1f}"
+        return side, _fmt_model_margin(model_home_margin)
     side = str(away) if away is not None else "the away side"
-    return side, f"{abs(model_home_margin):.1f}"
+    return side, _fmt_model_margin(abs(model_home_margin))
 
 
 def _slate_prediction_block(game: dict) -> str:
@@ -1269,13 +1293,15 @@ def _slate_prediction_block(game: dict) -> str:
         # body disclaimer already carries the "cross-check, not a bet" framing once.
         return f"{matchup}: no line is posted yet, {model_clause}."
 
-    verdict, lean_team = _model_line_lean(home, away, favorite, float(spread), model_home_margin)
-    if verdict == "home":
-        lean = f"leans {lean_team} to cover"
-    elif verdict == "away":
-        lean = f"leans {lean_team} to cover"
-    else:
+    verdict, lean_team, divergence = _model_line_lean(
+        home, away, favorite, float(spread), model_home_margin
+    )
+    if verdict == "about_right":
         lean = "market's about right"
+    else:
+        lean = f"leans {lean_team} to cover"
+        if abs(divergence) >= _SLATE_BIG_DIVERGENCE:
+            lean += " (big gap from the market — low confidence)"
     return f"{matchup}: the market has {favorite} -{_fmt_num(spread)}, {model_clause} → {lean}."
 
 

@@ -1254,7 +1254,7 @@ class PredictionFactTests(unittest.TestCase):
         # lands on the AWAY/underdog (LAC). The lean + both numbers are BOLD, verbatim body
         # lines (never re-voiced), framed as a cross-check — NOT a bet.
         self.assertIn("**My read: I lean LAC here — a cross-check, not a bet.**", fact.body)
-        self.assertIn("The market has KC -6, but my model makes it KC by 1.0.", fact.body)
+        self.assertIn("The market has KC -6, but my model makes it KC by 1.", fact.body)
         # The old "My call: {fav} to cover" line-parrot is gone.
         self.assertNotIn("to cover", fact.body)
         # Record + ATS verbatim.
@@ -1291,7 +1291,7 @@ class PredictionFactTests(unittest.TestCase):
         # Live line makes LAC -2 (line home margin -2); model (KC +1.0) diverges +3 -> the
         # shared lean lands on the HOME side (KC). The lean is body-only; the flip fires.
         self.assertIn("**My read: I lean KC here — a cross-check, not a bet.**", fact.body)
-        self.assertIn("The market has LAC -2, but my model makes it KC by 1.0.", fact.body)
+        self.assertIn("The market has LAC -2, but my model makes it KC by 1.", fact.body)
         self.assertIn("Heads up: you locked this at KC -3", fact.body)
         # The lean lives ONLY in the body — the pick-free lead never carries a lean.
         self.assertNotIn("lean", fact.header_fact)
@@ -1307,7 +1307,7 @@ class PredictionFactTests(unittest.TestCase):
         self.assertNotIn("Heads up", fact.body)
         # Model (KC +1.0) vs the KC -3 line diverges -2 -> the shared lean is the AWAY side.
         self.assertIn("**My read: I lean LAC here — a cross-check, not a bet.**", fact.body)
-        self.assertIn("The market has KC -3, but my model makes it KC by 1.0.", fact.body)
+        self.assertIn("The market has KC -3, but my model makes it KC by 1.", fact.body)
 
     def test_live_line_missing_falls_back_to_frozen_relabelled_still_reads(self) -> None:
         fact = qa._prediction_fact(
@@ -1319,7 +1319,7 @@ class PredictionFactTests(unittest.TestCase):
         assert isinstance(fact, qa._ListAnswer)
         # Still produces the model-vs-line read off the FROZEN line, relabelled.
         self.assertIn("**My read: I lean LAC here — a cross-check, not a bet.**", fact.body)
-        self.assertIn("The market has KC -3, but my model makes it KC by 1.0.", fact.body)
+        self.assertIn("The market has KC -3, but my model makes it KC by 1.", fact.body)
         self.assertNotIn("current market", fact.body)
         self.assertIn(qa._PREDICTION_FROZEN_FALLBACK_NOTE, fact.body)
         # No conflict callout when the live line never landed.
@@ -1347,7 +1347,7 @@ class PredictionFactTests(unittest.TestCase):
         # No posted line anywhere -> a model-ONLY read that still states the model's own
         # number (KC by 1.0) and never invents a spread. Still keeps the context notes.
         self.assertIn("no line is posted on that game yet", fact.body)
-        self.assertIn("My model makes it KC by 1.0.", fact.body)
+        self.assertIn("My model makes it KC by 1.", fact.body)
         self.assertNotIn("to cover", fact.body)
         # Never a fabricated market spread.
         self.assertNotIn("The market has", fact.body)
@@ -1421,7 +1421,7 @@ class PredictionIntentRoutingTests(unittest.TestCase):
         # A non-empty derived-facts briefing: the model lean + both numbers reach Discord
         # verbatim (model KC +1.0 vs live KC -6 -> lean the AWAY/underdog LAC).
         self.assertIn("**My read: I lean LAC here — a cross-check, not a bet.**", out)
-        self.assertIn("The market has KC -6, but my model makes it KC by 1.0.", out)
+        self.assertIn("The market has KC -6, but my model makes it KC by 1.", out)
         self.assertIn("Heads up: you locked this at KC -3", out)
 
     def test_prediction_lead_phrases_with_analyst_prompt_not_pick_status_guard(self) -> None:
@@ -1504,7 +1504,7 @@ class SlatePredictionFactTests(unittest.TestCase):
         # ABOVE it (divergence > threshold) leans the HOME/favorite side to cover...
         leans_home = qa._slate_prediction_block(_home_fav_game(7.0))
         self.assertIn("the market has KC -3", leans_home)
-        self.assertIn("my model makes it KC by 7.0", leans_home)
+        self.assertIn("my model makes it KC by 7", leans_home)
         self.assertIn("leans KC to cover", leans_home)
         # ...and a model home margin well BELOW it leans the AWAY side.
         leans_away = qa._slate_prediction_block(_home_fav_game(-1.0))
@@ -1543,8 +1543,26 @@ class SlatePredictionFactTests(unittest.TestCase):
         block = qa._slate_prediction_block(no_line)
         # A full sentence (phrasing-inversion safe), model number present, NEVER a cover.
         self.assertIn("no line is posted", block)
-        self.assertIn("my model makes it KC by 5.0", block)
+        self.assertIn("my model makes it KC by 5", block)
         self.assertNotIn("to cover", block)
+
+    def test_big_divergence_appends_low_confidence_hedge(self) -> None:
+        # Home-fav by 3, model home margin +12 => divergence 9 (>= _SLATE_BIG_DIVERGENCE):
+        # the lean is flagged low-confidence so a wild model number never reads as a lock.
+        big = qa._slate_prediction_block(_home_fav_game(12.0))
+        self.assertIn("leans KC to cover", big)
+        self.assertIn("low confidence", big)
+        # A modest divergence (model +6 => 3) keeps the lean but gets NO hedge.
+        modest = qa._slate_prediction_block(_home_fav_game(6.0))
+        self.assertIn("leans KC to cover", modest)
+        self.assertNotIn("low confidence", modest)
+
+    def test_sub_point_model_margin_reads_as_a_pickem_not_false_precision(self) -> None:
+        # A ~0 model margin renders "a hair" (rounded to the model's real precision), not a
+        # bogus "0.3"; the lean math still uses the raw margin (here => leans the dog LAC).
+        block = qa._slate_prediction_block(_home_fav_game(0.3))
+        self.assertIn("my model makes it KC by a hair", block)
+        self.assertNotIn("0.3", block)
 
     def test_whole_slate_body_covers_every_game_header_is_pick_free(self) -> None:
         slate = {
@@ -1593,22 +1611,36 @@ class ModelLineLeanTests(unittest.TestCase):
     def test_home_favorite_sign_leans_home_then_away(self) -> None:
         # Home favored by 3 => line home margin +3. A model home margin ABOVE it (past the
         # threshold) leans HOME; well BELOW it leans AWAY.
-        self.assertEqual(qa._model_line_lean("KC", "LAC", "KC", 3.0, 7.0), ("home", "KC"))
-        self.assertEqual(qa._model_line_lean("KC", "LAC", "KC", 3.0, -1.0), ("away", "LAC"))
+        # Third tuple element is the signed divergence (model_home_margin - line_home_margin).
+        self.assertEqual(qa._model_line_lean("KC", "LAC", "KC", 3.0, 7.0), ("home", "KC", 4.0))
+        self.assertEqual(qa._model_line_lean("KC", "LAC", "KC", 3.0, -1.0), ("away", "LAC", -4.0))
 
     def test_away_favorite_sign_leans_favorite_then_underdog(self) -> None:
         # Away (KC) favored by 3 => line home margin -3. A model home margin BELOW that
         # (more negative) leans the AWAY favorite; ABOVE it leans the HOME underdog.
-        self.assertEqual(qa._model_line_lean("LAC", "KC", "KC", 3.0, -7.0), ("away", "KC"))
-        self.assertEqual(qa._model_line_lean("LAC", "KC", "KC", 3.0, -1.0), ("home", "LAC"))
+        self.assertEqual(qa._model_line_lean("LAC", "KC", "KC", 3.0, -7.0), ("away", "KC", -4.0))
+        self.assertEqual(qa._model_line_lean("LAC", "KC", "KC", 3.0, -1.0), ("home", "LAC", 2.0))
 
     def test_about_right_band_and_boundary(self) -> None:
         # |divergence| within the threshold => about_right, None. Home-fav +3, model +3.5 =>
         # divergence 0.5.
-        self.assertEqual(qa._model_line_lean("KC", "LAC", "KC", 3.0, 3.5), ("about_right", None))
+        self.assertEqual(
+            qa._model_line_lean("KC", "LAC", "KC", 3.0, 3.5), ("about_right", None, 0.5)
+        )
         # Boundary: divergence EXACTLY at the threshold (1.0) still agrees (strict compare).
-        self.assertEqual(qa._model_line_lean("KC", "LAC", "KC", 3.0, 4.0), ("about_right", None))
-        self.assertEqual(qa._model_line_lean("KC", "LAC", "KC", 3.0, 2.0), ("about_right", None))
+        self.assertEqual(
+            qa._model_line_lean("KC", "LAC", "KC", 3.0, 4.0), ("about_right", None, 1.0)
+        )
+        self.assertEqual(
+            qa._model_line_lean("KC", "LAC", "KC", 3.0, 2.0), ("about_right", None, -1.0)
+        )
+
+    def test_big_divergence_is_reported_for_the_low_confidence_hedge(self) -> None:
+        # A large model-vs-line gap is surfaced (magnitude >= _SLATE_BIG_DIVERGENCE) so the
+        # renderers can flag it low-confidence. Home-fav +3, model +12 => divergence 9.0.
+        verdict, lean_team, divergence = qa._model_line_lean("KC", "LAC", "KC", 3.0, 12.0)
+        self.assertEqual((verdict, lean_team), ("home", "KC"))
+        self.assertGreaterEqual(abs(divergence), qa._SLATE_BIG_DIVERGENCE)
 
 
 class CrossIntentPredictionConsistencyTests(unittest.TestCase):
@@ -1659,7 +1691,7 @@ class CrossIntentPredictionConsistencyTests(unittest.TestCase):
         self.assertNotIn("leans NYG to cover", block)
 
         # And the shared helper itself yields the away/underdog for this line.
-        verdict, lean_team = qa._model_line_lean("NYG", "KC", "NYG", 5.5, model_margin)
+        verdict, lean_team, _divergence = qa._model_line_lean("NYG", "KC", "NYG", 5.5, model_margin)
         self.assertEqual((verdict, lean_team), ("away", "KC"))
 
 
@@ -1709,9 +1741,9 @@ class SlatePredictionIntentRoutingTests(unittest.TestCase):
         self.assertEqual(seam_calls[0]["args"], ())
         # Phrased pick-free header on top, then EVERY game's block verbatim.
         self.assertTrue(out.startswith("Model's slate read 👇"))
-        self.assertIn("LAC @ KC: the market has KC -3, my model makes it KC by 7.0", out)
+        self.assertIn("LAC @ KC: the market has KC -3, my model makes it KC by 7", out)
         self.assertIn("leans KC to cover", out)
-        self.assertIn("DAL @ PHI: the market has PHI -2.5, my model makes it PHI by 1.0", out)
+        self.assertIn("DAL @ PHI: the market has PHI -2.5, my model makes it PHI by 1", out)
         self.assertIn("leans DAL to cover", out)
         # The SLATE guard drives the phrasing — NOT the pick-status QA guard.
         self.assertIn(qa.SLATE_PREDICTION_GUARD, calls[0]["system_prompt"])
@@ -1732,7 +1764,7 @@ class SlatePredictionIntentRoutingTests(unittest.TestCase):
             out = _run(qa.answer_question("what's your take on the slate?", discord_id=7))
         self.assertEqual(out.split("\n")[0], "Here's the slate 🙄")
         self.assertNotIn("KC -1.5", out)  # the junk second line is dropped
-        self.assertIn("my model makes it KC by 7.0", out)  # deterministic body intact
+        self.assertIn("my model makes it KC by 7", out)  # deterministic body intact
 
 
 if __name__ == "__main__":
