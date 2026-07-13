@@ -95,26 +95,47 @@ def expected_margin(home_team_id: int, away_team_id: int, ratings: Mapping[int, 
     return (home - away + HFA_ELO) / ELO_PER_POINT
 
 
+def win_probability(home_team_id: int, away_team_id: int, ratings: Mapping[int, float]) -> float:
+    """The model's outright HOME win probability, in the open interval ``(0, 1)``.
+
+    Reuses the SAME logistic the engine already computes internally as ``e_home``
+    inside :func:`_apply_game` (spike 002): ``elo_diff = home_rating - away_rating +
+    HFA_ELO`` (defaulting an absent team to ``MEAN`` via ``.get``, exactly like
+    :func:`expected_margin`), then ``1 / (1 + 10 ** (-elo_diff / 400))``. This is a
+    monotone transform of the same ``elo_diff`` that drives :func:`expected_margin`,
+    so a positive expected home margin (``elo_diff > 0``) always implies a home win
+    probability ``> 0.5`` — the two are sign-consistent by construction. No constant
+    is re-derived or re-tuned; spike 002 is the source of truth.
+    """
+    home = ratings.get(home_team_id, MEAN)
+    away = ratings.get(away_team_id, MEAN)
+    elo_diff = home - away + HFA_ELO
+    return 1.0 / (1.0 + 10 ** (-elo_diff / 400.0))
+
+
 @dataclass(frozen=True)
 class MarginEstimate:
-    """The expected home margin plus each side's underlying rating."""
+    """The expected home margin plus each side's underlying rating + win probability."""
 
     expected_margin: float
     home_rating: float
     away_rating: float
+    home_win_prob: float
 
 
 def estimate(home_team_id: int, away_team_id: int, ratings: Mapping[int, float]) -> MarginEstimate:
-    """The expected home margin plus each side's rating, in one call.
+    """The expected home margin plus each side's rating + win probability, in one call.
 
     A convenience over :func:`expected_margin` that also surfaces the two team
-    ratings (defaulting an absent team to ``MEAN``) so a caller can explain the
-    number, not just consume it.
+    ratings (defaulting an absent team to ``MEAN``) and the outright home win
+    probability (:func:`win_probability`, from the SAME ratings snapshot) so a caller
+    can explain the number and the safety of the pick, not just consume the margin.
     """
     return MarginEstimate(
         expected_margin=expected_margin(home_team_id, away_team_id, ratings),
         home_rating=ratings.get(home_team_id, MEAN),
         away_rating=ratings.get(away_team_id, MEAN),
+        home_win_prob=win_probability(home_team_id, away_team_id, ratings),
     )
 
 

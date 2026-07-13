@@ -1078,7 +1078,9 @@ def get_slate_predictions_for_week(session: Session, season: int, week: int) -> 
     * ``spread`` — the frozen positive magnitude stringified (or ``None``),
     * ``model_margin`` — the raw predicted HOME-relative margin (a float; ``+`` means the
       home side is favored by the model) from
-      :func:`app.services.ratings.estimate_for_game`.
+      :func:`app.services.ratings.estimate_for_game`,
+    * ``model_win_prob`` — the raw outright HOME win probability (a float in ``(0, 1)``)
+      from the SAME estimate; a safety axis distinct from the cover-vs-line margin.
 
     Carries NO totals, NO picks, and NO user field. ``close_at`` / ``pick_open`` are the
     week's pick-window close + tense flag (reusing :func:`_slate_close_at`), same as
@@ -1097,21 +1099,30 @@ def get_slate_predictions_for_week(session: Session, season: int, week: int) -> 
     # Window open/closed for tense-correct "picks close/closed <when>" phrasing.
     pick_open = close_at is not None and datetime.now(timezone.utc) < close_at
 
-    game_dicts = [
-        {
-            "away": abbr_by_team_id.get(g.away_team_id),
-            "home": abbr_by_team_id.get(g.home_team_id),
-            "favorite": (
-                abbr_by_team_id.get(g.favorite_team_id) if g.favorite_team_id is not None else None
-            ),
-            "underdog": (
-                abbr_by_team_id.get(g.underdog_team_id) if g.underdog_team_id is not None else None
-            ),
-            "spread": str(g.spread) if g.spread is not None else None,
-            "model_margin": ratings.estimate_for_game(g, ratings_map).expected_margin,
-        }
-        for g in games
-    ]
+    game_dicts = []
+    for g in games:
+        # Capture the estimate ONCE per game so the margin and the win probability come
+        # off the same ratings snapshot (a pure read — no pick/user row is touched).
+        est = ratings.estimate_for_game(g, ratings_map)
+        game_dicts.append(
+            {
+                "away": abbr_by_team_id.get(g.away_team_id),
+                "home": abbr_by_team_id.get(g.home_team_id),
+                "favorite": (
+                    abbr_by_team_id.get(g.favorite_team_id)
+                    if g.favorite_team_id is not None
+                    else None
+                ),
+                "underdog": (
+                    abbr_by_team_id.get(g.underdog_team_id)
+                    if g.underdog_team_id is not None
+                    else None
+                ),
+                "spread": str(g.spread) if g.spread is not None else None,
+                "model_margin": est.expected_margin,
+                "model_win_prob": est.home_win_prob,
+            }
+        )
 
     return {
         "week": week,
