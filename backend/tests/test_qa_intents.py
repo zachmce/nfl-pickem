@@ -1923,14 +1923,23 @@ class SlateFacetTests(unittest.TestCase):
         self.assertNotIn("DAL @ PHI", fact.body.split("Next safest")[0])
         self.assertIn(qa._SLATE_NOT_A_BET, fact.body)
 
-    def test_total_facet_declines_with_no_number_or_side(self) -> None:
+    def test_total_facet_declines_in_never_phrased_body(self) -> None:
+        # REGRESSION GUARD (Task 3 live-verify, real Gemma): the total facet used to return a
+        # bare plain string, which the phrasing LLM DROPPED — voicing snark that implied a
+        # total was computed (the opposite of an honest decline). The concrete decline MUST
+        # ride in the never-phrased _ListAnswer body so it lands verbatim and can't be
+        # swallowed or inverted.
         fact = qa._slate_predictions_fact(_facet_slate(), facet="total")
-        self.assertIsInstance(fact, str)
-        assert isinstance(fact, str)
-        self.assertIn("don't model totals", fact)
-        # No invented over/under number or side.
-        self.assertNotIn("over/under lean for you this week", fact.replace(qa._SLATE_NO_TOTALS, ""))
-        self.assertNotIn("cover", fact)
+        self.assertIsInstance(fact, qa._ListAnswer)
+        assert isinstance(fact, qa._ListAnswer)
+        # The decline sentence is the body, verbatim — nothing more (no lean, no disclaimer).
+        self.assertEqual(fact.body, qa._SLATE_NO_TOTALS)
+        self.assertIn("don't model totals", fact.body)
+        # No invented over/under number or side, and no cover/lean claim anywhere.
+        self.assertNotIn("cover", fact.body)
+        self.assertNotIn(qa._SLATE_NOT_A_BET, fact.body)
+        # The header is a pick-free lead (no number, no side, no "to cover").
+        self.assertNotIn("cover", fact.header_fact)
 
     def test_none_facet_is_byte_identical_to_the_whole_slate_default(self) -> None:
         slate = _facet_slate()
@@ -1947,6 +1956,29 @@ class SlateFacetTests(unittest.TestCase):
         self.assertIn("MIA @ BUF", default.body)
         self.assertIn("SEA @ SF", default.body)
         self.assertEqual(default.body.count(qa._SLATE_NOT_A_BET), 1)
+
+    def test_total_facet_decline_survives_snark_phrasing_end_to_end(self) -> None:
+        # Reproduces the live failure: the phrasing LLM returns ONLY snark (implying a total
+        # was computed). Because the decline now rides in the never-phrased body, the honest
+        # "I don't model totals" sentence still lands in the reply.
+        seam_patch, _ = _seam("get_slate_predictions_async", _facet_slate())
+        phrase_patch, _ = _phrase_returns(
+            "Since you're clearly incapable of basic math, I've crunched the numbers. 🙄"
+        )
+        with (
+            _classify_returns({"intent": "slate_predictions"}),
+            _tokens("KC", "PHI"),
+            seam_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(
+                qa.answer_question(
+                    "you got an over/under read on any game this week?", discord_id=7
+                )
+            )
+        self.assertIn(qa._SLATE_NO_TOTALS, out)
+        self.assertIn("don't model totals", out)
 
     def test_facet_threads_end_to_end_through_answer_question(self) -> None:
         # The facet is derived from the RAW question inside answer_question and reaches the

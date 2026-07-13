@@ -1477,7 +1477,15 @@ def _slate_predictions_fact(slate: dict, *, facet: str | None = None) -> str | _
     """
     if facet == "total":
         # Honest decline regardless of the slate — the engine has no totals model at all.
-        return _SLATE_NO_TOTALS
+        # MUST ride in the never-phrased _ListAnswer body: a bare plain string is handed to
+        # the phrasing LLM, which live-DROPPED the honest sentence and voiced snark implying
+        # a total WAS computed (the exact phrasing-inversion trap; found in Task 3 live-verify
+        # against real Gemma). No _SLATE_NOT_A_BET disclaimer here — there is no lean, just
+        # the decline. The pick-free header is voiced; the concrete decline lands verbatim.
+        return _ListAnswer(
+            header_fact="Here's the straight talk on over/unders this week.",
+            body=_SLATE_NO_TOTALS,
+        )
 
     games = slate.get("games") or []
     week = slate.get("week")
