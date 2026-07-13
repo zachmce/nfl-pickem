@@ -66,11 +66,12 @@ class QaIntent(str, Enum):
 
 
 # Which validated intents carry which optional params. A field irrelevant to the
-# resolved intent is DROPPED (set to None), not treated as an error. ``injuries`` and
-# ``weather`` are team-BEARING and team-REQUIRED (a teamless question soft-declines) —
-# they reuse the same real-team validation + coercion path as ``lines_slate``.
-# ``news`` is team-BEARING but team-OPTIONAL: a present team is coerced to a real token
-# (non-real -> unknown), a null team stays valid and yields the LEAGUE answer downstream.
+# resolved intent is DROPPED (set to None), not treated as an error. ``injuries``,
+# ``weather``, ``lines_slate`` and ``prediction`` are team-BEARING and team-REQUIRED (a
+# teamless question soft-declines; a present-but-NON-REAL team coerces to ``unknown``).
+# ``news`` is team-BEARING but team-OPTIONAL (see ``_TEAM_OPTIONAL_INTENTS``): a REAL
+# team still resolves + carries through, but a NON-REAL team falls through to team=None
+# (the LEAGUE answer) instead of coercing to unknown, and a null team is likewise valid.
 _TEAM_INTENTS = frozenset(
     {
         QaIntent.lines_slate,
@@ -80,6 +81,15 @@ _TEAM_INTENTS = frozenset(
         QaIntent.prediction,
     }
 )
+# The team-OPTIONAL subset of ``_TEAM_INTENTS``: intents where a present-but-non-real
+# team is NOT a coercion trigger. A REAL team still resolves and carries through; a
+# non-real team is scrubbed to team=None and the intent FALLS THROUGH (never becomes
+# ``unknown``), yielding the LEAGUE answer downstream. Currently just ``news`` — its
+# surviving ``subject`` then narrows the league feed via ``filter_news_by_subject``
+# (closes issue #114: "news about the AFC West?"). The remaining team-bearing intents
+# (injuries / weather / lines_slate / prediction) stay team-REQUIRED: a non-real team on
+# those still coerces to ``unknown``.
+_TEAM_OPTIONAL_INTENTS = frozenset({QaIntent.news})
 _WEEK_INTENTS = frozenset({QaIntent.pick_status, QaIntent.lines_slate, QaIntent.scores})
 _SUBJECT_INTENTS = frozenset(
     {QaIntent.lines_slate, QaIntent.unknown, QaIntent.coming_soon, QaIntent.news}
@@ -367,8 +377,11 @@ def validate_classification(raw: object, *, known_team_tokens: set[str]) -> QaRe
     * ``raw`` is not a dict (absent / invalid JSON, non-dict input);
     * ``intent`` is missing / absent;
     * ``intent`` is not one of the :class:`QaIntent` values (off-enum);
-    * a non-null ``team`` on a team-bearing intent does not normalize to a member of
-      ``known_team_tokens`` (a non-real team).
+    * a non-null ``team`` on a team-REQUIRED intent (injuries / weather / lines_slate /
+      prediction) does not normalize to a member of ``known_team_tokens`` (a non-real
+      team). A non-real team on a team-OPTIONAL intent (``_TEAM_OPTIONAL_INTENTS`` —
+      currently ``news``) is NOT a coercion trigger: it falls through to team=None (the
+      LEAGUE answer), with its ``subject`` preserved to narrow the feed downstream.
 
     ``coming_soon`` is a legal enum value (recognized-but-planned) and is NEVER
     coerced. Params are scrubbed to the resolved intent: ``team`` is dropped for an
@@ -384,14 +397,17 @@ def validate_classification(raw: object, *, known_team_tokens: set[str]) -> QaRe
     except ValueError:
         return QaResult(intent=QaIntent.unknown)
 
-    # Resolve the team for team-bearing intents. A present-but-non-real team is a
-    # coercion trigger: the model named a game we cannot trust, so fall to unknown.
+    # Resolve the team for team-bearing intents. On a team-REQUIRED intent a present-but-
+    # non-real team is a coercion trigger: the model named a game we cannot trust, so fall
+    # to unknown. On a team-OPTIONAL intent (``_TEAM_OPTIONAL_INTENTS`` — news) it is NOT:
+    # the team scrubs to None and the intent falls through to the LEAGUE answer (a real
+    # team still resolves + carries through as normal).
     team: str | None = None
     if intent in _TEAM_INTENTS:
         raw_team = raw.get("team")
         if raw_team is not None:
             team = _normalize_team(raw_team, known_team_tokens)
-            if team is None:
+            if team is None and intent not in _TEAM_OPTIONAL_INTENTS:
                 return QaResult(intent=QaIntent.unknown)
 
     week = _coerce_week(raw.get("week")) if intent in _WEEK_INTENTS else None
