@@ -269,5 +269,57 @@ class WiringTests(unittest.TestCase):
         self.assertIsInstance(added[0], MentionQaCog)
 
 
+class SplitForDiscordTests(unittest.TestCase):
+    """`_split_for_discord` keeps every chunk within Discord's 2000-char cap without
+    cutting a line (nor a logo token inside one) mid-way."""
+
+    def test_short_text_is_a_single_unchanged_chunk(self) -> None:
+        text = "one line\nsecond line"
+        self.assertEqual(mention_qa._split_for_discord(text), [text])
+
+    def test_long_body_splits_on_line_boundaries_each_within_limit(self) -> None:
+        # 40 lines of ~100 chars => ~4000 chars => must become >1 chunk.
+        lines = [f"GAME {i:02d}: " + "x" * 90 for i in range(40)]
+        text = "\n".join(lines)
+        chunks = mention_qa._split_for_discord(text, limit=2000)
+        self.assertGreater(len(chunks), 1)
+        for chunk in chunks:
+            self.assertLessEqual(len(chunk), 2000)
+        # No line was split: rejoining all chunks reproduces the original exactly, and
+        # every original line survives intact in some chunk.
+        self.assertEqual("\n".join(chunks), text)
+        for original_line in lines:
+            self.assertTrue(any(original_line in c for c in chunks))
+
+    def test_single_overlong_line_is_hard_sliced(self) -> None:
+        # A pathological single line longer than the limit is sliced, never emitted whole.
+        chunks = mention_qa._split_for_discord("z" * 4500, limit=2000)
+        self.assertTrue(all(len(c) <= 2000 for c in chunks))
+        self.assertEqual("".join(chunks), "z" * 4500)
+
+
+class LongAnswerChunkingTests(unittest.TestCase):
+    """End-to-end: a whole-slate answer that exceeds 2000 chars is delivered as multiple
+    valid messages instead of 400-ing the send (regression for the slate_predictions
+    over-length crash)."""
+
+    def test_over_length_answer_sends_as_multiple_capped_messages(self) -> None:
+        big = "\n".join(f"GAME {i:02d}: " + "y" * 90 for i in range(40))  # ~4000 chars
+        patch, _calls = _answer_returns(big)
+        cog = _cog()
+        msg = _make_message(content="what are your picks this week?")
+        with patch:
+            _deliver(cog, msg)
+        sent = msg.channel.sent
+        self.assertGreater(len(sent), 1)  # split into multiple messages
+        for entry in sent:
+            self.assertLessEqual(len(entry["content"]), 2000)
+            # Each chunk keeps the safe posting flags (no-ping + no link unfurl).
+            self.assertIsInstance(entry["allowed_mentions"], discord.AllowedMentions)
+            self.assertTrue(entry["suppress_embeds"])
+        # Reassembling the chunks reproduces the full decorated answer (nothing dropped).
+        self.assertEqual("\n".join(e["content"] for e in sent), big)
+
+
 if __name__ == "__main__":
     unittest.main()

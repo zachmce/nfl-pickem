@@ -1213,20 +1213,19 @@ def _slate_prediction_block(game: dict) -> str:
     spread = _to_decimal(game.get("spread"))
     if favorite is None or spread is None or spread <= 0:
         # No posted line to cross-check against — a concrete model-only full sentence.
-        return (
-            f"{matchup}: no line is posted yet, but {model_clause}, so there's nothing "
-            f"to cross-check against the market this time."
-        )
+        # Kept terse (one line/game): a full slate can run 16 games, and the shared
+        # body disclaimer already carries the "cross-check, not a bet" framing once.
+        return f"{matchup}: no line is posted yet, {model_clause}."
 
     line_home_margin = float(spread) if favorite == home else -float(spread)
     divergence = model_home_margin - line_home_margin
     if divergence > _SLATE_LEAN_THRESHOLD:
-        lean = f"As an independent cross-check my model leans {home} to cover — a lean, not a bet."
+        lean = f"leans {home} to cover"
     elif divergence < -_SLATE_LEAN_THRESHOLD:
-        lean = f"As an independent cross-check my model leans {away} to cover — a lean, not a bet."
+        lean = f"leans {away} to cover"
     else:
-        lean = "My model lands about where the market is, so the line looks about right."
-    return f"{matchup}: the market has {favorite} -{_fmt_num(spread)}, {model_clause}. {lean}"
+        lean = "market's about right"
+    return f"{matchup}: the market has {favorite} -{_fmt_num(spread)}, {model_clause} → {lean}."
 
 
 def _slate_predictions_fact(slate: dict) -> str | _ListAnswer:
@@ -1244,7 +1243,12 @@ def _slate_predictions_fact(slate: dict) -> str | _ListAnswer:
         return f"No games are posted for week {week} yet, so my model has nothing to weigh in on."
     blocks = [_slate_prediction_block(game) for game in games]
     header = f"Here's my model's read on all {len(games)} of week {week}'s games, line by line."
-    return _ListAnswer(header_fact=header, body="\n".join(blocks))
+    # The "cross-check, not a bet" framing stated ONCE (was repeated per game, which
+    # roughly doubled a 16-game body and read poorly). Lives in the never-phrased body.
+    disclaimer = (
+        "(These are my model's leans as an independent cross-check on the market — not bets.)"
+    )
+    return _ListAnswer(header_fact=header, body=disclaimer + "\n" + "\n".join(blocks))
 
 
 async def _build_fact(result: QaResult, *, discord_id: int) -> str | _ListAnswer | None:

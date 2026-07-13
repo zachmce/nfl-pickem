@@ -1547,6 +1547,9 @@ class SlatePredictionFactTests(unittest.TestCase):
         self.assertIn("KC @ LAC", fact.body)
         self.assertIn("DAL @ PHI", fact.body)
         self.assertIn("no line is posted", fact.body)
+        # The "cross-check, not a bet" framing appears ONCE (body intro), not per game.
+        self.assertIn("not bets", fact.body)
+        self.assertEqual(fact.body.count("not bets"), 1)
         # The header is a pick-FREE analyst lead: no per-game numbers, no "to cover".
         self.assertNotIn("to cover", fact.header_fact)
         self.assertIn("model", fact.header_fact.lower())
