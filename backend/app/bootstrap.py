@@ -4,6 +4,7 @@ This module replaces the compose ``migrate`` command that used to be::
 
     sh -c "alembic upgrade head \\
         && python -m app.seeds.teams \\
+        && python -m app.seeds.historical_games \\
         && python -m app.seeds.demo \\
         && python -m app.seeds.admins"
 
@@ -16,8 +17,9 @@ independently and stays fully working on the current Debian ``python:3.14-slim``
 image — no base-image change here.
 
 Fail-fast contract (preserves the old ``A && B && C && D`` short-circuit): the
-steps run in strict order — migrations, then ``teams`` -> ``demo`` -> ``admins``
-— and NOTHING catches, so the first step that raises propagates out of
+steps run in strict order — migrations, then ``teams`` ->
+``historical_games`` -> ``demo`` -> ``admins`` — and NOTHING catches, so the
+first step that raises propagates out of
 :func:`main` (non-zero exit) and no later step runs. The seed behaviors
 themselves are unchanged: this module never reimplements seed logic, it calls
 each existing ``main()`` entrypoint, so the teams upsert, the demo env-gate +
@@ -39,7 +41,7 @@ from alembic.config import Config
 
 from app.config import settings
 from app.logging_config import configure_logging
-from app.seeds import admins, demo, teams
+from app.seeds import admins, demo, historical_games, teams
 
 logger = structlog.get_logger(__name__)
 
@@ -77,14 +79,16 @@ def main() -> None:
 
     Configures logging ONCE (the repo's process-entrypoint convention, mirroring
     ``app.bot.client.main``), then runs, in strict order with NO exception
-    swallowing: migrations -> ``teams.main`` -> ``demo.main`` -> ``admins.main``.
-    Because nothing catches, the first failing step propagates and later steps
+    swallowing: migrations -> ``teams.main`` -> ``historical_games.main`` ->
+    ``demo.main`` -> ``admins.main``. Because nothing catches, the first failing
+    step propagates and later steps
     never run — exactly mirroring the retired ``A && B && C && D`` chain.
     """
     configure_logging(settings.log_level)
 
     run_migrations()
     teams.main()
+    historical_games.main()
     demo.main()
     admins.main()
 
