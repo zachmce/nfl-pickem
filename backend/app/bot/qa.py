@@ -1174,6 +1174,41 @@ def _prediction_fact(
 _SLATE_LEAN_THRESHOLD = float(_PREDICTION_CONFLICT_THRESHOLD)
 
 
+def _model_line_lean(
+    home: object,
+    away: object,
+    favorite: object,
+    spread_magnitude: object,
+    model_home_margin: float,
+) -> tuple[str, object | None]:
+    """The SINGLE source of truth for which side the model leans vs the frozen line.
+
+    Called by BOTH :func:`_slate_prediction_block` (whole-slate) and
+    :func:`_prediction_fact` (single-game), so the two sibling intents are
+    structurally incapable of leaning different teams for the SAME game + line.
+
+    ``model_home_margin`` is the model's predicted HOME-relative margin (``+`` =>
+    home favored). ``spread_magnitude`` is the frozen line's POSITIVE magnitude and
+    ``favorite`` its favored side. The line's implied HOME margin is ``+spread`` when
+    the favorite is the HOME side and ``-spread`` when it is the AWAY side; the model
+    LEANS a side only when ``model_home_margin - line_home_margin`` clears
+    ``_SLATE_LEAN_THRESHOLD`` in magnitude (strict compare — the boundary agrees).
+
+    Returns a ``(verdict, lean_team)`` pair: ``("home", home)`` /  ``("away", away)``
+    when a side is favored, or ``("about_right", None)`` when the market looks right.
+    """
+    margin = float(model_home_margin) if isinstance(model_home_margin, (int, float)) else 0.0
+    line_home_margin = (
+        float(spread_magnitude) if favorite == home else -float(spread_magnitude)  # type: ignore[arg-type]
+    )
+    divergence = margin - line_home_margin
+    if divergence > _SLATE_LEAN_THRESHOLD:
+        return "home", home
+    if divergence < -_SLATE_LEAN_THRESHOLD:
+        return "away", away
+    return "about_right", None
+
+
 def _model_side_and_mag(home: object, away: object, model_home_margin: float) -> tuple[str, str]:
     """The model's favored side + its margin magnitude (one decimal) for a game.
 
@@ -1217,12 +1252,11 @@ def _slate_prediction_block(game: dict) -> str:
         # body disclaimer already carries the "cross-check, not a bet" framing once.
         return f"{matchup}: no line is posted yet, {model_clause}."
 
-    line_home_margin = float(spread) if favorite == home else -float(spread)
-    divergence = model_home_margin - line_home_margin
-    if divergence > _SLATE_LEAN_THRESHOLD:
-        lean = f"leans {home} to cover"
-    elif divergence < -_SLATE_LEAN_THRESHOLD:
-        lean = f"leans {away} to cover"
+    verdict, lean_team = _model_line_lean(home, away, favorite, float(spread), model_home_margin)
+    if verdict == "home":
+        lean = f"leans {lean_team} to cover"
+    elif verdict == "away":
+        lean = f"leans {lean_team} to cover"
     else:
         lean = "market's about right"
     return f"{matchup}: the market has {favorite} -{_fmt_num(spread)}, {model_clause} → {lean}."

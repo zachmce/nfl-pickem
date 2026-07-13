@@ -1306,6 +1306,11 @@ def get_prediction_inputs_for_team(
       live-odds/injuries fetch; may be ``None`` on partial data — the caller then
       skips the live fetch and still uses the frozen line),
     * ``kickoff_at`` — the game kickoff as tz-aware UTC (via :func:`_as_aware`),
+    * ``model_margin`` — the raw predicted HOME-relative margin (a float; ``+`` means
+      the home side is favored by the model) from
+      :func:`app.services.ratings.estimate_for_game`, mirroring
+      :func:`get_slate_predictions_for_week`. The bot's OWN number, surfaced as an
+      independent cross-check on the frozen line — never a bet signal,
     * ``season`` / ``week`` — echoed so the caller can build the live-odds URL.
 
     Returns ``None`` on the SAME misses the sibling readers use: the token resolves no
@@ -1331,6 +1336,11 @@ def get_prediction_inputs_for_team(
     if asked is None:
         return None
 
+    # The bot's independent "number": compute the current Elo snapshot ONCE, then read
+    # this game's expected HOME margin off it (no add/commit — a pure read), mirroring
+    # get_slate_predictions_for_week. Flows to _prediction_fact as the model-vs-line lean.
+    ratings_map = ratings.compute_ratings(session)
+
     return {
         "asked_team": asked,
         "home": abbr_by_team_id.get(game.home_team_id),
@@ -1349,6 +1359,7 @@ def get_prediction_inputs_for_team(
         "total": str(game.total) if game.total is not None else None,
         "espn_event_id": game.espn_event_id,
         "kickoff_at": _as_aware(game.kickoff_at),
+        "model_margin": ratings.estimate_for_game(game, ratings_map).expected_margin,
         "season": season,
         "week": week,
     }
