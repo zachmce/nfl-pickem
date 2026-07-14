@@ -251,7 +251,7 @@ jobs:
       - name: Upload released backend Trivy SARIF
         if: always()  # upload even if the scan above hit continue-on-error
         continue-on-error: true  # a code-scanning upload hiccup must never redden the post-release job
-        uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
+        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
         with:
           sarif_file: trivy-released-backend.sarif
           category: trivy-released-backend  # distinct from publish's trivy-image-backend / iac's trivy-config
@@ -276,7 +276,7 @@ jobs:
       - name: Upload released frontend Trivy SARIF
         if: always()  # upload even if the scan above hit continue-on-error
         continue-on-error: true  # a code-scanning upload hiccup must never redden the post-release job
-        uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
+        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
         with:
           sarif_file: trivy-released-frontend.sarif
           category: trivy-released-frontend  # distinct from publish's trivy-image-frontend / iac's trivy-config
