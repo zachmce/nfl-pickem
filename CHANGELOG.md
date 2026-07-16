@@ -5,6 +5,91 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-07-16
+
+Feature release — the Discord bot learns to reason about the slate. A deterministic
+Elo rating engine, built over a seeded 1999–2025 corpus of real NFL results and
+closing lines, now backs both the whole-week `slate_predictions` answer and the
+single-game `prediction` answer. The framing is deliberate and unchanged: the bot is
+an **explainer and an independent cross-check, not a tipster** — a feasibility spike
+established that a simple Elo does not beat the closing line, so the model is
+surfaced as color against the market, never as a bet. Also folds in five fixes and a
+dependency sweep that clears a HIGH CVE from the published images.
+
+### ⚠️ Upgrading (deploy stack)
+
+- **New migration (0017) — run it before serving traffic.** `historical_game` is a
+  new table, deliberately separate from `game` so the static 1999–2025 corpus can
+  never enter the active-season `max(game.season)` computation. It carries none of
+  `game`'s poller/odds-freeze/notify state and is fully reversible.
+- **First boot does real work.** The table is created empty and filled by an
+  idempotent, fail-loud startup upsert of a committed 7,276-game artifact (~425K
+  CSV). Expect the first backend start after upgrading to take noticeably longer;
+  subsequent boots are no-ops. No manual seeding step is required.
+
+### Added
+
+- **Deterministic Elo rating engine (#137).** A pure, read-only engine
+  (`app/services/ratings.py`) turns the historical corpus plus live FINAL games into
+  per-team ratings and expected margins. The union stream is ordered by
+  (season, week, date) with a 1/3 regression at each season boundary. No table, no
+  migration — a compute layer only.
+- **Historical NFL results + closing lines, seeded from nflverse (#135).** The
+  `historical_game` corpus (7,276 games, 1999–2025) plus a dev-only regeneration
+  script. This is the cold-start data the rating model needs.
+- **`slate_predictions` — model vs. the line for the whole week.** A new @mention Q&A
+  intent that surfaces the engine's expected margin against the market for every game
+  on the current slate, framed as an independent cross-check. Long replies are chunked
+  to respect Discord's 2000-character limit.
+- **Pick-type vocabulary for bot answers (#139).** You can now ask in the app's own
+  language — "who do you like as a favorite/underdog this week?", "best mortal lock?".
+  Favorite/underdog rank by the strongest cover lean against the market; mortal lock
+  ranks by outright win probability (a deliberately different axis). Over/under
+  honestly declines: there is no totals model. The selection is code-derived, not
+  LLM-chosen.
+- **A worked pick-type example on the Help page (#134).** A new "See it in action"
+  section resolves all four base pick types against a single Chiefs 27 / Broncos 20
+  example, so the scoring rules are shown rather than only described.
+
+### Changed
+
+- **The single-game `prediction` intent now shares the slate model.** Both intents
+  route through one `_model_line_lean` helper, so they can no longer contradict each
+  other; the old line-parroting "My call: favorite to cover" is gone. Model margins
+  round to whole points ("a hair" below one) and gaps of 7+ points against the line
+  carry a low-confidence hedge, so noisy outliers don't read as authoritative.
+
+### Fixed
+
+- **MISC pick scoring is gated on the game being FINAL (#128).** A graded MISC pick on
+  a future-week game leaked its points into season standings before the game had been
+  played.
+- **Discord Q&A news is team-optional (#132).** Asking for news about something that
+  isn't a real team now falls back to league-wide news instead of erroring as unknown.
+- **`game.final` quips no longer cluster on unpicked games (#131).** A deterministic
+  per-matchup angle (selected by a stable hash of the matchup, not `hash()`) forces
+  structural divergence across independent LLM calls.
+- **AppSetting model metadata aligned to migration head (#129).** Clears a
+  false-positive Alembic autogen drift. DB-level uniqueness is unchanged; no new
+  migration.
+- **Frontend lint residue from react-hooks@7 resolved (#130).** Ten set-state-in-effect
+  findings fixed and the rules promoted to error.
+
+### Security
+
+- **Backend base image clears a HIGH CVE (CVE-2026-11940).** The Chainguard python
+  builder and runtime digests move to a base carrying `python-3.14` `3.14.6-r3`,
+  fixing a `tarfile.extractall()` filter bypass present in `3.14.6-r1`. The CVE was
+  published after the previous release, so v1.2.4's published images carry the
+  vulnerable package — **this release is how the fix reaches the images.**
+
+### Build
+
+- **Dependency sweep.** `codeql-action` v4.36.3 → v4.37.0 and a `setup-uv` SHA repin
+  (#146); node:26-alpine (#143) and oss-fuzz base-builder-python (#141) digest
+  refreshes; vite 8.1.3 → 8.1.4 (#144), which also resyncs the `package-lock.json`
+  version stamp that had drifted from `package.json`.
+
 ## [1.2.4] - 2026-07-11
 
 Enhancement patch — the Rules page becomes a Help page that also documents the
