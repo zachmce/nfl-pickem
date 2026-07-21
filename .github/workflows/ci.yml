@@ -301,7 +301,7 @@ jobs:
       - name: Upload gitleaks SARIF
         if: always()
         continue-on-error: true  # never let a SARIF-upload hiccup fail the required secrets gate
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
         with:
           sarif_file: results.sarif
           category: gitleaks  # distinct from all trivy-* / zizmor categories
@@ -387,7 +387,7 @@ jobs:
           exit-code: '0'  # report-only pass — never fails the job
       - name: Upload Trivy image SARIF
         if: always()  # upload the report even when the gate below fails the job
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
         with:
           sarif_file: trivy-backend.sarif
           category: trivy-image-backend  # distinct per image so results don't overwrite
@@ -440,7 +440,7 @@ jobs:
           exit-code: '0'  # report-only pass — never fails the job
       - name: Upload Trivy image SARIF
         if: always()  # upload the report even when the gate below fails the job
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
         with:
           sarif_file: trivy-frontend.sarif
           category: trivy-image-frontend  # distinct per image so results don't overwrite
@@ -512,7 +512,7 @@ jobs:
       - name: Upload osv-scanner SARIF
         if: always()  # upload the report even when the scan found vulns (mirrors gitleaks/trivy)
         continue-on-error: true  # never let a SARIF-upload hiccup flip the gate result
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
         with:
           sarif_file: osv.sarif
           category: osv-scanner  # distinct from every existing trivy-* / zizmor / gitleaks / semgrep
@@ -563,7 +563,7 @@ jobs:
           exit-code: '0'  # advisory — never gates
       - name: Upload Trivy config SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
         with:
           sarif_file: trivy-config.sarif
           category: trivy-config
@@ -595,12 +595,12 @@ jobs:
         with:
           persist-credentials: false  # artipacked: zizmor only reads the checked-out workflow files
       - name: zizmor — upload SARIF to code scanning (report; never fails)
-        uses: zizmorcore/zizmor-action@192e21d79ab29983730a13d1382995c2307fbcaa # v0.5.7
+        uses: zizmorcore/zizmor-action@6599ee8b7a49aef6a770f63d261d214911a7ce02 # v0.6.0
         with:
           inputs: .github/workflows/
           advanced-security: true  # public repo — uploads to the Security tab; does not fail on findings
       - name: zizmor — blocking gate (fails on any finding)
-        uses: zizmorcore/zizmor-action@192e21d79ab29983730a13d1382995c2307fbcaa # v0.5.7
+        uses: zizmorcore/zizmor-action@6599ee8b7a49aef6a770f63d261d214911a7ce02 # v0.6.0
         with:
           inputs: .github/workflows/
           advanced-security: false  # no SARIF upload here; exits non-zero on findings — this IS the gate
@@ -653,7 +653,7 @@ jobs:
       - name: Upload Semgrep SARIF
         if: always()  # upload the report even if a later step fails the job
         continue-on-error: true  # never let a SARIF-upload hiccup fail the semgrep gate (mirrors gitleaks)
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
         with:
           sarif_file: semgrep.sarif
           category: semgrep  # distinct from all trivy-* / zizmor / gitleaks categories
@@ -766,7 +766,7 @@ jobs:
           exit-code: '0'  # report-only pass — never fails the job
       - name: Upload Trivy image SARIF
         if: always()  # upload the report even when the gate below fails the job
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
         with:
           sarif_file: trivy-backend.sarif
           category: trivy-image-backend  # same category as the PR-only image-scan job — no conflict (that runs on PR, this on push)
@@ -902,7 +902,7 @@ jobs:
           exit-code: '0'  # report-only pass — never fails the job
       - name: Upload Trivy image SARIF
         if: always()  # upload the report even when the gate below fails the job
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
         with:
           sarif_file: trivy-frontend.sarif
           category: trivy-image-frontend  # same category as the PR-only image-scan job — no conflict (that runs on PR, this on push)
