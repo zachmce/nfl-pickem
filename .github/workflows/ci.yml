@@ -41,7 +41,7 @@ jobs:
       # frontend/iac. Same tag-forcing as the others so a release runs semgrep too.
       semgrep: ${{ steps.f.outputs.semgrep == 'true' || startsWith(github.ref, 'refs/tags/v') }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false  # artipacked: paths-filter diffs via the API token, not the stored git credential
       - id: f
@@ -67,7 +67,7 @@ jobs:
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false  # artipacked: no downstream step needs the stored git token
       # cache-poisoning suppressed: ci.yml runs on a release trigger (push tags v*), but this uv
@@ -99,7 +99,7 @@ jobs:
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false  # artipacked: no downstream step needs the stored git token
       # cache-poisoning suppressed: ci.yml runs on a release trigger (push tags v*), but this uv
@@ -133,7 +133,7 @@ jobs:
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false  # artipacked: no downstream step needs the stored git token
       # cache-poisoning suppressed: ci.yml runs on a release trigger (push tags v*), but this uv
@@ -200,7 +200,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false  # artipacked: no downstream step needs the stored git token
       # cache-poisoning suppressed: ci.yml runs on a release trigger (push tags v*), but this uv
@@ -235,7 +235,7 @@ jobs:
     if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false  # artipacked: no downstream step needs the stored git token
       # cache-poisoning suppressed: same rationale as the uv jobs — the npm cache is NOT consumed
@@ -281,7 +281,7 @@ jobs:
       contents: read          # gitleaks reads local git history
       security-events: write  # upload the gitleaks SARIF to code scanning (mirrors the image-scan-* / iac-scan / zizmor jobs)
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false  # artipacked: gitleaks reads local history + uses GITHUB_TOKEN via env, never the stored git credential
@@ -301,7 +301,7 @@ jobs:
       - name: Upload gitleaks SARIF
         if: always()
         continue-on-error: true  # never let a SARIF-upload hiccup fail the required secrets gate
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           sarif_file: results.sarif
           category: gitleaks  # distinct from all trivy-* / zizmor categories
@@ -317,7 +317,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false  # artipacked: dependency-review uses the API, not the stored git credential
       - name: Dependency review (fail on high+)
@@ -356,7 +356,7 @@ jobs:
       contents: read
       security-events: write  # upload Trivy image SARIF to code scanning (mirrors codeql.yml)
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false  # artipacked: image build/scan needs no stored git credential
       - name: Set up Docker Buildx
@@ -387,7 +387,7 @@ jobs:
           exit-code: '0'  # report-only pass — never fails the job
       - name: Upload Trivy image SARIF
         if: always()  # upload the report even when the gate below fails the job
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           sarif_file: trivy-backend.sarif
           category: trivy-image-backend  # distinct per image so results don't overwrite
@@ -409,7 +409,7 @@ jobs:
       contents: read
       security-events: write  # upload Trivy image SARIF to code scanning (mirrors codeql.yml)
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false  # artipacked: image build/scan needs no stored git credential
       - name: Set up Docker Buildx
@@ -440,7 +440,7 @@ jobs:
           exit-code: '0'  # report-only pass — never fails the job
       - name: Upload Trivy image SARIF
         if: always()  # upload the report even when the gate below fails the job
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           sarif_file: trivy-frontend.sarif
           category: trivy-image-frontend  # distinct per image so results don't overwrite
@@ -492,7 +492,7 @@ jobs:
       contents: read
       security-events: write  # upload the osv-scanner SARIF to code scanning (mirrors image-scan-* / iac-scan / zizmor)
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false  # artipacked: osv-scanner reads the checked-out tree; no downstream step needs the stored git credential
       # continue-on-error so a finding (osv-scanner exits non-zero) does NOT abort before we upload
@@ -512,7 +512,7 @@ jobs:
       - name: Upload osv-scanner SARIF
         if: always()  # upload the report even when the scan found vulns (mirrors gitleaks/trivy)
         continue-on-error: true  # never let a SARIF-upload hiccup flip the gate result
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           sarif_file: osv.sarif
           category: osv-scanner  # distinct from every existing trivy-* / zizmor / gitleaks / semgrep
@@ -542,7 +542,7 @@ jobs:
       contents: read
       security-events: write  # upload Trivy config SARIF to code scanning
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false  # artipacked: trivy config scan needs no stored git credential
       - name: Trivy config (IaC) scan — advisory
@@ -563,7 +563,7 @@ jobs:
           exit-code: '0'  # advisory — never gates
       - name: Upload Trivy config SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           sarif_file: trivy-config.sarif
           category: trivy-config
@@ -591,16 +591,16 @@ jobs:
       contents: read
       security-events: write  # upload zizmor SARIF to code scanning (advanced-security step)
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false  # artipacked: zizmor only reads the checked-out workflow files
       - name: zizmor — upload SARIF to code scanning (report; never fails)
-        uses: zizmorcore/zizmor-action@192e21d79ab29983730a13d1382995c2307fbcaa # v0.5.7
+        uses: zizmorcore/zizmor-action@6fc4b006235f201fdab3722e17240ab420d580e5 # v0.6.1
         with:
           inputs: .github/workflows/
           advanced-security: true  # public repo — uploads to the Security tab; does not fail on findings
       - name: zizmor — blocking gate (fails on any finding)
-        uses: zizmorcore/zizmor-action@192e21d79ab29983730a13d1382995c2307fbcaa # v0.5.7
+        uses: zizmorcore/zizmor-action@6fc4b006235f201fdab3722e17240ab420d580e5 # v0.6.1
         with:
           inputs: .github/workflows/
           advanced-security: false  # no SARIF upload here; exits non-zero on findings — this IS the gate
@@ -637,7 +637,7 @@ jobs:
       contents: read
       security-events: write  # upload the semgrep SARIF to code scanning (mirrors zizmor / trivy / gitleaks)
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false  # artipacked: semgrep only reads the checked-out tree
       # REPORT pass — registry packs + custom rules → SARIF. `|| true` neutralises a
@@ -653,7 +653,7 @@ jobs:
       - name: Upload Semgrep SARIF
         if: always()  # upload the report even if a later step fails the job
         continue-on-error: true  # never let a SARIF-upload hiccup fail the semgrep gate (mirrors gitleaks)
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           sarif_file: semgrep.sarif
           category: semgrep  # distinct from all trivy-* / zizmor / gitleaks categories
@@ -707,12 +707,12 @@ jobs:
       id-token: write  # cosign keyless OIDC signing (mint a short-lived Fulcio cert); does not widen any other scope
       security-events: write  # this job now runs the two-pass Trivy image scan and uploads its SARIF (mirrors the former image-scan job)
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false  # artipacked: images are pushed via docker login + cosign signs by digest — no stored git credential used
       - name: Log in to GHCR
         # Also authenticates crane below (writes ~/.docker/config.json) — no extra auth step.
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        uses: docker/login-action@06fb636fac595d6fb4b28a5dfcb21a6f5091859c # v4.5.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -766,7 +766,7 @@ jobs:
           exit-code: '0'  # report-only pass — never fails the job
       - name: Upload Trivy image SARIF
         if: always()  # upload the report even when the gate below fails the job
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           sarif_file: trivy-backend.sarif
           category: trivy-image-backend  # same category as the PR-only image-scan job — no conflict (that runs on PR, this on push)
@@ -843,12 +843,12 @@ jobs:
       id-token: write  # cosign keyless OIDC signing (mint a short-lived Fulcio cert); does not widen any other scope
       security-events: write  # this job now runs the two-pass Trivy image scan and uploads its SARIF (mirrors the former image-scan job)
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false  # artipacked: images are pushed via docker login + cosign signs by digest — no stored git credential used
       - name: Log in to GHCR
         # Also authenticates crane below (writes ~/.docker/config.json) — no extra auth step.
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        uses: docker/login-action@06fb636fac595d6fb4b28a5dfcb21a6f5091859c # v4.5.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -902,7 +902,7 @@ jobs:
           exit-code: '0'  # report-only pass — never fails the job
       - name: Upload Trivy image SARIF
         if: always()  # upload the report even when the gate below fails the job
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           sarif_file: trivy-frontend.sarif
           category: trivy-image-frontend  # same category as the PR-only image-scan job — no conflict (that runs on PR, this on push)
