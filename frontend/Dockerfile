@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Production image: compile the SPA with Vite, then serve it from nginx.
 
-FROM node:26-alpine@sha256:e88a35be04478413b7c71c455cd9865de9b9360e1f43456be5951032d7ac1a66 AS build
+FROM node:26-alpine@sha256:233761595746769ebfdb6090f44fc7cdf818ae0ce62d2b37e0367723b9823e36 AS build
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci
@@ -20,7 +20,7 @@ RUN npm run build
 # refreshes the pin. Caveat (same as backend): Dependabot bumping a third-party
 # cgr.dev `:latest@sha256` digest is less battle-tested than Docker Hub semver —
 # confirm on the first weekly PR, Renovate/manual bump as fallback.
-FROM cgr.dev/chainguard/nginx:latest@sha256:76cc70e5e8da88ae76ff585525c340fc09d54018c5c902551d61a24c2b3ac0d2 AS runtime
+FROM cgr.dev/chainguard/nginx:latest@sha256:e4ff957080737c90a9ecfeaa40e3d19ea9d687e9cacda2f2a031c75ffcdd72b7 AS runtime
 # OVERWRITE the base image's stock conf.d/nginx.default.conf (a `server_name
 # localhost; listen 8080` block with no SPA fallback, no /api proxy, and no
 # security headers). The main nginx.conf `include /etc/nginx/conf.d/*.conf` loads
