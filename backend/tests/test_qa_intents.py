@@ -316,6 +316,35 @@ class IntentRoutingTests(unittest.TestCase):
         self.assertIn("27", out)
         self.assertIn("final", out)
 
+    def test_bot_help_hands_out_the_slash_commands(self) -> None:
+        # A bare "help" must surface the member-facing slash commands — the whole
+        # point of the intent. No DB read.
+        phrase_patch, _ = _phrase_returns(None)
+        with _classify_returns({"intent": "bot_help"}), _tokens("KC"), _voice(), phrase_patch:
+            out = _run(qa.answer_question("help", discord_id=7))
+        self.assertIn("/register", out)
+        self.assertIn("/reset-password", out)
+
+    def test_bot_help_never_calls_phrase(self) -> None:
+        # THE regression guard. A terse help fact is exactly the shape the small local
+        # phrasing model inverts into "not supported yet" (cf. the injuries no-team and
+        # weather dome lines). phrase_header=False means this intent makes ZERO phrasing
+        # calls, so the command list cannot be inverted or summarized away.
+        phrase_patch, phrase_calls = _phrase_returns("INVERTED: that isn't supported 🙄")
+        with _classify_returns({"intent": "bot_help"}), _tokens("KC"), _voice(), phrase_patch:
+            out = _run(qa.answer_question("how do i register?", discord_id=7))
+        self.assertEqual(phrase_calls, [])
+        # Even with phrase returning garbage, the real answer lands verbatim.
+        self.assertNotIn("INVERTED", out)
+        self.assertIn("/register", out)
+
+    def test_bot_help_does_not_advertise_admin_commands(self) -> None:
+        # The reply is posted publicly in-channel; /admin is admin-gated.
+        phrase_patch, _ = _phrase_returns(None)
+        with _classify_returns({"intent": "bot_help"}), _tokens("KC"), _voice(), phrase_patch:
+            out = _run(qa.answer_question("what commands are there?", discord_id=7))
+        self.assertNotIn("/admin", out)
+
     def test_coming_soon_is_tier2_wink_no_db_read(self) -> None:
         # A recognized-but-planned topic — no DB read, no capability menu.
         phrase_patch, _ = _phrase_returns(None)

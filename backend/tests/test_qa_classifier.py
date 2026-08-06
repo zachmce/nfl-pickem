@@ -175,6 +175,27 @@ class ValidateClassificationTests(unittest.TestCase):
         out = validate_classification({"intent": "coming_soon"}, known_team_tokens=_KNOWN_TEAMS)
         self.assertEqual(out.intent, QaIntent.coming_soon)
 
+    def test_bot_help_is_a_legal_value_not_coerced(self) -> None:
+        out = validate_classification({"intent": "bot_help"}, known_team_tokens=_KNOWN_TEAMS)
+        self.assertEqual(out.intent, QaIntent.bot_help)
+
+    def test_bot_help_takes_no_params(self) -> None:
+        # bot_help is in none of the team/week/subject intent sets, so every param
+        # scrubs to None for free — "how do I register for the Chiefs in week 3"
+        # still answers with the plain command list.
+        out = validate_classification(
+            {"intent": "bot_help", "team": "Chiefs", "week": 3, "subject": "registering"},
+            known_team_tokens=_KNOWN_TEAMS,
+        )
+        self.assertEqual(out.intent, QaIntent.bot_help)
+        self.assertIsNone(out.team)
+        self.assertIsNone(out.week)
+        self.assertIsNone(out.subject)
+
+    def test_bot_help_is_offered_in_the_classifier_prompt(self) -> None:
+        # The intent is unreachable unless the prompt tells the model it exists.
+        self.assertIn("bot_help", qa.CLASSIFIER_SYSTEM_PROMPT)
+
     def test_team_dropped_for_intent_without_team(self) -> None:
         # A team field on standings (which takes no team) is dropped, not an error.
         out = validate_classification(
