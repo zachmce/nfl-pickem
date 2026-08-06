@@ -62,6 +62,7 @@ class QaIntent(str, Enum):
     news = "news"
     prediction = "prediction"
     slate_predictions = "slate_predictions"
+    bot_help = "bot_help"
     coming_soon = "coming_soon"
     unknown = "unknown"
 
@@ -144,6 +145,9 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "mortal lock, an over/under read, or what your model says about all this "
     "week's games, as opposed to prediction, which is about one specific team's "
     "game, and lines_slate, which is the factual market spreads), "
+    "bot_help (how to use the bot ITSELF rather than anything about football: a "
+    "bare help request, what commands exist, how to register or sign up, or how to "
+    "reset a password), "
     "coming_soon (a recognized but unsupported topic: line movement), "
     "unknown (anything you are "
     'not sure about). "team" is a team name or abbreviation the question is about, '
@@ -656,6 +660,33 @@ class _ListAnswer:
     header_fact: str
     body: str
     phrase_header: bool = True
+
+
+# Tier-1 (bot_help) answer: how to USE the bot — the slash commands plus what it can
+# be asked. A _ListAnswer with phrase_header=False, so this intent makes ZERO phrasing
+# calls: the body is appended verbatim and the header is a fixed wrapper. That is
+# deliberate, not incidental. A terse "here's how to get started" fact is exactly the
+# shape the small local phrasing model INVERTS into "that isn't supported yet 🙄" (the
+# same class as the injuries no-team line in PR #107, the weather dome line in PR #108,
+# and the news wrapper above) — and inverting the HELP answer would be the worst one to
+# get wrong, since it lands in front of the member who is least oriented.
+#
+# Lists ONLY the two member-facing commands. The /admin group is admin-gated and this
+# reply is posted publicly in-channel, so advertising it to the whole server would be
+# wrong.
+_HELP_FACT = _ListAnswer(
+    header_fact="Here's what I've got:",
+    body=(
+        "/register — create your pick'em account\n"
+        "/reset-password — get a fresh temporary password sent to your DMs\n"
+        "\n"
+        "You can also just @mention me with a question — your own pick and lock "
+        "status, the standings, this week's lines and slate (and when picks close), "
+        "scores, a team's injury report, game-time weather, ESPN headlines, or who I "
+        "like in a given game."
+    ),
+    phrase_header=False,
+)
 
 
 def _fmt_when(when: object) -> str | None:
@@ -1705,6 +1736,9 @@ async def _build_fact(
         return _prediction_fact(
             inputs, live_odds=live, injuries=injuries, weather_note=weather_note
         )
+
+    if result.intent is QaIntent.bot_help:
+        return _HELP_FACT  # Tier 1 — no DB read, and never phrased (see _HELP_FACT)
 
     if result.intent is QaIntent.coming_soon:
         return _COMING_SOON_FACT  # Tier 2 — no DB read
