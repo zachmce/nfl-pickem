@@ -12,7 +12,7 @@
  * nav/focus) to avoid a loading flash on every navigation.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation } from "react-router";
 
 import { getCurrentWeek, type CurrentWeek } from "../lib/currentWeek";
 import { WeekContext, type WeekState } from "./week-context";

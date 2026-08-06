@@ -1,5 +1,5 @@
 /** Route guard: redirects unauthenticated users to /login; renders the shell otherwise. */
-import { Navigate, Outlet } from "react-router-dom";
+import { Navigate, Outlet } from "react-router";
 
 import { useAuth } from "./useAuth";
 
