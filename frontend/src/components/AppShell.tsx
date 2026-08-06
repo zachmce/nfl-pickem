@@ -4,7 +4,7 @@
  * Order: loud DemoBanner (top) -> main Header -> slim ContextBar -> a centered,
  * max-width, padded <main> rendering the routed page via <Outlet/>.
  */
-import { Outlet } from "react-router-dom";
+import { Outlet } from "react-router";
 
 import ContextBar from "./ContextBar";
 import DemoBanner from "./DemoBanner";

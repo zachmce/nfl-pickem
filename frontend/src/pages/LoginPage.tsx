@@ -8,7 +8,7 @@
  * above the card so the demo signal shows even pre-auth.
  */
 import { useEffect, useState, type FormEvent } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router";
 
 import { useAuth } from "../auth/useAuth";
 import DemoBanner from "../components/DemoBanner";

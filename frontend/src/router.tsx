@@ -1,11 +1,11 @@
 /**
- * Data-router route tree (react-router-dom v7).
+ * Data-router route tree (react-router v8).
  *
  * /login lives OUTSIDE the shell. Everything else is wrapped in RequireAuth ->
  * AppShell, with My Picks as the index and /admin additionally behind
  * RequireAdmin.
  */
-import { createBrowserRouter, Navigate } from "react-router-dom";
+import { createBrowserRouter, Navigate } from "react-router";
 
 import RequireAdmin from "./auth/RequireAdmin";
 import RequireAuth from "./auth/RequireAuth";

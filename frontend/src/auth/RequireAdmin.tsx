@@ -1,5 +1,5 @@
 /** Route guard: admins pass; loaded non-admins are bounced to the index (/). */
-import { Navigate, Outlet } from "react-router-dom";
+import { Navigate, Outlet } from "react-router";
 
 import { useAuth } from "./useAuth";
 

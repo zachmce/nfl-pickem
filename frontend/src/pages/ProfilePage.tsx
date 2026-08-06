@@ -16,7 +16,7 @@
  * hex — matching LoginPage's token usage.
  */
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
 import { useAuth } from "../auth/useAuth";
 import Avatar from "../components/Avatar";

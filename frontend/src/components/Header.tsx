@@ -7,7 +7,7 @@
  * backend enforces is_admin on any admin endpoint.
  */
 import { useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router";
 
 import { useAuth } from "../auth/useAuth";
 import ThemeSwitcher from "../theme/ThemeSwitcher";
