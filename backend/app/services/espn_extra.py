@@ -44,8 +44,10 @@ logger = structlog.get_logger(__name__)
 # scoreboard we already poll). One call carries BOTH teams' injuries (+ game news).
 SUMMARY_URL = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event={event_id}"
 
-# A plain outbound-only UA (mirror scoreboard ``_USER_AGENT``); no credentials sent.
-_USER_AGENT = "nfl-pickem-qa/1.0 (dev tooling; httpx)"
+# NO custom User-Agent — mirrors ``app.scoreboard.espn`` (see the long note there).
+# ESPN's edge 403s branded UAs and allows recognized client defaults, so we let httpx
+# send its own ``python-httpx/x.y.z``. Do NOT reintroduce a custom UA on ESPN hosts.
+# No credentials are ever sent — these are public, outbound-only GETs.
 
 # Explicit timeout so a hung/slow ESPN response cannot block the bot loop.
 DEFAULT_TIMEOUT = 10.0
@@ -482,7 +484,7 @@ async def fetch_injuries(espn_event_id: int) -> dict | None:
     url = SUMMARY_URL.format(event_id=espn_event_id)
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            response = await client.get(url, headers={"User-Agent": _USER_AGENT})
+            response = await client.get(url)
         if response.status_code != 200:
             logger.warning("injuries_fetch_non_200", status_code=response.status_code)
             return None
@@ -545,7 +547,7 @@ async def fetch_news(limit: int = NEWS_FETCH_LIMIT) -> dict | None:
 
     Cache-first: on a cache HIT the cached payload is returned WITHOUT any HTTP call.
     On a MISS it performs ONE ``httpx`` GET to the ``news?limit=`` endpoint (explicit
-    ~10s timeout, ``_USER_AGENT`` header), returns the parsed JSON dict, and best-effort
+    ~10s timeout, httpx's default User-Agent), returns the parsed JSON dict, and best-effort
     writes the raw payload back to the cache under the news key + TTL. NEVER raises: any
     HTTP/timeout/non-200/parse error degrades to ``None`` (the caller shows a fixed
     degrade line, never an invented headline); a Redis outage on either the read or the
@@ -559,7 +561,7 @@ async def fetch_news(limit: int = NEWS_FETCH_LIMIT) -> dict | None:
     url = NEWS_URL.format(limit=limit)
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            response = await client.get(url, headers={"User-Agent": _USER_AGENT})
+            response = await client.get(url)
         if response.status_code != 200:
             logger.warning("news_fetch_non_200", status_code=response.status_code)
             return None

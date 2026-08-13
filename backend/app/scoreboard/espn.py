@@ -9,8 +9,8 @@ structurally (no inheritance).
 Design — impure shell / pure core (mirrors ``backend/scripts/gen_2025_fixture.py``
 and the sibling pure services):
 
-* IMPURE: :func:`_http_get_json` (a thin stdlib-``urllib`` getter with a plain
-  User-Agent and an explicit timeout) and
+* IMPURE: :func:`_http_get_json` (a thin stdlib-``urllib`` getter sending urllib's
+  DEFAULT User-Agent — see the note below — with an explicit timeout) and
   :meth:`EspnScoreboardSource.fetch_week` (builds the URL, fetches, delegates).
   On any HTTP/URL error it raises :class:`~app.scoreboard.port.ScoreboardFetchError`
   (including the URL + reason) — it never silently returns an empty list.
@@ -56,9 +56,15 @@ SITE_SCOREBOARD_URL = (
     "?dates={season}&seasontype=2&week={week}"
 )
 
-# A plain UA avoids the occasional default-client block without impersonating a
-# browser. No credentials are ever sent — these are public, outbound-only GETs.
-_USER_AGENT = "nfl-pickem-scoreboard/1.0 (dev tooling; stdlib urllib)"
+# NO custom User-Agent — deliberately. ESPN's edge allowlists recognized
+# HTTP-client default UAs (``Python-urllib/3.x``, ``curl/8.x``, ``python-httpx/0.x``)
+# and returns 403 for branded or browser-spoofing ones. The UA this module used to
+# send (``nfl-pickem-scoreboard/1.0 (dev tooling; stdlib urllib)``) was blocked on
+# EVERY request, which emptied every ingest silently: all 18 weeks landed in
+# ``IngestResult.failed_weeks`` and the Celery task still reported success.
+# Letting urllib send its default UA is verified working and is what the sibling
+# sports-media-gen service does (it sets no UA at all). Do NOT reintroduce a
+# custom UA here. No credentials are ever sent — these are public, outbound-only GETs.
 
 # Explicit timeout so a hung/slow ESPN response cannot block indefinitely.
 DEFAULT_TIMEOUT = 20.0
@@ -87,7 +93,7 @@ def _http_get_json(url: str, timeout: float = DEFAULT_TIMEOUT) -> Any:
     HTTP or URL/network error so the caller never confuses a failed fetch with an
     empty week.
     """
-    request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+    request = urllib.request.Request(url)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
             body = response.read()
