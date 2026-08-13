@@ -37,9 +37,10 @@ from app.scoreboard.types import ScoreboardOdds
 
 logger = structlog.get_logger(__name__)
 
-# A plain outbound-only UA + explicit timeout (mirror the espn_extra QA seam, not the
-# 20s ingest timeout — a hung ESPN response must not block the bot loop).
-_USER_AGENT = "nfl-pickem-qa/1.0 (dev tooling; httpx)"
+# NO custom User-Agent — mirrors ``app.scoreboard.espn`` (see the long note there);
+# this seam hits the SAME ``SITE_SCOREBOARD_URL`` host, which 403s branded UAs. httpx
+# sends its own default. Explicit timeout mirrors the espn_extra QA seam, not the 20s
+# ingest timeout — a hung ESPN response must not block the bot loop.
 DEFAULT_TIMEOUT = 10.0
 
 # Short Redis cache: line movement is the whole point of a LIVE line, so keep the TTL
@@ -160,7 +161,7 @@ async def fetch_live_odds(season: int, week: int, event_id: int) -> ScoreboardOd
 
     Cache-first: on a cache HIT the cached scoreboard page is reused WITHOUT any HTTP
     call. On a MISS it performs ONE ``httpx`` GET to :data:`SITE_SCOREBOARD_URL` (explicit
-    ~10s timeout, ``_USER_AGENT`` header), parses the JSON, and best-effort caches the raw
+    ~10s timeout, httpx's default User-Agent), parses the JSON, and best-effort caches the raw
     page. Either way it returns the target event's normalized
     :class:`~app.scoreboard.types.ScoreboardOdds` via :func:`select_live_odds_for_event`,
     or ``None``. NEVER raises: any HTTP/timeout/non-200/parse error degrades to ``None``
@@ -172,7 +173,7 @@ async def fetch_live_odds(season: int, week: int, event_id: int) -> ScoreboardOd
         url = SITE_SCOREBOARD_URL.format(season=season, week=week)
         try:
             async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-                response = await client.get(url, headers={"User-Agent": _USER_AGENT})
+                response = await client.get(url)
             if response.status_code != 200:
                 logger.warning("live_odds_fetch_non_200", status_code=response.status_code)
                 return None
