@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Dev image: runs the Vite dev server with hot module reload.
-FROM node:26-alpine@sha256:e88a35be04478413b7c71c455cd9865de9b9360e1f43456be5951032d7ac1a66
+FROM node:26-alpine@sha256:aadf416b2cdce311a8811ba3f0608a61b77dbf997500e2eafe781b51f6a0b019
 
 # Run as the image's built-in non-root `node` user (uid 1000) — clears Trivy
 # DS-0002. Install deps AS node so /app and node_modules are node-owned: the
