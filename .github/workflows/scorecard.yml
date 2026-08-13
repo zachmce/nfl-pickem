@@ -53,7 +53,7 @@ jobs:
       # (repo admin scope) is the documented way to get full Branch-Protection scoring; deferred.
       - name: Upload SARIF to code scanning
         if: always()  # upload the report even if a prior step is flaky (matches ci.yml's Trivy upload pattern)
-        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:
           sarif_file: results.sarif
           category: scorecard
