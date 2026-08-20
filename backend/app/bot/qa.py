@@ -27,6 +27,7 @@ in Task 2.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -35,7 +36,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from app.bot import chat_personality, llm_client
+from app.bot import chat_personality, llm_client, qa_open
 from app.bot.personality import compose_prompt
 
 if TYPE_CHECKING:
@@ -63,6 +64,10 @@ class QaIntent(str, Enum):
     prediction = "prediction"
     slate_predictions = "slate_predictions"
     bot_help = "bot_help"
+    # The OPEN destination (260820-lw6): anything football-shaped that none of the
+    # ten grounded intents above covers. Adding it is what stops a roster question
+    # ("who starts at QB for the Bears") from being greedily routed to ``injuries``.
+    open_nfl = "open_nfl"
     coming_soon = "coming_soon"
     unknown = "unknown"
 
@@ -98,6 +103,10 @@ _WEEK_INTENTS = frozenset(
 _SUBJECT_INTENTS = frozenset(
     {QaIntent.lines_slate, QaIntent.unknown, QaIntent.coming_soon, QaIntent.news}
 )
+# ``open_nfl`` is DELIBERATELY absent from all three frozensets above. It is neither
+# team-required nor week-required, and the open path reads the RAW question rather
+# than a classifier-supplied ``subject`` — so a team / week / subject the model
+# happened to emit alongside it is scrubbed to None and never reaches the answer.
 # The analyst-lead intents: their phrased header is a pick-free lead (clamped to its first
 # line) ahead of a deterministic _ListAnswer body carrying every number. Both use an
 # analyst prompt with no pick-status framing (single-game vs whole-slate).
@@ -131,7 +140,7 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "You classify a league member's NFL pick'em question into a fixed intent. "
     "Reply with ONLY a compact JSON object and NOTHING else — no prose, no code "
     "fence, no explanation. The object has exactly these keys: "
-    '"intent", "team", "week", "subject". '
+    '"intent", "team", "week", "subject", "nfl". '
     '"intent" MUST be one of: pick_status (their own pick/lock status), standings '
     "(the leaderboard or someone's rank), lines_slate (the spread, total, this "
     "week's games, or when the window closes), scores (final or in-progress game "
@@ -148,11 +157,19 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "bot_help (how to use the bot ITSELF rather than anything about football: a "
     "bare help request, what commands exist, how to register or sign up, or how to "
     "reset a password), "
+    "open_nfl (an open football question that NONE of the fixed intents above "
+    "covers: who plays or starts at a position, who is on a team's roster, team or "
+    "league history, records and milestones, the rules of the game, and opinion or "
+    "debate questions about football), "
     "coming_soon (a recognized but unsupported topic: line movement), "
     "unknown (anything you are "
     'not sure about). "team" is a team name or abbreviation the question is about, '
     'or null. "week" is an integer week number, or null. "subject" is a short noun '
-    "phrase describing what they asked, or null. When in doubt use unknown."
+    "phrase describing what they asked, or null. When in doubt use unknown. "
+    '"nfl" is a boolean: set it to true when the question is about the NFL, American '
+    "football, or this pick'em league, and false otherwise. If the question is about "
+    "anything else — cooking, recipes, homework, code, politics, or any other "
+    'subject — you MUST answer with the intent unknown and "nfl" set to false.'
 )
 
 
@@ -413,6 +430,18 @@ def validate_classification(raw: object, *, known_team_tokens: set[str]) -> QaRe
     except ValueError:
         return QaResult(intent=QaIntent.unknown)
 
+    # The DETERMINISTIC NFL TOPIC GUARD (260820-lw6). ``open_nfl`` is the one intent
+    # whose answer is freelanced from model knowledge, so it is the one intent that
+    # can wander off football entirely — the 2026-08-20 probe measured the served
+    # model writing a full lasagna recipe under an "NFL expert" system prompt. The
+    # classifier's own ``nfl`` key must be the BOOLEAN True BY IDENTITY: a missing
+    # key, a null, the string "true", or a 1 all DECLINE (a loose truthiness check
+    # lets the measured lasagna case straight through). This fails CLOSED, and
+    # routing to ``unknown`` reuses the existing, already-proven deterministic
+    # decline (``_UNKNOWN_FACT``) rather than adding a new phrasing surface.
+    if intent is QaIntent.open_nfl and raw.get("nfl") is not True:
+        return QaResult(intent=QaIntent.unknown)
+
     # Resolve the team for team-bearing intents. On a team-REQUIRED intent a present-but-
     # non-real team is a coercion trigger: the model named a game we cannot trust, so fall
     # to unknown. On a team-OPTIONAL intent (``_TEAM_OPTIONAL_INTENTS`` — news) it is NOT:
@@ -574,6 +603,15 @@ _WEATHER_DEGRADE_FACT = "Couldn't pull the forecast right now — give it anothe
 # news-flavored decline could be flipped to "not supported", so this reads as an
 # unambiguous transient "couldn't do X right now" sentence.
 _NEWS_DEGRADE_FACT = "Couldn't pull ESPN news right now — give it another shot in a bit."
+
+# Best-effort degrade line when the OPEN path's model call fails or comes back empty
+# (260820-lw6). Returned VERBATIM — never phrased — for the same reason as the news /
+# injuries / weather degrade lines: a terse topic-flavored decline gets inverted to
+# "not supported" by the small local phrasing model, so this is a concrete full
+# sentence that reads as an unambiguous transient miss (memory: qa-phrasing-inversion).
+_OPEN_DEGRADE_FACT = (
+    "Couldn't put an answer together for that one right now — give it another shot in a bit."
+)
 
 # Concrete empty line for a teamless (league) ask that returns no articles — a
 # transient, unambiguous "nothing right now", never an invented headline.
@@ -1743,15 +1781,27 @@ async def _build_fact(
     if result.intent is QaIntent.coming_soon:
         return _COMING_SOON_FACT  # Tier 2 — no DB read
 
-    return _UNKNOWN_FACT  # Tier 3 — decline + capability menu
+    # Tier 3 — decline + capability menu. ``open_nfl`` is UNREACHABLE here by
+    # construction: ``answer_question`` returns on the open branch before _build_fact
+    # is ever called. This stays its safe degrade if that ordering is ever disturbed.
+    return _UNKNOWN_FACT
 
 
-async def answer_question(question: str, *, discord_id: int) -> str:
+async def answer_question(
+    question: str,
+    *,
+    discord_id: int,
+    history: Sequence[tuple[str, str]] = (),
+) -> str:
     """Answer a league member's @mention ``question`` as one public in-voice line.
 
     The best-effort orchestrator (mirrors ``embellish_chat``'s guarded posture;
     NEVER raises): classify -> validate (with the real-team token set) -> route to
     a deterministic reader and build a FACT -> phrase the fact in the active voice.
+    The ONE exception is the ``open_nfl`` branch (260820-lw6), which returns straight
+    out of :func:`app.bot.qa_open.answer_open` without touching ``_build_fact`` or
+    ``llm_client.phrase``; ``history`` (oldest-first ``(role, text)`` turns supplied by
+    the listener's per-channel memory) is read ONLY by that branch.
     On the pick_status unregistered path returns a deterministic /register line with
     no LLM call. When ``llm_client.phrase`` returns ``None`` returns the
     deterministic FACT string itself so exactly one line always lands. On ANY seam
@@ -1764,6 +1814,16 @@ async def answer_question(question: str, *, discord_id: int) -> str:
         raw = await classify_question(question)
         known_team_tokens = await db_bridge.get_real_team_tokens_async()
         result = validate_classification(raw, known_team_tokens=known_team_tokens)
+
+        # The OPEN branch (260820-lw6) is taken BEFORE the slate facet / _build_fact
+        # block and returns directly: the open answer must NOT reach ``_build_fact``
+        # (there is no DB fact to build) and must NOT reach ``llm_client.phrase``,
+        # which would re-cap a 200-token prose answer at the 80-token chat cap and
+        # silently destroy it. It reads the RAW question, not the classifier subject.
+        if result.intent is QaIntent.open_nfl:
+            voice = await db_bridge.resolve_active_voice_async()
+            open_answer = await qa_open.answer_open(question, voice=voice, history=history)
+            return open_answer if open_answer is not None else _OPEN_DEGRADE_FACT
 
         # The pick-type facet is a DETERMINISTIC code scan of the RAW question, computed ONLY
         # for the whole-slate opinion intent (else None) — never emitted by the classifier LLM.
