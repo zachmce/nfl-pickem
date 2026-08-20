@@ -255,15 +255,21 @@ async def _lookup_player_season_stats(
     """
     from app.services import espn_extra
 
+    asked_for = player.strip() if isinstance(player, str) else ""
+    if not asked_for:
+        # There is no name to resolve, so no fetch is worth making. Returning before the
+        # roster hop keeps a forgotten argument from costing a live GET, and stops a
+        # not-on-roster note that names nobody.
+        return None
+
     roster = await espn_extra.fetch_team_roster(team)
     if roster is None:
         return None
-    matches = espn_extra.find_roster_athletes(roster, player)
+    matches = espn_extra.find_roster_athletes(roster, asked_for)
     if matches is None:
         return None
 
     team_abbr = team.strip().upper() if isinstance(team, str) else ""
-    asked_for = player.strip() if isinstance(player, str) and player.strip() else "that player"
     if not matches:
         return {"note": _NOT_ON_ROSTER_NOTE.format(player=asked_for, team=team_abbr)}
     if len(matches) > 1:

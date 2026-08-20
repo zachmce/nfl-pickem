@@ -1,4 +1,4 @@
-"""Offline unit tests for the OPEN NFL answer path (260820-lw6, 260820-oym).
+"""Offline unit tests for the OPEN NFL answer path (260820-lw6, 260820-oym, 260820-s5y).
 
 These tests NEVER touch a live LLM endpoint. Three seams are exercised:
 
@@ -10,9 +10,11 @@ These tests NEVER touch a live LLM endpoint. Three seams are exercised:
   and PROVE the open path uses its OWN token cap / sampling knobs, is NOT fed the
   closer-variety chat directive, and still carries the mandatory
   ``chat_template_kwargs.enable_thinking = False``.
-* ``espn_extra.fetch_team_roster`` is stubbed with the roster fixture so the SHIPPED
-  ``lookup_team_roster`` tool can be driven end to end — the proof that a current roster
-  fact reaches the model's context instead of a training-cutoff guess.
+* ``espn_extra.fetch_team_roster`` and ``espn_extra.fetch_athlete_stats`` are stubbed
+  with captured payloads so the SHIPPED ``lookup_team_roster`` and
+  ``lookup_player_season_stats`` tools can be driven end to end — the proof that a
+  current roster fact, and a season figure ESPN publishes, reach the model's context
+  instead of a training-cutoff guess.
 
 The pure :func:`app.bot.qa_open._strip_markdown_structure` scrub and the composed
 open system prompt are asserted directly (no db, no network).
@@ -23,7 +25,9 @@ Run with: ``backend/.venv/bin/python -m unittest tests.test_qa_open -v``
 
 from __future__ import annotations
 
+import ast
 import asyncio
+import inspect
 import json
 import unittest
 from pathlib import Path
@@ -528,9 +532,57 @@ class ShippedRegistryTests(unittest.TestCase):
         self.assertIn("STARTS", description)
         self.assertIn("Call this tool", description)
 
+    def _stats_description(self) -> str:
+        tool = next(t for t in qa_open.TOOLS if t.name == "lookup_player_season_stats")
+        return tool.spec["function"]["description"]
+
+    def test_registry_ships_the_stats_tool_with_only_three_parameters(self) -> None:
+        tool = next(t for t in qa_open.TOOLS if t.name == "lookup_player_season_stats")
+        params = tool.spec["function"]["parameters"]
+        self.assertEqual(sorted(params["properties"]), ["player", "season", "team"])
+        self.assertEqual(params["properties"]["season"]["type"], "integer")
+        self.assertEqual(params["required"], ["team", "player"])
+
+    def test_shipped_stats_description_tells_the_model_to_call_on_a_last_year_question(
+        self,
+    ) -> None:
+        # Live-measured regression from the predecessor task: a description that only
+        # disclaimed a limitation suppressed the call outright and the model fell back
+        # to stale memory. The instruction to CALL must survive any future edit.
+        description = self._stats_description()
+        self.assertIn("Call this tool for ANY question", description)
+        self.assertIn("last year", description)
+
+    def test_shipped_stats_description_tells_the_model_to_omit_the_season_argument(
+        self,
+    ) -> None:
+        # D-1a: the model resolves "last year" against its TRAINING CUTOFF, which is the
+        # measured bug. This pins the year out of its hands.
+        description = self._stats_description()
+        self.assertIn("LEAVE THE SEASON ARGUMENT OUT", description)
+        self.assertIn("ONLY when the member named a specific year", description)
+
+    def test_the_open_path_still_makes_no_database_read(self) -> None:
+        # D-1 / T-s5y-04: no db_bridge at module level, and the new adapter introduces
+        # none at call level either — the reason the open path cannot read anyone's picks.
+        # Asserted over the AST, not a source grep: the module DOCSTRING says the words
+        # "db_bridge call" precisely to record this property, so a grep matches itself.
+        self.assertFalse(hasattr(qa_open, "db_bridge"))
+        tree = ast.parse(inspect.getsource(qa_open))
+        imported: set[str] = set()
+        for node in ast.walk(tree):  # ast.walk descends into function bodies too, so a
+            if isinstance(node, ast.Import):  # DEFERRED import is caught as well.
+                imported.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                imported.update(f"{node.module}.{alias.name}" for alias in node.names)
+        self.assertFalse([name for name in imported if name.endswith("db_bridge")])
+        used = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+        self.assertNotIn("db_bridge", used)
+
     def test_no_shipped_spec_may_declare_a_request_target_parameter(self) -> None:
-        # The model selects a tool BY NAME and NEVER builds a URL (T-lw6-02).
-        forbidden = {"url", "endpoint", "path", "host", "uri", "base_url"}
+        # The model selects a tool BY NAME and NEVER builds a URL (T-lw6-02), and never
+        # supplies an athlete id either — that is resolved from a roster payload (D-4).
+        forbidden = {"url", "endpoint", "path", "host", "uri", "base_url", "athlete_id"}
         for tool in qa_open.TOOLS:
             params = tool.spec["function"]["parameters"]
             for param_name in params.get("properties", {}):
@@ -655,6 +707,115 @@ class StatsToolTests(unittest.TestCase):
         self.assertEqual(body["season"], 2025)
         self.assertIn("2025", body["season_statement"])
         self.assertIn("Matthew Stafford", body["season_statement"])
+
+    def _adapter(self, roster: object, stats: object, **kwargs):
+        roster_patch, stats_patch = self._espn_returns(roster, stats)
+        with roster_patch, stats_patch:
+            return _run(qa_open._lookup_player_season_stats(**kwargs))
+
+    def _stats(self) -> dict:
+        return json.loads(_STATS_FIXTURE.read_text())
+
+    def test_the_season_statement_names_the_year_and_never_relabels_it(self) -> None:
+        # D-1b, asserted on the RUNTIME string the adapter produced — never as a grep
+        # over source, since the tool description legitimately quotes these phrases in
+        # order to forbid them.
+        out = self._adapter(_lar_roster(), self._stats(), team="LAR", player="Stafford")
+        assert isinstance(out, dict)
+        statement = out["season_statement"]
+        self.assertIn("2025", statement)
+        for phrase in ("last year", "last season", "this year", "this season"):
+            with self.subTest(phrase=phrase):
+                self.assertNotIn(phrase, statement.lower())
+
+    def test_an_explicit_season_is_passed_through_to_the_parser(self) -> None:
+        out = self._adapter(
+            _lar_roster(), self._stats(), team="LAR", player="Stafford", season=2024
+        )
+        assert isinstance(out, dict)
+        self.assertEqual(out["season"], 2024)
+        self.assertIn("2024", out["season_statement"])
+        self.assertEqual(out["stats"]["Passing"]["Passing Yards"], "3,762")
+
+    def test_the_player_name_and_position_come_from_the_roster_not_the_model(self) -> None:
+        # The stats payload carries NO athlete name at all (measured), so identity has
+        # to come from the roster match — including the ESPN spelling, not the member's.
+        out = self._adapter(_lar_roster(), self._stats(), team="lar", player="matt stafford")
+        assert isinstance(out, dict)
+        self.assertEqual(out["player"], "Matthew Stafford")
+        self.assertEqual(out["position"], "QB")
+        self.assertEqual(out["team"], "LAR")
+
+    def test_two_players_sharing_a_surname_return_the_candidates_and_no_statistics(
+        self,
+    ) -> None:
+        roster = {
+            "athletes": [
+                {
+                    "items": [
+                        {
+                            "id": "4430737",
+                            "firstName": "Kyren",
+                            "lastName": "Williams",
+                            "displayName": "Kyren Williams",
+                            "position": {"abbreviation": "RB"},
+                        },
+                        {
+                            "id": "4431618",
+                            "firstName": "Mario",
+                            "lastName": "Williams",
+                            "displayName": "Mario Williams",
+                            "position": {"abbreviation": "WR"},
+                        },
+                    ]
+                }
+            ]
+        }
+        out = self._adapter(roster, self._stats(), team="LAR", player="Williams")
+        assert isinstance(out, dict)
+        self.assertEqual(out["candidates"], ["Kyren Williams", "Mario Williams"])
+        self.assertIn("Kyren Williams", out["note"])
+        self.assertIn("Mario Williams", out["note"])
+        self.assertIn("Ask the member which one", out["note"])
+        self.assertNotIn("stats", out)  # never a silently picked player's figures
+
+    def test_a_player_on_no_roster_returns_the_not_on_roster_note_never_none(self) -> None:
+        # None would collapse to _NO_DATA_PAYLOAD, which tells the model to answer from
+        # its own stale memory — the exact fallback this tool exists to remove (D-5).
+        out = self._adapter(_lar_roster(), self._stats(), team="LAR", player="Tom Brady")
+        assert isinstance(out, dict)
+        self.assertIn("Tom Brady", out["note"])
+        self.assertIn("LAR", out["note"])
+        self.assertNotIn("stats", out)
+        self.assertNotIn(qa_open._NO_DATA_PAYLOAD, json.dumps(out))
+
+    def test_a_season_the_table_does_not_carry_returns_the_season_note(self) -> None:
+        out = self._adapter(
+            _lar_roster(), self._stats(), team="LAR", player="Stafford", season=2009
+        )
+        assert isinstance(out, dict)
+        self.assertIsNone(out["season"])
+        self.assertEqual(out["stats"], {})
+        self.assertIn("2024, 2025", out["note"])
+        self.assertNotIn("season_statement", out)  # never a year it did not receive
+
+    def test_the_adapter_returns_none_when_either_fetch_returns_none(self) -> None:
+        self.assertIsNone(self._adapter(None, self._stats(), team="LAR", player="Stafford"))
+        self.assertIsNone(self._adapter(_lar_roster(), None, team="LAR", player="Stafford"))
+
+    def test_a_forgotten_argument_degrades_without_raising_and_without_fetching(self) -> None:
+        # A missing player is refused BEFORE the roster hop, so the stub fails the test
+        # if it is reached at all.
+        async def _never(team_abbr):
+            raise AssertionError("no fetch may be attempted without a player name")
+
+        with mock.patch.object(espn_extra, "fetch_team_roster", _never):
+            self.assertIsNone(_run(qa_open._lookup_player_season_stats()))
+            self.assertIsNone(_run(qa_open._lookup_player_season_stats(team="LAR")))
+            self.assertIsNone(_run(qa_open._lookup_player_season_stats(team="LAR", player="  ")))
+        # A missing TEAM degrades through the REAL 32-team allowlist, which rejects it
+        # before any URL is formatted — so this needs no stub and performs no HTTP.
+        self.assertIsNone(_run(qa_open._lookup_player_season_stats(player="Matt Stafford")))
 
 
 class ToolLoopTests(unittest.TestCase):
