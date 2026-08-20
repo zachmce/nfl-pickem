@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 import httpx
@@ -642,6 +643,9 @@ class ToolLoopTests(unittest.TestCase):
             _text("out of time, here is the answer"),
         )
         # monotonic: entry (deadline), round 0 check (in budget), round 1 check (blown).
+        # The whole ``time`` MODULE is swapped at the qa_open import site rather than
+        # patching ``time.monotonic`` globally — asyncio's event loop reads the real
+        # clock on every step and would eat the scripted ticks.
         ticks = iter([0.0, 0.0, qa_open._TOOL_BUDGET_SECONDS + 1.0])
 
         def _fake_monotonic() -> float:
@@ -649,7 +653,7 @@ class ToolLoopTests(unittest.TestCase):
 
         with (
             mock.patch.object(qa_open, "TOOLS", (tool,)),
-            mock.patch.object(qa_open.time, "monotonic", _fake_monotonic),
+            mock.patch.object(qa_open, "time", SimpleNamespace(monotonic=_fake_monotonic)),
             patcher,
         ):
             out = _run(qa_open.answer_open("q", voice=_VOICE))

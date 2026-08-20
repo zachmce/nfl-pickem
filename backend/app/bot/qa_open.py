@@ -32,8 +32,11 @@ must hold the Path B adapter contract: never raises, fails open on Redis, degrad
 
 from __future__ import annotations
 
+import json
 import re
-from collections.abc import Sequence
+import time
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
 
 import structlog
 
@@ -160,18 +163,249 @@ def _message_content(message: dict) -> str | None:
     return stripped or None
 
 
+# --------------------------------------------------------------------------- #
+# The TOOL WHITELIST. The model selects from this fixed registry BY NAME and NEVER
+# builds a URL — no spec may declare a ``url`` / ``endpoint`` / ``path`` / ``host``
+# parameter, so a model-chosen call can never become a model-chosen request target
+# (T-lw6-02). Every ``run`` must hold the Path B adapter contract (see
+# ``app.services.espn_extra.fetch_injuries``): NEVER raises, fails open on Redis,
+# degrades to ``None`` on any HTTP error.
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class _Tool:
+    """One whitelisted data call the model may name.
+
+    ``name`` is the EXACT function name the model must emit (lookup is an exact
+    string match — never a prefix or fuzzy match). ``spec`` is the OpenAI-style
+    function schema with TYPED parameters; only the names it declares are ever passed
+    through to ``run``. ``run`` is the awaitable adapter that performs the call.
+    """
+
+    name: str
+    spec: dict
+    run: Callable[..., Awaitable[object]]
+
+
+# EMPTY as shipped: Path C answers from model knowledge first. Companion issue #179
+# is the task that appends the first real tools (ESPN roster / nflverse stats).
+TOOLS: tuple[_Tool, ...] = ()
+
+# An unbounded loop on a quantized local model is the main NEW failure surface Path C
+# introduces (the model can keep asking for one more call forever), so the loop is
+# bounded twice over: by rounds AND by wall clock.
+_MAX_TOOL_ROUNDS = 3
+_TOOL_BUDGET_SECONDS = 20.0
+
+# Each failure mode gets its OWN fixed payload so the model is TOLD what happened
+# instead of being handed silence (silence reads as "the data says nothing", which is
+# how an invented answer gets written). Concrete full sentences, never fragments.
+_UNKNOWN_TOOL_PAYLOAD = (
+    "That tool does not exist. Answer the question from your own football knowledge "
+    "instead, and do not try to call it again."
+)
+_BAD_ARGUMENTS_PAYLOAD = (
+    "The arguments for that tool could not be read as JSON. Answer the question from "
+    "your own football knowledge instead."
+)
+_NO_DATA_PAYLOAD = (
+    "That tool returned no data right now. Answer the question from your own football "
+    "knowledge instead, and say plainly if you are not sure."
+)
+
+
+def _coerce_str(value: object) -> str:
+    """Coerce a JSON scalar to ``str``; anything structural is UNCOERCIBLE."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
+    raise ValueError("not a string")
+
+
+def _coerce_int(value: object) -> int:
+    """Coerce a JSON scalar to ``int``; a bool is deliberately NOT an int here."""
+    if isinstance(value, bool):
+        raise ValueError("a boolean is not an integer")
+    if isinstance(value, (int, float, str)):
+        return int(value)
+    raise ValueError("not an integer")
+
+
+def _coerce_float(value: object) -> float:
+    """Coerce a JSON scalar to ``float``; a bool is deliberately NOT a number here."""
+    if isinstance(value, bool):
+        raise ValueError("a boolean is not a number")
+    if isinstance(value, (int, float, str)):
+        return float(value)
+    raise ValueError("not a number")
+
+
+def _coerce_bool(value: object) -> bool:
+    """Strict bool coercion — anything that is not already a bool is UNCOERCIBLE."""
+    if isinstance(value, bool):
+        return value
+    raise ValueError("not a boolean")
+
+
+# JSON-schema type -> coercer. A declared parameter whose value will not coerce is
+# DROPPED (never passed through raw), so a tool only ever sees what its spec promised.
+# Each coercer NARROWS with isinstance before converting — a bare ``int(value)`` on an
+# ``object`` both trips the type gate and raises on a dict.
+_TYPE_COERCERS: dict[str, Callable[[object], object]] = {
+    "string": _coerce_str,
+    "integer": _coerce_int,
+    "number": _coerce_float,
+    "boolean": _coerce_bool,
+}
+
+
+def _lookup_tool(name: str) -> _Tool | None:
+    """Return the whitelisted tool named EXACTLY ``name``, or ``None``. Pure."""
+    for tool in TOOLS:
+        if tool.name == name:
+            return tool
+    return None
+
+
+def _declared_properties(tool: _Tool) -> dict:
+    """Return the ``properties`` mapping the tool's own spec declares (or ``{}``)."""
+    function = tool.spec.get("function")
+    if not isinstance(function, dict):
+        return {}
+    parameters = function.get("parameters")
+    if not isinstance(parameters, dict):
+        return {}
+    properties = parameters.get("properties")
+    return properties if isinstance(properties, dict) else {}
+
+
+def _filter_arguments(tool: _Tool, decoded: dict) -> dict:
+    """Filter ``decoded`` down to ``tool``'s DECLARED parameters, type-coerced. Pure.
+
+    Anything the spec does not declare is dropped (this is what stops the model from
+    smuggling an undeclared ``url`` past a name-only whitelist), and a declared
+    parameter whose value will not coerce to its declared type is dropped too. A
+    declared parameter with no ``type`` passes through unchanged.
+    """
+    properties = _declared_properties(tool)
+    filtered: dict = {}
+    for key, value in decoded.items():
+        declared = properties.get(key) if isinstance(key, str) else None
+        if not isinstance(declared, dict):
+            continue  # undeclared parameter name — dropped
+        json_type = declared.get("type")
+        coercer = _TYPE_COERCERS.get(json_type) if isinstance(json_type, str) else None
+        if coercer is None:
+            filtered[key] = value
+            continue
+        try:
+            filtered[key] = coercer(value)
+        except Exception:
+            continue  # uncoercible — dropped
+    return filtered
+
+
+def _tool_message(call_id: str, name: str, result: object) -> dict:
+    """Build the tool-role turn carrying the call id, the name and a JSON result."""
+    try:
+        content = json.dumps(result)
+    except TypeError, ValueError:
+        content = json.dumps(str(result))
+    return {"role": "tool", "tool_call_id": call_id, "name": name, "content": content}
+
+
+async def _resolve_tool_call(call: object, *, round_index: int) -> dict:
+    """Resolve ONE model-emitted tool call into its tool-role result turn.
+
+    Never raises: an unknown name, unreadable arguments, and a tool that blows up each
+    produce their own fixed payload turn so the loop always has something to feed back.
+    """
+    call_id = ""
+    name = ""
+    arguments = ""
+    if isinstance(call, dict):
+        raw_id = call.get("id")
+        call_id = raw_id if isinstance(raw_id, str) else ""
+        function = call.get("function")
+        if isinstance(function, dict):
+            raw_name = function.get("name")
+            name = raw_name if isinstance(raw_name, str) else ""
+            raw_arguments = function.get("arguments")
+            arguments = raw_arguments if isinstance(raw_arguments, str) else ""
+
+    tool = _lookup_tool(name)
+    if tool is None:
+        logger.warning("qa_open_tool_unknown", tool=name, round=round_index)
+        return _tool_message(call_id, name, _UNKNOWN_TOOL_PAYLOAD)
+
+    try:
+        decoded = json.loads(arguments) if arguments.strip() else {}
+    except Exception:
+        decoded = None
+    if not isinstance(decoded, dict):
+        logger.warning("qa_open_tool_bad_arguments", tool=name, round=round_index)
+        return _tool_message(call_id, name, _BAD_ARGUMENTS_PAYLOAD)
+
+    logger.info("qa_open_tool_call", tool=name, round=round_index)
+    try:
+        result = await tool.run(**_filter_arguments(tool, decoded))
+    except Exception:
+        # Belt-and-suspenders over the never-raise adapter contract.
+        logger.warning("qa_open_tool_failed", tool=name, round=round_index, exc_info=True)
+        result = None
+    if result is None:
+        return _tool_message(call_id, name, _NO_DATA_PAYLOAD)
+    return _tool_message(call_id, name, result)
+
+
 async def _run_tool_loop(messages: list[dict], *, system_prompt: str) -> str | None:
     """Drive the open-path model round(s) and return the final text, or ``None``.
 
-    Task 1 shape: :data:`TOOLS` ships EMPTY, so this is exactly ONE
-    :func:`app.bot.llm_client.open_chat` call with ``tools=None``. The bounded
-    tool-calling loop lands in Task 2 and preserves this zero-tool behavior
-    byte-for-byte.
+    With the SHIPPED empty :data:`TOOLS` registry this is exactly ONE
+    :func:`app.bot.llm_client.open_chat` call with ``tools=None`` — byte-identical to
+    the zero-tool behavior, with no extra round and no latency cost.
+
+    With a non-empty registry it loops at most :data:`_MAX_TOOL_ROUNDS` times against a
+    :data:`_TOOL_BUDGET_SECONDS` wall clock (checked BEFORE each new round). A round
+    whose message carries no tool calls returns its text immediately. A round WITH tool
+    calls replays the model's own turn verbatim and appends one resolved tool-role turn
+    per call. When the loop ends for ANY reason — round cap or budget — exactly ONE
+    final ``open_chat`` call is made with ``tools=None``, which is what stops a capped
+    loop from returning nothing. Returns ``None`` if any round's call returns ``None``.
     """
-    message = await llm_client.open_chat(messages, system_prompt=system_prompt, tools=None)
-    if message is None:
+    deadline = time.monotonic() + _TOOL_BUDGET_SECONDS
+
+    if not TOOLS:
+        message = await llm_client.open_chat(messages, system_prompt=system_prompt, tools=None)
+        if message is None:
+            return None
+        return _message_content(message)
+
+    specs = [tool.spec for tool in TOOLS]
+    working = list(messages)
+    for round_index in range(_MAX_TOOL_ROUNDS):
+        if time.monotonic() >= deadline:
+            logger.warning("qa_open_tool_budget_exhausted", round=round_index)
+            break
+        message = await llm_client.open_chat(working, system_prompt=system_prompt, tools=specs)
+        if message is None:
+            return None
+        tool_calls = message.get("tool_calls")
+        if not isinstance(tool_calls, list) or not tool_calls:
+            return _message_content(message)  # the model answered in text — done
+        working.append(message)
+        for call in tool_calls:
+            working.append(await _resolve_tool_call(call, round_index=round_index))
+    else:
+        logger.info("qa_open_tool_round_cap_reached", rounds=_MAX_TOOL_ROUNDS)
+
+    # The forced close: tools are withheld so the model MUST produce text.
+    final = await llm_client.open_chat(working, system_prompt=system_prompt, tools=None)
+    if final is None:
         return None
-    return _message_content(message)
+    return _message_content(final)
 
 
 async def answer_open(
@@ -186,8 +420,8 @@ async def answer_open(
     :func:`app.bot.chat_personality._fence_untrusted` (the only way untrusted text is
     allowed across the model boundary), builds the message list as the fenced history
     followed by the fenced question, composes the system prompt as
-    ``compose_prompt(voice, OPEN_ROLE, OPEN_GUARD)``, runs the (currently zero-tool)
-    model loop, and scrubs the reply through :func:`_strip_markdown_structure`.
+    ``compose_prompt(voice, OPEN_ROLE, OPEN_GUARD)``, runs the bounded tool loop
+    (:func:`_run_tool_loop`), and scrubs the reply through :func:`_strip_markdown_structure`.
 
     ``history`` is a sequence of ``(role, text)`` turns oldest-first; any role that is
     not exactly ``assistant`` is coerced to ``user``, so a smuggled ``system`` turn can
