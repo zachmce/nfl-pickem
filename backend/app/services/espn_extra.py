@@ -1,24 +1,23 @@
-"""On-demand ESPN "extras" adapter — live injury report (Path B slice 1, 260709-u0z).
+"""On-demand ESPN "extras" adapter — one shared fetch-and-cache shell + pure parsers.
 
-The first Path-B seam (outside-intelligence): when a league member @mentions the bot
-with an injuries question, the bot fetches the game ``summary`` from ESPN RIGHT THEN,
-caches the raw payload briefly in Redis, and parses the asked team's injury block into
-a deterministic per-player fact list. NO new DB tables, NO Celery-beat poller — freshness
-matters most for injuries, so on-demand is always fresh (design:
+The Path-B seam (outside-intelligence): when a league member asks the bot something the
+app's own database does not own — an injury report, a headline, a team roster — the bot fetches
+the public ESPN payload RIGHT THEN, caches it briefly in Redis, and parses it into a
+deterministic fact structure. NO new DB tables, NO Celery-beat poller — freshness matters
+most here, so on-demand is always fresh (design:
 ``.planning/notes/discord-query-bot-path-b-design.md``).
 
 Design — impure shell / pure never-raising core (mirrors :mod:`app.scoreboard.espn`):
 
-* IMPURE: :func:`fetch_injuries` — a best-effort async shell that first consults a
-  short-TTL Redis cache, else GETs the ``summary`` endpoint over ``httpx`` and writes
-  the raw payload back to the cache. It NEVER raises: any HTTP/timeout/non-200 degrades
-  to ``None`` (the caller shows a fixed "couldn't pull the injury report" line, never an
-  invented injury), and a Redis outage FAILS OPEN (a cache miss degrades to a live fetch).
-* PURE: :func:`parse_injuries` — takes the already-parsed ``summary`` dict + a canonical
-  team abbreviation and returns the per-player fact list for THAT team (``[]`` when the
-  team is present with no injuries, ``None`` when the top-level shape is unusable or the
-  team block is absent). Defensive on EVERY field (isinstance guards, ``.get``, degrade
-  to ``None``); never raises — this is what the offline unit tests exercise.
+* IMPURE: ONE shell, :func:`_fetch_cached`, serves EVERY endpoint — cache-first, then a
+  single ``httpx`` GET, then a best-effort cache write. It NEVER raises: any
+  HTTP/timeout/non-200/parse error degrades to ``None`` (the caller shows a fixed degrade
+  line, never an invented fact), and a Redis outage FAILS OPEN on both the read and the
+  write. :func:`fetch_injuries`, :func:`fetch_news` and :func:`fetch_team_roster` are
+  thin delegations supplying their own URL, cache key, TTL and log label.
+* PURE: one parser per endpoint (:func:`parse_injuries`, :func:`parse_news`,
+  :func:`parse_team_roster`) turning an already-parsed payload into facts. Defensive on EVERY field (isinstance guards,
+  ``.get``, degrade to ``None``); never raises — this is what the offline tests exercise.
 
 This module imports NO ``discord`` and lives on the Discord-free side: the qa.py brain
 imports THIS seam for the HTTP+cache, staying itself HTTP-free.
@@ -33,6 +32,7 @@ import httpx
 import structlog
 
 from app.config import settings
+from app.seeds.teams import NFL_TEAMS
 
 logger = structlog.get_logger(__name__)
 
@@ -44,12 +44,6 @@ logger = structlog.get_logger(__name__)
 # scoreboard we already poll). One call carries BOTH teams' injuries (+ game news).
 SUMMARY_URL = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event={event_id}"
 
-# NO custom User-Agent — mirrors ``app.scoreboard.espn`` (see the long note there).
-# ESPN's edge 403s branded UAs and allows recognized client defaults, so we let httpx
-# send its own ``python-httpx/x.y.z``. Do NOT reintroduce a custom UA on ESPN hosts.
-# No credentials are ever sent — these are public, outbound-only GETs.
-
-# Explicit timeout so a hung/slow ESPN response cannot block the bot loop.
 DEFAULT_TIMEOUT = 10.0
 
 # Short Redis cache: freshness matters for injuries, but ~10 min cushions repeat asks
@@ -83,6 +77,30 @@ def _news_cache_key(limit: int) -> str:
     so repeat asks for DIFFERENT teams reuse ONE cached page keyed only by ``limit``.
     """
     return f"qa:news:league:{limit}"
+
+
+# The public, no-auth ESPN team ``roster`` endpoint (SAME host family). ``{team}`` is
+# the ONLY model-influenced value anywhere in this module, which is why the allowlist
+# below runs before the format string ever does (T-oym-01).
+ROSTER_URL = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/{team}/roster"
+
+# A roster moves on a scale of days, not minutes, so it caches an order of magnitude
+# longer than the ten-minute injuries/news endpoints.
+ROSTER_CACHE_TTL_SECONDS = 3600
+
+# The largest measured position group is 13 (CHI cornerbacks, 2026-08-20), so this is a
+# defensive ceiling on the tool loop's token budget, not a routine truncation.
+ROSTER_MAX_PLAYERS = 20
+
+# DERIVED from the canonical seed table, never retyped: a drifted copy of the list that
+# guards a URL is the failure worth preventing. Importing that seeder is documented
+# side-effect-free (``app.seeds.historical_games`` imports it the same way).
+NFL_TEAM_ABBRS = frozenset(abbr for _espn_id, abbr, _display_name in NFL_TEAMS)
+
+
+def _roster_cache_key(team_abbr: str) -> str:
+    """The Redis key for one team's cached ``roster`` payload."""
+    return f"qa:roster:team:{team_abbr}"
 
 
 # ---------------------------------------------------------------------------
@@ -406,6 +424,139 @@ def filter_news_by_subject(articles: list[dict], subject: str | None) -> list[di
     return out
 
 
+# ESPN labels its roster groups in camelCase. A camelCase token handed to the model
+# comes back out of the model's mouth verbatim (memory: qa-phrasing-inversion), so each
+# one is mapped to the words a person would say; an unknown token falls back to the raw.
+_ROSTER_GROUP_LABELS = {
+    "offense": "offense",
+    "defense": "defense",
+    "specialTeam": "special teams",
+    "injuredReserveOrOut": "injured reserve or out",
+    "suspended": "suspended",
+    "practiceSquad": "practice squad",
+}
+
+# The sentence the model is most likely to voice, so it is concrete and complete rather
+# than a terse fragment (memory: qa-phrasing-inversion). This is the SECOND barrier
+# against an invented starter; the tool description in ``qa_open`` is the first.
+ROSTER_CAVEAT = (
+    "This roster listing does not say who starts at any position, because ESPN does not "
+    "publish an NFL depth chart, so do not call any of these players a starter."
+)
+
+
+def _parse_one_athlete(athlete: Any, group_label: str | None) -> dict[str, Any] | None:
+    """Normalize one ``athletes[].items[]`` entry into a compact player fact dict.
+
+    Defensive on every field (``isinstance`` guards + ``.get``); degrades a missing field
+    to ``None`` and never raises. Returns ``None`` for an unusable (non-dict) entry, one
+    with no display name (NEVER fabricates a player, mirroring :func:`_parse_one_article`)
+    and one with no position abbreviation (it could be neither counted nor asked for).
+    """
+    if not isinstance(athlete, dict):
+        return None
+
+    name = _first_str(athlete.get("displayName"))
+    if name is None:
+        return None
+
+    position = athlete.get("position")
+    position = position if isinstance(position, dict) else {}
+    abbreviation = _first_str(position.get("abbreviation"))
+    if abbreviation is None:
+        return None
+
+    status = athlete.get("status")
+    status = status if isinstance(status, dict) else {}
+    experience = athlete.get("experience")
+    experience = experience if isinstance(experience, dict) else {}
+    years = experience.get("years")
+
+    return {
+        "display_name": name,
+        "position": abbreviation,
+        "position_name": _first_str(position.get("displayName"), position.get("name")),
+        "jersey": _first_str(athlete.get("jersey")),
+        "experience_years": years
+        if isinstance(years, int) and not isinstance(years, bool)
+        else None,
+        "status": _first_str(status.get("name")),
+        "group": group_label,
+    }
+
+
+def _position_matches(player: dict[str, Any], needle: str) -> bool:
+    """Whether ``player`` plays ``needle`` (an upper-cased abbreviation OR full name)."""
+    for value in (player.get("position"), player.get("position_name")):
+        if isinstance(value, str) and value.strip().upper() == needle:
+            return True
+    return False
+
+
+def parse_team_roster(payload: Any, *, position: str | None = None) -> dict[str, Any] | None:
+    """Extract compact roster facts from a team ``roster`` payload.
+
+    Pure and never-raising (mirrors :func:`parse_news`). Returns ``None`` ONLY when the
+    top-level shape is unusable — a non-dict payload, or ``athletes`` is not a list.
+    Otherwise returns the team display name, the season year and type, a
+    ``position_counts`` map covering EVERY group (injured reserve included), the matching
+    ``players``, a ``truncated`` flag and :data:`ROSTER_CAVEAT`.
+
+    ``position`` matches case-insensitively against either the abbreviation or the full
+    position name. With no ``position`` the ``players`` list is empty BY DESIGN: a full
+    roster measured ~3000 tokens, which does not fit the tool loop's budget, so the counts
+    alone are the answer and the tool description tells the model to ask again with a
+    position. An unplayed position yields ``[]``, a valid empty answer.
+    """
+    if not isinstance(payload, dict):
+        return None
+    groups = payload.get("athletes")
+    if not isinstance(groups, list):
+        return None
+
+    team = payload.get("team")
+    team = team if isinstance(team, dict) else {}
+    season = payload.get("season")
+    season = season if isinstance(season, dict) else {}
+    year = season.get("year")
+
+    asked = position.strip().upper() if isinstance(position, str) and position.strip() else None
+    counts: dict[str, int] = {}
+    players: list[dict[str, Any]] = []
+    truncated = False
+
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        token = _first_str(group.get("position"))
+        label = _ROSTER_GROUP_LABELS.get(token, token) if token is not None else None
+        items = group.get("items")
+        if not isinstance(items, list):
+            continue
+        for athlete in items:
+            player = _parse_one_athlete(athlete, label)
+            if player is None:
+                continue
+            abbreviation = player["position"]
+            counts[abbreviation] = counts.get(abbreviation, 0) + 1
+            if asked is None or not _position_matches(player, asked):
+                continue
+            if len(players) >= ROSTER_MAX_PLAYERS:
+                truncated = True  # the count above still reports the true group size
+                continue
+            players.append(player)
+
+    return {
+        "team": _first_str(team.get("displayName")),
+        "season_year": year if isinstance(year, int) and not isinstance(year, bool) else None,
+        "season_type": _first_str(season.get("name")),
+        "position_counts": counts,
+        "players": players,
+        "truncated": truncated,
+        "caveat": ROSTER_CAVEAT,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Impure shell (best-effort HTTP + short Redis cache — never raises)
 # ---------------------------------------------------------------------------
@@ -425,8 +576,8 @@ def _redis_client():
     return aioredis.Redis.from_url(settings.redis_url)
 
 
-async def _cache_get(event_id: int) -> dict | None:
-    """Return the cached ``summary`` payload for ``event_id``, or ``None`` (FAIL-OPEN).
+async def _cache_read(key: str, *, label: str) -> dict | None:
+    """Return the cached payload at ``key``, or ``None`` (FAIL-OPEN).
 
     Best-effort: any Redis/JSON error logs a warning and returns ``None`` so the
     caller degrades to a live fetch. A missing key also returns ``None``.
@@ -434,7 +585,7 @@ async def _cache_get(event_id: int) -> dict | None:
     try:
         client = _redis_client()
         try:
-            raw = await client.get(_cache_key(event_id))
+            raw = await client.get(key)
         finally:
             await client.aclose()
         if raw is None:
@@ -442,12 +593,12 @@ async def _cache_get(event_id: int) -> dict | None:
         parsed = json.loads(raw)
         return parsed if isinstance(parsed, dict) else None
     except Exception:
-        logger.warning("injuries_cache_get_failed", event_id=event_id, exc_info=True)
+        logger.warning(f"{label}_cache_get_failed", key=key, exc_info=True)
         return None
 
 
-async def _cache_set(event_id: int, payload: dict) -> None:
-    """Best-effort write of ``payload`` to the cache under the event key + TTL.
+async def _cache_write(key: str, payload: dict, *, ttl_seconds: int, label: str) -> None:
+    """Best-effort write of ``payload`` under ``key`` + ``ttl_seconds``.
 
     FAIL-OPEN: any Redis/JSON error logs a warning and returns normally — a cache
     outage must NOT block the fetch that already succeeded.
@@ -455,123 +606,113 @@ async def _cache_set(event_id: int, payload: dict) -> None:
     try:
         client = _redis_client()
         try:
-            await client.set(
-                _cache_key(event_id),
-                json.dumps(payload),
-                ex=INJURIES_CACHE_TTL_SECONDS,
-            )
+            await client.set(key, json.dumps(payload), ex=ttl_seconds)
         finally:
             await client.aclose()
     except Exception:
-        logger.warning("injuries_cache_set_failed", event_id=event_id, exc_info=True)
+        logger.warning(f"{label}_cache_set_failed", key=key, exc_info=True)
+
+
+async def _fetch_cached(url: str, *, cache_key: str, ttl_seconds: int, label: str) -> dict | None:
+    """Cache-first GET of ``url`` returning the parsed JSON dict, or ``None``.
+
+    The ONE fetch-and-cache shell behind every endpoint in this module. On a cache HIT
+    the cached payload is returned WITHOUT any HTTP call; on a MISS it performs EXACTLY
+    one ``httpx`` GET and best-effort writes the raw payload back under ``cache_key``.
+
+    NEVER raises: any HTTP/timeout/non-200/parse error degrades to ``None`` (the caller
+    shows a fixed degrade line, never an invented fact), and a Redis outage on either
+    the read or the write fails open. A payload that is not a dict returns ``None``
+    and is NOT cached.
+
+    NO custom User-Agent — mirrors ``app.scoreboard.espn`` (see the long note there).
+    ESPN's edge 403s branded UAs and allows recognized client defaults, so we let httpx
+    send its own ``python-httpx/x.y.z``. Do NOT reintroduce a custom UA on ESPN hosts.
+    ``DEFAULT_TIMEOUT`` is explicit so a hung ESPN response cannot block the bot loop.
+    No credentials are ever sent — these are public, outbound-only GETs.
+
+    ``label`` prefixes every emitted structlog event, so each endpoint keeps its own
+    ``<label>_cache_get_failed`` / ``_cache_set_failed`` / ``_fetch_non_200`` /
+    ``_fetch_failed`` names. The failure events carry ``cache_key``, which already
+    embeds the event id or the limit, so no debugging detail is lost.
+    """
+    cached = await _cache_read(cache_key, label=label)
+    if cached is not None:
+        return cached
+
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            response = await client.get(url)
+        if response.status_code != 200:
+            logger.warning(f"{label}_fetch_non_200", status_code=response.status_code)
+            return None
+        payload = response.json()
+    except Exception:
+        logger.warning(f"{label}_fetch_failed", key=cache_key, exc_info=True)
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    await _cache_write(cache_key, payload, ttl_seconds=ttl_seconds, label=label)
+    return payload
 
 
 async def fetch_injuries(espn_event_id: int) -> dict | None:
     """Fetch the raw ESPN ``summary`` payload for ``espn_event_id`` — best-effort.
 
-    Cache-first: on a cache HIT the cached payload is returned WITHOUT any HTTP call.
-    On a MISS it performs ONE ``httpx`` GET to the ``summary`` endpoint (explicit
-    ~10s timeout, mirroring ``llm_client._chat_completion``), returns the parsed JSON
-    dict, and best-effort writes the raw payload back to the cache. NEVER raises: any
-    HTTP/timeout/non-200/parse error degrades to ``None`` (the caller shows a fixed
-    degrade line, never an invented injury); a Redis outage on either the read or the
-    write fails open (the read degrades to a live fetch, the write is skipped).
+    A thin delegation to :func:`_fetch_cached` (cache-first, one GET, never raises,
+    fail-open Redis) carrying the injuries URL, key, TTL and log label. Returns the
+    parsed ``summary`` dict, or ``None`` on any failure — the caller shows a fixed
+    degrade line, never an invented injury.
     """
-    cached = await _cache_get(espn_event_id)
-    if cached is not None:
-        return cached
-
-    url = SUMMARY_URL.format(event_id=espn_event_id)
-    try:
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            response = await client.get(url)
-        if response.status_code != 200:
-            logger.warning("injuries_fetch_non_200", status_code=response.status_code)
-            return None
-        payload = response.json()
-    except Exception:
-        logger.warning("injuries_fetch_failed", event_id=espn_event_id, exc_info=True)
-        return None
-
-    if not isinstance(payload, dict):
-        return None
-
-    await _cache_set(espn_event_id, payload)
-    return payload
-
-
-async def _news_cache_get(limit: int) -> dict | None:
-    """Return the cached league-news payload for ``limit``, or ``None`` (FAIL-OPEN).
-
-    Best-effort sibling of :func:`_cache_get` (kept separate so the injuries cache
-    path stays byte-identical): any Redis/JSON error logs a warning and returns
-    ``None`` so the caller degrades to a live fetch. A missing key also returns ``None``.
-    """
-    try:
-        client = _redis_client()
-        try:
-            raw = await client.get(_news_cache_key(limit))
-        finally:
-            await client.aclose()
-        if raw is None:
-            return None
-        parsed = json.loads(raw)
-        return parsed if isinstance(parsed, dict) else None
-    except Exception:
-        logger.warning("news_cache_get_failed", limit=limit, exc_info=True)
-        return None
-
-
-async def _news_cache_set(limit: int, payload: dict) -> None:
-    """Best-effort write of the news ``payload`` under the news key + TTL.
-
-    FAIL-OPEN sibling of :func:`_cache_set`: any Redis/JSON error logs a warning and
-    returns normally — a cache outage must NOT block the fetch that already succeeded.
-    """
-    try:
-        client = _redis_client()
-        try:
-            await client.set(
-                _news_cache_key(limit),
-                json.dumps(payload),
-                ex=NEWS_CACHE_TTL_SECONDS,
-            )
-        finally:
-            await client.aclose()
-    except Exception:
-        logger.warning("news_cache_set_failed", limit=limit, exc_info=True)
+    return await _fetch_cached(
+        SUMMARY_URL.format(event_id=espn_event_id),
+        cache_key=_cache_key(espn_event_id),
+        ttl_seconds=INJURIES_CACHE_TTL_SECONDS,
+        label="injuries",
+    )
 
 
 async def fetch_news(limit: int = NEWS_FETCH_LIMIT) -> dict | None:
-    """Fetch the raw ESPN league ``news`` payload — best-effort (mirrors ``fetch_injuries``).
+    """Fetch the raw ESPN league ``news`` payload — best-effort.
 
-    Cache-first: on a cache HIT the cached payload is returned WITHOUT any HTTP call.
-    On a MISS it performs ONE ``httpx`` GET to the ``news?limit=`` endpoint (explicit
-    ~10s timeout, httpx's default User-Agent), returns the parsed JSON dict, and best-effort
-    writes the raw payload back to the cache under the news key + TTL. NEVER raises: any
-    HTTP/timeout/non-200/parse error degrades to ``None`` (the caller shows a fixed
-    degrade line, never an invented headline); a Redis outage on either the read or the
-    write fails open (the read degrades to a live fetch, the write is skipped). The URL
-    carries ONLY the fixed integer ``limit`` — never user text (T-ikf-03).
+    A thin delegation to :func:`_fetch_cached` (cache-first, one GET, never raises,
+    fail-open Redis) carrying the news URL, key, TTL and log label. Returns the parsed
+    ``news`` dict, or ``None`` on any failure — the caller shows a fixed degrade line,
+    never an invented headline. The URL carries ONLY the fixed integer ``limit`` —
+    never user text (T-ikf-03).
     """
-    cached = await _news_cache_get(limit)
-    if cached is not None:
-        return cached
+    return await _fetch_cached(
+        NEWS_URL.format(limit=limit),
+        cache_key=_news_cache_key(limit),
+        ttl_seconds=NEWS_CACHE_TTL_SECONDS,
+        label="news",
+    )
 
-    url = NEWS_URL.format(limit=limit)
-    try:
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            response = await client.get(url)
-        if response.status_code != 200:
-            logger.warning("news_fetch_non_200", status_code=response.status_code)
-            return None
-        payload = response.json()
-    except Exception:
-        logger.warning("news_fetch_failed", limit=limit, exc_info=True)
+
+async def fetch_team_roster(team_abbr: str) -> dict | None:
+    """Fetch the raw ESPN ``roster`` payload for ``team_abbr`` — best-effort.
+
+    The ALLOWLIST runs FIRST, before any URL is formatted and before Redis or HTTP is
+    touched: ``team_abbr`` is model-supplied text, and an allowlist applied after the
+    format string is not an allowlist (T-oym-01). Anything outside the canonical 32
+    abbreviations returns ``None`` having attempted nothing, so only one of 32 static
+    literals can ever enter the request path — the same effectively-constant target the
+    news endpoint holds by carrying only a fixed integer.
+
+    A hit delegates to :func:`_fetch_cached` (cache-first, one GET, never raises,
+    fail-open Redis) with the roster key, TTL and log label.
+    """
+    canonical = team_abbr.strip().upper() if isinstance(team_abbr, str) else ""
+    if canonical not in NFL_TEAM_ABBRS:
+        # Model-supplied and unbounded — truncated before it reaches the log.
+        logger.warning("roster_team_rejected", team=str(team_abbr)[:8])
         return None
 
-    if not isinstance(payload, dict):
-        return None
-
-    await _news_cache_set(limit, payload)
-    return payload
+    return await _fetch_cached(
+        ROSTER_URL.format(team=canonical),
+        cache_key=_roster_cache_key(canonical),
+        ttl_seconds=ROSTER_CACHE_TTL_SECONDS,
+        label="roster",
+    )

@@ -1,6 +1,6 @@
-"""Offline unit tests for the OPEN NFL answer path (260820-lw6 Task 1 + Task 2).
+"""Offline unit tests for the OPEN NFL answer path (260820-lw6, 260820-oym).
 
-These tests NEVER touch a live LLM endpoint. Two seams are exercised:
+These tests NEVER touch a live LLM endpoint. Three seams are exercised:
 
 * ``qa_open.llm_client.open_chat`` is monkeypatched with an async fake returning
   canned assistant-message dicts / ``None`` / a raise, so
@@ -10,6 +10,9 @@ These tests NEVER touch a live LLM endpoint. Two seams are exercised:
   and PROVE the open path uses its OWN token cap / sampling knobs, is NOT fed the
   closer-variety chat directive, and still carries the mandatory
   ``chat_template_kwargs.enable_thinking = False``.
+* ``espn_extra.fetch_team_roster`` is stubbed with the roster fixture so the SHIPPED
+  ``lookup_team_roster`` tool can be driven end to end — the proof that a current roster
+  fact reaches the model's context instead of a training-cutoff guess.
 
 The pure :func:`app.bot.qa_open._strip_markdown_structure` scrub and the composed
 open system prompt are asserted directly (no db, no network).
@@ -21,7 +24,9 @@ Run with: ``backend/.venv/bin/python -m unittest tests.test_qa_open -v``
 from __future__ import annotations
 
 import asyncio
+import json
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -30,6 +35,7 @@ import httpx
 from app.bot import chat_personality, db_bridge, llm_client, qa, qa_open
 from app.bot.personality import DEFAULT_PERSONALITY_ID, PERSONALITIES, compose_prompt
 from app.config import settings
+from app.services import espn_extra
 
 _VOICE = PERSONALITIES[DEFAULT_PERSONALITY_ID]
 
@@ -128,14 +134,14 @@ class OpenPromptTests(unittest.TestCase):
 class AnswerOpenTests(unittest.TestCase):
     """answer_open is best-effort None-by-contract and never reaches phrase()."""
 
-    def test_returns_scrubbed_content_from_a_single_tools_free_call(self) -> None:
+    def test_returns_scrubbed_content_from_a_single_call(self) -> None:
         patcher, calls = _open_chat_returns(_text("### QB\n- Caleb Williams starts."))
         with patcher:
             out = _run(qa_open.answer_open("who starts at QB for the Bears?", voice=_VOICE))
         self.assertEqual(out, "QB\nCaleb Williams starts.")
-        # Exactly ONE call, with tools=None (the shipped registry is empty).
+        # A round that answers in TEXT costs exactly one call, even with tools offered.
         self.assertEqual(len(calls), 1)
-        self.assertIsNone(calls[0]["tools"])
+        self.assertEqual(calls[0]["tools"], [t.spec for t in qa_open.TOOLS])
         # Composed with the OPEN role/guard in the supplied voice.
         self.assertEqual(
             calls[0]["system_prompt"],
@@ -496,9 +502,28 @@ def _tool_messages(sent: list[dict]) -> list[dict]:
 
 
 class ShippedRegistryTests(unittest.TestCase):
-    def test_registry_ships_empty(self) -> None:
-        # Issue #179 is the task that appends to it; Path C ships model knowledge only.
-        self.assertEqual(qa_open.TOOLS, ())
+    def test_registry_ships_the_roster_tool(self) -> None:
+        self.assertEqual([t.name for t in qa_open.TOOLS], ["lookup_team_roster"])
+        params = qa_open.TOOLS[0].spec["function"]["parameters"]
+        self.assertEqual(params["properties"]["team"]["type"], "string")
+        self.assertEqual(params["properties"]["position"]["type"], "string")
+        # ``team`` is required; ``position`` is the optional narrowing argument.
+        self.assertEqual(params["required"], ["team"])
+
+    def test_shipped_description_says_it_does_not_know_who_starts(self) -> None:
+        # The description is the FIRST barrier against an invented starter (T-oym-05).
+        description = qa_open.TOOLS[0].spec["function"]["description"]
+        self.assertIn("does not know who starts", description)
+
+    def test_shipped_description_also_tells_the_model_to_call_on_a_starter_question(
+        self,
+    ) -> None:
+        # Live-measured regression: a description that ONLY disclaimed the starter
+        # suppressed the call outright (5/5) and the model fell back to stale memory.
+        # The disclaimer alone is not enough — the instruction to call must survive too.
+        description = qa_open.TOOLS[0].spec["function"]["description"]
+        self.assertIn("STARTS", description)
+        self.assertIn("Call this tool", description)
 
     def test_no_shipped_spec_may_declare_a_request_target_parameter(self) -> None:
         # The model selects a tool BY NAME and NEVER builds a URL (T-lw6-02).
@@ -509,13 +534,53 @@ class ShippedRegistryTests(unittest.TestCase):
                 with self.subTest(tool=tool.name, param=param_name):
                     self.assertNotIn(param_name.lower(), forbidden)
 
-    def test_empty_registry_makes_exactly_one_tools_free_call(self) -> None:
+    def test_empty_registry_branch_makes_exactly_one_tools_free_call(self) -> None:
+        # TOOLS is patched EMPTY on purpose: this covers the no-registry branch of
+        # _run_tool_loop, which the shipped registry no longer reaches.
         patcher, calls = _open_chat_returns(_text("Bears fans have suffered."))
-        with patcher:
+        with mock.patch.object(qa_open, "TOOLS", ()), patcher:
             out = _run(qa_open.answer_open("how bad are the Bears?", voice=_VOICE))
         self.assertEqual(out, "Bears fans have suffered.")
         self.assertEqual(len(calls), 1)
         self.assertIsNone(calls[0]["tools"])
+
+
+_ROSTER_FIXTURE = Path(__file__).parent / "fixtures" / "espn_team_roster.json"
+
+
+class RosterToolTests(unittest.TestCase):
+    """The SHIPPED tool, end to end: a current roster fact must reach the model."""
+
+    def _roster_returns(self, payload: object):
+        async def _fake(team_abbr):
+            return payload
+
+        return mock.patch.object(espn_extra, "fetch_team_roster", _fake)
+
+    def test_a_roster_round_feeds_current_names_and_the_caveat_back(self) -> None:
+        payload = json.loads(_ROSTER_FIXTURE.read_text())
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_team_roster", '{"team": "CHI", "position": "QB"}'),
+            _text("The Bears have Caleb Williams and Tyson Bagent at QB."),
+        )
+        with self._roster_returns(payload), patcher:
+            out = _run(qa_open.answer_open("who are the QBs on the Bears?", voice=_VOICE))
+
+        self.assertEqual(out, "The Bears have Caleb Williams and Tyson Bagent at QB.")
+        results = _tool_messages(calls[1]["messages"])
+        self.assertEqual(len(results), 1)
+        # The GROUNDED fact and the disclaimer both land in the model's context.
+        self.assertIn("Caleb Williams", results[0]["content"])
+        self.assertIn(espn_extra.ROSTER_CAVEAT, json.loads(results[0]["content"])["caveat"])
+
+    def test_adapter_returns_none_when_the_fetch_returns_none(self) -> None:
+        # -> the loop feeds back the fixed no-data payload, never a fabricated roster.
+        with self._roster_returns(None):
+            self.assertIsNone(_run(qa_open._lookup_team_roster(team="CHI")))
+
+    def test_adapter_does_not_raise_when_the_model_omits_the_team(self) -> None:
+        # No stub: a forgotten argument must degrade through the REAL allowlist.
+        self.assertIsNone(_run(qa_open._lookup_team_roster()))
 
 
 class ToolLoopTests(unittest.TestCase):
