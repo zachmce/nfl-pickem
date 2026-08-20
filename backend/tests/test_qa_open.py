@@ -735,6 +735,27 @@ def _stats_with_a_2026_row() -> dict:
     return payload
 
 
+def _split_season_stats() -> dict:
+    """The captured career table with 2025 split between two clubs.
+
+    ESPN's measured shape (Davante Adams 2024, LV then NYJ): one row per club carrying
+    ``teamId`` and a resolvable ``teamSlug``, then a combined row carrying neither.
+    """
+    payload = json.loads(_STATS_FIXTURE.read_text())
+    payload["teams"]["kansas-city-chiefs"] = {"id": "12", "displayName": "Kansas City Chiefs"}
+    for category in payload["categories"]:
+        rows = category["statistics"]
+        combined = json.loads(json.dumps(rows[-1]))
+        moved = json.loads(json.dumps(rows[-1]))
+        moved["teamId"] = "12"
+        moved["teamSlug"] = "kansas-city-chiefs"
+        del combined["teamId"]
+        combined["teamSlug"] = "2025 Totals"
+        rows[-1]["stats"][0], moved["stats"][0], combined["stats"][0] = "9", "8", "17"
+        rows.extend([moved, combined])
+    return payload
+
+
 class StatsToolTests(unittest.TestCase):
     """The SHIPPED stats tool, end to end: the motivating question of issue #183."""
 
@@ -804,6 +825,48 @@ class StatsToolTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertNotIn(phrase, statement.lower())
 
+    def test_the_season_statement_names_the_team_of_that_season(self) -> None:
+        # THE LIVE DEFECT (2026-08-20). Every voiced statement must carry the club those
+        # figures belong to, because with a season and no team beside it the model
+        # supplies one — it answered "he played for the Detroit Lions in 2025" about a
+        # player who played that season in Kansas City.
+        out = self._adapter(_lar_roster(), self._stats(), team="LAR", player="Stafford")
+        assert isinstance(out, dict)
+        self.assertEqual(out["season_teams"], ["Los Angeles Rams"])
+        statement = out["season_statement"]
+        self.assertIn("played for the Los Angeles Rams in the 2025 season", statement)
+        self.assertIn("only team you may name", statement)
+
+    def test_a_split_season_names_every_club_and_forbids_naming_one(self) -> None:
+        out = self._adapter(_lar_roster(), _split_season_stats(), team="LAR", player="Stafford")
+        assert isinstance(out, dict)
+        statement = out["season_statement"]
+        self.assertIn("played for more than one team during the 2025 season", statement)
+        self.assertIn("the Los Angeles Rams and the Kansas City Chiefs", statement)
+        self.assertIn("never name just one of them", statement)
+        # The combined row, not either club's partial — 9 + 8 games, not one of them.
+        self.assertEqual(out["stats"]["Passing"]["Games Played"], "17")
+
+    def test_an_unresolvable_season_team_forbids_naming_any_team(self) -> None:
+        stats = self._stats()
+        del stats["teams"]
+        out = self._adapter(_lar_roster(), stats, team="LAR", player="Stafford")
+        assert isinstance(out, dict)
+        self.assertEqual(out["season_teams"], [])
+        statement = out["season_statement"]
+        self.assertIn("does not say here which team", statement)
+        self.assertIn("never name one", statement)
+        # The degrade must not reach for the only other team name on this path.
+        self.assertNotIn("LAR", statement)
+        self.assertNotIn("Rams", statement)
+
+    def test_a_season_still_being_played_still_names_that_seasons_team(self) -> None:
+        out = self._adapter(_lar_roster(), _stats_with_a_2026_row(), team="LAR", player="Stafford")
+        assert isinstance(out, dict)
+        statement = out["season_statement"]
+        self.assertIn("SO FAR in the 2026 NFL season", statement)
+        self.assertIn("played for the Los Angeles Rams in the 2026 season", statement)
+
     def test_an_explicit_season_is_passed_through_to_the_parser(self) -> None:
         out = self._adapter(
             _lar_roster(), self._stats(), team="LAR", player="Stafford", season=2024
@@ -820,7 +883,9 @@ class StatsToolTests(unittest.TestCase):
         assert isinstance(out, dict)
         self.assertEqual(out["player"], "Matthew Stafford")
         self.assertEqual(out["position"], "QB")
-        self.assertEqual(out["team"], "LAR")
+        # The team he is on TODAY is deliberately not a field: it is not the team a past
+        # season's figures belong to, and the model voices any team name it can see.
+        self.assertNotIn("team", out)
 
     def test_two_players_sharing_a_surname_return_the_candidates_and_no_statistics(
         self,
@@ -875,13 +940,21 @@ class StatsToolTests(unittest.TestCase):
         )
         assert isinstance(out, dict)
         self.assertEqual(out["player"], "Isiah Pacheco")
-        self.assertEqual(out["team"], "Detroit Lions")
-        # The team name came from ESPN, so it is GROUNDED and the model may say it.
-        self.assertIn("does not play for KC any more", out["team_change_statement"])
-        self.assertIn("Detroit Lions", out["team_change_statement"])
         self.assertTrue(out["stats"])  # the data was always answerable — only the id failed
         self.assertNotIn("note", out)
         self.assertNotIn("athlete_id", out)  # the model never sees an id (D-4)
+
+    def test_the_search_team_is_used_to_find_him_and_then_never_voiced(self) -> None:
+        # LIVE DEFECT 2026-08-20: the search placed Pacheco in Detroit, the payload said so,
+        # and the model answered "he played for the Detroit Lions in 2025" — he played for
+        # Kansas City. The fallback still resolves the id; it just stops narrating how.
+        out = self._adapter(
+            _lar_roster(), self._stats(), _pacheco_search(), team="KC", player="Isiah Pacheco"
+        )
+        assert isinstance(out, dict)
+        self.assertNotIn("Detroit", json.dumps(out))
+        self.assertNotIn("team_change_statement", out)
+        self.assertNotIn("team", out)
 
     def test_the_search_is_never_reached_when_the_roster_resolves_the_player(self) -> None:
         # The fallback is a THIRD hop, so it must cost nothing on the common path.
@@ -1019,10 +1092,34 @@ class StatsToolTests(unittest.TestCase):
         out = self._adapter(_lar_roster(), None, team="LAR", player="Stafford")
         assert isinstance(out, dict)
         self.assertEqual(out["player"], "Matthew Stafford")
-        self.assertEqual(out["team"], "LAR")
+        self.assertIn("is on the LAR roster right now", out["note"])
         self.assertIn("failed just now", out["note"])
         self.assertIn("never give a figure from your own memory", out["note"])
         self.assertNotIn("stats", out)
+
+    def test_a_searched_player_keeps_his_identity_without_being_given_a_team(self) -> None:
+        # The roster affirmation is not available on the fallback path, and the club the
+        # search knows is the one he is on TODAY — so the note affirms him without it.
+        out = self._adapter(
+            _lar_roster(), None, _pacheco_search(), team="KC", player="Isiah Pacheco"
+        )
+        assert isinstance(out, dict)
+        self.assertEqual(out["player"], "Isiah Pacheco")
+        self.assertIn("does list Isiah Pacheco as a current NFL player", out["note"])
+        self.assertIn("failed just now", out["note"])
+        self.assertNotIn("Detroit", json.dumps(out))
+        self.assertNotIn(qa_open._NO_DATA_PAYLOAD, json.dumps(out))
+
+    def test_a_searched_player_with_no_published_stats_is_affirmed_without_a_team(
+        self,
+    ) -> None:
+        out = self._adapter(
+            _lar_roster(), {"filters": []}, _pacheco_search(), team="KC", player="Isiah Pacheco"
+        )
+        assert isinstance(out, dict)
+        self.assertIn("publishes no season statistics for him", out["note"])
+        self.assertIn("never say that he is not an NFL player", out["note"])
+        self.assertNotIn("Detroit", json.dumps(out))
 
     def test_a_rostered_player_with_no_published_stats_keeps_his_identity(self) -> None:
         # ESPN answers 200 with NO ``categories`` key at all for a rostered player who has
