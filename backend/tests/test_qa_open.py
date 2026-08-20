@@ -12,10 +12,11 @@ These tests NEVER touch a live LLM endpoint. Three seams are exercised:
   ``chat_template_kwargs.enable_thinking = False``.
 * ``espn_extra.fetch_team_roster``, ``espn_extra.fetch_athlete_stats`` and
   ``espn_extra.fetch_athlete_search`` are stubbed with captured payloads so the SHIPPED
-  ``lookup_team_roster`` and ``lookup_player_season_stats`` tools can be driven end to
-  end — the proof that a current roster fact, and a season figure ESPN publishes, reach
-  the model's context instead of a training-cutoff guess, including for a player who has
-  changed teams since the season he is being asked about.
+  ``lookup_team_roster``, ``lookup_player_season_stats`` and
+  ``lookup_player_current_team`` tools can be driven end to end — the proof that a
+  current roster fact, a season figure ESPN publishes, and the club a player is on today
+  reach the model's context instead of a training-cutoff guess, including for a player
+  who has changed teams since the season he is being asked about.
 
 The pure :func:`app.bot.qa_open._strip_markdown_structure` scrub and the composed
 open system prompt are asserted directly (no db, no network).
@@ -510,7 +511,11 @@ class ShippedRegistryTests(unittest.TestCase):
     def test_registry_ships_the_roster_tool(self) -> None:
         self.assertEqual(
             [t.name for t in qa_open.TOOLS],
-            ["lookup_team_roster", "lookup_player_season_stats"],
+            [
+                "lookup_team_roster",
+                "lookup_player_season_stats",
+                "lookup_player_current_team",
+            ],
         )
         params = qa_open.TOOLS[0].spec["function"]["parameters"]
         self.assertEqual(params["properties"]["team"]["type"], "string")
@@ -580,6 +585,69 @@ class ShippedRegistryTests(unittest.TestCase):
         self.assertIn("still being played", description)
         self.assertIn("never call them a final total", description)
         self.assertIn("no figures yet for the season being played now", description)
+
+    def _current_team_description(self) -> str:
+        tool = next(t for t in qa_open.TOOLS if t.name == "lookup_player_current_team")
+        return tool.spec["function"]["description"]
+
+    def test_registry_ships_the_current_team_tool_with_only_a_player_parameter(self) -> None:
+        tool = next(t for t in qa_open.TOOLS if t.name == "lookup_player_current_team")
+        params = tool.spec["function"]["parameters"]
+        # No team argument at all: the asker does not know the team, which is the point.
+        self.assertEqual(sorted(params["properties"]), ["player"])
+        self.assertEqual(params["required"], ["player"])
+
+    def test_shipped_current_team_description_instructs_before_it_constrains(self) -> None:
+        # Measured twice on this branch: a disclaimer-only description suppressed the
+        # call 5/5 and a conditional caveat was ignored 3/3. The instruction to CALL must
+        # come first and must survive any future edit.
+        description = self._current_team_description()
+        call = description.index("Call this tool every time")
+        self.assertLess(call, description.index("This tool knows only the team he is on"))
+        self.assertIn("which team a player plays for now", description)
+
+    def test_shipped_current_team_description_bans_attaching_the_team_to_a_season(self) -> None:
+        # The live Pacheco defect: a current club glued to a past season. Unconditional.
+        description = self._current_team_description()
+        self.assertIn("never attach the team it names to a past year", description)
+        self.assertIn("does not know which team he played for in any earlier season", description)
+
+    def test_each_shipped_description_says_what_it_is_for_without_overlapping(self) -> None:
+        # Three tools is a NEW selection surface; each opener must name a different
+        # question, and the two older tools must route a current-team question away.
+        openers = {
+            tool.name: tool.spec["function"]["description"].split(".")[0] for tool in qa_open.TOOLS
+        }
+        self.assertEqual(
+            openers["lookup_team_roster"],
+            "Look up the players currently on one NFL team's roster this season",
+        )
+        self.assertEqual(
+            openers["lookup_player_season_stats"],
+            "Look up one NFL player's official ESPN statistics for a single season, such "
+            "as how many yards he threw or rushed for, how many touchdowns he scored, or "
+            "how many games he played",
+        )
+        self.assertEqual(
+            openers["lookup_player_current_team"],
+            "Look up which NFL team one player is on RIGHT NOW",
+        )
+        for name in ("lookup_team_roster", "lookup_player_season_stats"):
+            with self.subTest(tool=name):
+                description = next(t for t in qa_open.TOOLS if t.name == name).spec["function"][
+                    "description"
+                ]
+                self.assertIn("lookup_player_current_team is the tool for that", description)
+
+    def test_the_stats_tool_never_reintroduces_the_players_current_team(self) -> None:
+        # Owner decision, taken deliberately in the commit before this one: the club a
+        # player is on today is not the club a past season's figures belong to, so it
+        # stays out of the stats description entirely.
+        description = self._stats_description()
+        self.assertIn(
+            "the team a player is on today is not the team a past season's figures belong to",
+            description,
+        )
 
     def test_the_open_path_still_makes_no_database_read(self) -> None:
         # D-1 / T-s5y-04: no db_bridge at module level, and the new adapter introduces
@@ -1146,6 +1214,118 @@ class StatsToolTests(unittest.TestCase):
         # A missing TEAM degrades through the REAL 32-team allowlist, which rejects it
         # before any URL is formatted — so this needs no stub and performs no HTTP.
         self.assertIsNone(_run(qa_open._lookup_player_season_stats(player="Matt Stafford")))
+
+
+class CurrentTeamToolTests(unittest.TestCase):
+    """The SHIPPED current-team tool: "who does he play for now" grounded, not guessed."""
+
+    def _search_returns(self, payload: object):
+        """Stub the ONE hop this tool makes."""
+
+        async def _fake_search(name):
+            return payload
+
+        return mock.patch.object(espn_extra, "fetch_athlete_search", _fake_search)
+
+    def _no_roster_hop(self):
+        """A roster fetch is a BUG here — the search payload alone carries the club."""
+
+        async def _never_roster(team_abbr):
+            raise AssertionError("the current-team tool must not hop through a roster")
+
+        return mock.patch.object(espn_extra, "fetch_team_roster", _never_roster)
+
+    def test_one_match_feeds_back_the_club_as_a_voiceable_sentence(self) -> None:
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_player_current_team", '{"player": "Isiah Pacheco"}'),
+            _text("Pacheco is on the Lions now."),
+        )
+        with self._search_returns(_pacheco_search()), self._no_roster_hop(), patcher:
+            out = _run(qa_open.answer_open("who does pacheco play for now?", voice=_VOICE))
+
+        self.assertEqual(out, "Pacheco is on the Lions now.")
+        results = _tool_messages(calls[1]["messages"])
+        self.assertEqual(len(results), 1)
+        body = json.loads(results[0]["content"])
+        self.assertEqual(body["player"], "Isiah Pacheco")
+        self.assertEqual(body["current_team"], "Detroit Lions")
+        self.assertIn(
+            "Isiah Pacheco plays for the Detroit Lions right now", body["current_team_statement"]
+        )
+
+    def test_the_club_it_names_is_banned_from_being_hung_on_a_past_season(self) -> None:
+        # The defect this tool was split off to avoid: a current club voiced as a past
+        # season's club. Stated unconditionally, because a conditional caveat is dropped.
+        with self._search_returns(_pacheco_search()):
+            out = _run(qa_open._lookup_player_current_team(player="Isiah Pacheco"))
+        assert isinstance(out, dict)
+        statement = str(out["current_team_statement"])
+        self.assertIn("it is not the team he played for in any earlier season", statement)
+        self.assertIn("never say that he played for the Detroit Lions in a past season", statement)
+
+    def test_three_matching_players_return_the_candidates_with_their_clubs(self) -> None:
+        # Measured live 2026-08-20: "josh allen" is THREE NFL players, and the club is
+        # the only thing that distinguishes them.
+        payload = json.loads(_SEARCH_FIXTURE.read_text())
+        with self._search_returns(payload):
+            out = _run(qa_open._lookup_player_current_team(player="Josh Allen"))
+        assert isinstance(out, dict)
+        self.assertEqual(
+            out["candidates"],
+            [
+                "Josh Allen of the Buffalo Bills",
+                "Josh Allen of the Arizona Cardinals",
+                "Josh Hines-Allen of the Jacksonville Jaguars",
+            ],
+        )
+        self.assertIn("Ask the member which one of them he means", str(out["note"]))
+        self.assertIn("never pick one of them yourself", str(out["note"]))
+        self.assertNotIn("current_team", out)
+
+    def test_no_nfl_match_returns_the_no_such_player_note_never_none(self) -> None:
+        # D-5: bare ``None`` becomes _NO_DATA_PAYLOAD, which sends the model to memory.
+        with self._search_returns({"results": []}):
+            out = _run(qa_open._lookup_player_current_team(player="Zorbulax Quimbleton"))
+        assert isinstance(out, dict)
+        self.assertIn("ESPN lists no NFL player named Zorbulax Quimbleton", str(out["note"]))
+        self.assertIn("never name a team for him from your own memory", str(out["note"]))
+        self.assertNotIn(qa_open._NO_DATA_PAYLOAD, json.dumps(out))
+
+    def test_a_failed_search_returns_its_own_note_never_none(self) -> None:
+        for payload in (None, ["not a dict"]):
+            with self.subTest(payload=payload), self._search_returns(payload):
+                out = _run(qa_open._lookup_player_current_team(player="Isiah Pacheco"))
+            assert isinstance(out, dict)
+            self.assertIn("failed just now", str(out["note"]))
+            self.assertNotIn(qa_open._NO_DATA_PAYLOAD, json.dumps(out))
+
+    def test_no_payload_ever_carries_an_athlete_id(self) -> None:
+        # D-4: the model must never see an id, so it can never learn to send one back.
+        payloads = [json.loads(_SEARCH_FIXTURE.read_text()), _pacheco_search()]
+        for payload in payloads:
+            with self.subTest(), self._search_returns(payload):
+                out = _run(qa_open._lookup_player_current_team(player="Josh Allen"))
+            body = json.dumps(out)
+            self.assertNotIn("athlete_id", body)
+            for one in espn_extra.parse_athlete_search(payload) or []:
+                self.assertNotIn(str(one["athlete_id"]), body)
+
+    def test_a_forgotten_argument_degrades_without_raising_and_without_fetching(self) -> None:
+        async def _never(name):
+            raise AssertionError("no fetch may be attempted without a player name")
+
+        with mock.patch.object(espn_extra, "fetch_athlete_search", _never):
+            self.assertIsNone(_run(qa_open._lookup_player_current_team()))
+            self.assertIsNone(_run(qa_open._lookup_player_current_team(player="   ")))
+
+    def test_every_payload_stays_far_under_the_stats_tool_budget(self) -> None:
+        # The loop is bounded at 3 rounds / 20 seconds and the stats payload already
+        # spends 2,883-3,202 bytes of it. Measured live: 248-524 bytes here.
+        cases = [_pacheco_search(), json.loads(_SEARCH_FIXTURE.read_text()), {"results": []}]
+        for payload in cases:
+            with self.subTest(), self._search_returns(payload):
+                out = _run(qa_open._lookup_player_current_team(player="Josh Allen"))
+            self.assertLess(len(json.dumps(out).encode()), 1024)
 
 
 class ToolLoopTests(unittest.TestCase):
