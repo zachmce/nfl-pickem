@@ -27,7 +27,9 @@ of two, and resolving "Chicago Bears" to ``CHI`` unaided): the model selects fro
 FIXED :data:`TOOLS` whitelist BY NAME and NEVER builds a URL — no tool spec may
 declare a ``url`` / ``endpoint`` / ``path`` / ``host`` parameter. Every tool's ``run``
 must hold the Path B adapter contract: never raises, fails open on Redis, degrades to
-``None`` on any HTTP error. The registry ships EMPTY; issue #179 appends to it.
+``None`` on any HTTP error. The registry ships with ONE tool, ``lookup_team_roster``
+(issue #179), which grounds a roster question in current ESPN data instead of the
+model's training cutoff; an EMPTY registry stays a supported fallback branch.
 """
 
 from __future__ import annotations
@@ -188,9 +190,71 @@ class _Tool:
     run: Callable[..., Awaitable[object]]
 
 
-# EMPTY as shipped: Path C answers from model knowledge first. Companion issue #179
-# is the task that appends the first real tools (ESPN roster / nflverse stats).
-TOOLS: tuple[_Tool, ...] = ()
+async def _lookup_team_roster(team: str = "", position: str | None = None) -> object | None:
+    """Look up ``team``'s CURRENT ESPN roster, narrowed to ``position`` when given.
+
+    The ``espn_extra`` import is deferred to the call, mirroring ``qa.py``: espn_extra
+    owns ALL HTTP + Redis and the brain modules import the seam, never httpx. ``team``
+    defaults to empty so a model that forgets the argument degrades through the
+    32-team allowlist to ``None`` rather than raising a TypeError into the loop.
+    """
+    from app.services import espn_extra
+
+    payload = await espn_extra.fetch_team_roster(team)
+    if payload is None:
+        return None
+    return espn_extra.parse_team_roster(payload, position=position)
+
+
+# Concrete full sentences, never terse fragments — the phrasing hazard applies to what
+# the model READS as much as to what it says (memory: qa-phrasing-inversion). The
+# starter sentence is the FIRST barrier against the measured failure this tool exists to
+# fix: asked for the Raiders' starting QB the ungrounded path named a years-stale player
+# with total confidence. The payload's own caveat is the second barrier (T-oym-05).
+_ROSTER_TOOL_DESCRIPTION = (
+    "Look up the players currently on one NFL team's roster this season. The team "
+    "argument is that team's standard abbreviation, for example CHI for the Chicago "
+    "Bears, LV for the Las Vegas Raiders, or KC for the Kansas City Chiefs. Pass a "
+    "position abbreviation such as QB, WR or CB in the position argument to get the "
+    "names of the players at that position; if you leave the position argument out you "
+    "get only a count of how many players the team carries at each position, so ask "
+    "again with a position when you need names. This tool does not know who starts at "
+    "any position, and it does not know any depth-chart order, because ESPN does not "
+    "publish one, so never call any player a starter on the strength of this tool. It "
+    "reports each player's roster status, such as Active or Day-To-Day, but it carries "
+    "no injury detail at all — no body part and no return date."
+)
+
+TOOLS: tuple[_Tool, ...] = (
+    _Tool(
+        name="lookup_team_roster",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_team_roster",
+                "description": _ROSTER_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {
+                            "type": "string",
+                            "description": "The team's standard abbreviation, such as CHI.",
+                        },
+                        "position": {
+                            "type": "string",
+                            "description": (
+                                "Optional position abbreviation, such as QB. Leave it out "
+                                "to get per-position counts instead of names."
+                            ),
+                        },
+                    },
+                    "required": ["team"],
+                },
+            },
+        },
+        run=_lookup_team_roster,
+    ),
+)
 
 # An unbounded loop on a quantized local model is the main NEW failure surface Path C
 # introduces (the model can keep asking for one more call forever), so the loop is
@@ -363,11 +427,11 @@ async def _resolve_tool_call(call: object, *, round_index: int) -> dict:
 async def _run_tool_loop(messages: list[dict], *, system_prompt: str) -> str | None:
     """Drive the open-path model round(s) and return the final text, or ``None``.
 
-    With the SHIPPED empty :data:`TOOLS` registry this is exactly ONE
+    With an EMPTY :data:`TOOLS` registry (the fallback branch) this is exactly ONE
     :func:`app.bot.llm_client.open_chat` call with ``tools=None`` — byte-identical to
     the zero-tool behavior, with no extra round and no latency cost.
 
-    With a non-empty registry it loops at most :data:`_MAX_TOOL_ROUNDS` times against a
+    With the shipped non-empty registry it loops at most :data:`_MAX_TOOL_ROUNDS` times against a
     :data:`_TOOL_BUDGET_SECONDS` wall clock (checked BEFORE each new round). A round
     whose message carries no tool calls returns its text immediately. A round WITH tool
     calls replays the model's own turn verbatim and appends one resolved tool-role turn
