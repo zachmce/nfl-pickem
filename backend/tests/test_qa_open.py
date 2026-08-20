@@ -959,8 +959,15 @@ class StatsToolTests(unittest.TestCase):
         assert isinstance(out, dict)
         self.assertEqual(out["season"], 2025)
         statement = out["current_season_statement"]
-        self.assertIn("no figures at all for Matthew Stafford in the 2026", statement)
-        self.assertIn("never report the 2025 figures below as though they were", statement)
+        # The statement is UNCONDITIONAL by design. A first wording made it conditional
+        # ("if the member was asking about this season...") and the model did not evaluate
+        # the condition — 3/3 live it answered "3,587 yards SO FAR in the 2025 season" to a
+        # "this year" question and never said 2026 had nothing. Assert the properties that
+        # made the second wording work, not its prose.
+        self.assertIn("2026", statement)
+        self.assertIn("no figures at all for Matthew Stafford", statement)
+        self.assertIn("2025 season, which is over and finished", statement)
+        self.assertIn('never say the words "so far" about them', statement)
         # The season it DID report is still named as a completed one.
         self.assertIn("official total for the 2025", out["season_statement"])
 

@@ -406,11 +406,20 @@ _CURRENT_SEASON_STATEMENT = (
     "season's total."
 )
 _GAMES_PLAYED_CLAUSE = " He has played {games} games in the {season} season so far."
+# Live-measured 2026-08-20: the FIRST wording made this conditional ("if the member was
+# asking about this season..."), and the model did not evaluate the condition — 3/3 it
+# answered "3,587 yards SO FAR in the 2025 season" to a "this year" question and never
+# said 2026 had no figures. State the fact unconditionally and ban the phrasing outright;
+# a caveat the model has to decide whether to apply is a caveat it drops.
 _NO_CURRENT_SEASON_STATEMENT = (
-    "ESPN publishes no figures at all for {player} in the {current} NFL season so far, "
-    "so if the member was asking about this season you must tell him plainly that there "
-    "are no {current} figures for {player} yet, and you must never report the {season} "
-    "figures below as though they were this season's."
+    "The {current} NFL season is the season happening now, and ESPN publishes no figures "
+    "at all for {player} in it yet. The figures below are from the {season} season, which "
+    "is over and finished. Say the year {season} every time you report any of them. Never "
+    "call them this season's figures, never call them this year's figures, and never say "
+    'the words "so far" about them, because a finished season has no so far. If the '
+    "member asked about this season or this year, tell him plainly that ESPN has no "
+    "{current} figures for {player} yet, and give him the {season} figures only after you "
+    "have told him that."
 )
 
 # D-5: each resolution miss is a concrete full sentence telling the model what to do
