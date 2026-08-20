@@ -110,6 +110,35 @@ def _load_stats_fixture() -> dict:
     return json.loads(_STATS_FIXTURE.read_text())
 
 
+def _split_season_stats() -> dict:
+    """The captured table with 2025 split between two clubs, in ESPN's measured shape.
+
+    Measured 2026-08-20 on Davante Adams (2024, LV then NYJ) and Diontae Johnson (2024,
+    three clubs): each club gets its own row carrying ``teamId`` and a resolvable
+    ``teamSlug``, and a FINAL combined row carries no ``teamId`` and slugs itself
+    "2024 Totals", which no ``teams`` entry resolves.
+    """
+    payload = _load_stats_fixture()
+    payload["teams"]["kansas-city-chiefs"] = {
+        "id": "12",
+        "abbreviation": "KC",
+        "displayName": "Kansas City Chiefs",
+    }
+    for category in payload["categories"]:
+        rows = category["statistics"]
+        combined = json.loads(json.dumps(rows[-1]))
+        moved = json.loads(json.dumps(rows[-1]))
+        moved["teamId"] = "12"
+        moved["teamSlug"] = "kansas-city-chiefs"
+        del combined["teamId"]
+        combined["teamSlug"] = "2025 Totals"
+        combined["displayName"] = "2025  Totals"
+        # Games Played tells the three rows apart, so a test can name which one was read.
+        rows[-1]["stats"][0], moved["stats"][0], combined["stats"][0] = "9", "8", "17"
+        rows.extend([moved, combined])
+    return payload
+
+
 # The LAR roster is built here rather than captured because the live one carries 93
 # players and the resolver only needs the awkward names. Every id, spelling and suffix
 # below was read off the live LAR roster on 2026-08-20 — Kyren and Mario Williams really
@@ -1173,6 +1202,84 @@ class ParseAthleteStatsTests(unittest.TestCase):
         self.assertIsNone(facts["season"])
         self.assertEqual(facts["available_seasons"], [])
         self.assertEqual(facts["stats"], {})
+
+    def test_the_season_team_is_the_one_that_seasons_rows_name(self) -> None:
+        # THE LIVE DEFECT (2026-08-20): the figures are a PAST season's and the only team
+        # name in hand was the player's CURRENT one, so the model said Pacheco played for
+        # Detroit in 2025. He played for Kansas City; his 2025 row says so.
+        facts = espn_extra.parse_athlete_stats(_load_stats_fixture())
+        assert facts is not None
+        self.assertEqual(facts["season_teams"], ["Los Angeles Rams"])
+
+    def test_an_unresolvable_team_slug_leaves_the_season_team_unstated(self) -> None:
+        # Degrade, never guess: a missing slug, an absent ``teams`` block and a slug the
+        # block does not carry all leave the season's team unsaid rather than borrowing
+        # one from somewhere else in the payload.
+        for mangle in ("drop-block", "drop-slug", "unknown-slug"):
+            with self.subTest(mangle=mangle):
+                payload = _load_stats_fixture()
+                if mangle == "drop-block":
+                    del payload["teams"]
+                for category in payload["categories"]:
+                    for row in category["statistics"]:
+                        if mangle == "drop-slug":
+                            del row["teamSlug"]
+                        elif mangle == "unknown-slug":
+                            row["teamSlug"] = "not-a-real-club"
+                facts = espn_extra.parse_athlete_stats(payload)
+                assert facts is not None
+                self.assertEqual(facts["season_teams"], [])
+                self.assertEqual(facts["stats"]["Passing"]["Passing Yards"], "4,707")
+
+    def test_a_malformed_teams_block_never_raises(self) -> None:
+        for teams in ("garbage", 42, ["los-angeles-rams"], {"los-angeles-rams": "nope"}):
+            with self.subTest(teams=teams):
+                payload = _load_stats_fixture()
+                payload["teams"] = teams
+                facts = espn_extra.parse_athlete_stats(payload)
+                assert facts is not None
+                self.assertEqual(facts["season_teams"], [])
+
+    def test_a_season_split_between_clubs_names_both_and_reads_the_combined_row(
+        self,
+    ) -> None:
+        # Measured live: one row per club plus a combined row. Taking the first match
+        # would report one club's PARTIAL figures as the season's own AND name only that
+        # club — the same misattribution, one layer down.
+        facts = espn_extra.parse_athlete_stats(_split_season_stats())
+        assert facts is not None
+        self.assertEqual(facts["season"], 2025)
+        self.assertEqual(facts["season_teams"], ["Los Angeles Rams", "Kansas City Chiefs"])
+        self.assertEqual(facts["stats"]["Passing"]["Games Played"], "17")
+
+    def test_a_split_season_with_no_combined_row_reports_no_figures_for_it(self) -> None:
+        # Defensive branch: ESPN has always emitted the combined row in every split season
+        # measured, so this shape is unverified against live data. One club's partial is
+        # never relayed as the season's total, and both clubs are still named.
+        payload = _split_season_stats()
+        for category in payload["categories"]:
+            category["statistics"] = [row for row in category["statistics"] if "teamId" in row]
+        facts = espn_extra.parse_athlete_stats(payload)
+        assert facts is not None
+        self.assertEqual(facts["season_teams"], ["Los Angeles Rams", "Kansas City Chiefs"])
+        self.assertEqual(facts["stats"], {})
+
+    def test_the_season_teams_survive_the_category_cap(self) -> None:
+        # Teams are gathered in their own pass, so the club a player moved to is named
+        # even when the category recording the move falls outside the relayed ones.
+        payload = _split_season_stats()
+        payload["categories"] = payload["categories"][:1] + [
+            {
+                "displayName": f"Category {i}",
+                "displayNames": ["Games Played", "Yards"],
+                "statistics": [{"season": {"year": 2025}, "stats": ["17", "100"], "teamId": "14"}],
+            }
+            for i in range(espn_extra.STATS_MAX_CATEGORIES + 3)
+        ]
+        facts = espn_extra.parse_athlete_stats(payload)
+        assert facts is not None
+        self.assertEqual(len(facts["stats"]), espn_extra.STATS_MAX_CATEGORIES)
+        self.assertIn("Kansas City Chiefs", facts["season_teams"])
 
 
 # --------------------------------------------------------------------------- #

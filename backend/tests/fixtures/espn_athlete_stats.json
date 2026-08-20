@@ -1,4 +1,18 @@
 {
+  "teams": {
+    "los-angeles-rams": {
+      "id": "14",
+      "uid": "s:20~l:28~t:14",
+      "slug": "los-angeles-rams",
+      "location": "Los Angeles",
+      "name": "Rams",
+      "nickname": "Rams",
+      "abbreviation": "LAR",
+      "displayName": "Los Angeles Rams",
+      "shortDisplayName": "Rams",
+      "isActive": true
+    }
+  },
   "categories": [
     {
       "name": "passing",

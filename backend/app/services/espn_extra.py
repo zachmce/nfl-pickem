@@ -825,6 +825,48 @@ def _season_year(row: Any) -> int | None:
     return year if isinstance(year, int) and not isinstance(year, bool) else None
 
 
+def _season_team_name(row: Any, teams: Any) -> str | None:
+    """The club display name one ``statistics[]`` row belongs to, or ``None``.
+
+    Resolves the row's own ``teamSlug`` against the payload's top-level ``teams`` block,
+    so the team reported is the one the player played for THAT season rather than the one
+    he is on today — the grounding defect measured live on Isiah Pacheco, whose 2025 row
+    is ``kansas-city-chiefs`` while ESPN rosters him in Detroit now. An unresolvable slug
+    yields ``None`` and is never guessed at from the slug text.
+    """
+    if not isinstance(row, dict) or not isinstance(teams, dict):
+        return None
+    slug = row.get("teamSlug")
+    entry = teams.get(slug) if isinstance(slug, str) else None
+    if not isinstance(entry, dict):
+        return None
+    return _first_str(entry.get("displayName"), entry.get("shortDisplayName"), entry.get("name"))
+
+
+def _is_combined_row(row: Any, teams: Any) -> bool:
+    """Whether ``row`` is ESPN's whole-season row for a season split between clubs.
+
+    Measured 2026-08-20 (Davante Adams 2024, Diontae Johnson 2024): a per-club row carries
+    ``teamId`` and a slug the ``teams`` block resolves, while the combined row carries
+    neither and slugs itself "2024 Totals". BOTH signals are required so a merely
+    malformed row is never mistaken for the season's total.
+    """
+    if not isinstance(row, dict):
+        return False
+    return "teamId" not in row and _season_team_name(row, teams) is None
+
+
+def _select_season_row(rows: list[Any], teams: Any) -> Any | None:
+    """The one row out of ``rows`` whose figures cover the WHOLE season, or ``None``.
+
+    With several club rows and no combined row the category is dropped: relaying one
+    club's partial figures as the season's own is the misattribution this guards against.
+    """
+    if len(rows) == 1:
+        return rows[0]
+    return next((row for row in rows if _is_combined_row(row, teams)), None)
+
+
 def _stat_value(value: Any) -> str | None:
     """One statistic relayed VERBATIM as a string (D-2), or ``None`` if unusable.
 
@@ -888,13 +930,17 @@ def parse_athlete_stats(payload: Any, *, season: int | None = None) -> dict[str,
     because this function never phrases.
 
     The payload carries NO athlete name (measured), so the player's identity comes from
-    the roster match, never from here.
+    the roster match, never from here. It DOES carry the team of each season, and
+    ``season_teams`` reports the club (or, for a split season, the clubs) the target
+    season's rows belong to — the fix for the live defect where the player's current team
+    was the only team name in the payload and the model attached it to a past season.
     """
     if not isinstance(payload, dict):
         return None
     categories = payload.get("categories")
     if not isinstance(categories, list):
         return None
+    teams = payload.get("teams")
 
     years: set[int] = set()
     for category in categories:
@@ -913,7 +959,20 @@ def parse_athlete_stats(payload: Any, *, season: int | None = None) -> dict[str,
     target = asked if asked is not None else (max(years) if years else None)
 
     stats: dict[str, dict[str, str]] = {}
+    season_teams: list[str] = []
     if target in years:
+        # Teams are gathered in their own pass over EVERY category, ahead of the category
+        # cap and the all-zero drop, so a season split between clubs still names them all
+        # even when the category that recorded the move is not one of the ones relayed.
+        for category in categories:
+            rows = category.get("statistics") if isinstance(category, dict) else None
+            for row in rows if isinstance(rows, list) else []:
+                if _season_year(row) != target:
+                    continue
+                club = _season_team_name(row, teams)
+                if club is not None and club not in season_teams:
+                    season_teams.append(club)
+
         for category in categories:
             if len(stats) >= STATS_MAX_CATEGORIES:
                 break
@@ -924,7 +983,7 @@ def parse_athlete_stats(payload: Any, *, season: int | None = None) -> dict[str,
                 continue
             rows = category.get("statistics")
             rows = rows if isinstance(rows, list) else []
-            row = next((r for r in rows if _season_year(r) == target), None)
+            row = _select_season_row([r for r in rows if _season_year(r) == target], teams)
             if row is None:
                 continue
             facts = _category_facts(category, row.get("stats"))
@@ -936,6 +995,7 @@ def parse_athlete_stats(payload: Any, *, season: int | None = None) -> dict[str,
 
     return {
         "season": target,
+        "season_teams": season_teams,
         "available_seasons": available_seasons,
         "stats": stats,
         "caveat": STATS_CAVEAT,
