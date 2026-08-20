@@ -515,6 +515,16 @@ class ShippedRegistryTests(unittest.TestCase):
         description = qa_open.TOOLS[0].spec["function"]["description"]
         self.assertIn("does not know who starts", description)
 
+    def test_shipped_description_also_tells_the_model_to_call_on_a_starter_question(
+        self,
+    ) -> None:
+        # Live-measured regression: a description that ONLY disclaimed the starter
+        # suppressed the call outright (5/5) and the model fell back to stale memory.
+        # The disclaimer alone is not enough — the instruction to call must survive too.
+        description = qa_open.TOOLS[0].spec["function"]["description"]
+        self.assertIn("STARTS", description)
+        self.assertIn("Call this tool", description)
+
     def test_no_shipped_spec_may_declare_a_request_target_parameter(self) -> None:
         # The model selects a tool BY NAME and NEVER builds a URL (T-lw6-02).
         forbidden = {"url", "endpoint", "path", "host", "uri", "base_url"}

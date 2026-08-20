@@ -207,10 +207,14 @@ async def _lookup_team_roster(team: str = "", position: str | None = None) -> ob
 
 
 # Concrete full sentences, never terse fragments — the phrasing hazard applies to what
-# the model READS as much as to what it says (memory: qa-phrasing-inversion). The
-# starter sentence is the FIRST barrier against the measured failure this tool exists to
-# fix: asked for the Raiders' starting QB the ungrounded path named a years-stale player
-# with total confidence. The payload's own caveat is the second barrier (T-oym-05).
+# the model READS as much as to what it says (memory: qa-phrasing-inversion).
+#
+# MEASURED 2026-08-20, and the reason this text is shaped the way it is: a description
+# that ONLY disclaimed the starter ("this tool does not know who starts") suppressed the
+# call entirely — the model read "not relevant" and answered a starter question from its
+# own stale memory instead, 5/5. So the description must do BOTH jobs, in this order:
+# instruct the model to CALL for a starter question, then forbid it naming a starter from
+# what comes back. The payload's own caveat is the second barrier (T-oym-05).
 _ROSTER_TOOL_DESCRIPTION = (
     "Look up the players currently on one NFL team's roster this season. The team "
     "argument is that team's standard abbreviation, for example CHI for the Chicago "
@@ -218,11 +222,16 @@ _ROSTER_TOOL_DESCRIPTION = (
     "position abbreviation such as QB, WR or CB in the position argument to get the "
     "names of the players at that position; if you leave the position argument out you "
     "get only a count of how many players the team carries at each position, so ask "
-    "again with a position when you need names. This tool does not know who starts at "
-    "any position, and it does not know any depth-chart order, because ESPN does not "
-    "publish one, so never call any player a starter on the strength of this tool. It "
-    "reports each player's roster status, such as Active or Day-To-Day, but it carries "
-    "no injury detail at all — no body part and no return date."
+    "again with a position when you need names. Call this tool for a question about who "
+    "STARTS at a position as well, because the players it lists are the only players who "
+    "could be starting, and your own memory of a team's quarterback is often a year or "
+    "more out of date. This tool does not know who starts at any position, and it does "
+    "not know any depth-chart order, because ESPN does not publish one. So when you are "
+    "asked who starts, name the players this tool lists at that position and say plainly "
+    "that the roster does not show which of them starts. Never call any player a starter "
+    "on the strength of this tool. It reports each player's roster status, such as Active "
+    "or Day-To-Day, but it carries no injury detail at all — no body part and no return "
+    "date."
 )
 
 TOOLS: tuple[_Tool, ...] = (
