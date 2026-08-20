@@ -7,6 +7,13 @@ gate (self/other-bot / bare-ping / @everyone / role-ping all excluded), the per-
 cooldown, the public reply with ``AllowedMentions.none()``, and that a raise inside
 ``answer_question`` is swallowed (never propagates out of ``on_message``).
 
+260820-lw6 extends the harness with a channel id, an optional message reference and an
+author display name, and adds the READ-THE-ROOM cases: an explicit @mention (and a
+Discord reply to one of the bot's own messages) is answered WITHOUT ever consulting the
+model gate, a cold channel never consults it either, and a gate-rejected message must
+not burn the asker's cooldown bucket. ``qa_room.is_addressed`` is patched with a SPY
+that records call counts, so "the gate was never called" is a real assertion.
+
 Run with: ``backend/.venv/bin/python -m unittest tests.test_qa_listener -v``
 (there is no bare ``python`` on PATH on this machine).
 """
@@ -22,12 +29,12 @@ from unittest import mock
 import discord
 from discord.ext import commands
 
-from app.bot import qa
+from app.bot import qa, qa_room
 from app.bot.commands import mention_qa
 from app.bot.commands.mention_qa import MentionQaCog
 
 # A stand-in bot user; identity equality makes ``bot_user in message.mentions`` work.
-_BOT_USER = SimpleNamespace(id=999, bot=True)
+_BOT_USER = SimpleNamespace(id=999, bot=True, display_name="Pick'em Bot")
 
 
 def _run(coro):
@@ -56,7 +63,8 @@ class _FakeTyping:
 
 
 class _FakeChannel:
-    def __init__(self) -> None:
+    def __init__(self, channel_id: int = 77) -> None:
+        self.id = channel_id
         self.sent: list[dict] = []
         self.typing_entered = False
         self.typing_exited = False
@@ -80,18 +88,55 @@ def _make_message(
     content: str,
     author_bot: bool = False,
     author_id: int = 42,
+    author_name: str = "Ada",
     mentions_bot: bool = True,
     mention_everyone: bool = False,
     in_guild: bool = True,
+    channel_id: int = 77,
+    reply_to_author_id: int | None = None,
 ) -> SimpleNamespace:
+    """Build a fake message.
+
+    ``reply_to_author_id`` populates a Discord ``reference`` whose ``resolved`` message
+    was authored by that id — the reply-to-the-bot fast path resolves it defensively
+    (the reference may be absent, unresolved, or point at a deleted message).
+    """
+    reference = None
+    if reply_to_author_id is not None:
+        reference = SimpleNamespace(
+            resolved=SimpleNamespace(author=SimpleNamespace(id=reply_to_author_id))
+        )
     return SimpleNamespace(
         content=content,
-        author=SimpleNamespace(id=author_id, bot=author_bot),
+        author=SimpleNamespace(id=author_id, bot=author_bot, display_name=author_name),
         mentions=[_BOT_USER] if mentions_bot else [],
         mention_everyone=mention_everyone,
         guild=SimpleNamespace(id=1) if in_guild else None,
-        channel=_FakeChannel(),
+        channel=_FakeChannel(channel_id),
+        reference=reference,
     )
+
+
+def _gate(verdict: bool = True):
+    """Patch ``qa_room.is_addressed`` with a SPY recording every call.
+
+    Returns ``(patcher, calls)``; ``len(calls)`` is what makes the never-called
+    assertions real assertions instead of inferences from the send list.
+    """
+    calls: list[dict] = []
+
+    async def _fake(turns, *, bot_name):
+        calls.append({"turns": list(turns), "bot_name": bot_name})
+        return verdict
+
+    return mock.patch.object(qa_room, "is_addressed", _fake), calls
+
+
+def _gate_raises():
+    async def _fake(turns, *, bot_name):
+        raise RuntimeError("boom")
+
+    return mock.patch.object(qa_room, "is_addressed", _fake)
 
 
 def _cog() -> MentionQaCog:
@@ -113,15 +158,15 @@ def _answer_returns(value):
     """Patch qa.answer_question with an async fake, recording its calls."""
     calls: list[dict] = []
 
-    async def _fake(question, *, discord_id):
-        calls.append({"question": question, "discord_id": discord_id})
+    async def _fake(question, *, discord_id, history=()):
+        calls.append({"question": question, "discord_id": discord_id, "history": list(history)})
         return value
 
     return mock.patch.object(qa, "answer_question", _fake), calls
 
 
 def _answer_raises():
-    async def _fake(question, *, discord_id):
+    async def _fake(question, *, discord_id, history=()):
         raise RuntimeError("boom")
 
     return mock.patch.object(qa, "answer_question", _fake)
@@ -246,6 +291,265 @@ class GuardTests(unittest.TestCase):
             # Must not raise out of on_message.
             _deliver(cog, message)
         self.assertEqual(message.channel.sent, [])
+
+
+class ReadTheRoomTests(unittest.TestCase):
+    """The model gate replaces the individual-mention check — but it is consulted
+    ONLY for a message that is neither an explicit mention nor a reply to the bot,
+    and only in a channel the bot has spoken in recently."""
+
+    def test_explicit_mention_answers_and_never_consults_the_gate(self) -> None:
+        cog = _cog()
+        message = _make_message(content="<@999> standings?")
+        answer_patch, calls = _answer_returns("Ada leads by 7.")
+        gate_patch, gate_calls = _gate(verdict=False)  # would say NO if asked
+        with answer_patch, gate_patch:
+            _deliver(cog, message)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(gate_calls, [])  # the gate was NEVER called
+
+    def test_reply_to_a_bot_message_answers_and_never_consults_the_gate(self) -> None:
+        cog = _cog()
+        message = _make_message(
+            content="how long has he started?", mentions_bot=False, reply_to_author_id=999
+        )
+        answer_patch, calls = _answer_returns("Since 2024.")
+        gate_patch, gate_calls = _gate(verdict=False)
+        with answer_patch, gate_patch:
+            _deliver(cog, message)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(gate_calls, [])
+
+    def test_reply_to_another_human_is_not_a_fast_path(self) -> None:
+        cog = _cog()
+        message = _make_message(content="agreed", mentions_bot=False, reply_to_author_id=1234)
+        answer_patch, calls = _answer_returns("nope")
+        gate_patch, gate_calls = _gate(verdict=True)
+        with answer_patch, gate_patch:
+            _deliver(cog, message)
+        # Cold channel: no bot reply yet, so the pre-filter stops it BEFORE the gate.
+        self.assertEqual(calls, [])
+        self.assertEqual(gate_calls, [])
+
+    def test_cold_channel_non_mention_is_ignored_without_a_gate_call(self) -> None:
+        cog = _cog()
+        answer_patch, calls = _answer_returns("nope")
+        gate_patch, gate_calls = _gate(verdict=True)
+        with answer_patch, gate_patch:
+            _deliver(cog, _make_message(content="anyone watching?", mentions_bot=False))
+        self.assertEqual(calls, [])
+        self.assertEqual(gate_calls, [])  # the cheap deterministic pre-filter ran first
+
+    def test_non_mention_after_a_recent_bot_reply_consults_the_gate_and_answers(self) -> None:
+        cog = _cog()
+        answer_patch, calls = _answer_returns("Since 2024.")
+        gate_patch, gate_calls = _gate(verdict=True)
+        with answer_patch, gate_patch:
+            # 1) a mention opens the conversation (records the bot's reply)
+            _deliver(cog, _make_message(content="<@999> who starts at QB?", author_id=1))
+            # 2) a bare follow-up from someone else
+            _deliver(
+                cog,
+                _make_message(content="how long has he started?", mentions_bot=False, author_id=2),
+            )
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(gate_calls), 1)  # consulted exactly once, for the follow-up
+        self.assertEqual(gate_calls[0]["bot_name"], "Pick'em Bot")
+
+    def test_gate_false_stays_silent(self) -> None:
+        cog = _cog()
+        answer_patch, calls = _answer_returns("should not land")
+        gate_patch, gate_calls = _gate(verdict=False)
+        with answer_patch, gate_patch:
+            _deliver(cog, _make_message(content="<@999> who starts at QB?", author_id=1))
+            _deliver(
+                cog,
+                _make_message(content="I think the Bears stink", mentions_bot=False, author_id=2),
+            )
+        self.assertEqual(len(calls), 1)  # only the mention was answered
+        self.assertEqual(len(gate_calls), 1)
+
+    def test_a_raise_in_the_gate_never_escapes_on_message(self) -> None:
+        cog = _cog()
+        answer_patch, calls = _answer_returns("nope")
+        with answer_patch, _gate_raises():
+            _deliver(cog, _make_message(content="<@999> hi", author_id=1))
+            # Must not raise out of on_message.
+            _deliver(cog, _make_message(content="follow up", mentions_bot=False, author_id=2))
+        self.assertEqual(len(calls), 1)
+
+
+class KeptGatesOnTheNonMentionPathTests(unittest.TestCase):
+    """The four gates the design says to KEEP still hold now that a message no
+    longer needs an @mention to reach the handler."""
+
+    def _warm(self, cog, gate_patch) -> None:
+        """Open the channel (a bot reply) so the pre-filter is not what stops us."""
+        answer_patch, _ = _answer_returns("opening line")
+        with answer_patch, gate_patch:
+            _deliver(cog, _make_message(content="<@999> hi", author_id=1))
+
+    def test_bot_author_is_ignored(self) -> None:
+        cog = _cog()
+        gate_patch, gate_calls = _gate(verdict=True)
+        self._warm(cog, gate_patch)
+        answer_patch, calls = _answer_returns("nope")
+        with answer_patch, gate_patch:
+            _deliver(
+                cog,
+                _make_message(
+                    content="beep boop", mentions_bot=False, author_bot=True, author_id=5
+                ),
+            )
+        self.assertEqual(calls, [])
+        self.assertEqual(len(gate_calls), 0)
+
+    def test_dm_is_still_out_of_scope(self) -> None:
+        cog = _cog()
+        gate_patch, gate_calls = _gate(verdict=True)
+        answer_patch, calls = _answer_returns("nope")
+        with answer_patch, gate_patch:
+            _deliver(cog, _make_message(content="hello", mentions_bot=False, in_guild=False))
+        self.assertEqual(calls, [])
+        self.assertEqual(gate_calls, [])
+
+    def test_everyone_ping_is_still_ignored(self) -> None:
+        cog = _cog()
+        gate_patch, gate_calls = _gate(verdict=True)
+        self._warm(cog, gate_patch)
+        answer_patch, calls = _answer_returns("nope")
+        with answer_patch, gate_patch:
+            _deliver(
+                cog,
+                _make_message(content="@everyone look", mentions_bot=False, mention_everyone=True),
+            )
+        self.assertEqual(calls, [])
+        self.assertEqual(len(gate_calls), 0)
+
+    def test_empty_text_is_still_ignored(self) -> None:
+        cog = _cog()
+        gate_patch, gate_calls = _gate(verdict=True)
+        self._warm(cog, gate_patch)
+        answer_patch, calls = _answer_returns("nope")
+        with answer_patch, gate_patch:
+            _deliver(cog, _make_message(content="   ", mentions_bot=False))
+        self.assertEqual(calls, [])
+        self.assertEqual(len(gate_calls), 0)
+
+
+class CooldownOrderingTests(unittest.TestCase):
+    """``update_rate_limit`` MUTATES the bucket, so it must run AFTER the room gate —
+    otherwise ordinary channel chatter burns the asker's bucket and their real
+    question is dropped seconds later."""
+
+    def test_gate_rejected_message_does_not_consume_the_bucket(self) -> None:
+        cog = _cog()
+        # Warm the channel with a DIFFERENT author so user 42's bucket is untouched.
+        warm_patch, _ = _answer_returns("opening line")
+        open_gate, _ = _gate(verdict=True)
+        with warm_patch, open_gate:
+            _deliver(cog, _make_message(content="<@999> hi", author_id=1))
+
+        answer_patch, calls = _answer_returns("real answer")
+        closed_gate, _ = _gate(verdict=False)
+        with answer_patch, closed_gate:
+            _deliver(cog, _make_message(content="chatter", mentions_bot=False, author_id=42))
+        self.assertEqual(calls, [])
+
+        # Immediately after the rejection, the SAME author's real question lands.
+        with answer_patch, open_gate:
+            _deliver(cog, _make_message(content="real question", mentions_bot=False, author_id=42))
+        self.assertEqual(len(calls), 1)
+
+    def test_an_answered_message_does_consume_the_bucket(self) -> None:
+        cog = _cog()
+        answer_patch, calls = _answer_returns("answer")
+        gate_patch, _ = _gate(verdict=True)
+        with answer_patch, gate_patch:
+            _deliver(cog, _make_message(content="<@999> hi", author_id=42))
+            _deliver(cog, _make_message(content="again", mentions_bot=False, author_id=42))
+        self.assertEqual(len(calls), 1)
+
+
+class ChannelHistoryTests(unittest.TestCase):
+    def test_answer_question_receives_history_excluding_the_current_question(self) -> None:
+        cog = _cog()
+        answer_patch, calls = _answer_returns("Caleb Williams.")
+        gate_patch, _ = _gate(verdict=True)
+        with answer_patch, gate_patch:
+            _deliver(cog, _make_message(content="<@999> who starts at QB?", author_id=1))
+            _deliver(cog, _make_message(content="how long?", mentions_bot=False, author_id=2))
+        # First answer: nothing said before it.
+        self.assertEqual(calls[0]["history"], [])
+        # Second answer: the prior question + the bot's own reply, current one EXCLUDED.
+        history = calls[1]["history"]
+        self.assertEqual([role for role, _ in history], ["user", "assistant"])
+        self.assertEqual(history[0][1], "who starts at QB?")
+        self.assertEqual(history[1][1], "Caleb Williams.")
+        self.assertNotIn("how long?", [text for _, text in history])
+
+    def test_the_bots_own_reply_is_recorded_into_the_channel_transcript(self) -> None:
+        cog = _cog()
+        answer_patch, _ = _answer_returns("Caleb Williams.")
+        gate_patch, gate_calls = _gate(verdict=True)
+        with answer_patch, gate_patch:
+            _deliver(cog, _make_message(content="<@999> who starts at QB?", author_id=1))
+            _deliver(cog, _make_message(content="how long?", mentions_bot=False, author_id=2))
+        turns = gate_calls[0]["turns"]
+        # Without this stamp the pre-filter never opens and the gate never fires at all.
+        self.assertIn(("Pick'em Bot", "Caleb Williams."), turns)
+        # The transcript ends with the message being judged.
+        self.assertEqual(turns[-1][1], "how long?")
+
+    def test_history_is_per_channel(self) -> None:
+        cog = _cog()
+        answer_patch, calls = _answer_returns("answer")
+        gate_patch, _ = _gate(verdict=True)
+        with answer_patch, gate_patch:
+            _deliver(cog, _make_message(content="<@999> a?", author_id=1, channel_id=1))
+            _deliver(cog, _make_message(content="<@999> b?", author_id=2, channel_id=2))
+        self.assertEqual(calls[0]["history"], [])
+        self.assertEqual(calls[1]["history"], [])  # channel 2 knows nothing of channel 1
+
+
+class ChannelMemoryTests(unittest.TestCase):
+    """The memory lives for the life of a long-running gateway process, so it is
+    bounded in BOTH dimensions."""
+
+    def test_turns_per_channel_are_bounded(self) -> None:
+        memory = mention_qa._ChannelMemory()
+        for i in range(mention_qa._MEMORY_MAX_TURNS + 10):
+            memory.record(1, f"user{i}", f"message {i}")
+        turns = memory.transcript(1)
+        self.assertEqual(len(turns), mention_qa._MEMORY_MAX_TURNS)
+        self.assertEqual(turns[-1][1], f"message {mention_qa._MEMORY_MAX_TURNS + 9}")
+
+    def test_channel_count_is_bounded_with_least_recently_touched_eviction(self) -> None:
+        memory = mention_qa._ChannelMemory()
+        for channel_id in range(mention_qa._MEMORY_MAX_CHANNELS + 5):
+            memory.record(channel_id, "Ada", "hi")
+        self.assertLessEqual(len(memory._turns), mention_qa._MEMORY_MAX_CHANNELS)
+        self.assertEqual(memory.transcript(0), [])  # the oldest channel was evicted
+        self.assertNotEqual(memory.transcript(mention_qa._MEMORY_MAX_CHANNELS + 4), [])
+
+    def test_spoke_recently_is_false_before_any_bot_reply(self) -> None:
+        memory = mention_qa._ChannelMemory()
+        memory.record(1, "Ada", "hi")
+        self.assertFalse(memory.spoke_recently(1, now=0.0))
+
+    def test_spoke_recently_expires_after_the_window(self) -> None:
+        memory = mention_qa._ChannelMemory()
+        memory.record_bot_reply(1, "Bot", "hi", now=1000.0)
+        self.assertTrue(memory.spoke_recently(1, now=1000.0 + mention_qa._ROOM_RECENT_SECONDS - 1))
+        self.assertFalse(memory.spoke_recently(1, now=1000.0 + mention_qa._ROOM_RECENT_SECONDS + 1))
+
+    def test_history_maps_bot_turns_to_the_assistant_role(self) -> None:
+        memory = mention_qa._ChannelMemory()
+        memory.record(1, "Ada", "who starts?")
+        memory.record_bot_reply(1, "Bot", "Caleb Williams.", now=0.0)
+        self.assertEqual(
+            memory.history(1), [("user", "who starts?"), ("assistant", "Caleb Williams.")]
+        )
 
 
 class WiringTests(unittest.TestCase):

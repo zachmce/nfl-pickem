@@ -69,7 +69,7 @@ class PredictionIntentRoutingTests(unittest.TestCase):
     }
 
     def test_prediction_with_real_team_routes_to_non_empty_answer(self) -> None:
-        async def _classify(_question):
+        async def _classify(_question, *, history=()):
             return {"intent": "prediction", "team": "Chiefs"}
 
         async def _tokens():
