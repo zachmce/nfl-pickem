@@ -280,16 +280,19 @@ async def _lookup_player_season_stats(
         }
 
     match = matches[0]
+    name = str(match["display_name"])
+    # Past this point the roster hop already PROVED who this player is, so a stats miss
+    # must keep that identity (D-5) — bare ``None`` here made the model deny him.
+    identity = {"player": name, "team": team_abbr, "position": match["position"]}
     payload = await espn_extra.fetch_athlete_stats(match["athlete_id"])
     if payload is None:
-        return None
+        return {**identity, "note": _STATS_FETCH_FAILED_NOTE.format(player=name, team=team_abbr)}
     facts = espn_extra.parse_athlete_stats(payload, season=season)
     if facts is None:
-        return None
+        return {**identity, "note": _NO_STATS_PUBLISHED_NOTE.format(player=name, team=team_abbr)}
 
     # The stats payload carries no name of its own, so identity comes from the roster.
-    name = str(match["display_name"])
-    facts = {**facts, "player": name, "team": team_abbr, "position": match["position"]}
+    facts = {**facts, **identity}
     if facts["season"] is None:
         seasons = ", ".join(str(year) for year in facts["available_seasons"])
         facts["note"] = _SEASON_UNAVAILABLE_NOTE.format(
@@ -322,6 +325,22 @@ _NOT_ON_ROSTER_NOTE = (
 _AMBIGUOUS_PLAYER_NOTE = (
     "More than one player on the {team} roster matches that name: {candidates}. Ask the "
     "member which one of them he means, and do not report any figure until he answers."
+)
+# Live-measured 2026-08-20: ESPN answers 200 with NO ``categories`` key at all for a
+# rostered player who has no recorded stats (Mario Williams, LAR WR). Returning bare
+# ``None`` there sent the model to _NO_DATA_PAYLOAD and it DENIED a player it had just
+# resolved — "I don't recall a Mario Williams playing receiver for the Rams". D-5 says a
+# miss returns a note; these two carry the roster identity so the denial cannot recur.
+_NO_STATS_PUBLISHED_NOTE = (
+    "{player} is on the {team} roster right now, but ESPN publishes no season "
+    "statistics for him at all, so this tool has no figures for him. Say that he is on "
+    "the roster and that you have no statistics for him, and never say that he does not "
+    "play for that team."
+)
+_STATS_FETCH_FAILED_NOTE = (
+    "{player} is on the {team} roster right now, but the statistics lookup for him "
+    "failed just now, so this tool has no figures for him this time. Say that you could "
+    "not retrieve his statistics, and never give a figure from your own memory instead."
 )
 _SEASON_UNAVAILABLE_NOTE = (
     "ESPN's table does not carry the season you asked about for {player}, so this tool "

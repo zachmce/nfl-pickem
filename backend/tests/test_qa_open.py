@@ -799,9 +799,35 @@ class StatsToolTests(unittest.TestCase):
         self.assertIn("2024, 2025", out["note"])
         self.assertNotIn("season_statement", out)  # never a year it did not receive
 
-    def test_the_adapter_returns_none_when_either_fetch_returns_none(self) -> None:
+    def test_a_failed_roster_fetch_returns_none(self) -> None:
+        # Before the roster hop resolves anyone there is no identity to preserve, so the
+        # loop's own no-data payload is the honest degrade.
         self.assertIsNone(self._adapter(None, self._stats(), team="LAR", player="Stafford"))
-        self.assertIsNone(self._adapter(_lar_roster(), None, team="LAR", player="Stafford"))
+
+    def test_a_resolved_player_keeps_his_identity_when_the_stats_fetch_fails(self) -> None:
+        # LIVE-MEASURED regression: returning bare None AFTER the roster proved who the
+        # player is sent the model to _NO_DATA_PAYLOAD, and it DENIED him outright —
+        # "I don't recall a Mario Williams playing receiver for the Rams". D-5 applies
+        # to every miss past the roster hop, not only to the roster misses.
+        out = self._adapter(_lar_roster(), None, team="LAR", player="Stafford")
+        assert isinstance(out, dict)
+        self.assertEqual(out["player"], "Matthew Stafford")
+        self.assertEqual(out["team"], "LAR")
+        self.assertIn("failed just now", out["note"])
+        self.assertIn("never give a figure from your own memory", out["note"])
+        self.assertNotIn("stats", out)
+
+    def test_a_rostered_player_with_no_published_stats_keeps_his_identity(self) -> None:
+        # ESPN answers 200 with NO ``categories`` key at all for a rostered player who has
+        # no recorded stats (measured on Mario Williams, LAR WR). The note must affirm he
+        # is on the roster, because the model otherwise says he does not play there.
+        out = self._adapter(_lar_roster(), {"filters": []}, team="LAR", player="Stafford")
+        assert isinstance(out, dict)
+        self.assertEqual(out["player"], "Matthew Stafford")
+        self.assertIn("is on the LAR roster right now", out["note"])
+        self.assertIn("never say that he does not play for that team", out["note"])
+        self.assertNotIn("stats", out)
+        self.assertNotIn(qa_open._NO_DATA_PAYLOAD, json.dumps(out))
 
     def test_a_forgotten_argument_degrades_without_raising_and_without_fetching(self) -> None:
         # A missing player is refused BEFORE the roster hop, so the stub fails the test
