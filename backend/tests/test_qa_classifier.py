@@ -548,6 +548,106 @@ class NormalizeTeamAliasTests(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
+# 260820-lw6 — the open_nfl intent + the DETERMINISTIC NFL topic guard.
+#
+# The greedy-route defect this closes: with no legal home for an off-menu football
+# question, "who is the starting QB for the Bears" routed to ``injuries`` (the only
+# intent described as "a team plus a player") and the validator passed it.
+# --------------------------------------------------------------------------- #
+
+
+class OpenNflValidationTests(unittest.TestCase):
+    def test_open_nfl_with_boolean_true_nfl_key_survives(self) -> None:
+        out = validate_classification(
+            {"intent": "open_nfl", "nfl": True}, known_team_tokens=_KNOWN_TEAMS
+        )
+        self.assertEqual(out, QaResult(intent=QaIntent.open_nfl))
+
+    def test_open_nfl_drops_team_week_and_subject(self) -> None:
+        # open_nfl is in NONE of the three param frozensets — the open path reads the
+        # RAW question, so a classifier-supplied team/week/subject is scrubbed away.
+        out = validate_classification(
+            {
+                "intent": "open_nfl",
+                "nfl": True,
+                "team": "KC",
+                "week": 4,
+                "subject": "starting quarterback",
+            },
+            known_team_tokens=_KNOWN_TEAMS,
+        )
+        self.assertEqual(
+            out, QaResult(intent=QaIntent.open_nfl, team=None, week=None, subject=None)
+        )
+
+    def test_topic_guard_fails_closed_on_every_non_boolean_true_nfl_value(self) -> None:
+        # Identity against True, NOT truthiness: a missing key, a string, a 1, and a
+        # literal false must ALL decline (the measured lasagna-recipe case).
+        for raw in (
+            {"intent": "open_nfl"},
+            {"intent": "open_nfl", "nfl": False},
+            {"intent": "open_nfl", "nfl": None},
+            {"intent": "open_nfl", "nfl": "true"},
+            {"intent": "open_nfl", "nfl": 1},
+            {"intent": "open_nfl", "nfl": "yes"},
+        ):
+            with self.subTest(raw=raw):
+                out = validate_classification(raw, known_team_tokens=_KNOWN_TEAMS)
+                self.assertEqual(out, QaResult(intent=QaIntent.unknown))
+
+    def test_nfl_key_does_not_affect_the_ten_grounded_intents(self) -> None:
+        # The topic guard is scoped to open_nfl ONLY — a grounded intent is unchanged
+        # whether or not the classifier bothered to emit the new key.
+        with_key = validate_classification(
+            {"intent": "injuries", "team": "KC", "nfl": False}, known_team_tokens=_KNOWN_TEAMS
+        )
+        without_key = validate_classification(
+            {"intent": "injuries", "team": "KC"}, known_team_tokens=_KNOWN_TEAMS
+        )
+        self.assertEqual(with_key, QaResult(intent=QaIntent.injuries, team="KC"))
+        self.assertEqual(with_key, without_key)
+
+    def test_open_nfl_is_absent_from_all_three_param_frozensets(self) -> None:
+        self.assertNotIn(QaIntent.open_nfl, qa._TEAM_INTENTS)
+        self.assertNotIn(QaIntent.open_nfl, qa._WEEK_INTENTS)
+        self.assertNotIn(QaIntent.open_nfl, qa._SUBJECT_INTENTS)
+
+
+class OpenNflClassifierPromptTests(unittest.TestCase):
+    """An enum member the prompt never names is dead; a prompt intent the validator
+    rejects silently coerces back to unknown. Both halves must be wired."""
+
+    def test_prompt_names_the_open_intent_and_the_new_key(self) -> None:
+        prompt = qa.CLASSIFIER_SYSTEM_PROMPT
+        self.assertIn("open_nfl", prompt)
+        self.assertIn('"nfl"', prompt)
+
+    def test_prompt_still_names_every_grounded_intent(self) -> None:
+        # ADD-ONLY: none of the ten grounded intents lost its description.
+        for intent in (
+            "pick_status",
+            "standings",
+            "lines_slate",
+            "scores",
+            "injuries",
+            "weather",
+            "news",
+            "prediction",
+            "slate_predictions",
+            "bot_help",
+            "coming_soon",
+            "unknown",
+        ):
+            with self.subTest(intent=intent):
+                self.assertIn(intent, qa.CLASSIFIER_SYSTEM_PROMPT)
+
+    def test_every_enum_member_is_named_in_the_prompt(self) -> None:
+        for member in QaIntent:
+            with self.subTest(member=member.value):
+                self.assertIn(member.value, qa.CLASSIFIER_SYSTEM_PROMPT)
+
+
+# --------------------------------------------------------------------------- #
 # REGRESSION: the classifier must NOT be fed the closer-variety directive and MUST
 # decode deterministically. Exercise the REAL llm_client.classify with httpx
 # monkeypatched to capture the request body.
