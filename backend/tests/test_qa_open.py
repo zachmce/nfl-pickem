@@ -10,11 +10,12 @@ These tests NEVER touch a live LLM endpoint. Three seams are exercised:
   and PROVE the open path uses its OWN token cap / sampling knobs, is NOT fed the
   closer-variety chat directive, and still carries the mandatory
   ``chat_template_kwargs.enable_thinking = False``.
-* ``espn_extra.fetch_team_roster`` and ``espn_extra.fetch_athlete_stats`` are stubbed
-  with captured payloads so the SHIPPED ``lookup_team_roster`` and
-  ``lookup_player_season_stats`` tools can be driven end to end — the proof that a
-  current roster fact, and a season figure ESPN publishes, reach the model's context
-  instead of a training-cutoff guess.
+* ``espn_extra.fetch_team_roster``, ``espn_extra.fetch_athlete_stats`` and
+  ``espn_extra.fetch_athlete_search`` are stubbed with captured payloads so the SHIPPED
+  ``lookup_team_roster`` and ``lookup_player_season_stats`` tools can be driven end to
+  end — the proof that a current roster fact, and a season figure ESPN publishes, reach
+  the model's context instead of a training-cutoff guess, including for a player who has
+  changed teams since the season he is being asked about.
 
 The pure :func:`app.bot.qa_open._strip_markdown_structure` scrub and the composed
 open system prompt are asserted directly (no db, no network).
@@ -562,6 +563,24 @@ class ShippedRegistryTests(unittest.TestCase):
         self.assertIn("LEAVE THE SEASON ARGUMENT OUT", description)
         self.assertIn("ONLY when the member named a specific year", description)
 
+    def test_shipped_stats_description_covers_a_player_who_changed_teams(self) -> None:
+        # The old text told the model to name the team itself and call again, which asked
+        # it for exactly the stale knowledge this tool replaces — and produced the live
+        # "I'm not sure which team he's on now" reply. The tool resolves that now.
+        description = self._stats_description()
+        self.assertIn("finds the player even when he has changed teams", description)
+        self.assertNotIn("say which team he plays for now and call this tool again", description)
+
+    def test_shipped_stats_description_separates_a_partial_season_from_a_finished_one(
+        self,
+    ) -> None:
+        # Gap 2: a partial current season must never be voiced as a final total, and a
+        # missing current season must be admitted rather than papered over with an older one.
+        description = self._stats_description()
+        self.assertIn("still being played", description)
+        self.assertIn("never call them a final total", description)
+        self.assertIn("no figures yet for the season being played now", description)
+
     def test_the_open_path_still_makes_no_database_read(self) -> None:
         # D-1 / T-s5y-04: no db_bridge at module level, and the new adapter introduces
         # none at call level either — the reason the open path cannot read anyone's picks.
@@ -639,6 +658,7 @@ class RosterToolTests(unittest.TestCase):
 
 
 _STATS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_athlete_stats.json"
+_SEARCH_FIXTURE = Path(__file__).parent / "fixtures" / "espn_athlete_search.json"
 
 
 def _lar_roster() -> dict:
@@ -648,6 +668,10 @@ def _lar_roster() -> dict:
     the resolver only needs the one match.
     """
     return {
+        # The season block is the roster payload's own, measured 2026-08-20: it is the
+        # ONLY source of the season being played on this path (the stats payload has no
+        # current year, and D-1 forbids a database read).
+        "season": {"year": 2026, "displayName": "2026", "type": 1, "name": "Preseason"},
         "team": {"abbreviation": "LAR", "displayName": "Los Angeles Rams"},
         "athletes": [
             {
@@ -666,31 +690,83 @@ def _lar_roster() -> dict:
     }
 
 
+# A search page matching nobody — the default stub, so a test that does not care about
+# the off-roster fallback still performs no live GET through it.
+_NO_SEARCH_HITS: dict = {"results": []}
+
+
+def _pacheco_search() -> dict:
+    """ESPN's real search answer for the live-reported miss, measured 2026-08-20.
+
+    He was asked about on KC, where the roster no longer carries him, and ESPN places him
+    on DET — exactly one NFL match, and his stats table is team-independent.
+    """
+    return {
+        "results": [
+            {
+                "type": "player",
+                "contents": [
+                    {
+                        "id": "b80fe7c4-00cc-27e8-a8a5-e4f408778fb0",
+                        "uid": "s:20~l:28~a:4361529",
+                        "type": "player",
+                        "displayName": "Isiah Pacheco",
+                        "subtitle": "Detroit Lions",
+                    }
+                ],
+            }
+        ]
+    }
+
+
+def _stats_with_a_2026_row() -> dict:
+    """The captured career table with a PARTIAL row for the season being played.
+
+    Built by cloning the newest row rather than captured, because 2026 had not been
+    played yet on the day the fixture was taken; the four games played are what makes it
+    unmistakably partial.
+    """
+    payload = json.loads(_STATS_FIXTURE.read_text())
+    for category in payload["categories"]:
+        newest = json.loads(json.dumps(category["statistics"][-1]))
+        newest["season"] = {"year": 2026, "displayName": "2026"}
+        newest["stats"][0] = "4"
+        category["statistics"].append(newest)
+    return payload
+
+
 class StatsToolTests(unittest.TestCase):
     """The SHIPPED stats tool, end to end: the motivating question of issue #183."""
 
-    def _espn_returns(self, roster: object, stats: object):
+    def _espn_returns(self, roster: object, stats: object, search: object = _NO_SEARCH_HITS):
+        """Stub all THREE hops. The search default is a page matching nobody, so a test
+        that does not care about the fallback still performs no live GET through it."""
+
         async def _fake_roster(team_abbr):
             return roster
 
         async def _fake_stats(athlete_id):
             return stats
 
+        async def _fake_search(name):
+            return search
+
         return (
             mock.patch.object(espn_extra, "fetch_team_roster", _fake_roster),
             mock.patch.object(espn_extra, "fetch_athlete_stats", _fake_stats),
+            mock.patch.object(espn_extra, "fetch_athlete_search", _fake_search),
         )
 
     def test_a_last_year_question_feeds_back_the_figure_and_the_year(self) -> None:
         stats = json.loads(_STATS_FIXTURE.read_text())
-        roster_patch, stats_patch = self._espn_returns(_lar_roster(), stats)
+        roster_patch, stats_patch, search_patch = self._espn_returns(_lar_roster(), stats)
         patcher, calls = _open_chat_returns(
             _tool_call_message(
                 "lookup_player_season_stats", '{"team": "LAR", "player": "Matt Stafford"}'
             ),
             _text("Stafford threw for 4,707 yards in the 2025 season."),
         )
-        with roster_patch, stats_patch, patcher:
+        with roster_patch, stats_patch, search_patch, patcher:
             out = _run(
                 qa_open.answer_open(
                     "how many yards did Matt Stafford throw for last year?", voice=_VOICE
@@ -708,9 +784,9 @@ class StatsToolTests(unittest.TestCase):
         self.assertIn("2025", body["season_statement"])
         self.assertIn("Matthew Stafford", body["season_statement"])
 
-    def _adapter(self, roster: object, stats: object, **kwargs):
-        roster_patch, stats_patch = self._espn_returns(roster, stats)
-        with roster_patch, stats_patch:
+    def _adapter(self, roster: object, stats: object, search: object = _NO_SEARCH_HITS, **kwargs):
+        roster_patch, stats_patch, search_patch = self._espn_returns(roster, stats, search)
+        with roster_patch, stats_patch, search_patch:
             return _run(qa_open._lookup_player_season_stats(**kwargs))
 
     def _stats(self) -> dict:
@@ -789,6 +865,80 @@ class StatsToolTests(unittest.TestCase):
         self.assertNotIn("stats", out)
         self.assertNotIn(qa_open._NO_DATA_PAYLOAD, json.dumps(out))
 
+    def test_a_player_who_changed_teams_resolves_through_the_search_fallback(self) -> None:
+        # LIVE-REPORTED miss: "how many yards did Isiah Pacheco average per run last year"
+        # supplied KC, where he played that season, and the bot answered that it could not
+        # find him and did not know which team he was on. Roster resolution anchors on the
+        # CURRENT roster while the question is about a PAST season.
+        out = self._adapter(
+            _lar_roster(), self._stats(), _pacheco_search(), team="KC", player="Isiah Pacheco"
+        )
+        assert isinstance(out, dict)
+        self.assertEqual(out["player"], "Isiah Pacheco")
+        self.assertEqual(out["team"], "Detroit Lions")
+        # The team name came from ESPN, so it is GROUNDED and the model may say it.
+        self.assertIn("does not play for KC any more", out["team_change_statement"])
+        self.assertIn("Detroit Lions", out["team_change_statement"])
+        self.assertTrue(out["stats"])  # the data was always answerable — only the id failed
+        self.assertNotIn("note", out)
+        self.assertNotIn("athlete_id", out)  # the model never sees an id (D-4)
+
+    def test_the_search_is_never_reached_when_the_roster_resolves_the_player(self) -> None:
+        # The fallback is a THIRD hop, so it must cost nothing on the common path.
+        async def _never(name):
+            raise AssertionError("the search must only run after the roster hop misses")
+
+        roster_patch, stats_patch, _ = self._espn_returns(_lar_roster(), self._stats())
+        with (
+            roster_patch,
+            stats_patch,
+            mock.patch.object(espn_extra, "fetch_athlete_search", _never),
+        ):
+            out = _run(qa_open._lookup_player_season_stats(team="LAR", player="Stafford"))
+        assert isinstance(out, dict)
+        self.assertEqual(out["player"], "Matthew Stafford")
+
+    def test_more_than_one_nfl_search_match_returns_the_candidates_and_no_statistics(
+        self,
+    ) -> None:
+        # Measured: "josh allen" returns the Bills QB, a DIFFERENT NFL Josh Allen on
+        # Arizona, and Josh Hines-Allen — never silently pick one.
+        search = json.loads(_SEARCH_FIXTURE.read_text())
+        out = self._adapter(_lar_roster(), self._stats(), search, team="LAR", player="Josh Allen")
+        assert isinstance(out, dict)
+        self.assertEqual(
+            out["candidates"],
+            [
+                "Josh Allen of the Buffalo Bills",
+                "Josh Allen of the Arizona Cardinals",
+                "Josh Hines-Allen of the Jacksonville Jaguars",
+            ],
+        )
+        self.assertIn("Ask the member which one", out["note"])
+        self.assertNotIn("stats", out)
+
+    def test_a_failed_search_returns_its_own_note_never_none(self) -> None:
+        # "ESPN found nobody" and "the lookup failed" are different facts, and the model
+        # must not be told the first one when the second happened (D-5).
+        out = self._adapter(_lar_roster(), self._stats(), None, team="LAR", player="Isiah Pacheco")
+        assert isinstance(out, dict)
+        self.assertIn("failed just now", out["note"])
+        self.assertNotIn("found nobody", out["note"])
+        self.assertNotIn(qa_open._NO_DATA_PAYLOAD, json.dumps(out))
+
+    def test_the_not_found_note_never_asks_the_model_which_team_the_player_is_on(
+        self,
+    ) -> None:
+        # The old note asked the model to name the team and call again. Its team knowledge
+        # is the stale thing being replaced, and the live reply was "I'm not sure which
+        # team he's on now" — so the note is only reached once the search has also missed.
+        out = self._adapter(_lar_roster(), self._stats(), team="LAR", player="Nobody Atall")
+        assert isinstance(out, dict)
+        note = out["note"]
+        self.assertIn("ESPN's own player search found nobody by that name", note)
+        self.assertIn("never guess which team he plays for", note)
+        self.assertNotIn("call this tool again", note)
+
     def test_a_season_the_table_does_not_carry_returns_the_season_note(self) -> None:
         out = self._adapter(
             _lar_roster(), self._stats(), team="LAR", player="Stafford", season=2009
@@ -798,6 +948,56 @@ class StatsToolTests(unittest.TestCase):
         self.assertEqual(out["stats"], {})
         self.assertIn("2024, 2025", out["note"])
         self.assertNotIn("season_statement", out)  # never a year it did not receive
+
+    def test_a_question_about_the_season_being_played_is_told_espn_has_nothing_yet(
+        self,
+    ) -> None:
+        # MEASURED 2026-08-20 (preseason): ESPN's newest row for a starting QB was 2025
+        # while the season being played was 2026, so "how many yards has he thrown so far
+        # this year" silently answered about a different season.
+        out = self._adapter(_lar_roster(), self._stats(), team="LAR", player="Stafford")
+        assert isinstance(out, dict)
+        self.assertEqual(out["season"], 2025)
+        statement = out["current_season_statement"]
+        self.assertIn("no figures at all for Matthew Stafford in the 2026", statement)
+        self.assertIn("never report the 2025 figures below as though they were", statement)
+        # The season it DID report is still named as a completed one.
+        self.assertIn("official total for the 2025", out["season_statement"])
+
+    def test_a_season_still_being_played_is_never_called_an_official_total(self) -> None:
+        # The trap inverts mid-season: ESPN adds a PARTIAL current-season row, the default
+        # correctly picks it up, and calling a four-game partial an official season total
+        # is then the wrong answer.
+        out = self._adapter(_lar_roster(), _stats_with_a_2026_row(), team="LAR", player="Stafford")
+        assert isinstance(out, dict)
+        self.assertEqual(out["season"], 2026)
+        statement = out["season_statement"]
+        self.assertIn("SO FAR in the 2026 NFL season", statement)
+        self.assertIn("is not finished", statement)
+        self.assertIn("He has played 4 games in the 2026 season so far.", statement)
+        self.assertNotIn("official total", statement)
+        self.assertNotIn("current_season_statement", out)
+
+    def test_an_older_season_asked_for_by_year_keeps_the_completed_statement(self) -> None:
+        # ESPN carries the current season here, so there is nothing to warn about — the
+        # completed-season statement stays exactly as it was.
+        out = self._adapter(
+            _lar_roster(), _stats_with_a_2026_row(), team="LAR", player="Stafford", season=2024
+        )
+        assert isinstance(out, dict)
+        self.assertIn("official total for the 2024", out["season_statement"])
+        self.assertNotIn("current_season_statement", out)
+
+    def test_a_roster_without_a_season_block_degrades_without_guessing_a_year(self) -> None:
+        # Every live roster payload carries the season block, so this is the defensive
+        # path: with no current season in hand the answer says nothing about one rather
+        # than working a year out for itself.
+        roster = _lar_roster()
+        del roster["season"]
+        out = self._adapter(roster, self._stats(), team="LAR", player="Stafford")
+        assert isinstance(out, dict)
+        self.assertIn("official total for the 2025", out["season_statement"])
+        self.assertNotIn("current_season_statement", out)
 
     def test_a_failed_roster_fetch_returns_none(self) -> None:
         # Before the roster hop resolves anyone there is no identity to preserve, so the

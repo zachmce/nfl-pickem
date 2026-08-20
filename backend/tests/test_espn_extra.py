@@ -46,6 +46,7 @@ _FIXTURE = Path(__file__).parent / "fixtures" / "espn_summary_injuries.json"
 _NEWS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_news.json"
 _ROSTER_FIXTURE = Path(__file__).parent / "fixtures" / "espn_team_roster.json"
 _STATS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_athlete_stats.json"
+_SEARCH_FIXTURE = Path(__file__).parent / "fixtures" / "espn_athlete_search.json"
 
 # The DISTINCTIVE KC headline the no-rephrasing regression asserts survives byte-for-byte.
 _KC_HEADLINE = "Patrick Mahomes throws for 5 touchdowns as Chiefs storm past Bills 38-20"
@@ -65,6 +66,39 @@ def _load_news_fixture() -> dict:
 
 def _load_roster_fixture() -> dict:
     return json.loads(_ROSTER_FIXTURE.read_text())
+
+
+def _load_search_fixture() -> dict:
+    """The REAL "josh allen" search page, captured 2026-08-20 and kept verbatim.
+
+    Every trap issue #183 records for Route B is in this one page: a Luton Town soccer
+    player, two college programmes, a second NFL Josh Allen on Arizona, and the athlete
+    id sitting in ``uid`` while the top-level ``id`` is a GUID.
+    """
+    return json.loads(_SEARCH_FIXTURE.read_text())
+
+
+def _pacheco_search() -> dict:
+    """The measured single-NFL-match page — the case that motivated the fallback.
+
+    Read off the live endpoint on 2026-08-20: asked about on KC, ESPN has him on DET.
+    """
+    return {
+        "results": [
+            {
+                "type": "player",
+                "contents": [
+                    {
+                        "id": "b80fe7c4-00cc-27e8-a8a5-e4f408778fb0",
+                        "uid": "s:20~l:28~a:4361529",
+                        "type": "player",
+                        "displayName": "Isiah Pacheco",
+                        "subtitle": "Detroit Lions",
+                    }
+                ],
+            }
+        ]
+    }
 
 
 def _load_stats_fixture() -> dict:
@@ -1235,6 +1269,207 @@ class FetchAthleteStatsTests(unittest.TestCase):
             out = _run(espn_extra.fetch_athlete_stats("12483"))
         self.assertIsNone(out)
         self.assertEqual(fake.sets, [])
+
+
+class ParseAthleteSearchTests(unittest.TestCase):
+    def test_a_single_nfl_match_returns_the_id_from_uid_and_the_team_name(self) -> None:
+        # The motivating live case: asked about on KC, ESPN has him on DET, and the data
+        # was always answerable — only the id resolution failed.
+        found = espn_extra.parse_athlete_search(_pacheco_search())
+        self.assertEqual(
+            found,
+            [
+                {
+                    "athlete_id": "4361529",
+                    "display_name": "Isiah Pacheco",
+                    "team_name": "Detroit Lions",
+                }
+            ],
+        )
+
+    def test_the_id_never_comes_from_the_top_level_guid(self) -> None:
+        found = espn_extra.parse_athlete_search(_pacheco_search())
+        assert found is not None
+        self.assertNotIn("-", found[0]["athlete_id"])  # the GUID is hyphenated; the id is not
+
+    def test_the_cross_sport_and_college_results_are_filtered_out(self) -> None:
+        # Measured: "josh allen" returns a Luton Town SOCCER player and two college
+        # programmes alongside the NFL players. Only the 32 club subtitles survive.
+        found = espn_extra.parse_athlete_search(_load_search_fixture())
+        assert found is not None
+        self.assertEqual(
+            [(one["display_name"], one["team_name"]) for one in found],
+            [
+                ("Josh Allen", "Buffalo Bills"),
+                ("Josh Allen", "Arizona Cardinals"),
+                ("Josh Hines-Allen", "Jacksonville Jaguars"),
+            ],
+        )
+
+    def test_a_nonsense_query_page_returns_an_empty_list_not_none(self) -> None:
+        # Measured: a nonsense query answers 200 with no ``results`` key at all. That is
+        # "nobody by that name", which the caller reports — not a fetch failure.
+        self.assertEqual(espn_extra.parse_athlete_search({"totalFound": None}), [])
+
+    def test_a_non_dict_payload_returns_none(self) -> None:
+        for bogus in (None, [], "results", 7):
+            with self.subTest(payload=bogus):
+                self.assertIsNone(espn_extra.parse_athlete_search(bogus))
+
+    def test_malformed_entries_are_skipped_without_raising(self) -> None:
+        payload = {
+            "results": [
+                None,
+                "player",
+                {"contents": "nope"},
+                {
+                    "contents": [
+                        None,
+                        {"type": "team", "displayName": "Buffalo Bills", "uid": "s:20~l:28~t:2"},
+                        {"type": "player", "subtitle": "Buffalo Bills", "uid": "s:20~l:28~a:1"},
+                        {"type": "player", "displayName": "No Team", "uid": "s:20~l:28~a:2"},
+                        {"type": "player", "displayName": "No Uid", "subtitle": "Buffalo Bills"},
+                        {
+                            "type": "player",
+                            "displayName": "Bad Uid",
+                            "subtitle": "Buffalo Bills",
+                            "uid": "s:20~l:28~a:notdigits",
+                        },
+                        {
+                            "type": "player",
+                            "displayName": "Real Player",
+                            "subtitle": "buffalo bills",
+                            "uid": "s:20~l:28~a:99",
+                        },
+                    ]
+                },
+            ]
+        }
+        found = espn_extra.parse_athlete_search(payload)
+        self.assertEqual(
+            found,
+            [{"athlete_id": "99", "display_name": "Real Player", "team_name": "buffalo bills"}],
+        )
+
+
+class FetchAthleteSearchTests(unittest.TestCase):
+    def _arm_client(self, response: object) -> None:
+        _CapturingAsyncClient.calls = 0
+        _CapturingAsyncClient.last_url = None
+        _CapturingAsyncClient.last_headers = _NEVER_CALLED
+        _CapturingAsyncClient.last_init_kwargs = None
+        _CapturingAsyncClient._response = response
+
+    def test_an_empty_or_over_long_query_performs_zero_http_and_zero_redis(self) -> None:
+        # T-s5y-08: the cap and the encoding run BEFORE the format string, so a rejected
+        # query costs nothing and reaches nothing.
+        fake = _FakeRedis()
+        bogus: tuple[Any, ...] = ("", "   ", "x" * 41, None, 12483, ["josh allen"])
+        for query in bogus:
+            with self.subTest(query=query):
+                with (
+                    _redis_returns(fake),
+                    mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient),
+                ):
+                    self.assertIsNone(_run(espn_extra.fetch_athlete_search(query)))
+        self.assertEqual(fake.gets, [])
+        self.assertEqual(fake.sets, [])
+
+    def test_url_metacharacters_cannot_add_or_displace_a_query_parameter(self) -> None:
+        # The query is model-influenced text in a URL. ``quote(safe="")`` is the whole
+        # guarantee, so this pins it on the characters that would break out.
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(200, {"results": []}))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            _run(espn_extra.fetch_athlete_search("a&type=team#/../x?b"))
+        url = _CapturingAsyncClient.last_url
+        assert url is not None
+        base, _, query_string = url.partition("?")
+        self.assertEqual(base, "https://site.web.api.espn.com/apis/search/v2")
+        self.assertEqual(query_string, "query=a%26type%3Dteam%23%2F..%2Fx%3Fb&limit=6&type=player")
+        self.assertEqual(len(query_string.split("&")), 3)
+
+    def test_cache_miss_issues_one_get_on_the_web_api_host(self) -> None:
+        payload = _load_search_fixture()
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(200, payload))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            out = _run(espn_extra.fetch_athlete_search("  Josh   Allen "))
+        self.assertEqual(out, payload)
+        self.assertEqual(_CapturingAsyncClient.calls, 1)
+        url = _CapturingAsyncClient.last_url
+        assert url is not None
+        # Whitespace collapses and the query lower-cases, because ESPN's search is
+        # case-insensitive (measured) and one cache entry should serve either spelling.
+        self.assertIn("query=josh%20allen&", url)
+        self.assertIsNone(_CapturingAsyncClient.last_headers)
+        self.assertEqual(
+            _CapturingAsyncClient.last_init_kwargs, {"timeout": espn_extra.DEFAULT_TIMEOUT}
+        )
+
+    def test_cache_miss_writes_the_search_key_and_ttl(self) -> None:
+        payload = _load_search_fixture()
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(200, payload))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            _run(espn_extra.fetch_athlete_search("Josh Allen"))
+        self.assertEqual(len(fake.sets), 1)
+        key, value, ex = fake.sets[0]
+        self.assertEqual(key, espn_extra._athlete_search_cache_key("josh%20allen"))
+        self.assertEqual(json.loads(value), payload)
+        self.assertEqual(ex, espn_extra.ATHLETE_SEARCH_CACHE_TTL_SECONDS)
+
+    def test_cache_hit_returns_payload_without_http(self) -> None:
+        payload = _load_search_fixture()
+        fake = _FakeRedis(
+            {espn_extra._athlete_search_cache_key("josh%20allen"): json.dumps(payload)}
+        )
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient):
+            out = _run(espn_extra.fetch_athlete_search("josh allen"))
+        self.assertEqual(out, payload)
+        self.assertEqual(fake.sets, [])
+
+    def test_http_error_degrades_to_none(self) -> None:
+        fake = _FakeRedis()
+
+        class _BoomClient(_CapturingAsyncClient):
+            async def get(self, url, *, headers=None):
+                raise httpx.ConnectError("boom")
+
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _BoomClient):
+            self.assertIsNone(_run(espn_extra.fetch_athlete_search("josh allen")))
+        self.assertEqual(fake.sets, [])
+
+
+class RosterSeasonYearTests(unittest.TestCase):
+    def test_the_captured_roster_reports_the_season_being_played(self) -> None:
+        # The roster is the ONLY source of the current season on the stats path: the
+        # stats payload carries none and D-1 forbids a database read.
+        self.assertEqual(espn_extra.roster_season_year(_load_roster_fixture()), 2026)
+
+    def test_a_payload_without_a_usable_season_block_returns_none(self) -> None:
+        for bogus in (
+            None,
+            [],
+            {},
+            {"season": "2026"},
+            {"season": {"year": "2026"}},
+            {"season": {"year": True}},
+        ):
+            with self.subTest(payload=bogus):
+                self.assertIsNone(espn_extra.roster_season_year(bogus))
+
+
+class GamesPlayedTests(unittest.TestCase):
+    def test_games_played_is_found_under_any_of_the_three_spellings(self) -> None:
+        for key in ("Games Played", "gamesPlayed", "GP"):
+            with self.subTest(key=key):
+                self.assertEqual(espn_extra.games_played({"Passing": {key: "13"}}), "13")
+
+    def test_stats_without_games_played_return_none(self) -> None:
+        for bogus in (None, [], {}, {"Passing": "nope"}, {"Passing": {"Passing Yards": "462"}}):
+            with self.subTest(stats=bogus):
+                self.assertIsNone(espn_extra.games_played(bogus))
 
 
 @unittest.skipUnless(

@@ -13,14 +13,15 @@ Design — impure shell / pure never-raising core (mirrors :mod:`app.scoreboard.
   single ``httpx`` GET, then a best-effort cache write. It NEVER raises: any
   HTTP/timeout/non-200/parse error degrades to ``None`` (the caller shows a fixed degrade
   line, never an invented fact), and a Redis outage FAILS OPEN on both the read and the
-  write. :func:`fetch_injuries`, :func:`fetch_news`, :func:`fetch_team_roster` and
-  :func:`fetch_athlete_stats` are thin delegations supplying their own URL, cache key,
-  TTL and log label.
+  write. :func:`fetch_injuries`, :func:`fetch_news`, :func:`fetch_team_roster`,
+  :func:`fetch_athlete_stats` and :func:`fetch_athlete_search` are thin delegations
+  supplying their own URL, cache key, TTL and log label.
 * PURE: one parser per endpoint (:func:`parse_injuries`, :func:`parse_news`,
-  :func:`parse_team_roster`, :func:`parse_athlete_stats`), plus :func:`find_roster_athletes`
-  resolving a name against a raw roster payload, turning an already-parsed payload into
-  facts. Defensive on EVERY field (isinstance guards,
-  ``.get``, degrade to ``None``); never raises — this is what the offline tests exercise.
+  :func:`parse_team_roster`, :func:`parse_athlete_stats`, :func:`parse_athlete_search`),
+  plus :func:`find_roster_athletes` resolving a name against a raw roster payload,
+  turning an already-parsed payload into facts. Defensive on EVERY field (isinstance
+  guards, ``.get``, degrade to ``None``); never raises — this is what the offline tests
+  exercise.
 
 This module imports NO ``discord`` and lives on the Discord-free side: the qa.py brain
 imports THIS seam for the HTTP+cache, staying itself HTTP-free.
@@ -31,6 +32,7 @@ from __future__ import annotations
 import json
 import re
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 import structlog
@@ -144,13 +146,55 @@ _GAMES_PLAYED_KEYS = frozenset({"Games Played", "gamesPlayed", "GP"})
 # comparison has to drop it or "McClendon" never matches.
 _NAME_SUFFIXES = frozenset({"jr", "sr", "ii", "iii", "iv", "v"})
 
+# The public, no-auth ESPN player search, used ONLY after the roster hop misses: roster
+# resolution anchors on the CURRENT roster while a stats question is about a PAST season,
+# and those disagree for every player who changed teams (measured: Isiah Pacheco asked
+# about on KC, rostered on DET).
+ATHLETE_SEARCH_URL = (
+    "https://site.web.api.espn.com/apis/search/v2?query={query}&limit={limit}&type=player"
+)
+
+# Six is enough to see the ambiguity: the measured "josh allen" page needs four rows
+# before the NFL matches are all in hand.
+ATHLETE_SEARCH_LIMIT = 6
+
+# Which team a player is on moves on the scale of days, so this matches the roster's hour
+# rather than the stats table's six.
+ATHLETE_SEARCH_CACHE_TTL_SECONDS = 3600
+
+# The search query is the ONLY model-influenced text this module ever puts in a URL.
+# ``quote(safe="")`` percent-encodes EVERY reserved character, ``&`` and ``?`` and ``#``
+# and ``/`` included, so the value cannot close its own query parameter, add another, or
+# reach the path — and this cap bounds it before that ever runs (T-s5y-08).
+SEARCH_QUERY_MAX_CHARS = 40
+
+# The athlete id lives in ``uid`` as ``s:20~l:28~a:4361529``; the top-level ``id`` is a
+# GUID and is never usable against the stats endpoint (issue #183, Route B).
+_SEARCH_UID_ATHLETE_RE = re.compile(r"a:([0-9]{1,12})$")
+
+# DERIVED from the canonical seed table, never retyped (same reason as NFL_TEAM_ABBRS).
+# The search is cross-sport and cross-level — the measured "josh allen" page returns a
+# Luton Town soccer player and two college programmes — so ``subtitle`` is matched against
+# the 32 club display names to keep only NFL players.
+NFL_TEAM_DISPLAY_NAMES_UPPER = frozenset(
+    display_name.upper() for _espn_id, _abbr, display_name in NFL_TEAMS
+)
+
+
+def _athlete_search_cache_key(query: str) -> str:
+    """The Redis key for one search query's cached result page."""
+    return f"qa:search:athlete:{query}"
+
+
 # The sentence the model is most likely to voice, so it is concrete and complete rather
 # than a terse fragment (memory: qa-phrasing-inversion). The second clause exists because
 # D-6 deliberately keeps a category ESPN publishes a rate for on zero attempts.
 STATS_CAVEAT = (
-    "These are the official ESPN season totals for the one NFL season this answer names, "
-    "so state that season's year when you report any of them and never call them this "
-    "year's or last year's figures. When a category shows the player had no attempts in "
+    "These are ESPN's own published figures for the one NFL season this answer names, so "
+    "state that season's year when you report any of them and never call them this "
+    "year's or last year's figures. When the answer says that season is still being "
+    "played, these are only the totals so far in it, so never call them a final or an "
+    "official season total. When a category shows the player had no attempts in "
     "it, do not report that category's rate statistics such as a passer rating or a "
     "yards per attempt average, because a rate worked out on no attempts is meaningless."
 )
@@ -610,6 +654,22 @@ def parse_team_roster(payload: Any, *, position: str | None = None) -> dict[str,
     }
 
 
+def roster_season_year(payload: Any) -> int | None:
+    """The season year a raw ``roster`` payload reports, or ``None``. Pure, never raises.
+
+    The ROSTER is the only source of the current season on this path: the stats payload
+    carries none (its ``filters`` expose only league and seasontype, measured), and D-1
+    forbids reading the app's own ``Week`` table from the open path. A payload without a
+    usable season block yields ``None`` so the caller can degrade rather than guess a year.
+    """
+    if not isinstance(payload, dict):
+        return None
+    season = payload.get("season")
+    season = season if isinstance(season, dict) else {}
+    year = season.get("year")
+    return year if isinstance(year, int) and not isinstance(year, bool) else None
+
+
 def _name_tokens(value: Any) -> list[str]:
     """Normalized, suffix-stripped name tokens from ``value``. Pure, never raises.
 
@@ -705,6 +765,54 @@ def find_roster_athletes(payload: Any, name: Any) -> list[dict[str, Any]] | None
                 }
             )
     return matches
+
+
+def parse_athlete_search(payload: Any) -> list[dict[str, Any]] | None:
+    """Extract the NFL players from a raw ``search/v2`` payload. Pure, never raises.
+
+    Returns ``None`` ONLY when the top-level shape is unusable (a non-dict payload);
+    ``[]`` when the search ran and matched no NFL player, which is a fact the caller
+    reports rather than a failure (the same trichotomy as :func:`find_roster_athletes`).
+
+    Two filters, both measured against issue #183's Route B traps. The id comes from
+    ``uid`` and never from the GUID ``id``. Only an entry whose ``subtitle`` is one of the
+    32 club display names survives, which is what drops the soccer and college players
+    the cross-sport search returns for a football name.
+    """
+    if not isinstance(payload, dict):
+        return None
+    results = payload.get("results")
+    if not isinstance(results, list):
+        return []
+
+    found: list[dict[str, Any]] = []
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        contents = result.get("contents")
+        if not isinstance(contents, list):
+            continue
+        for entry in contents:
+            if not isinstance(entry, dict) or entry.get("type") != "player":
+                continue
+            display_name = _first_str(entry.get("displayName"))
+            team_name = _first_str(entry.get("subtitle"))
+            if display_name is None or team_name is None:
+                continue  # never fabricate a player, and never guess his team
+            if team_name.upper() not in NFL_TEAM_DISPLAY_NAMES_UPPER:
+                continue
+            uid = entry.get("uid")
+            match = _SEARCH_UID_ATHLETE_RE.search(uid) if isinstance(uid, str) else None
+            if match is None:
+                continue
+            found.append(
+                {
+                    "athlete_id": match.group(1),
+                    "display_name": display_name,
+                    "team_name": team_name,
+                }
+            )
+    return found
 
 
 def _season_year(row: Any) -> int | None:
@@ -832,6 +940,24 @@ def parse_athlete_stats(payload: Any, *, season: int | None = None) -> dict[str,
         "stats": stats,
         "caveat": STATS_CAVEAT,
     }
+
+
+def games_played(stats: Any) -> str | None:
+    """The Games Played value out of :func:`parse_athlete_stats`'s ``stats``, or ``None``.
+
+    Pure, never raises. Exists so the caller can say HOW MUCH of an unfinished season a
+    total covers without re-walking the raw payload; the value stays verbatim (D-2).
+    """
+    if not isinstance(stats, dict):
+        return None
+    for facts in stats.values():
+        if not isinstance(facts, dict):
+            continue
+        for key in _GAMES_PLAYED_KEYS:
+            value = _first_str(facts.get(key))
+            if value is not None:
+                return value
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -1021,4 +1147,33 @@ async def fetch_athlete_stats(athlete_id: Any) -> dict | None:
         cache_key=_athlete_stats_cache_key(candidate),
         ttl_seconds=ATHLETE_STATS_CACHE_TTL_SECONDS,
         label="athlete_stats",
+    )
+
+
+async def fetch_athlete_search(name: Any) -> dict | None:
+    """Search ESPN for players called ``name`` — best-effort, used only after a roster miss.
+
+    The LENGTH CAP and the encoding both run BEFORE the URL is formatted and before Redis
+    or HTTP is touched: ``name`` is model-influenced text, and ``quote(safe="")`` is what
+    guarantees it stays one query-parameter VALUE and can never alter the request target
+    (T-s5y-08 — the constant ``limit`` and ``type`` parameters that follow it cannot be
+    displaced, because the ``&`` that would displace them is encoded as ``%26``).
+
+    Lower-cased before both the URL and the cache key, because ESPN's search is
+    case-insensitive (measured) and one cache entry should serve either spelling. A pass
+    delegates to :func:`_fetch_cached` (cache-first, one GET, never raises, fail-open
+    Redis); :func:`parse_athlete_search` filters the result down to NFL players.
+    """
+    query = " ".join(name.split()).lower() if isinstance(name, str) else ""
+    if not query or len(query) > SEARCH_QUERY_MAX_CHARS:
+        # Model-influenced and unbounded — truncated before it reaches the log.
+        logger.warning("athlete_search_query_rejected", query=str(name)[:SEARCH_QUERY_MAX_CHARS])
+        return None
+
+    encoded = quote(query, safe="")
+    return await _fetch_cached(
+        ATHLETE_SEARCH_URL.format(query=encoded, limit=ATHLETE_SEARCH_LIMIT),
+        cache_key=_athlete_search_cache_key(encoded),
+        ttl_seconds=ATHLETE_SEARCH_CACHE_TTL_SECONDS,
+        label="athlete_search",
     )
