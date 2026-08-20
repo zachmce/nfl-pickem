@@ -742,10 +742,10 @@ def _category_facts(category: dict, stats_row: Any) -> dict[str, str]:
     """
     if not isinstance(stats_row, list):
         return {}
-    key_sources = [
-        category.get(field) if isinstance(category.get(field), list) else []
-        for field in ("displayNames", "names", "labels")
-    ]
+    key_sources: list[list[Any]] = []
+    for field in ("displayNames", "names", "labels"):
+        source = category.get(field)
+        key_sources.append(source if isinstance(source, list) else [])
     facts: dict[str, str] = {}
     for index, raw_value in enumerate(stats_row):
         value = _stat_value(raw_value)
