@@ -364,7 +364,7 @@ class OpenRoutingTests(unittest.TestCase):
             fact_calls.append({"result": result})
             return "SHOULD NOT BE USED"
 
-        async def _fake_classify(question):
+        async def _fake_classify(question, *, history=()):
             return {"intent": "open_nfl", "nfl": True}
 
         async def _fake_tokens():
@@ -395,7 +395,7 @@ class OpenRoutingTests(unittest.TestCase):
         async def _fake_open(question, *, voice, history=()):
             return None
 
-        async def _fake_classify(question):
+        async def _fake_classify(question, *, history=()):
             return {"intent": "open_nfl", "nfl": True}
 
         async def _fake_tokens():
@@ -420,7 +420,7 @@ class OpenRoutingTests(unittest.TestCase):
             seen.append(list(history))
             return "sure"
 
-        async def _fake_classify(question):
+        async def _fake_classify(question, *, history=()):
             return {"intent": "open_nfl", "nfl": True}
 
         async def _fake_tokens():

@@ -33,7 +33,7 @@ def _run(coro):
 def _classify_returns(raw):
     """Patch qa.classify_question to an async fake returning ``raw``."""
 
-    async def _fake(question):
+    async def _fake(question, *, history=()):
         return raw
 
     return mock.patch.object(qa, "classify_question", _fake)

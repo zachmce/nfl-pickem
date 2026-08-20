@@ -169,11 +169,55 @@ CLASSIFIER_SYSTEM_PROMPT = (
     '"nfl" is a boolean: set it to true when the question is about the NFL, American '
     "football, or this pick'em league, and false otherwise. If the question is about "
     "anything else — cooking, recipes, homework, code, politics, or any other "
-    'subject — you MUST answer with the intent unknown and "nfl" set to false.'
+    'subject — you MUST answer with the intent unknown and "nfl" set to false. '
+    "When earlier turns of the conversation are supplied, READ THEM FIRST and use "
+    "them to resolve any pronoun or short follow-up in the current message before "
+    'you classify it. A bare follow-up such as "is he any good?" inherits its subject '
+    "from those turns — judge the RESOLVED question, so a football follow-up stays "
+    'football and keeps "nfl" true.'
 )
 
 
-async def classify_question(question: str) -> dict | None:
+# How many prior turns the classifier is shown. Small on purpose: the classifier only
+# has to resolve a referent, not follow the whole conversation, and every turn is
+# prompt tokens on a call that runs on EVERY answered message.
+_CLASSIFIER_HISTORY_TURNS = 4
+
+
+def _classifier_user_content(question: str, history: Sequence[tuple[str, str]]) -> str:
+    """Build the classifier's user message: fenced prior turns, then the fenced question.
+
+    Each turn is fenced INDIVIDUALLY through
+    :func:`app.bot.chat_personality._fence_untrusted` — the turns are untrusted user
+    text exactly like the question, so none of them may reach the model unfenced. The
+    labels around them are the only unfenced text. With no history this returns the
+    fenced question ALONE, byte-identical to the pre-history behaviour, so an opening
+    question classifies exactly as it always did.
+    """
+    fenced_question = chat_personality._fence_untrusted(question)
+    if not history:
+        return fenced_question
+    lines: list[str] = []
+    for role, text in list(history)[-_CLASSIFIER_HISTORY_TURNS:]:
+        fenced_turn = chat_personality._fence_untrusted(text)
+        if not fenced_turn:
+            continue
+        speaker = "Bot" if role == "assistant" else "Member"
+        lines.append(f"{speaker}: {fenced_turn}")
+    if not lines:
+        return fenced_question
+    prior = "\n".join(lines)
+    return (
+        "Earlier turns of this conversation, for resolving references only:\n"
+        f"{prior}\n\nCurrent message to classify:\n{fenced_question}"
+    )
+
+
+async def classify_question(
+    question: str,
+    *,
+    history: Sequence[tuple[str, str]] = (),
+) -> dict | None:
     """Classify ``question`` into a raw intent dict, or ``None`` on any failure.
 
     Best-effort (mirrors ``llm_client`` returning ``None``): the untrusted question
@@ -184,8 +228,16 @@ async def classify_question(question: str) -> dict | None:
     JSON-only instruction). Parses the returned string as JSON and returns the parsed
     dict, or ``None`` when the client returned ``None`` or the content did not parse.
     NEVER raises — the caller (and the validator) treat ``None`` as ``unknown``.
+
+    ``history`` is the same oldest-first ``(role, text)`` sequence the listener hands
+    :func:`answer_question`. It is supplied because the classifier decides the ``nfl``
+    boolean that gates ``open_nfl``, and a bare pronoun follow-up carries NO football
+    token of its own: live-verified 2026-08-20, "is he any good?" alone returned
+    ``nfl: false`` and declined, while the SAME question with its referent named
+    returned ``nfl: true``. Without the prior turns the guard fires on incomplete
+    input.
     """
-    fenced = chat_personality._fence_untrusted(question)
+    fenced = _classifier_user_content(question, history)
     try:
         raw = await llm_client.classify(fenced, system_prompt=CLASSIFIER_SYSTEM_PROMPT)
     except Exception:
@@ -1800,8 +1852,10 @@ async def answer_question(
     a deterministic reader and build a FACT -> phrase the fact in the active voice.
     The ONE exception is the ``open_nfl`` branch (260820-lw6), which returns straight
     out of :func:`app.bot.qa_open.answer_open` without touching ``_build_fact`` or
-    ``llm_client.phrase``; ``history`` (oldest-first ``(role, text)`` turns supplied by
-    the listener's per-channel memory) is read ONLY by that branch.
+    ``llm_client.phrase``. ``history`` (oldest-first ``(role, text)`` turns supplied by
+    the listener's per-channel memory) reaches TWO places: the classifier, so a bare
+    pronoun follow-up can be resolved before the ``nfl`` guard judges it, and the
+    ``open_nfl`` branch, so the answer itself can resolve the same referent.
     On the pick_status unregistered path returns a deterministic /register line with
     no LLM call. When ``llm_client.phrase`` returns ``None`` returns the
     deterministic FACT string itself so exactly one line always lands. On ANY seam
@@ -1811,7 +1865,7 @@ async def answer_question(
     try:
         from app.bot import db_bridge
 
-        raw = await classify_question(question)
+        raw = await classify_question(question, history=history)
         known_team_tokens = await db_bridge.get_real_team_tokens_async()
         result = validate_classification(raw, known_team_tokens=known_team_tokens)
 
