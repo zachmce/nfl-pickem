@@ -64,15 +64,21 @@ class _FakeResponse:
         return self._payload
 
 
+_NEVER_CALLED = "<never called>"
+
+
 class _CapturingAsyncClient:
     """A stand-in for ``httpx.AsyncClient`` that records the GET and returns a canned response."""
 
     last_url: str | None = None
+    # Sentinel-initialised so "headers was None" is distinguishable from "get never ran".
+    last_headers: object = _NEVER_CALLED
+    last_init_kwargs: dict | None = None
     calls: int = 0
     _response: object = None
 
     def __init__(self, *args, **kwargs) -> None:
-        pass
+        type(self).last_init_kwargs = dict(kwargs)
 
     async def __aenter__(self):
         return self
@@ -83,6 +89,7 @@ class _CapturingAsyncClient:
     async def get(self, url, *, headers=None):
         type(self).calls += 1
         type(self).last_url = url
+        type(self).last_headers = headers
         return self._response
 
 
@@ -225,6 +232,99 @@ class ParseInjuriesTests(unittest.TestCase):
 # --------------------------------------------------------------------------- #
 # Impure fetch (cache + HTTP), fully monkeypatched.
 # --------------------------------------------------------------------------- #
+
+
+class FetchCachedTests(unittest.TestCase):
+    """The ONE generic shell, driven with an arbitrary url/key/TTL — endpoint-independent."""
+
+    _URL = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/anything"
+    _KEY = "qa:generic:probe"
+    _TTL = 42
+
+    def _fetch(self):
+        return espn_extra._fetch_cached(
+            self._URL, cache_key=self._KEY, ttl_seconds=self._TTL, label="generic"
+        )
+
+    def _arm_client(self, response: object) -> None:
+        _CapturingAsyncClient.calls = 0
+        _CapturingAsyncClient.last_url = None
+        _CapturingAsyncClient.last_headers = _NEVER_CALLED
+        _CapturingAsyncClient.last_init_kwargs = None
+        _CapturingAsyncClient._response = response
+
+    def test_cache_hit_returns_payload_without_http(self) -> None:
+        payload = {"probe": True}
+        fake = _FakeRedis({self._KEY: json.dumps(payload)})
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient):
+            out = _run(self._fetch())
+        self.assertEqual(out, payload)  # served from cache
+        self.assertEqual(fake.sets, [])  # nothing re-written on a hit
+
+    def test_cache_miss_fetches_once_and_writes_the_exact_key_and_ttl(self) -> None:
+        payload = {"probe": True}
+        fake = _FakeRedis()  # empty -> miss
+        self._arm_client(_FakeResponse(200, payload))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            out = _run(self._fetch())
+        self.assertEqual(out, payload)
+        self.assertEqual(_CapturingAsyncClient.calls, 1)  # exactly one GET on a miss
+        self.assertEqual(_CapturingAsyncClient.last_url, self._URL)  # verbatim, unmodified
+        # Written under the key and TTL the CALLER passed, not any endpoint's own.
+        self.assertEqual(len(fake.sets), 1)
+        key, value, ex = fake.sets[0]
+        self.assertEqual(key, self._KEY)
+        self.assertEqual(json.loads(value), payload)
+        self.assertEqual(ex, self._TTL)
+
+    def test_no_custom_user_agent_and_explicit_timeout(self) -> None:
+        # Invariant 1: ESPN's edge 403s branded User-Agents, so no headers may be sent.
+        # Invariant 2: a hung ESPN response must not be able to block the bot loop.
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(200, {"probe": True}))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            _run(self._fetch())
+        self.assertIsNone(_CapturingAsyncClient.last_headers)
+        self.assertEqual(
+            _CapturingAsyncClient.last_init_kwargs, {"timeout": espn_extra.DEFAULT_TIMEOUT}
+        )
+
+    def test_non_200_degrades_to_none_and_caches_nothing(self) -> None:
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(503, {}))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            out = _run(self._fetch())
+        self.assertIsNone(out)
+        self.assertEqual(fake.sets, [])
+
+    def test_http_error_degrades_to_none_and_caches_nothing(self) -> None:
+        fake = _FakeRedis()
+
+        class _BoomClient(_CapturingAsyncClient):
+            async def get(self, url, *, headers=None):
+                raise httpx.ConnectError("boom")
+
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _BoomClient):
+            out = _run(self._fetch())
+        self.assertIsNone(out)
+        self.assertEqual(fake.sets, [])
+
+    def test_non_dict_payload_degrades_to_none_and_caches_nothing(self) -> None:
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(200, ["not", "a", "dict"]))  # pyright: ignore[reportArgumentType]
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            out = _run(self._fetch())
+        self.assertIsNone(out)
+        self.assertEqual(fake.sets, [])
+
+    def test_redis_outage_still_serves_a_live_fetch(self) -> None:
+        # FAIL-OPEN on the read: a cache outage degrades to the live fetch, never blocks it.
+        payload = {"probe": True}
+        self._arm_client(_FakeResponse(200, payload))
+        with _redis_raises(), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            out = _run(self._fetch())
+        self.assertEqual(out, payload)
+        self.assertEqual(_CapturingAsyncClient.calls, 1)
 
 
 class FetchInjuriesTests(unittest.TestCase):
