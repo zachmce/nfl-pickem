@@ -19,7 +19,10 @@
       "position": "offense",
       "items": [
         {
+          "id": "4431611",
           "displayName": "Caleb Williams",
+          "firstName": "Caleb",
+          "lastName": "Williams",
           "jersey": "18",
           "age": 24,
           "experience": { "years": 3 },
@@ -33,7 +36,10 @@
           }
         },
         {
+          "id": "4434153",
           "displayName": "Tyson Bagent",
+          "firstName": "Tyson",
+          "lastName": "Bagent",
           "jersey": "17",
           "age": 26,
           "experience": { "years": 4 },
@@ -47,7 +53,10 @@
           }
         },
         {
+          "id": "4431299",
           "displayName": "Rome Odunze",
+          "firstName": "Rome",
+          "lastName": "Odunze",
           "jersey": "15",
           "age": 24,
           "experience": { "years": 3 },
@@ -66,7 +75,10 @@
       "position": "defense",
       "items": [
         {
+          "id": "4243253",
           "displayName": "Jaylon Johnson",
+          "firstName": "Jaylon",
+          "lastName": "Johnson",
           "jersey": "1",
           "age": 27,
           "experience": { "years": 7 },
@@ -85,7 +97,10 @@
       "position": "specialTeam",
       "items": [
         {
+          "id": "17427",
           "displayName": "Cairo Santos",
+          "firstName": "Cairo",
+          "lastName": "Santos",
           "jersey": "2",
           "age": 34,
           "experience": { "years": 13 },
@@ -104,7 +119,10 @@
       "position": "injuredReserveOrOut",
       "items": [
         {
+          "id": "15168",
           "displayName": "Case Keenum",
+          "firstName": "Case",
+          "lastName": "Keenum",
           "jersey": "12",
           "age": 38,
           "experience": { "years": 14 },

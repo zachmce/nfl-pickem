@@ -1,0 +1,285 @@
+{
+  "categories": [
+    {
+      "name": "passing",
+      "displayName": "Passing",
+      "labels": [
+        "GP",
+        "CMP",
+        "ATT",
+        "CMP%",
+        "YDS",
+        "AVG",
+        "TD",
+        "INT",
+        "LNG",
+        "SACK",
+        "RTG",
+        "QBR"
+      ],
+      "names": [
+        "gamesPlayed",
+        "completions",
+        "passingAttempts",
+        "completionPct",
+        "passingYards",
+        "yardsPerPassAttempt",
+        "passingTouchdowns",
+        "interceptions",
+        "longPassing",
+        "sacks",
+        "QBRating",
+        "adjQBR"
+      ],
+      "displayNames": [
+        "Games Played",
+        "Completions",
+        "Passing Attempts",
+        "Completion Percentage",
+        "Passing Yards",
+        "Yards Per Pass Attempt",
+        "Passing Touchdowns",
+        "Interceptions",
+        "Longest Pass",
+        "Total Sacks",
+        "Passer Rating",
+        "Adjusted QBR"
+      ],
+      "descriptions": [
+        "Games Played",
+        "The times a player completes a pass to another player who is eligible to catch a pass.",
+        "The number of times a pass is attempted.",
+        "The percentage of completed passes.",
+        "The total passing yards.",
+        "The average number yards per pass attempt.",
+        "The total number of passing touchdowns.",
+        "The number of passes thrown that were intercepted by the opposing team.",
+        "The longest pass play completed in terms of yards.",
+        "The total number of sacks.",
+        "Passer Rating",
+        "Adjusted Quarterback Rating."
+      ],
+      "statistics": [
+        {
+          "teamId": "14",
+          "teamSlug": "los-angeles-rams",
+          "season": {
+            "year": 2024,
+            "displayName": "2024"
+          },
+          "stats": [
+            "16",
+            "340",
+            "517",
+            "65.8",
+            "3,762",
+            "7.3",
+            "20",
+            "8",
+            "69",
+            "28",
+            "93.7",
+            "61.5"
+          ],
+          "position": "QB"
+        },
+        {
+          "teamId": "14",
+          "teamSlug": "los-angeles-rams",
+          "season": {
+            "year": 2025,
+            "displayName": "2025"
+          },
+          "stats": [
+            "17",
+            "388",
+            "597",
+            "65.0",
+            "4,707",
+            "7.9",
+            "46",
+            "8",
+            "88",
+            "23",
+            "109.2",
+            "71.2"
+          ],
+          "position": "QB"
+        }
+      ],
+      "totals": [
+        "239",
+        "5562",
+        "8763",
+        "63.5",
+        "64,516",
+        "7.4",
+        "423",
+        "196",
+        "88",
+        "525",
+        "92.4",
+        "-"
+      ],
+      "sortKey": "passing"
+    },
+    {
+      "name": "defensive",
+      "displayName": "Defense",
+      "labels": [
+        "GP",
+        "TOT",
+        "SOLO",
+        "AST",
+        "SACK",
+        "FF",
+        "FR",
+        "YDS",
+        "INT",
+        "YDS",
+        "AVG",
+        "TD",
+        "LNG",
+        "PD",
+        "STF",
+        "STFYDS",
+        "KB"
+      ],
+      "names": [
+        "gamesPlayed",
+        "totalTackles",
+        "soloTackles",
+        "assistTackles",
+        "sacks",
+        "fumblesForced",
+        "fumblesRecovered",
+        "fumblesRecoveredYards",
+        "interceptions",
+        "interceptionYards",
+        "avgInterceptionYards",
+        "interceptionTouchdowns",
+        "longInterception",
+        "passesDefended",
+        "stuffs",
+        "stuffYards",
+        "kicksBlocked"
+      ],
+      "displayNames": [
+        "Games Played",
+        "Total Tackles",
+        "Solo Tackles",
+        "Assist Tackles",
+        "Sacks",
+        "Forced Fumbles",
+        "Fumbles Recovered",
+        "Fumbles Recovered Yards",
+        "Interceptions",
+        "Interception Yards",
+        "Average Interception Yards",
+        "Interception Touchdowns",
+        "Long Interception",
+        "Passes Defended",
+        "Stuffs",
+        "Stuff Yards",
+        "Kicks Blocked"
+      ],
+      "descriptions": [
+        "Games Played",
+        "The total number of tackles.",
+        "The number of times a tackle was made unassisted.",
+        "The number of assists on tackles.",
+        "The total number of sacks.",
+        "The total number of forced fumbles.",
+        "The number of fumbles recovered.",
+        "The number of yards gained after a fumble is recovered.",
+        "The total number of interceptions.",
+        "The number of yards gained after an interception.",
+        "The average number of return yards per interception.",
+        "The number of times an interception is returned for a touchdown.",
+        "The amount of yards of the longest interception return.",
+        "The total number of passes defended.",
+        "The number of times that a runner is stuffed at or behind the line of scrimmage.",
+        "The number of yards lost from stuffs.",
+        "The number of times a kick was blocked."
+      ],
+      "statistics": [
+        {
+          "teamId": "14",
+          "teamSlug": "los-angeles-rams",
+          "season": {
+            "year": 2024,
+            "displayName": "2024"
+          },
+          "stats": [
+            "16",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "3",
+            "0",
+            "0",
+            "0",
+            "0.0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0"
+          ],
+          "position": "QB"
+        },
+        {
+          "teamId": "14",
+          "teamSlug": "los-angeles-rams",
+          "season": {
+            "year": 2025,
+            "displayName": "2025"
+          },
+          "stats": [
+            "17",
+            "1",
+            "1",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0.0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0"
+          ],
+          "position": "QB"
+        }
+      ],
+      "totals": [
+        "239",
+        "15",
+        "15",
+        "0",
+        "0",
+        "0",
+        "3",
+        "0",
+        "0",
+        "0",
+        "0.0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0"
+      ],
+      "sortKey": "defensive"
+    }
+  ]
+}

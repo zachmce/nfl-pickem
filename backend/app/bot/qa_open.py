@@ -27,9 +27,10 @@ of two, and resolving "Chicago Bears" to ``CHI`` unaided): the model selects fro
 FIXED :data:`TOOLS` whitelist BY NAME and NEVER builds a URL — no tool spec may
 declare a ``url`` / ``endpoint`` / ``path`` / ``host`` parameter. Every tool's ``run``
 must hold the Path B adapter contract: never raises, fails open on Redis, degrades to
-``None`` on any HTTP error. The registry ships with ONE tool, ``lookup_team_roster``
-(issue #179), which grounds a roster question in current ESPN data instead of the
-model's training cutoff; an EMPTY registry stays a supported fallback branch.
+``None`` on any HTTP error. The registry ships with TWO tools — ``lookup_team_roster``
+(issue #179) and ``lookup_player_season_stats`` (issue #183) — each grounding its
+question in current ESPN data instead of the model's training cutoff; an EMPTY registry
+stays a supported fallback branch.
 """
 
 from __future__ import annotations
@@ -234,6 +235,122 @@ _ROSTER_TOOL_DESCRIPTION = (
     "date."
 )
 
+
+async def _lookup_player_season_stats(
+    team: str = "", player: str = "", season: int | None = None
+) -> object | None:
+    """Look up ONE player's official ESPN totals for ONE season.
+
+    Two hops, both cached and both through the ``espn_extra`` seam (deferred import,
+    same as :func:`_lookup_team_roster`): the roster payload resolves the name to an
+    athlete id, then that id fetches the career table. The roster hop reuses the
+    32-team allowlist as the ``team`` guard rather than rewriting it, and it reads the
+    RAW payload because :func:`~app.services.espn_extra.parse_team_roster` drops the id
+    on purpose (D-7). No id ever comes from the model.
+
+    Every argument defaults so a model that forgets one degrades rather than raising a
+    TypeError into the loop. A resolution miss returns a NOTE dict, never ``None``,
+    because ``None`` becomes :data:`_NO_DATA_PAYLOAD`, which tells the model to answer
+    from its own stale memory — exactly the failure this tool exists to remove (D-5).
+    """
+    from app.services import espn_extra
+
+    roster = await espn_extra.fetch_team_roster(team)
+    if roster is None:
+        return None
+    matches = espn_extra.find_roster_athletes(roster, player)
+    if matches is None:
+        return None
+
+    team_abbr = team.strip().upper() if isinstance(team, str) else ""
+    asked_for = player.strip() if isinstance(player, str) and player.strip() else "that player"
+    if not matches:
+        return {"note": _NOT_ON_ROSTER_NOTE.format(player=asked_for, team=team_abbr)}
+    if len(matches) > 1:
+        candidates = [str(match["display_name"]) for match in matches]
+        return {
+            "note": _AMBIGUOUS_PLAYER_NOTE.format(team=team_abbr, candidates=", ".join(candidates)),
+            "candidates": candidates,
+        }
+
+    match = matches[0]
+    payload = await espn_extra.fetch_athlete_stats(match["athlete_id"])
+    if payload is None:
+        return None
+    facts = espn_extra.parse_athlete_stats(payload, season=season)
+    if facts is None:
+        return None
+
+    # The stats payload carries no name of its own, so identity comes from the roster.
+    name = str(match["display_name"])
+    facts = {**facts, "player": name, "team": team_abbr, "position": match["position"]}
+    if facts["season"] is None:
+        seasons = ", ".join(str(year) for year in facts["available_seasons"])
+        facts["note"] = _SEASON_UNAVAILABLE_NOTE.format(
+            player=name, seasons=seasons or "no seasons at all"
+        )
+    else:
+        facts["season_statement"] = _SEASON_STATEMENT.format(player=name, season=facts["season"])
+    return facts
+
+
+# D-1b: the model narrates a year of its own choosing unless it can SEE the one it was
+# given, and a bare integer in a dict body is readable but not voiceable. This sentence
+# is the voiceable form; the integer ``season`` field stays alongside it as the
+# machine-readable one. Built here and not in the parser, which never phrases and does
+# not know the player's name.
+_SEASON_STATEMENT = (
+    "Every figure below is {player}'s official total for the {season} NFL season, so "
+    "say {season} when you report any of them."
+)
+
+# D-5: each resolution miss is a concrete full sentence telling the model what to do
+# next, returned in a dict body because a bare string fact gets voiced or swallowed
+# (memory: qa-phrasing-inversion).
+_NOT_ON_ROSTER_NOTE = (
+    "No player named {player} is on the {team} roster right now, so this tool has no "
+    "figures for him there. Say which team he plays for now and call this tool again "
+    "with that team's abbreviation, and if you do not know which team he is on, say "
+    "that plainly instead of giving a figure."
+)
+_AMBIGUOUS_PLAYER_NOTE = (
+    "More than one player on the {team} roster matches that name: {candidates}. Ask the "
+    "member which one of them he means, and do not report any figure until he answers."
+)
+_SEASON_UNAVAILABLE_NOTE = (
+    "ESPN's table does not carry the season you asked about for {player}, so this tool "
+    "has no figures for that season. The only seasons ESPN carries for {player} are "
+    "{seasons}. Tell the member plainly that you do not have the season he asked "
+    "about, and never give him a figure from a different season as if it were that one."
+)
+
+# INSTRUCT first, CONSTRAIN second — measured, not stylistic. In the predecessor task a
+# description that only disclaimed a limitation suppressed the call 5/5 and the model
+# fell back to stale memory. The season clause is D-1a: the model resolves "last year"
+# against its TRAINING CUTOFF, which is the measured bug (Caleb Williams narrated as a
+# rookie in 2026), so the year is taken out of its hands entirely.
+_STATS_TOOL_DESCRIPTION = (
+    "Look up one NFL player's official ESPN statistics for a single season, such as how "
+    "many yards he threw or rushed for, how many touchdowns he scored, or how many "
+    "games he played. Call this tool for ANY question that asks what a player did in a "
+    "season, INCLUDING a question phrased as last year, last season or this season, "
+    "because your own memory of which season is the most recent one, and of what a "
+    "player did in it, is often a year or more out of date. The team argument is the "
+    "standard abbreviation of the team the player is on right now, for example LAR for "
+    "the Los Angeles Rams or PHI for the Philadelphia Eagles. The player argument is "
+    "the player's name exactly as the member wrote it. Pass the season argument ONLY "
+    "when the member named a specific year such as 2024. LEAVE THE SEASON ARGUMENT OUT "
+    "for every other phrasing, including last year, last season and this season, "
+    "because this tool already knows which season is the most recent one ESPN has and "
+    "you do not. Never work out a year number for yourself from a phrase like last "
+    "year. If this tool reports that the player is not on that team's roster, say which "
+    "team he plays for now and call this tool again with that team. If it reports that "
+    "more than one player matches, ask the member which one he means instead of "
+    "guessing. Every figure it returns belongs to the one season the answer names, so "
+    "say that year when you report a figure and never describe it as this year's or "
+    "last year's."
+)
+
 TOOLS: tuple[_Tool, ...] = (
     _Tool(
         name="lookup_team_roster",
@@ -262,6 +379,42 @@ TOOLS: tuple[_Tool, ...] = (
             },
         },
         run=_lookup_team_roster,
+    ),
+    _Tool(
+        name="lookup_player_season_stats",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_player_season_stats",
+                "description": _STATS_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {
+                            "type": "string",
+                            "description": (
+                                "The standard abbreviation of the team the player is on "
+                                "right now, such as LAR."
+                            ),
+                        },
+                        "player": {
+                            "type": "string",
+                            "description": "The player's name as the member wrote it.",
+                        },
+                        "season": {
+                            "type": "integer",
+                            "description": (
+                                "The four-digit year, and ONLY when the member named "
+                                "one. Leave it out for last year, last season or this "
+                                "season."
+                            ),
+                        },
+                    },
+                    "required": ["team", "player"],
+                },
+            },
+        },
+        run=_lookup_player_season_stats,
     ),
 )
 

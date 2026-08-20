@@ -503,7 +503,10 @@ def _tool_messages(sent: list[dict]) -> list[dict]:
 
 class ShippedRegistryTests(unittest.TestCase):
     def test_registry_ships_the_roster_tool(self) -> None:
-        self.assertEqual([t.name for t in qa_open.TOOLS], ["lookup_team_roster"])
+        self.assertEqual(
+            [t.name for t in qa_open.TOOLS],
+            ["lookup_team_roster", "lookup_player_season_stats"],
+        )
         params = qa_open.TOOLS[0].spec["function"]["parameters"]
         self.assertEqual(params["properties"]["team"]["type"], "string")
         self.assertEqual(params["properties"]["position"]["type"], "string")
@@ -581,6 +584,77 @@ class RosterToolTests(unittest.TestCase):
     def test_adapter_does_not_raise_when_the_model_omits_the_team(self) -> None:
         # No stub: a forgotten argument must degrade through the REAL allowlist.
         self.assertIsNone(_run(qa_open._lookup_team_roster()))
+
+
+_STATS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_athlete_stats.json"
+
+
+def _lar_roster() -> dict:
+    """A minimal LAR roster payload carrying Matthew Stafford's REAL athlete id.
+
+    Built here rather than captured because the live LAR roster carries 93 players and
+    the resolver only needs the one match.
+    """
+    return {
+        "team": {"abbreviation": "LAR", "displayName": "Los Angeles Rams"},
+        "athletes": [
+            {
+                "position": "offense",
+                "items": [
+                    {
+                        "id": "12483",
+                        "firstName": "Matthew",
+                        "lastName": "Stafford",
+                        "displayName": "Matthew Stafford",
+                        "position": {"abbreviation": "QB", "displayName": "Quarterback"},
+                    }
+                ],
+            }
+        ],
+    }
+
+
+class StatsToolTests(unittest.TestCase):
+    """The SHIPPED stats tool, end to end: the motivating question of issue #183."""
+
+    def _espn_returns(self, roster: object, stats: object):
+        async def _fake_roster(team_abbr):
+            return roster
+
+        async def _fake_stats(athlete_id):
+            return stats
+
+        return (
+            mock.patch.object(espn_extra, "fetch_team_roster", _fake_roster),
+            mock.patch.object(espn_extra, "fetch_athlete_stats", _fake_stats),
+        )
+
+    def test_a_last_year_question_feeds_back_the_figure_and_the_year(self) -> None:
+        stats = json.loads(_STATS_FIXTURE.read_text())
+        roster_patch, stats_patch = self._espn_returns(_lar_roster(), stats)
+        patcher, calls = _open_chat_returns(
+            _tool_call_message(
+                "lookup_player_season_stats", '{"team": "LAR", "player": "Matt Stafford"}'
+            ),
+            _text("Stafford threw for 4,707 yards in the 2025 season."),
+        )
+        with roster_patch, stats_patch, patcher:
+            out = _run(
+                qa_open.answer_open(
+                    "how many yards did Matt Stafford throw for last year?", voice=_VOICE
+                )
+            )
+
+        self.assertEqual(out, "Stafford threw for 4,707 yards in the 2025 season.")
+        results = _tool_messages(calls[1]["messages"])
+        self.assertEqual(len(results), 1)
+        self.assertIn("4,707", results[0]["content"])
+        body = json.loads(results[0]["content"])
+        # D-1: the season came from ESPN's own table, as an integer the model cannot
+        # misread AND (D-1b) as a sentence it can voice without inventing a year.
+        self.assertEqual(body["season"], 2025)
+        self.assertIn("2025", body["season_statement"])
+        self.assertIn("Matthew Stafford", body["season_statement"])
 
 
 class ToolLoopTests(unittest.TestCase):

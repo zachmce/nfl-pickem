@@ -40,6 +40,7 @@ from app.services import espn_extra
 _FIXTURE = Path(__file__).parent / "fixtures" / "espn_summary_injuries.json"
 _NEWS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_news.json"
 _ROSTER_FIXTURE = Path(__file__).parent / "fixtures" / "espn_team_roster.json"
+_STATS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_athlete_stats.json"
 
 # The DISTINCTIVE KC headline the no-rephrasing regression asserts survives byte-for-byte.
 _KC_HEADLINE = "Patrick Mahomes throws for 5 touchdowns as Chiefs storm past Bills 38-20"
@@ -59,6 +60,53 @@ def _load_news_fixture() -> dict:
 
 def _load_roster_fixture() -> dict:
     return json.loads(_ROSTER_FIXTURE.read_text())
+
+
+def _load_stats_fixture() -> dict:
+    """Matthew Stafford's real career table, trimmed to passing + defensive, 2024-2025.
+
+    ``defensive`` is kept BECAUSE its labels collide (``YDS`` twice) — the trim would be
+    pointless without the category the collision test needs.
+    """
+    return json.loads(_STATS_FIXTURE.read_text())
+
+
+# The LAR roster is built here rather than captured because the live one carries 93
+# players and the resolver only needs the awkward names. Every id, spelling and suffix
+# below was read off the live LAR roster on 2026-08-20 — Kyren and Mario Williams really
+# do share a surname on this team, so the ambiguity case is not contrived.
+def _lar_roster() -> dict:
+    def athlete(athlete_id: str, first: str, last: str, position: str) -> dict:
+        return {
+            "id": athlete_id,
+            "firstName": first,
+            "lastName": last,
+            "displayName": f"{first} {last}",
+            "position": {"abbreviation": position, "displayName": position},
+        }
+
+    return {
+        "team": {"abbreviation": "LAR", "displayName": "Los Angeles Rams"},
+        "athletes": [
+            {
+                "position": "offense",
+                "items": [
+                    athlete("12483", "Matthew", "Stafford", "QB"),
+                    athlete("4430737", "Kyren", "Williams", "RB"),
+                    athlete("4431618", "Mario", "Williams", "WR"),
+                    athlete("4426512", "Warren", "McClendon Jr.", "OT"),
+                    athlete("4259553", "Stetson", "Bennett IV", "QB"),
+                ],
+            },
+            {
+                "position": "defense",
+                "items": [
+                    athlete("4690606", "Al'zillion", "Hamilton", "CB"),
+                    athlete("4432266", "Nikhai", "Hill-Green", "LB"),
+                ],
+            },
+        ],
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -787,6 +835,43 @@ class FetchTeamRosterTests(unittest.TestCase):
         self.assertEqual(len(espn_extra.NFL_TEAM_ABBRS), 32)
         self.assertIn("WSH", espn_extra.NFL_TEAM_ABBRS)
         self.assertIn("JAX", espn_extra.NFL_TEAM_ABBRS)
+
+
+# --------------------------------------------------------------------------- #
+# Name -> athlete id resolution (pure, over the RAW roster payload).
+# --------------------------------------------------------------------------- #
+
+
+class FindRosterAthletesTests(unittest.TestCase):
+    def test_a_shortened_first_name_resolves_to_the_full_roster_name(self) -> None:
+        matches = espn_extra.find_roster_athletes(_lar_roster(), "Matt Stafford")
+        assert matches is not None
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["athlete_id"], "12483")
+        self.assertEqual(matches[0]["display_name"], "Matthew Stafford")
+        self.assertEqual(matches[0]["position"], "QB")
+
+
+# --------------------------------------------------------------------------- #
+# Pure season-selecting stats parser.
+# --------------------------------------------------------------------------- #
+
+
+class ParseAthleteStatsTests(unittest.TestCase):
+    def test_no_season_argument_selects_the_newest_season_in_the_payload(self) -> None:
+        # D-1 (LOCKED): the default season comes from ESPN's OWN table, never a DB read.
+        facts = espn_extra.parse_athlete_stats(_load_stats_fixture())
+        assert facts is not None
+        self.assertEqual(facts["season"], 2025)
+        self.assertEqual(facts["available_seasons"], [2024, 2025])
+        self.assertEqual(facts["stats"]["Passing"]["Passing Yards"], "4,707")
+
+    def test_an_explicit_season_overrides_the_default(self) -> None:
+        # ESPN ignores ``?season=``, so ONE cached payload has to answer any season.
+        facts = espn_extra.parse_athlete_stats(_load_stats_fixture(), season=2024)
+        assert facts is not None
+        self.assertEqual(facts["season"], 2024)
+        self.assertEqual(facts["stats"]["Passing"]["Passing Yards"], "3,762")
 
 
 @unittest.skipUnless(
