@@ -1,15 +1,20 @@
-"""Offline unit tests for the ESPN "extras" injuries adapter (260709-u0z Task 1).
+"""Offline unit tests for the ESPN "extras" adapter (260709-u0z, 260820-oym).
 
-Two layers are exercised, both fully OFFLINE (no network socket, no Redis socket):
+Three layers are exercised, all fully OFFLINE (no network socket, no Redis socket):
 
 * the PURE :func:`app.services.espn_extra.parse_injuries` against a captured
   ``summary`` fixture (multi-player team, empty-injuries team, team-filtering) plus
   inline malformed inputs — it must never raise and must return the right
   list / ``[]`` / ``None`` distinction;
-* the IMPURE :func:`app.services.espn_extra.fetch_injuries` with ``httpx`` and the
-  ``_redis_client`` seam monkeypatched (mirroring the capturing-client style of
-  ``tests/test_qa_classifier.py``) to prove cache HIT (no HTTP), cache MISS
-  (HTTP + cache write), and best-effort ``None`` on a fetch/Redis failure.
+* the IMPURE per-endpoint fetches (:func:`fetch_injuries`, :func:`fetch_news`,
+  :func:`fetch_team_roster`) with ``httpx`` and the ``_redis_client`` seam monkeypatched
+  (mirroring the capturing-client style of ``tests/test_qa_classifier.py``) to prove
+  cache HIT (no HTTP), cache MISS (HTTP + cache write), and best-effort ``None`` on a
+  fetch/Redis failure — plus, for the roster, that a team outside the canonical 32
+  performs ZERO HTTP (T-oym-01);
+* the generic shell :func:`_fetch_cached` they all delegate to, driven with an arbitrary
+  url/key/TTL, which is where the no-User-Agent and explicit-timeout invariants are
+  pinned.
 
 One OPTIONAL live ESPN smoke test is SKIPPED unless ``RUN_ESPN_LIVE`` is set (mirrors
 ``tests/test_scoreboard_espn.py``).
@@ -25,6 +30,7 @@ import json
 import os
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 import httpx
@@ -33,6 +39,7 @@ from app.services import espn_extra
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "espn_summary_injuries.json"
 _NEWS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_news.json"
+_ROSTER_FIXTURE = Path(__file__).parent / "fixtures" / "espn_team_roster.json"
 
 # The DISTINCTIVE KC headline the no-rephrasing regression asserts survives byte-for-byte.
 _KC_HEADLINE = "Patrick Mahomes throws for 5 touchdowns as Chiefs storm past Bills 38-20"
@@ -48,6 +55,10 @@ def _load_fixture() -> dict:
 
 def _load_news_fixture() -> dict:
     return json.loads(_NEWS_FIXTURE.read_text())
+
+
+def _load_roster_fixture() -> dict:
+    return json.loads(_ROSTER_FIXTURE.read_text())
 
 
 # --------------------------------------------------------------------------- #
@@ -115,8 +126,10 @@ class _FakeRedis:
     def __init__(self, store: dict | None = None) -> None:
         self.store = store or {}
         self.sets: list[tuple[str, str, int | None]] = []
+        self.gets: list[str] = []
 
     async def get(self, key):
+        self.gets.append(key)
         return self.store.get(key)
 
     async def set(self, key, value, *, ex=None):
@@ -599,6 +612,181 @@ class FetchNewsTests(unittest.TestCase):
             out = _run(espn_extra.fetch_news())
         self.assertEqual(out, payload)
         self.assertEqual(_CapturingAsyncClient.calls, 1)
+
+
+# --------------------------------------------------------------------------- #
+# Pure roster parser (compact facts, no starter claim).
+# --------------------------------------------------------------------------- #
+
+
+class ParseTeamRosterTests(unittest.TestCase):
+    def test_position_query_returns_that_position_including_the_injured_one(self) -> None:
+        facts = espn_extra.parse_team_roster(_load_roster_fixture(), position="QB")
+        assert facts is not None
+        self.assertEqual(facts["team"], "Chicago Bears")
+        self.assertEqual(facts["season_year"], 2026)
+        self.assertEqual(facts["season_type"], "Preseason")
+        names = [p["display_name"] for p in facts["players"]]
+        # The injured-reserve QB is a real roster fact and is NOT silently dropped.
+        self.assertEqual(names, ["Caleb Williams", "Tyson Bagent", "Case Keenum"])
+        starter = facts["players"][0]
+        self.assertEqual(starter["position"], "QB")
+        self.assertEqual(starter["jersey"], "18")
+        self.assertEqual(starter["experience_years"], 3)
+        self.assertEqual(starter["status"], "Active")
+        self.assertEqual(starter["group"], "offense")
+        injured = facts["players"][2]
+        self.assertEqual(injured["status"], "Day-To-Day")
+        self.assertEqual(injured["group"], "injured reserve or out")
+
+    def test_no_position_returns_counts_only(self) -> None:
+        facts = espn_extra.parse_team_roster(_load_roster_fixture())
+        assert facts is not None
+        self.assertEqual(facts["players"], [])  # counts alone are the answer
+        self.assertEqual(facts["position_counts"], {"QB": 3, "WR": 1, "CB": 1, "PK": 1})
+        self.assertFalse(facts["truncated"])
+
+    def test_unplayed_position_returns_empty_players_with_counts_intact(self) -> None:
+        facts = espn_extra.parse_team_roster(_load_roster_fixture(), position="LS")
+        assert facts is not None
+        self.assertEqual(facts["players"], [])  # a VALID empty answer, not a failure
+        self.assertEqual(facts["position_counts"], {"QB": 3, "WR": 1, "CB": 1, "PK": 1})
+
+    def test_position_matching_is_case_insensitive_and_accepts_the_full_name(self) -> None:
+        for asked in ("qb", " Qb ", "quarterback", "Quarterback"):
+            with self.subTest(position=asked):
+                facts = espn_extra.parse_team_roster(_load_roster_fixture(), position=asked)
+                assert facts is not None
+                self.assertEqual(len(facts["players"]), 3)
+
+    def test_caveat_is_the_module_constant_verbatim(self) -> None:
+        facts = espn_extra.parse_team_roster(_load_roster_fixture(), position="QB")
+        assert facts is not None
+        self.assertEqual(facts["caveat"], espn_extra.ROSTER_CAVEAT)
+        # The sentence the model is most likely to voice must SAY it does not know.
+        self.assertIn("does not", espn_extra.ROSTER_CAVEAT)
+        self.assertIn("start", espn_extra.ROSTER_CAVEAT)
+
+    def test_unusable_top_level_shapes_return_none(self) -> None:
+        for bad in (None, "garbage", 42, ["athletes"]):
+            self.assertIsNone(espn_extra.parse_team_roster(bad))
+        self.assertIsNone(espn_extra.parse_team_roster({"athletes": "nope"}))
+        self.assertIsNone(espn_extra.parse_team_roster({}))
+
+    def test_malformed_entries_are_skipped_without_raising(self) -> None:
+        payload = {
+            "athletes": [
+                "garbage",
+                {"position": "offense", "items": "not-a-list"},
+                {
+                    "position": "offense",
+                    "items": [
+                        "nope",
+                        {"jersey": "99"},  # no displayName -> never invented
+                        {"displayName": "No Position"},  # no position block -> skipped
+                        {
+                            "displayName": "Real Player",
+                            "position": {"abbreviation": "QB", "name": "Quarterback"},
+                        },
+                    ],
+                },
+            ]
+        }
+        facts = espn_extra.parse_team_roster(payload, position="QB")
+        assert facts is not None
+        self.assertEqual([p["display_name"] for p in facts["players"]], ["Real Player"])
+        self.assertEqual(facts["position_counts"], {"QB": 1})
+        # A missing field degrades to None rather than being invented.
+        self.assertIsNone(facts["players"][0]["jersey"])
+        self.assertIsNone(facts["players"][0]["status"])
+        self.assertIsNone(facts["team"])
+
+    def test_players_are_capped_and_the_truncated_flag_reports_it(self) -> None:
+        cap = espn_extra.ROSTER_MAX_PLAYERS
+        items = [
+            {"displayName": f"Player {i}", "position": {"abbreviation": "QB"}}
+            for i in range(cap + 5)
+        ]
+        payload = {"athletes": [{"position": "offense", "items": items}]}
+        facts = espn_extra.parse_team_roster(payload, position="QB")
+        assert facts is not None
+        self.assertEqual(len(facts["players"]), cap)
+        self.assertTrue(facts["truncated"])
+        # The COUNT still reports the true roster size — only the name list is capped.
+        self.assertEqual(facts["position_counts"], {"QB": cap + 5})
+
+
+# --------------------------------------------------------------------------- #
+# Impure roster fetch — the ALLOWLIST is the security assertion of this section.
+# --------------------------------------------------------------------------- #
+
+
+class FetchTeamRosterTests(unittest.TestCase):
+    def _arm_client(self, response: object) -> None:
+        _CapturingAsyncClient.calls = 0
+        _CapturingAsyncClient.last_url = None
+        _CapturingAsyncClient._response = response
+
+    def test_lowercase_and_padded_abbreviations_normalize_into_the_url(self) -> None:
+        payload = _load_roster_fixture()
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(200, payload))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            out = _run(espn_extra.fetch_team_roster("  chi "))
+        self.assertEqual(out, payload)
+        assert _CapturingAsyncClient.last_url is not None
+        self.assertIn("/teams/CHI/roster", _CapturingAsyncClient.last_url)
+
+    def test_a_team_outside_the_canonical_32_performs_zero_http(self) -> None:
+        # T-oym-01: the allowlist runs BEFORE the URL is formatted. A regression that
+        # formats first and validates second fails here, loudly.
+        fake = _FakeRedis()
+        for bogus in ("", "ZZZ", "../../etc/passwd", "CHI/../DAL", "chi;rm -rf /"):
+            with self.subTest(team=bogus):
+                with (
+                    _redis_returns(fake),
+                    mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient),
+                ):
+                    self.assertIsNone(_run(espn_extra.fetch_team_roster(bogus)))
+        self.assertEqual(fake.gets, [])  # Redis is not touched either
+        self.assertEqual(fake.sets, [])
+
+    def test_a_non_string_argument_does_not_raise(self) -> None:
+        fake = _FakeRedis()
+        for bogus in (None, 42, ["CHI"]):
+            with self.subTest(team=bogus):
+                bad: Any = bogus
+                with (
+                    _redis_returns(fake),
+                    mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient),
+                ):
+                    self.assertIsNone(_run(espn_extra.fetch_team_roster(bad)))
+
+    def test_cache_hit_returns_payload_without_http(self) -> None:
+        payload = _load_roster_fixture()
+        fake = _FakeRedis({espn_extra._roster_cache_key("CHI"): json.dumps(payload)})
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient):
+            out = _run(espn_extra.fetch_team_roster("CHI"))
+        self.assertEqual(out, payload)
+        self.assertEqual(fake.sets, [])
+
+    def test_cache_miss_writes_the_roster_key_and_ttl(self) -> None:
+        payload = _load_roster_fixture()
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(200, payload))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            out = _run(espn_extra.fetch_team_roster("DAL"))
+        self.assertEqual(out, payload)
+        self.assertEqual(len(fake.sets), 1)
+        key, _value, ex = fake.sets[0]
+        self.assertEqual(key, espn_extra._roster_cache_key("DAL"))
+        self.assertEqual(ex, espn_extra.ROSTER_CACHE_TTL_SECONDS)
+
+    def test_every_canonical_abbreviation_is_accepted(self) -> None:
+        # The allowlist must be the canonical table itself, never a drifted copy.
+        self.assertEqual(len(espn_extra.NFL_TEAM_ABBRS), 32)
+        self.assertIn("WSH", espn_extra.NFL_TEAM_ABBRS)
+        self.assertIn("JAX", espn_extra.NFL_TEAM_ABBRS)
 
 
 @unittest.skipUnless(

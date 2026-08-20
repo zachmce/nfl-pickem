@@ -1,0 +1,136 @@
+{
+  "timestamp": "2026-08-20T16:04:11Z",
+  "status": "success",
+  "season": {
+    "year": 2026,
+    "displayName": "2026",
+    "type": 1,
+    "name": "Preseason"
+  },
+  "team": {
+    "id": "3",
+    "abbreviation": "CHI",
+    "location": "Chicago",
+    "name": "Bears",
+    "displayName": "Chicago Bears"
+  },
+  "athletes": [
+    {
+      "position": "offense",
+      "items": [
+        {
+          "displayName": "Caleb Williams",
+          "jersey": "18",
+          "age": 24,
+          "experience": { "years": 3 },
+          "status": { "id": "1", "name": "Active", "type": "active", "abbreviation": "Active" },
+          "position": {
+            "id": "8",
+            "name": "Quarterback",
+            "displayName": "Quarterback",
+            "abbreviation": "QB",
+            "leaf": true
+          }
+        },
+        {
+          "displayName": "Tyson Bagent",
+          "jersey": "17",
+          "age": 26,
+          "experience": { "years": 4 },
+          "status": { "id": "1", "name": "Active", "type": "active", "abbreviation": "Active" },
+          "position": {
+            "id": "8",
+            "name": "Quarterback",
+            "displayName": "Quarterback",
+            "abbreviation": "QB",
+            "leaf": true
+          }
+        },
+        {
+          "displayName": "Rome Odunze",
+          "jersey": "15",
+          "age": 24,
+          "experience": { "years": 3 },
+          "status": { "id": "1", "name": "Active", "type": "active", "abbreviation": "Active" },
+          "position": {
+            "id": "9",
+            "name": "Wide Receiver",
+            "displayName": "Wide Receiver",
+            "abbreviation": "WR",
+            "leaf": true
+          }
+        }
+      ]
+    },
+    {
+      "position": "defense",
+      "items": [
+        {
+          "displayName": "Jaylon Johnson",
+          "jersey": "1",
+          "age": 27,
+          "experience": { "years": 7 },
+          "status": { "id": "1", "name": "Active", "type": "active", "abbreviation": "Active" },
+          "position": {
+            "id": "12",
+            "name": "Cornerback",
+            "displayName": "Cornerback",
+            "abbreviation": "CB",
+            "leaf": true
+          }
+        }
+      ]
+    },
+    {
+      "position": "specialTeam",
+      "items": [
+        {
+          "displayName": "Cairo Santos",
+          "jersey": "2",
+          "age": 34,
+          "experience": { "years": 13 },
+          "status": { "id": "1", "name": "Active", "type": "active", "abbreviation": "Active" },
+          "position": {
+            "id": "16",
+            "name": "Place kicker",
+            "displayName": "Place kicker",
+            "abbreviation": "PK",
+            "leaf": true
+          }
+        }
+      ]
+    },
+    {
+      "position": "injuredReserveOrOut",
+      "items": [
+        {
+          "displayName": "Case Keenum",
+          "jersey": "12",
+          "age": 38,
+          "experience": { "years": 14 },
+          "status": {
+            "id": "2",
+            "name": "Day-To-Day",
+            "type": "day-to-day",
+            "abbreviation": "DTD"
+          },
+          "position": {
+            "id": "8",
+            "name": "Quarterback",
+            "displayName": "Quarterback",
+            "abbreviation": "QB",
+            "leaf": true
+          }
+        }
+      ]
+    },
+    {
+      "position": "suspended",
+      "items": []
+    },
+    {
+      "position": "practiceSquad",
+      "items": []
+    }
+  ]
+}

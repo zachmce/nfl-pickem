@@ -1,7 +1,7 @@
 """On-demand ESPN "extras" adapter — one shared fetch-and-cache shell + pure parsers.
 
 The Path-B seam (outside-intelligence): when a league member asks the bot something the
-app's own database does not own — an injury report, a league headline — the bot fetches
+app's own database does not own — an injury report, a headline, a team roster — the bot fetches
 the public ESPN payload RIGHT THEN, caches it briefly in Redis, and parses it into a
 deterministic fact structure. NO new DB tables, NO Celery-beat poller — freshness matters
 most here, so on-demand is always fresh (design:
@@ -13,10 +13,10 @@ Design — impure shell / pure never-raising core (mirrors :mod:`app.scoreboard.
   single ``httpx`` GET, then a best-effort cache write. It NEVER raises: any
   HTTP/timeout/non-200/parse error degrades to ``None`` (the caller shows a fixed degrade
   line, never an invented fact), and a Redis outage FAILS OPEN on both the read and the
-  write. :func:`fetch_injuries` and :func:`fetch_news` are thin delegations supplying
-  their own URL, cache key, TTL and log label.
-* PURE: one parser per endpoint (:func:`parse_injuries`, :func:`parse_news`) turning an
-  already-parsed payload into facts. Defensive on EVERY field (isinstance guards,
+  write. :func:`fetch_injuries`, :func:`fetch_news` and :func:`fetch_team_roster` are
+  thin delegations supplying their own URL, cache key, TTL and log label.
+* PURE: one parser per endpoint (:func:`parse_injuries`, :func:`parse_news`,
+  :func:`parse_team_roster`) turning an already-parsed payload into facts. Defensive on EVERY field (isinstance guards,
   ``.get``, degrade to ``None``); never raises — this is what the offline tests exercise.
 
 This module imports NO ``discord`` and lives on the Discord-free side: the qa.py brain
@@ -32,6 +32,7 @@ import httpx
 import structlog
 
 from app.config import settings
+from app.seeds.teams import NFL_TEAMS
 
 logger = structlog.get_logger(__name__)
 
@@ -76,6 +77,30 @@ def _news_cache_key(limit: int) -> str:
     so repeat asks for DIFFERENT teams reuse ONE cached page keyed only by ``limit``.
     """
     return f"qa:news:league:{limit}"
+
+
+# The public, no-auth ESPN team ``roster`` endpoint (SAME host family). ``{team}`` is
+# the ONLY model-influenced value anywhere in this module, which is why the allowlist
+# below runs before the format string ever does (T-oym-01).
+ROSTER_URL = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/{team}/roster"
+
+# A roster moves on a scale of days, not minutes, so it caches an order of magnitude
+# longer than the ten-minute injuries/news endpoints.
+ROSTER_CACHE_TTL_SECONDS = 3600
+
+# The largest measured position group is 13 (CHI cornerbacks, 2026-08-20), so this is a
+# defensive ceiling on the tool loop's token budget, not a routine truncation.
+ROSTER_MAX_PLAYERS = 20
+
+# DERIVED from the canonical seed table, never retyped: a drifted copy of the list that
+# guards a URL is the failure worth preventing. Importing that seeder is documented
+# side-effect-free (``app.seeds.historical_games`` imports it the same way).
+NFL_TEAM_ABBRS = frozenset(abbr for _espn_id, abbr, _display_name in NFL_TEAMS)
+
+
+def _roster_cache_key(team_abbr: str) -> str:
+    """The Redis key for one team's cached ``roster`` payload."""
+    return f"qa:roster:team:{team_abbr}"
 
 
 # ---------------------------------------------------------------------------
@@ -399,6 +424,139 @@ def filter_news_by_subject(articles: list[dict], subject: str | None) -> list[di
     return out
 
 
+# ESPN labels its roster groups in camelCase. A camelCase token handed to the model
+# comes back out of the model's mouth verbatim (memory: qa-phrasing-inversion), so each
+# one is mapped to the words a person would say; an unknown token falls back to the raw.
+_ROSTER_GROUP_LABELS = {
+    "offense": "offense",
+    "defense": "defense",
+    "specialTeam": "special teams",
+    "injuredReserveOrOut": "injured reserve or out",
+    "suspended": "suspended",
+    "practiceSquad": "practice squad",
+}
+
+# The sentence the model is most likely to voice, so it is concrete and complete rather
+# than a terse fragment (memory: qa-phrasing-inversion). This is the SECOND barrier
+# against an invented starter; the tool description in ``qa_open`` is the first.
+ROSTER_CAVEAT = (
+    "This roster listing does not say who starts at any position, because ESPN does not "
+    "publish an NFL depth chart, so do not call any of these players a starter."
+)
+
+
+def _parse_one_athlete(athlete: Any, group_label: str | None) -> dict[str, Any] | None:
+    """Normalize one ``athletes[].items[]`` entry into a compact player fact dict.
+
+    Defensive on every field (``isinstance`` guards + ``.get``); degrades a missing field
+    to ``None`` and never raises. Returns ``None`` for an unusable (non-dict) entry, one
+    with no display name (NEVER fabricates a player, mirroring :func:`_parse_one_article`)
+    and one with no position abbreviation (it could be neither counted nor asked for).
+    """
+    if not isinstance(athlete, dict):
+        return None
+
+    name = _first_str(athlete.get("displayName"))
+    if name is None:
+        return None
+
+    position = athlete.get("position")
+    position = position if isinstance(position, dict) else {}
+    abbreviation = _first_str(position.get("abbreviation"))
+    if abbreviation is None:
+        return None
+
+    status = athlete.get("status")
+    status = status if isinstance(status, dict) else {}
+    experience = athlete.get("experience")
+    experience = experience if isinstance(experience, dict) else {}
+    years = experience.get("years")
+
+    return {
+        "display_name": name,
+        "position": abbreviation,
+        "position_name": _first_str(position.get("displayName"), position.get("name")),
+        "jersey": _first_str(athlete.get("jersey")),
+        "experience_years": years
+        if isinstance(years, int) and not isinstance(years, bool)
+        else None,
+        "status": _first_str(status.get("name")),
+        "group": group_label,
+    }
+
+
+def _position_matches(player: dict[str, Any], needle: str) -> bool:
+    """Whether ``player`` plays ``needle`` (an upper-cased abbreviation OR full name)."""
+    for value in (player.get("position"), player.get("position_name")):
+        if isinstance(value, str) and value.strip().upper() == needle:
+            return True
+    return False
+
+
+def parse_team_roster(payload: Any, *, position: str | None = None) -> dict[str, Any] | None:
+    """Extract compact roster facts from a team ``roster`` payload.
+
+    Pure and never-raising (mirrors :func:`parse_news`). Returns ``None`` ONLY when the
+    top-level shape is unusable — a non-dict payload, or ``athletes`` is not a list.
+    Otherwise returns the team display name, the season year and type, a
+    ``position_counts`` map covering EVERY group (injured reserve included), the matching
+    ``players``, a ``truncated`` flag and :data:`ROSTER_CAVEAT`.
+
+    ``position`` matches case-insensitively against either the abbreviation or the full
+    position name. With no ``position`` the ``players`` list is empty BY DESIGN: a full
+    roster measured ~3000 tokens, which does not fit the tool loop's budget, so the counts
+    alone are the answer and the tool description tells the model to ask again with a
+    position. An unplayed position yields ``[]``, a valid empty answer.
+    """
+    if not isinstance(payload, dict):
+        return None
+    groups = payload.get("athletes")
+    if not isinstance(groups, list):
+        return None
+
+    team = payload.get("team")
+    team = team if isinstance(team, dict) else {}
+    season = payload.get("season")
+    season = season if isinstance(season, dict) else {}
+    year = season.get("year")
+
+    asked = position.strip().upper() if isinstance(position, str) and position.strip() else None
+    counts: dict[str, int] = {}
+    players: list[dict[str, Any]] = []
+    truncated = False
+
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        token = _first_str(group.get("position"))
+        label = _ROSTER_GROUP_LABELS.get(token, token) if token is not None else None
+        items = group.get("items")
+        if not isinstance(items, list):
+            continue
+        for athlete in items:
+            player = _parse_one_athlete(athlete, label)
+            if player is None:
+                continue
+            abbreviation = player["position"]
+            counts[abbreviation] = counts.get(abbreviation, 0) + 1
+            if asked is None or not _position_matches(player, asked):
+                continue
+            if len(players) >= ROSTER_MAX_PLAYERS:
+                truncated = True  # the count above still reports the true group size
+                continue
+            players.append(player)
+
+    return {
+        "team": _first_str(team.get("displayName")),
+        "season_year": year if isinstance(year, int) and not isinstance(year, bool) else None,
+        "season_type": _first_str(season.get("name")),
+        "position_counts": counts,
+        "players": players,
+        "truncated": truncated,
+        "caveat": ROSTER_CAVEAT,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Impure shell (best-effort HTTP + short Redis cache — never raises)
 # ---------------------------------------------------------------------------
@@ -530,4 +688,31 @@ async def fetch_news(limit: int = NEWS_FETCH_LIMIT) -> dict | None:
         cache_key=_news_cache_key(limit),
         ttl_seconds=NEWS_CACHE_TTL_SECONDS,
         label="news",
+    )
+
+
+async def fetch_team_roster(team_abbr: str) -> dict | None:
+    """Fetch the raw ESPN ``roster`` payload for ``team_abbr`` — best-effort.
+
+    The ALLOWLIST runs FIRST, before any URL is formatted and before Redis or HTTP is
+    touched: ``team_abbr`` is model-supplied text, and an allowlist applied after the
+    format string is not an allowlist (T-oym-01). Anything outside the canonical 32
+    abbreviations returns ``None`` having attempted nothing, so only one of 32 static
+    literals can ever enter the request path — the same effectively-constant target the
+    news endpoint holds by carrying only a fixed integer.
+
+    A hit delegates to :func:`_fetch_cached` (cache-first, one GET, never raises,
+    fail-open Redis) with the roster key, TTL and log label.
+    """
+    canonical = team_abbr.strip().upper() if isinstance(team_abbr, str) else ""
+    if canonical not in NFL_TEAM_ABBRS:
+        # Model-supplied and unbounded — truncated before it reaches the log.
+        logger.warning("roster_team_rejected", team=str(team_abbr)[:8])
+        return None
+
+    return await _fetch_cached(
+        ROSTER_URL.format(team=canonical),
+        cache_key=_roster_cache_key(canonical),
+        ttl_seconds=ROSTER_CACHE_TTL_SECONDS,
+        label="roster",
     )
