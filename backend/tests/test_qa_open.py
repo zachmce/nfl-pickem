@@ -439,5 +439,250 @@ class OpenRoutingTests(unittest.TestCase):
         self.assertEqual(seen, [history])
 
 
+# --------------------------------------------------------------------------- #
+# TOOL LOOP (Task 2). The model chooses its own data calls from a FIXED whitelist.
+# An unbounded loop on a quantized local model is the main new failure surface Path
+# C introduces, so the round cap, the wall-clock budget and the single final
+# tools-free call are asserted by CALL COUNT, not just by outcome.
+# --------------------------------------------------------------------------- #
+
+
+def _fake_tool(
+    name: str = "lookup_starter",
+    *,
+    result: object = "Caleb Williams",
+    properties: dict | None = None,
+    raises: bool = False,
+):
+    """Build a fake ``_Tool`` plus the list recording the kwargs its ``run`` received."""
+    calls: list[dict] = []
+
+    async def _run_tool(**kwargs):
+        calls.append(dict(kwargs))
+        if raises:
+            raise RuntimeError("boom")
+        return result
+
+    props = {"team": {"type": "string"}} if properties is None else properties
+    tool = qa_open._Tool(
+        name=name,
+        spec={
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": "fake",
+                "parameters": {"type": "object", "properties": props},
+            },
+        },
+        run=_run_tool,
+    )
+    return tool, calls
+
+
+def _tool_call_message(name: str, arguments: str, *, call_id: str = "c1") -> dict:
+    """An assistant message whose ONLY payload is one tool call (content None)."""
+    return {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {"id": call_id, "type": "function", "function": {"name": name, "arguments": arguments}}
+        ],
+    }
+
+
+def _tool_messages(sent: list[dict]) -> list[dict]:
+    return [m for m in sent if m.get("role") == "tool"]
+
+
+class ShippedRegistryTests(unittest.TestCase):
+    def test_registry_ships_empty(self) -> None:
+        # Issue #179 is the task that appends to it; Path C ships model knowledge only.
+        self.assertEqual(qa_open.TOOLS, ())
+
+    def test_no_shipped_spec_may_declare_a_request_target_parameter(self) -> None:
+        # The model selects a tool BY NAME and NEVER builds a URL (T-lw6-02).
+        forbidden = {"url", "endpoint", "path", "host", "uri", "base_url"}
+        for tool in qa_open.TOOLS:
+            params = tool.spec["function"]["parameters"]
+            for param_name in params.get("properties", {}):
+                with self.subTest(tool=tool.name, param=param_name):
+                    self.assertNotIn(param_name.lower(), forbidden)
+
+    def test_empty_registry_makes_exactly_one_tools_free_call(self) -> None:
+        patcher, calls = _open_chat_returns(_text("Bears fans have suffered."))
+        with patcher:
+            out = _run(qa_open.answer_open("how bad are the Bears?", voice=_VOICE))
+        self.assertEqual(out, "Bears fans have suffered.")
+        self.assertEqual(len(calls), 1)
+        self.assertIsNone(calls[0]["tools"])
+
+
+class ToolLoopTests(unittest.TestCase):
+    def test_one_tool_call_runs_the_tool_and_feeds_the_result_back(self) -> None:
+        tool, tool_calls = _fake_tool()
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_starter", '{"team": "CHI"}'),
+            _text("Caleb Williams starts at QB for the Bears."),
+        )
+        with mock.patch.object(qa_open, "TOOLS", (tool,)), patcher:
+            out = _run(qa_open.answer_open("who starts at QB for the Bears?", voice=_VOICE))
+
+        self.assertEqual(out, "Caleb Williams starts at QB for the Bears.")
+        # The tool ran EXACTLY once with the declared parameter.
+        self.assertEqual(tool_calls, [{"team": "CHI"}])
+        # Two rounds, both offering the whitelist specs.
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0]["tools"], [tool.spec])
+        self.assertEqual(calls[1]["tools"], [tool.spec])
+        # The model's own tool-call turn was replayed verbatim, then the tool result.
+        second = calls[1]["messages"]
+        self.assertTrue(any(m.get("tool_calls") for m in second))
+        results = _tool_messages(second)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["tool_call_id"], "c1")
+        self.assertEqual(results[0]["name"], "lookup_starter")
+        self.assertIn("Caleb Williams", results[0]["content"])
+
+    def test_undeclared_parameters_are_dropped_before_the_tool_runs(self) -> None:
+        tool, tool_calls = _fake_tool()
+        patcher, _ = _open_chat_returns(
+            _tool_call_message(
+                "lookup_starter", '{"team": "CHI", "url": "http://evil.example", "n": 3}'
+            ),
+            _text("ok"),
+        )
+        with mock.patch.object(qa_open, "TOOLS", (tool,)), patcher:
+            _run(qa_open.answer_open("q", voice=_VOICE))
+        # ONLY the spec-declared parameter survived — the model cannot smuggle a target.
+        self.assertEqual(tool_calls, [{"team": "CHI"}])
+
+    def test_unknown_tool_name_calls_nothing_and_feeds_a_fixed_payload_back(self) -> None:
+        tool, tool_calls = _fake_tool()
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("definitely_not_a_tool", "{}"),
+            _text("answered anyway"),
+        )
+        with mock.patch.object(qa_open, "TOOLS", (tool,)), patcher:
+            out = _run(qa_open.answer_open("q", voice=_VOICE))
+        self.assertEqual(out, "answered anyway")
+        self.assertEqual(tool_calls, [])  # nothing ran
+        results = _tool_messages(calls[1]["messages"])
+        self.assertEqual(len(results), 1)
+        self.assertIn(qa_open._UNKNOWN_TOOL_PAYLOAD, results[0]["content"])
+
+    def test_lookup_is_exact_never_a_prefix_match(self) -> None:
+        tool, tool_calls = _fake_tool()
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_starter_v2", '{"team": "CHI"}'),
+            _text("ok"),
+        )
+        with mock.patch.object(qa_open, "TOOLS", (tool,)), patcher:
+            _run(qa_open.answer_open("q", voice=_VOICE))
+        self.assertEqual(tool_calls, [])
+        self.assertIn(
+            qa_open._UNKNOWN_TOOL_PAYLOAD, _tool_messages(calls[1]["messages"])[0]["content"]
+        )
+
+    def test_unparseable_arguments_feed_a_fixed_payload_back_without_raising(self) -> None:
+        tool, tool_calls = _fake_tool()
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_starter", "{not json at all"),
+            _text("answered anyway"),
+        )
+        with mock.patch.object(qa_open, "TOOLS", (tool,)), patcher:
+            out = _run(qa_open.answer_open("q", voice=_VOICE))
+        self.assertEqual(out, "answered anyway")
+        self.assertEqual(tool_calls, [])
+        self.assertIn(
+            qa_open._BAD_ARGUMENTS_PAYLOAD, _tool_messages(calls[1]["messages"])[0]["content"]
+        )
+
+    def test_a_raising_tool_is_caught_and_the_answer_still_lands(self) -> None:
+        tool, tool_calls = _fake_tool(raises=True)
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_starter", '{"team": "CHI"}'),
+            _text("answered anyway"),
+        )
+        with mock.patch.object(qa_open, "TOOLS", (tool,)), patcher:
+            out = _run(qa_open.answer_open("q", voice=_VOICE))
+        self.assertEqual(out, "answered anyway")
+        self.assertEqual(len(tool_calls), 1)  # it ran, and it blew up
+        self.assertIn(qa_open._NO_DATA_PAYLOAD, _tool_messages(calls[1]["messages"])[0]["content"])
+
+    def test_a_tool_returning_none_feeds_the_no_data_payload_back(self) -> None:
+        tool, _ = _fake_tool(result=None)
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_starter", '{"team": "CHI"}'),
+            _text("answered anyway"),
+        )
+        with mock.patch.object(qa_open, "TOOLS", (tool,)), patcher:
+            _run(qa_open.answer_open("q", voice=_VOICE))
+        self.assertIn(qa_open._NO_DATA_PAYLOAD, _tool_messages(calls[1]["messages"])[0]["content"])
+
+    def test_round_cap_stops_the_loop_and_forces_one_final_tools_free_call(self) -> None:
+        tool, tool_calls = _fake_tool()
+        script = [
+            _tool_call_message("lookup_starter", '{"team": "CHI"}')
+        ] * qa_open._MAX_TOOL_ROUNDS
+        patcher, calls = _open_chat_returns(*script, _text("fine, here is the answer"))
+        with mock.patch.object(qa_open, "TOOLS", (tool,)), patcher:
+            out = _run(qa_open.answer_open("q", voice=_VOICE))
+        self.assertEqual(out, "fine, here is the answer")
+        # EXACTLY the cap in tool rounds, then EXACTLY ONE final tools-free call.
+        self.assertEqual(len(calls), qa_open._MAX_TOOL_ROUNDS + 1)
+        self.assertEqual(len(tool_calls), qa_open._MAX_TOOL_ROUNDS)
+        for call in calls[:-1]:
+            self.assertEqual(call["tools"], [tool.spec])
+        self.assertIsNone(calls[-1]["tools"])
+
+    def test_wall_clock_budget_breaks_out_before_another_tool_round(self) -> None:
+        tool, _ = _fake_tool()
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_starter", '{"team": "CHI"}'),
+            _text("out of time, here is the answer"),
+        )
+        # monotonic: entry (deadline), round 0 check (in budget), round 1 check (blown).
+        ticks = iter([0.0, 0.0, qa_open._TOOL_BUDGET_SECONDS + 1.0])
+
+        def _fake_monotonic() -> float:
+            return next(ticks, qa_open._TOOL_BUDGET_SECONDS + 99.0)
+
+        with (
+            mock.patch.object(qa_open, "TOOLS", (tool,)),
+            mock.patch.object(qa_open.time, "monotonic", _fake_monotonic),
+            patcher,
+        ):
+            out = _run(qa_open.answer_open("q", voice=_VOICE))
+        self.assertEqual(out, "out of time, here is the answer")
+        # One tool round, then the final tools-free call — never a second tool round.
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0]["tools"], [tool.spec])
+        self.assertIsNone(calls[1]["tools"])
+
+    def test_none_from_open_chat_in_the_first_round_returns_none(self) -> None:
+        tool, _ = _fake_tool()
+        patcher, calls = _open_chat_returns(None)
+        with mock.patch.object(qa_open, "TOOLS", (tool,)), patcher:
+            out = _run(qa_open.answer_open("q", voice=_VOICE))
+        self.assertIsNone(out)
+        self.assertEqual(len(calls), 1)
+
+    def test_none_from_open_chat_on_the_final_call_returns_none(self) -> None:
+        tool, _ = _fake_tool()
+        script = [
+            _tool_call_message("lookup_starter", '{"team": "CHI"}')
+        ] * qa_open._MAX_TOOL_ROUNDS
+        patcher, _calls = _open_chat_returns(*script, None)
+        with mock.patch.object(qa_open, "TOOLS", (tool,)), patcher:
+            out = _run(qa_open.answer_open("q", voice=_VOICE))
+        self.assertIsNone(out)
+
+    def test_a_raising_open_chat_mid_loop_never_escapes(self) -> None:
+        tool, _ = _fake_tool()
+        with mock.patch.object(qa_open, "TOOLS", (tool,)), _open_chat_raises():
+            out = _run(qa_open.answer_open("q", voice=_VOICE))
+        self.assertIsNone(out)
+
+
 if __name__ == "__main__":
     unittest.main()
