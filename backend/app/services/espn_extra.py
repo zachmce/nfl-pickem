@@ -14,12 +14,13 @@ Design — impure shell / pure never-raising core (mirrors :mod:`app.scoreboard.
   HTTP/timeout/non-200/parse error degrades to ``None`` (the caller shows a fixed degrade
   line, never an invented fact), and a Redis outage FAILS OPEN on both the read and the
   write. :func:`fetch_injuries`, :func:`fetch_news`, :func:`fetch_team_roster`,
-  :func:`fetch_athlete_stats` and :func:`fetch_athlete_search` are thin delegations
-  supplying their own URL, cache key, TTL and log label.
+  :func:`fetch_athlete_stats`, :func:`fetch_athlete_search` and :func:`fetch_league`
+  are thin delegations supplying their own URL, cache key, TTL and log label.
 * PURE: one parser per endpoint (:func:`parse_injuries`, :func:`parse_news`,
   :func:`parse_team_roster`, :func:`parse_athlete_stats`, :func:`parse_athlete_search`),
-  plus :func:`find_roster_athletes` resolving a name against a raw roster payload,
-  turning an already-parsed payload into facts. Defensive on EVERY field (isinstance
+  plus :func:`find_roster_athletes` resolving a name against a raw roster payload and
+  :func:`league_season_year` reading the season being played, turning an already-parsed
+  payload into facts. Defensive on EVERY field (isinstance
   guards, ``.get``, degrade to ``None``); never raises — this is what the offline tests
   exercise.
 
@@ -184,6 +185,24 @@ NFL_TEAM_DISPLAY_NAMES_UPPER = frozenset(
 def _athlete_search_cache_key(query: str) -> str:
     """The Redis key for one search query's cached result page."""
     return f"qa:search:athlete:{query}"
+
+
+# The public, no-auth ESPN league root — the ONE source of the season being played, on
+# every path (the stats payload carries no year, and D-1 forbids reading the app's own
+# ``Week`` table from the open path). This URL is a CONSTANT: unlike the roster's team and
+# the search's query, no segment of it is model-influenced, so there is nothing to
+# allowlist, encode or cap before it is requested. A third ESPN subdomain, which changes
+# nothing — still an ESPN edge, so still no custom User-Agent.
+LEAGUE_URL = "https://sports.core.api.espn.com/v2/sports/football/leagues/nfl"
+
+# The longest TTL in this module by an order of magnitude, because the value behind it
+# moves once a YEAR: six hours still refreshes it ~1,400 times per change, while capping
+# what a stale entry can cost at the one moment it can cost anything — the August rollover,
+# where a longer day-scale TTL would name last season as the one being played.
+LEAGUE_CACHE_TTL_SECONDS = 21600
+
+# A constant, not a builder: the league root takes no parameter, so its key takes none.
+_LEAGUE_CACHE_KEY = "qa:league:nfl"
 
 
 # The sentence the model is most likely to voice, so it is concrete and complete rather
@@ -654,13 +673,14 @@ def parse_team_roster(payload: Any, *, position: str | None = None) -> dict[str,
     }
 
 
-def roster_season_year(payload: Any) -> int | None:
-    """The season year a raw ``roster`` payload reports, or ``None``. Pure, never raises.
+def league_season_year(payload: Any) -> int | None:
+    """The season year the league root reports, or ``None``. Pure, never raises.
 
-    The ROSTER is the only source of the current season on this path: the stats payload
-    carries none (its ``filters`` expose only league and seasontype, measured), and D-1
-    forbids reading the app's own ``Week`` table from the open path. A payload without a
-    usable season block yields ``None`` so the caller can degrade rather than guess a year.
+    Reads the EXPLICIT top-level ``season.year`` integer (measured 2026-08-21: ``2026``).
+    The sibling ``$ref`` encodes the same year inside a URL and is deliberately not
+    parsed — a year picked out of a URL string is a guess about ESPN's path shape, and
+    this is the one value on the open path that must never be guessed. A payload without
+    a usable integer yields ``None`` so the caller degrades rather than naming a year.
     """
     if not isinstance(payload, dict):
         return None
@@ -1236,4 +1256,22 @@ async def fetch_athlete_search(name: Any) -> dict | None:
         cache_key=_athlete_search_cache_key(encoded),
         ttl_seconds=ATHLETE_SEARCH_CACHE_TTL_SECONDS,
         label="athlete_search",
+    )
+
+
+async def fetch_league() -> dict | None:
+    """Fetch the raw ESPN NFL league-root payload — best-effort.
+
+    A thin delegation to :func:`_fetch_cached` (cache-first, one GET, never raises,
+    fail-open Redis). Nothing runs before the request the way the roster's allowlist and
+    the search's encoding do, because there is no format string to run it before:
+    :data:`LEAGUE_URL` is whole and constant. :func:`league_season_year` reads the season
+    year out of the result; ``None`` here means the caller says nothing about the season
+    being played rather than naming one.
+    """
+    return await _fetch_cached(
+        LEAGUE_URL,
+        cache_key=_LEAGUE_CACHE_KEY,
+        ttl_seconds=LEAGUE_CACHE_TTL_SECONDS,
+        label="league",
     )

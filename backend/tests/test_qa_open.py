@@ -10,8 +10,9 @@ These tests NEVER touch a live LLM endpoint. Three seams are exercised:
   and PROVE the open path uses its OWN token cap / sampling knobs, is NOT fed the
   closer-variety chat directive, and still carries the mandatory
   ``chat_template_kwargs.enable_thinking = False``.
-* ``espn_extra.fetch_team_roster``, ``espn_extra.fetch_athlete_stats`` and
-  ``espn_extra.fetch_athlete_search`` are stubbed with captured payloads so the SHIPPED
+* ``espn_extra.fetch_team_roster``, ``espn_extra.fetch_athlete_stats``,
+  ``espn_extra.fetch_athlete_search`` and ``espn_extra.fetch_league`` are stubbed with
+  captured payloads (the last of them supplying the season being played) so the SHIPPED
   ``lookup_team_roster``, ``lookup_player_season_stats`` and
   ``lookup_player_current_team`` tools can be driven end to end — the proof that a
   current roster fact, a season figure ESPN publishes, and the club a player is on today
@@ -760,9 +761,8 @@ def _lar_roster() -> dict:
     the resolver only needs the one match.
     """
     return {
-        # The season block is the roster payload's own, measured 2026-08-20: it is the
-        # ONLY source of the season being played on this path (the stats payload has no
-        # current year, and D-1 forbids a database read).
+        # Kept because the live payload carries it and the roster TOOL reports it — the
+        # stats tool no longer reads it, and one test overwrites it with 1999 to prove so.
         "season": {"year": 2026, "displayName": "2026", "type": 1, "name": "Preseason"},
         "team": {"abbreviation": "LAR", "displayName": "Los Angeles Rams"},
         "athletes": [
@@ -785,6 +785,11 @@ def _lar_roster() -> dict:
 # A search page matching nobody — the default stub, so a test that does not care about
 # the off-roster fallback still performs no live GET through it.
 _NO_SEARCH_HITS: dict = {"results": []}
+
+# The league root trimmed to the ONE field the tool reads off it — the season being
+# played, which since 2026-08-21 reaches the tool from here on every path and not off
+# whichever roster a question happened to make it read.
+_LEAGUE_ROOT: dict = {"season": {"year": 2026, "displayName": "2026"}}
 
 
 def _pacheco_search() -> dict:
@@ -851,9 +856,17 @@ def _split_season_stats() -> dict:
 class StatsToolTests(unittest.TestCase):
     """The SHIPPED stats tool, end to end: the motivating question of issue #183."""
 
-    def _espn_returns(self, roster: object, stats: object, search: object = _NO_SEARCH_HITS):
-        """Stub all THREE hops. The search default is a page matching nobody, so a test
-        that does not care about the fallback still performs no live GET through it."""
+    def _espn_returns(
+        self,
+        roster: object,
+        stats: object,
+        search: object = _NO_SEARCH_HITS,
+        league: object = _LEAGUE_ROOT,
+    ):
+        """Stub all FOUR hops. The search default is a page matching nobody, so a test
+        that does not care about the fallback still performs no live GET through it; the
+        league default carries the season being played, which since 2026-08-21 comes from
+        there on EVERY path rather than off whichever roster happened to be read."""
 
         async def _fake_roster(team_abbr):
             return roster
@@ -864,22 +877,28 @@ class StatsToolTests(unittest.TestCase):
         async def _fake_search(name):
             return search
 
+        async def _fake_league():
+            return league
+
         return (
             mock.patch.object(espn_extra, "fetch_team_roster", _fake_roster),
             mock.patch.object(espn_extra, "fetch_athlete_stats", _fake_stats),
             mock.patch.object(espn_extra, "fetch_athlete_search", _fake_search),
+            mock.patch.object(espn_extra, "fetch_league", _fake_league),
         )
 
     def test_a_last_year_question_feeds_back_the_figure_and_the_year(self) -> None:
         stats = json.loads(_STATS_FIXTURE.read_text())
-        roster_patch, stats_patch, search_patch = self._espn_returns(_lar_roster(), stats)
+        roster_patch, stats_patch, search_patch, league_patch = self._espn_returns(
+            _lar_roster(), stats
+        )
         patcher, calls = _open_chat_returns(
             _tool_call_message(
                 "lookup_player_season_stats", '{"team": "LAR", "player": "Matt Stafford"}'
             ),
             _text("Stafford threw for 4,707 yards in the 2025 season."),
         )
-        with roster_patch, stats_patch, search_patch, patcher:
+        with roster_patch, stats_patch, search_patch, league_patch, patcher:
             out = _run(
                 qa_open.answer_open(
                     "how many yards did Matt Stafford throw for last year?", voice=_VOICE
@@ -897,9 +916,17 @@ class StatsToolTests(unittest.TestCase):
         self.assertIn("2025", body["season_statement"])
         self.assertIn("Matthew Stafford", body["season_statement"])
 
-    def _adapter(self, roster: object, stats: object, search: object = _NO_SEARCH_HITS, **kwargs):
-        roster_patch, stats_patch, search_patch = self._espn_returns(roster, stats, search)
-        with roster_patch, stats_patch, search_patch:
+    def _adapter(
+        self,
+        roster: object,
+        stats: object,
+        search: object = _NO_SEARCH_HITS,
+        league: object = _LEAGUE_ROOT,
+        **kwargs,
+    ):
+        patches = self._espn_returns(roster, stats, search, league)
+        roster_patch, stats_patch, search_patch, league_patch = patches
+        with roster_patch, stats_patch, search_patch, league_patch:
             return _run(qa_open._lookup_player_season_stats(**kwargs))
 
     def _stats(self) -> dict:
@@ -1053,10 +1080,13 @@ class StatsToolTests(unittest.TestCase):
         async def _never(name):
             raise AssertionError("the search must only run after the roster hop misses")
 
-        roster_patch, stats_patch, _ = self._espn_returns(_lar_roster(), self._stats())
+        roster_patch, stats_patch, _, league_patch = self._espn_returns(
+            _lar_roster(), self._stats()
+        )
         with (
             roster_patch,
             stats_patch,
+            league_patch,
             mock.patch.object(espn_extra, "fetch_athlete_search", _never),
         ):
             out = _run(qa_open._lookup_player_season_stats(team="LAR", player="Stafford"))
@@ -1150,26 +1180,55 @@ class StatsToolTests(unittest.TestCase):
         self.assertNotIn("official total", statement)
         self.assertNotIn("current_season_statement", out)
 
-    def test_an_older_season_asked_for_by_year_keeps_the_completed_statement(self) -> None:
-        # ESPN carries the current season here, so there is nothing to warn about — the
-        # completed-season statement stays exactly as it was.
+    def test_an_older_season_asked_for_by_year_is_still_told_it_is_finished(self) -> None:
+        # ESPN carries the current season here, so _NO_CURRENT_SEASON_STATEMENT does not
+        # fire and this branch is the one it does NOT cover. "Official total" alone was
+        # measured insufficient — the live invention was written with that very phrase in
+        # context — so the finish is stated outright on every past season, not just the
+        # ones the no-figures-yet statement happens to reach.
         out = self._adapter(
             _lar_roster(), _stats_with_a_2026_row(), team="LAR", player="Stafford", season=2024
         )
         assert isinstance(out, dict)
-        self.assertIn("official total for the 2024", out["season_statement"])
+        statement = out["season_statement"]
+        self.assertIn("official total for the 2024", statement)
+        self.assertIn("2024 NFL season is over and finished", statement)
+        self.assertIn("2026 NFL season is the one being played now", statement)
+        self.assertIn('never say the words "so far"', statement)
         self.assertNotIn("current_season_statement", out)
 
-    def test_a_roster_without_a_season_block_degrades_without_guessing_a_year(self) -> None:
-        # Every live roster payload carries the season block, so this is the defensive
-        # path: with no current season in hand the answer says nothing about one rather
-        # than working a year out for itself.
-        roster = _lar_roster()
-        del roster["season"]
-        out = self._adapter(roster, self._stats(), team="LAR", player="Stafford")
+    def test_a_season_still_being_played_is_never_called_finished(self) -> None:
+        # The clause above is for PAST seasons only; the season being played must never
+        # be handed both "so far" and "over and finished".
+        out = self._adapter(_lar_roster(), _stats_with_a_2026_row(), team="LAR", player="Stafford")
         assert isinstance(out, dict)
-        self.assertIn("official total for the 2025", out["season_statement"])
-        self.assertNotIn("current_season_statement", out)
+        self.assertNotIn("over and finished", out["season_statement"])
+
+    def test_an_unavailable_league_root_degrades_without_guessing_a_year(self) -> None:
+        # The ONE degrade for the season source, now that it has its own endpoint: with
+        # no current season in hand the answer says nothing about one rather than working
+        # a year out for itself. Both a failed fetch and an unusable payload land here.
+        for league in (None, {}, {"season": {"year": "2026"}}):
+            with self.subTest(league=league):
+                out = self._adapter(
+                    _lar_roster(), self._stats(), league=league, team="LAR", player="Stafford"
+                )
+                assert isinstance(out, dict)
+                self.assertIn("official total for the 2025", out["season_statement"])
+                self.assertNotIn("current_season_statement", out)
+                self.assertNotIn("over and finished", out["season_statement"])
+
+    def test_the_season_being_played_comes_from_the_league_root_not_the_roster(self) -> None:
+        # THE FIX (2026-08-21). The roster's own season block is now irrelevant to this
+        # tool, which is what lets the team-less path say exactly what this one says.
+        roster = _lar_roster()
+        roster["season"] = {"year": 1999}
+        out = self._adapter(
+            roster, self._stats(), league={"season": {"year": 2026}}, team="LAR", player="Stafford"
+        )
+        assert isinstance(out, dict)
+        self.assertIn("2026", out["current_season_statement"])
+        self.assertNotIn("1999", json.dumps(out))
 
     def test_a_failed_roster_fetch_returns_none(self) -> None:
         # Before the roster hop resolves anyone there is no identity to preserve, so the
@@ -1235,9 +1294,13 @@ class StatsToolTests(unittest.TestCase):
         async def _never_search(name):
             raise AssertionError("no fetch may be attempted without a player name")
 
+        async def _never_league():
+            raise AssertionError("no fetch may be attempted without a player name")
+
         with (
             mock.patch.object(espn_extra, "fetch_team_roster", _never_roster),
             mock.patch.object(espn_extra, "fetch_athlete_search", _never_search),
+            mock.patch.object(espn_extra, "fetch_league", _never_league),
         ):
             self.assertIsNone(_run(qa_open._lookup_player_season_stats()))
             self.assertIsNone(_run(qa_open._lookup_player_season_stats(team="LAR")))
@@ -1253,7 +1316,14 @@ class TeamlessStatsToolTests(unittest.TestCase):
     proves no roster fetch is made merely to resolve an id.
     """
 
-    def _teamless(self, stats: object, search: object, player: str = "Isiah Pacheco", **kwargs):
+    def _teamless(
+        self,
+        stats: object,
+        search: object,
+        player: str = "Isiah Pacheco",
+        league: object = _LEAGUE_ROOT,
+        **kwargs,
+    ):
         async def _never_roster(team_abbr):
             raise AssertionError("a team-less question must never cost a roster fetch")
 
@@ -1263,10 +1333,14 @@ class TeamlessStatsToolTests(unittest.TestCase):
         async def _fake_search(name):
             return search
 
+        async def _fake_league():
+            return league
+
         with (
             mock.patch.object(espn_extra, "fetch_team_roster", _never_roster),
             mock.patch.object(espn_extra, "fetch_athlete_stats", _fake_stats),
             mock.patch.object(espn_extra, "fetch_athlete_search", _fake_search),
+            mock.patch.object(espn_extra, "fetch_league", _fake_league),
         ):
             return _run(qa_open._lookup_player_season_stats(player=player, **kwargs))
 
@@ -1290,14 +1364,30 @@ class TeamlessStatsToolTests(unittest.TestCase):
         self.assertIn("Los Angeles Rams in the 2025 season", out["season_statement"])
         self.assertNotIn("Detroit", json.dumps(out))
 
-    def test_the_unfinished_season_statements_are_skipped_rather_than_guessed(self) -> None:
-        # ESPN's own current year reaches this tool ONLY through a roster payload, and a
-        # team-less question reads none. Saying nothing about the season being played is
-        # the honest degrade; working a year out here would be the invented one.
+    def test_the_team_less_path_carries_the_same_season_currency_statements(self) -> None:
+        # THE LIVE DEFECT (2026-08-21). The current year used to reach this tool ONLY
+        # through a roster payload, so a team-less question got none, both statements
+        # below were skipped, and the model filled the silence: "4,707 yards in 2025,
+        # since that season is still being played". It was finished. The year now comes
+        # from the league root, which needs no team, so this path states what the other
+        # one states — and this test is that equality, asserted on the team-less side.
         out = self._teamless(self._stats(), _pacheco_search())
         assert isinstance(out, dict)
         self.assertEqual(out["season"], 2025)
+        statement = out["season_statement"]
+        self.assertIn("official total for the 2025", statement)
+        self.assertIn("2025 NFL season is over and finished", statement)
+        self.assertIn("Never say that the 2025 season is still being played", statement)
+        self.assertIn("2026", out["current_season_statement"])
+        self.assertIn("no figures at all for Isiah Pacheco", out["current_season_statement"])
+
+    def test_an_unavailable_league_root_still_degrades_on_the_team_less_path(self) -> None:
+        # Requirement 3: when the source is gone, the tool says nothing about the season
+        # being played on EITHER path. Never a guessed year.
+        out = self._teamless(self._stats(), _pacheco_search(), league=None)
+        assert isinstance(out, dict)
         self.assertIn("official total for the 2025", out["season_statement"])
+        self.assertNotIn("over and finished", out["season_statement"])
         self.assertNotIn("current_season_statement", out)
 
     def test_more_than_one_nfl_match_returns_the_candidates_and_no_statistics(self) -> None:

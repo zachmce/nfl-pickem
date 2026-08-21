@@ -101,6 +101,28 @@ def _pacheco_search() -> dict:
     }
 
 
+def _league_root() -> dict:
+    """The ESPN league root, trimmed to the block :func:`league_season_year` reads.
+
+    Measured live 2026-08-21: HTTP 200, 11,969 bytes, an explicit top-level
+    ``season.year`` of 2026. The ``$ref`` is kept and deliberately points at a DIFFERENT
+    year from the field beside it, so a test can tell "read the integer" apart from
+    "parsed the URL" — which no live payload could, since the two always agree there.
+    """
+    return {
+        "id": "28",
+        "name": "National Football League",
+        "season": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025",
+            "year": 2026,
+            "startDate": "2026-08-06T07:00Z",
+            "endDate": "2027-02-16T07:59Z",
+            "displayName": "2026",
+            "type": {"id": "1", "name": "Preseason", "year": 2026},
+        },
+    }
+
+
 def _load_stats_fixture() -> dict:
     """Matthew Stafford's real career table, trimmed to passing + defensive, 2024-2025.
 
@@ -1548,11 +1570,13 @@ class FetchAthleteSearchTests(unittest.TestCase):
         self.assertEqual(fake.sets, [])
 
 
-class RosterSeasonYearTests(unittest.TestCase):
-    def test_the_captured_roster_reports_the_season_being_played(self) -> None:
-        # The roster is the ONLY source of the current season on the stats path: the
-        # stats payload carries none and D-1 forbids a database read.
-        self.assertEqual(espn_extra.roster_season_year(_load_roster_fixture()), 2026)
+class LeagueSeasonYearTests(unittest.TestCase):
+    def test_the_explicit_year_field_is_read_and_the_ref_url_is_not_parsed(self) -> None:
+        # The league root is the ONE source of the current season: the stats payload
+        # carries none and D-1 forbids a database read. The ``$ref`` beside the year
+        # encodes 2025 here ON PURPOSE — reading it would be a guess about ESPN's path
+        # shape, and this is the value that must never be guessed.
+        self.assertEqual(espn_extra.league_season_year(_league_root()), 2026)
 
     def test_a_payload_without_a_usable_season_block_returns_none(self) -> None:
         for bogus in (
@@ -1562,9 +1586,86 @@ class RosterSeasonYearTests(unittest.TestCase):
             {"season": "2026"},
             {"season": {"year": "2026"}},
             {"season": {"year": True}},
+            {"season": {"$ref": "http://x/seasons/2026?lang=en"}},
         ):
             with self.subTest(payload=bogus):
-                self.assertIsNone(espn_extra.roster_season_year(bogus))
+                self.assertIsNone(espn_extra.league_season_year(bogus))
+
+
+class FetchLeagueTests(unittest.TestCase):
+    """The league-root fetch: one constant URL through the shared cache-and-fetch shell."""
+
+    def _arm_client(self, response: object) -> None:
+        _CapturingAsyncClient.calls = 0
+        _CapturingAsyncClient.last_url = None
+        _CapturingAsyncClient.last_headers = _NEVER_CALLED
+        _CapturingAsyncClient.last_init_kwargs = None
+        _CapturingAsyncClient._response = response
+
+    def test_cache_miss_issues_one_get_on_the_constant_core_api_url(self) -> None:
+        payload = _league_root()
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(200, payload))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            out = _run(espn_extra.fetch_league())
+        self.assertEqual(out, payload)
+        self.assertEqual(_CapturingAsyncClient.calls, 1)
+        # No format string, no parameter, no model-influenced segment — the whole URL is
+        # the constant, so the request target cannot vary at all.
+        self.assertEqual(
+            _CapturingAsyncClient.last_url,
+            "https://sports.core.api.espn.com/v2/sports/football/leagues/nfl",
+        )
+        self.assertIsNone(_CapturingAsyncClient.last_headers)
+        self.assertEqual(
+            _CapturingAsyncClient.last_init_kwargs, {"timeout": espn_extra.DEFAULT_TIMEOUT}
+        )
+
+    def test_cache_miss_writes_the_league_key_and_the_long_ttl(self) -> None:
+        payload = _league_root()
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(200, payload))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            _run(espn_extra.fetch_league())
+        self.assertEqual(len(fake.sets), 1)
+        key, value, ex = fake.sets[0]
+        self.assertEqual(key, espn_extra._LEAGUE_CACHE_KEY)
+        self.assertEqual(json.loads(value), payload)
+        # Hours, not the ten minutes the news and injury feeds take: the year behind this
+        # key moves once a season, so a per-question refetch would be pure waste.
+        self.assertEqual(ex, espn_extra.LEAGUE_CACHE_TTL_SECONDS)
+        self.assertGreaterEqual(espn_extra.LEAGUE_CACHE_TTL_SECONDS, 3600)
+
+    def test_cache_hit_returns_payload_without_http(self) -> None:
+        payload = _league_root()
+        fake = _FakeRedis({espn_extra._LEAGUE_CACHE_KEY: json.dumps(payload)})
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient):
+            self.assertEqual(_run(espn_extra.fetch_league()), payload)
+        self.assertEqual(fake.sets, [])
+
+    def test_a_non_200_degrades_to_none(self) -> None:
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(503, {}))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            self.assertIsNone(_run(espn_extra.fetch_league()))
+        self.assertEqual(fake.sets, [])
+
+    def test_http_error_degrades_to_none(self) -> None:
+        fake = _FakeRedis()
+
+        class _BoomClient(_CapturingAsyncClient):
+            async def get(self, url, *, headers=None):
+                raise httpx.ConnectError("boom")
+
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _BoomClient):
+            self.assertIsNone(_run(espn_extra.fetch_league()))
+        self.assertEqual(fake.sets, [])
+
+    def test_a_redis_outage_fails_open_on_both_the_read_and_the_write(self) -> None:
+        payload = _league_root()
+        self._arm_client(_FakeResponse(200, payload))
+        with _redis_raises(), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            self.assertEqual(_run(espn_extra.fetch_league()), payload)
 
 
 class GamesPlayedTests(unittest.TestCase):

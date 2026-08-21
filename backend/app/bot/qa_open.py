@@ -252,13 +252,16 @@ async def _lookup_player_season_stats(
     athlete id, one to fetch the career table, and no roster fetch merely to obtain an id.
 
     With a team in hand the roster hop runs first, unchanged: it is cached and often
-    already warm from a roster question, it is the ONLY source of the season being played
-    now (the stats payload carries no current year and D-1 forbids reading the app's own
-    tables from here), and it reads the RAW payload because
+    already warm from a roster question, and it reads the RAW payload because
     :func:`~app.services.espn_extra.parse_team_roster` drops the id on purpose (D-7). A
     roster miss still falls through to :func:`_resolve_off_roster`, which is how a player
     asked about on the team he PLAYED that season for still resolves. No id ever comes
     from the model on either path.
+
+    The season being played comes from neither hop. It is read from ESPN's league root
+    (:func:`~app.services.espn_extra.fetch_league`), which needs no team and so answers
+    both paths identically — the fix for the live 2026-08-21 defect, where a team-less
+    question read no roster, got no year, and the model invented one.
 
     Every argument defaults so a model that forgets one degrades rather than raising a
     TypeError into the loop. A resolution miss returns a NOTE dict, never ``None``,
@@ -282,12 +285,8 @@ async def _lookup_player_season_stats(
         matches = espn_extra.find_roster_athletes(roster, asked_for)
         if matches is None:
             return None
-        current_season = espn_extra.roster_season_year(roster)
     else:
-        # No roster was read, so nothing here knows which season is being played; the
-        # unfinished-season statements below are skipped rather than guessed at.
         matches = []
-        current_season = None
 
     if len(matches) > 1:
         candidates = [str(match["display_name"]) for match in matches]
@@ -343,8 +342,15 @@ async def _lookup_player_season_stats(
         )
         return facts
 
+    # ONE source for the season being played, read on BOTH paths so neither can produce a
+    # statement the other cannot. It came off the ROSTER until 2026-08-21, so a team-less
+    # question had no year, both statements below were skipped, and the model filled that
+    # silence with "since that season is still being played" about a finished season.
+    # Read here, after the figures are in hand, so no resolution miss costs a request.
+    current_season = espn_extra.league_season_year(await espn_extra.fetch_league())
+
     if current_season is not None and selected >= current_season:
-        # ``>=`` and not ``==``: a row ahead of the roster's own year is still a season
+        # ``>=`` and not ``==``: a row ahead of the league's own year is still a season
         # nobody has finished, so it must not be called an official total either.
         statement = _CURRENT_SEASON_STATEMENT.format(player=name, season=selected)
         games = espn_extra.games_played(facts["stats"])
@@ -352,10 +358,12 @@ async def _lookup_player_season_stats(
             statement += _GAMES_PLAYED_CLAUSE.format(games=games, season=selected)
     else:
         statement = _SEASON_STATEMENT.format(player=name, season=selected)
-        if current_season is not None and current_season not in facts["available_seasons"]:
-            facts["current_season_statement"] = _NO_CURRENT_SEASON_STATEMENT.format(
-                player=name, current=current_season, season=selected
-            )
+        if current_season is not None:
+            statement += _FINISHED_SEASON_CLAUSE.format(season=selected, current=current_season)
+            if current_season not in facts["available_seasons"]:
+                facts["current_season_statement"] = _NO_CURRENT_SEASON_STATEMENT.format(
+                    player=name, current=current_season, season=selected
+                )
     facts["season_statement"] = statement + _season_team_clause(
         name, selected, facts["season_teams"]
     )
@@ -483,8 +491,8 @@ _UNKNOWN_SEASON_TEAM_CLAUSE = (
 # Gap 2, measured 2026-08-20: ESPN's newest row for Mahomes was 2025 while the season
 # being played was 2026, so "how many yards has he thrown this year" silently answered
 # about a different season — and mid-season the trap inverts, because a partial current
-# season row would be narrated as an official total. The current year comes from the
-# roster payload (the stats payload carries none), so both cases can be told apart.
+# season row would be narrated as an official total. The current year comes from ESPN's
+# league root (the stats payload carries none), so both cases can be told apart.
 _CURRENT_SEASON_STATEMENT = (
     "Every figure below is {player}'s total SO FAR in the {season} NFL season, which is "
     "the season being played right now and is not finished, so say {season} when you "
@@ -492,6 +500,17 @@ _CURRENT_SEASON_STATEMENT = (
     "season's total."
 )
 _GAMES_PLAYED_CLAUSE = " He has played {games} games in the {season} season so far."
+# THE FIX for the live 2026-08-21 defect: handed a finished season and no statement about
+# which season is being played, the model wrote its own — "since that season is still
+# being played" about 2025. _SEASON_STATEMENT already called those figures an official
+# total and that did not stop it, so the finish is now SAID, on every past season and not
+# only the ones _NO_CURRENT_SEASON_STATEMENT covers. Unconditional in wording, because a
+# caveat the model has to decide whether to apply is a caveat it drops (measured 3/3).
+_FINISHED_SEASON_CLAUSE = (
+    " The {season} NFL season is over and finished, and the {current} NFL season is the "
+    "one being played now. Never say that the {season} season is still being played, and "
+    'never say the words "so far" about any figure below.'
+)
 # Live-measured 2026-08-20: the FIRST wording made this conditional ("if the member was
 # asking about this season..."), and the model did not evaluate the condition — 3/3 it
 # answered "3,587 yards SO FAR in the 2025 season" to a "this year" question and never
