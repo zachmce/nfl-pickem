@@ -9,16 +9,15 @@ most here, so on-demand is always fresh (design:
 
 Design — impure shell / pure never-raising core (mirrors :mod:`app.scoreboard.espn`):
 
-* IMPURE: ONE shell, :func:`_fetch_cached`, serves EVERY endpoint — cache-first, then a
-  single ``httpx`` GET, then a best-effort cache write. It NEVER raises: any
-  HTTP/timeout/non-200/parse error degrades to ``None`` (the caller shows a fixed degrade
-  line, never an invented fact), and a Redis outage FAILS OPEN on both the read and the
-  write. :func:`fetch_game_summary`, :func:`fetch_news`, :func:`fetch_team_roster`,
-  :func:`fetch_athlete_stats`, :func:`fetch_athlete_search`, :func:`fetch_league`,
-  :func:`fetch_team_schedule` and :func:`fetch_postseason_scoreboard` are thin
-  delegations supplying their own URL, cache key, TTL and log label. :func:`fetch_injuries` delegates one step further, to
-  :func:`fetch_game_summary`, so the injuries path and the game-leaders path share ONE
-  Redis entry rather than fetching the same 635 KB payload twice (D-8).
+* IMPURE: ONE shell, :func:`_fetch_cached`, serves EVERY endpoint by delegating to
+  :func:`app.services.http_cache.fetch_cached`, which owns the contract (cache-first, one
+  GET, never raises, fail-open Redis). :func:`fetch_game_summary`, :func:`fetch_news`,
+  :func:`fetch_team_roster`, :func:`fetch_athlete_stats`, :func:`fetch_athlete_search`,
+  :func:`fetch_league`, :func:`fetch_team_schedule` and :func:`fetch_postseason_scoreboard`
+  are thin delegations supplying their own URL, cache key, TTL and log label.
+  :func:`fetch_injuries` delegates one step further, to :func:`fetch_game_summary`, so the
+  injuries path and the game-leaders path share ONE Redis entry rather than fetching the
+  same 635 KB payload twice (D-8).
 * PURE: one parser per endpoint (:func:`parse_injuries`, :func:`parse_news`,
   :func:`parse_team_roster`, :func:`parse_athlete_stats`, :func:`parse_athlete_search`,
   :func:`parse_team_schedule`, :func:`parse_game_leaders`,
@@ -38,16 +37,15 @@ imports THIS seam for the HTTP+cache, staying itself HTTP-free.
 
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
 from urllib.parse import quote
 
-import httpx
 import structlog
 
 from app.config import settings
 from app.seeds.teams import NFL_TEAMS
+from app.services import http_cache
 
 logger = structlog.get_logger(__name__)
 
@@ -59,7 +57,8 @@ logger = structlog.get_logger(__name__)
 # scoreboard we already poll). One call carries BOTH teams' injuries (+ game news).
 SUMMARY_URL = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event={event_id}"
 
-DEFAULT_TIMEOUT = 10.0
+# One source of truth for the timeout — the shared shell owns the value.
+DEFAULT_TIMEOUT = http_cache.DEFAULT_TIMEOUT
 
 # Short Redis cache: freshness matters for injuries, but ~10 min cushions repeat asks
 # so a flurry of questions on the same game is ONE upstream call.
@@ -2144,86 +2143,20 @@ def _redis_client():
     return aioredis.Redis.from_url(settings.redis_url)
 
 
-async def _cache_read(key: str, *, label: str) -> dict | None:
-    """Return the cached payload at ``key``, or ``None`` (FAIL-OPEN).
-
-    Best-effort: any Redis/JSON error logs a warning and returns ``None`` so the
-    caller degrades to a live fetch. A missing key also returns ``None``.
-    """
-    try:
-        client = _redis_client()
-        try:
-            raw = await client.get(key)
-        finally:
-            await client.aclose()
-        if raw is None:
-            return None
-        parsed = json.loads(raw)
-        return parsed if isinstance(parsed, dict) else None
-    except Exception:
-        logger.warning(f"{label}_cache_get_failed", key=key, exc_info=True)
-        return None
-
-
-async def _cache_write(key: str, payload: dict, *, ttl_seconds: int, label: str) -> None:
-    """Best-effort write of ``payload`` under ``key`` + ``ttl_seconds``.
-
-    FAIL-OPEN: any Redis/JSON error logs a warning and returns normally — a cache
-    outage must NOT block the fetch that already succeeded.
-    """
-    try:
-        client = _redis_client()
-        try:
-            await client.set(key, json.dumps(payload), ex=ttl_seconds)
-        finally:
-            await client.aclose()
-    except Exception:
-        logger.warning(f"{label}_cache_set_failed", key=key, exc_info=True)
-
-
 async def _fetch_cached(url: str, *, cache_key: str, ttl_seconds: int, label: str) -> dict | None:
-    """Cache-first GET of ``url`` returning the parsed JSON dict, or ``None``.
-
-    The ONE fetch-and-cache shell behind every endpoint in this module. On a cache HIT
-    the cached payload is returned WITHOUT any HTTP call; on a MISS it performs EXACTLY
-    one ``httpx`` GET and best-effort writes the raw payload back under ``cache_key``.
-
-    NEVER raises: any HTTP/timeout/non-200/parse error degrades to ``None`` (the caller
-    shows a fixed degrade line, never an invented fact), and a Redis outage on either
-    the read or the write fails open. A payload that is not a dict returns ``None``
-    and is NOT cached.
-
-    NO custom User-Agent — mirrors ``app.scoreboard.espn`` (see the long note there).
-    ESPN's edge 403s branded UAs and allows recognized client defaults, so we let httpx
-    send its own ``python-httpx/x.y.z``. Do NOT reintroduce a custom UA on ESPN hosts.
-    ``DEFAULT_TIMEOUT`` is explicit so a hung ESPN response cannot block the bot loop.
-    No credentials are ever sent — these are public, outbound-only GETs.
-
-    ``label`` prefixes every emitted structlog event, so each endpoint keeps its own
-    ``<label>_cache_get_failed`` / ``_cache_set_failed`` / ``_fetch_non_200`` /
-    ``_fetch_failed`` names. The failure events carry ``cache_key``, which already
-    embeds the event id or the limit, so no debugging detail is lost.
+    """Cache-first GET of ``url``, or ``None`` — every ESPN endpoint's one entry point.
+    The contract lives in :func:`app.services.http_cache.fetch_cached`. NO headers are
+    sent: ESPN's edge 403s a branded User-Agent (PR #171) — do NOT reintroduce one here.
     """
-    cached = await _cache_read(cache_key, label=label)
-    if cached is not None:
-        return cached
-
-    try:
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            response = await client.get(url)
-        if response.status_code != 200:
-            logger.warning(f"{label}_fetch_non_200", status_code=response.status_code)
-            return None
-        payload = response.json()
-    except Exception:
-        logger.warning(f"{label}_fetch_failed", key=cache_key, exc_info=True)
-        return None
-
-    if not isinstance(payload, dict):
-        return None
-
-    await _cache_write(cache_key, payload, ttl_seconds=ttl_seconds, label=label)
-    return payload
+    # ``_redis_client`` is read from the module HERE, at call time, so the tests' patch
+    # of this module's seam still takes effect (a default argument would defeat it).
+    return await http_cache.fetch_cached(
+        url,
+        cache_key=cache_key,
+        ttl_seconds=ttl_seconds,
+        label=label,
+        redis_client=_redis_client,
+    )
 
 
 async def fetch_game_summary(event_id: Any) -> dict | None:
