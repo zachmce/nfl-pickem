@@ -14,6 +14,8 @@ Three layers are exercised, all fully OFFLINE (no network socket, no Redis socke
   ``_redis_client`` seam monkeypatched (mirroring ``tests/test_espn_extra.py``) to
   prove cache HIT (no HTTP), cache MISS (HTTP + cache write), best-effort ``None`` on
   a fetch/non-200 failure, and Redis fail-open on the read.
+  It also pins the BRANDED ``User-Agent`` this seam sends: Open-Meteo accepts one,
+  unlike ESPN's edge, which 403s a branded agent (PR #171).
 
 One OPTIONAL live Open-Meteo smoke test is SKIPPED unless ``RUN_WEATHER_LIVE`` is set
 (mirrors ``tests/test_espn_extra.py``'s ``RUN_ESPN_LIVE`` gate).
@@ -61,10 +63,15 @@ class _FakeResponse:
         return self._payload
 
 
+_NEVER_CALLED = "<never called>"
+
+
 class _CapturingAsyncClient:
     """A stand-in for ``httpx.AsyncClient`` that records the GET and returns a canned response."""
 
     last_url: str | None = None
+    # Sentinel-initialised so "headers was None" is distinguishable from "get never ran".
+    last_headers: object = _NEVER_CALLED
     calls: int = 0
     _response: object = None
 
@@ -80,6 +87,7 @@ class _CapturingAsyncClient:
     async def get(self, url, *, headers=None):
         type(self).calls += 1
         type(self).last_url = url
+        type(self).last_headers = headers
         return self._response
 
 
@@ -357,6 +365,21 @@ class FetchForecastTests(unittest.TestCase):
             out = _run(weather.fetch_forecast(3.0, 4.0))
         self.assertEqual(out, payload)
         self.assertEqual(_CapturingAsyncClient.calls, 1)
+
+    def test_open_meteo_get_carries_the_branded_user_agent(self) -> None:
+        # Open-Meteo ACCEPTS a branded agent and this seam has always sent one. ESPN's
+        # edge does the opposite (403), so the agent must never become a shared default.
+        # The sentinel is armed first, so a GET that never ran cannot pass as "no agent".
+        payload = _load_fixture()
+        fake = _FakeRedis()
+        _CapturingAsyncClient.calls = 0
+        _CapturingAsyncClient.last_headers = _NEVER_CALLED
+        _CapturingAsyncClient._response = _FakeResponse(200, payload)
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            out = _run(weather.fetch_forecast(5.0, 6.0))
+        self.assertEqual(out, payload)
+        self.assertEqual(_CapturingAsyncClient.calls, 1)
+        self.assertEqual(_CapturingAsyncClient.last_headers, {"User-Agent": weather._USER_AGENT})
 
 
 @unittest.skipUnless(

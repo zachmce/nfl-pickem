@@ -22,11 +22,10 @@ Design — impure shell / pure never-raising core (mirrors :mod:`app.services.es
   single metric degrades to ``None`` (never invented) while a usable hour still returns
   the dict; an unusable shape / an absent hour / all-missing metrics returns ``None``.
   Never raises — this is what the offline unit tests exercise.
-* IMPURE: :func:`fetch_forecast` — a best-effort async shell that first consults a
-  short-TTL Redis cache (location-scoped key), else GETs the Open-Meteo ``forecast``
-  endpoint over ``httpx`` (no API key) and writes the raw payload back to the cache. It
-  NEVER raises: any HTTP/timeout/non-200 degrades to ``None`` (the caller shows a fixed
-  degrade line, never an invented forecast), and a Redis outage FAILS OPEN.
+* IMPURE: :func:`fetch_forecast` — a thin delegation to
+  :func:`app.services.http_cache.fetch_cached`, which owns the contract (cache-first on a
+  location-scoped key, one GET, never raises, fail-open Redis). This seam supplies the
+  Open-Meteo URL (no API key) and its own branded ``User-Agent``.
 
 This module imports NO ``discord`` and lives on the Discord-free side: the qa.py brain
 imports THIS seam for the coordinate lookup + HTTP + cache, staying itself HTTP-free.
@@ -34,15 +33,14 @@ imports THIS seam for the coordinate lookup + HTTP + cache, staying itself HTTP-
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-import httpx
 import structlog
 
 from app.config import settings
+from app.services import http_cache
 
 logger = structlog.get_logger(__name__)
 
@@ -66,8 +64,8 @@ FORECAST_URL = (
 # A plain outbound-only UA (mirror espn_extra ``_USER_AGENT``); no credentials sent.
 _USER_AGENT = "nfl-pickem-qa/1.0 (dev tooling; httpx)"
 
-# Explicit timeout so a hung/slow Open-Meteo response cannot block the bot loop.
-DEFAULT_TIMEOUT = 10.0
+# One source of truth for the timeout — the shared shell owns the value.
+DEFAULT_TIMEOUT = http_cache.DEFAULT_TIMEOUT
 
 # Short Redis cache: forecast improves near kickoff, so a ~30 min TTL cushions repeat
 # asks for the same stadium into ONE upstream call without going stale.
@@ -248,77 +246,19 @@ def _redis_client():
     return aioredis.Redis.from_url(settings.redis_url)
 
 
-async def _cache_get(lat: float, lon: float) -> dict | None:
-    """Return the cached forecast payload for a location, or ``None`` (FAIL-OPEN).
-
-    Best-effort: any Redis/JSON error logs a warning and returns ``None`` so the
-    caller degrades to a live fetch. A missing key also returns ``None``.
-    """
-    try:
-        client = _redis_client()
-        try:
-            raw = await client.get(_cache_key(lat, lon))
-        finally:
-            await client.aclose()
-        if raw is None:
-            return None
-        parsed = json.loads(raw)
-        return parsed if isinstance(parsed, dict) else None
-    except Exception:
-        logger.warning("weather_cache_get_failed", lat=lat, lon=lon, exc_info=True)
-        return None
-
-
-async def _cache_set(lat: float, lon: float, payload: dict) -> None:
-    """Best-effort write of ``payload`` to the cache under the location key + TTL.
-
-    FAIL-OPEN: any Redis/JSON error logs a warning and returns normally — a cache
-    outage must NOT block the fetch that already succeeded.
-    """
-    try:
-        client = _redis_client()
-        try:
-            await client.set(
-                _cache_key(lat, lon),
-                json.dumps(payload),
-                ex=WEATHER_CACHE_TTL_SECONDS,
-            )
-        finally:
-            await client.aclose()
-    except Exception:
-        logger.warning("weather_cache_set_failed", lat=lat, lon=lon, exc_info=True)
-
-
 async def fetch_forecast(lat: float, lon: float) -> dict | None:
     """Fetch the raw Open-Meteo forecast payload for a location — best-effort.
-
-    Cache-first: on a cache HIT the cached payload is returned WITHOUT any HTTP call.
-    On a MISS it performs ONE ``httpx`` GET to the Open-Meteo ``forecast`` endpoint
-    (explicit ~10s timeout), returns the parsed JSON dict, and best-effort writes the
-    raw payload back to the cache. NEVER raises: any HTTP/timeout/non-200/parse error
-    degrades to ``None`` (the caller shows a fixed degrade line, never an invented
-    forecast); a Redis outage on either the read or the write fails open (the read
-    degrades to a live fetch, the write is skipped). ``lat``/``lon`` come ONLY from the
-    static STADIUMS table — never from user text (SSRF-safe, T-29v-02).
+    The contract lives in :func:`app.services.http_cache.fetch_cached`. Open-Meteo gets
+    this module's branded ``User-Agent``; ``lat``/``lon`` come ONLY from the static
+    STADIUMS table, never from user text (SSRF-safe, T-29v-02).
     """
-    cached = await _cache_get(lat, lon)
-    if cached is not None:
-        return cached
-
-    url = FORECAST_URL.format(lat=lat, lon=lon)
-    try:
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            response = await client.get(url, headers={"User-Agent": _USER_AGENT})
-        if response.status_code != 200:
-            logger.warning("weather_fetch_non_200", status_code=response.status_code)
-            return None
-        payload = response.json()
-    except Exception:
-        logger.warning("weather_fetch_failed", lat=lat, lon=lon, exc_info=True)
-        return None
-
-    if not isinstance(payload, dict):
-        return None
-
-    await _cache_set(lat, lon, payload)
-    return payload
+    # ``_redis_client`` is read from the module HERE, at call time, so the tests' patch
+    # of this module's seam still takes effect (a default argument would defeat it).
+    return await http_cache.fetch_cached(
+        FORECAST_URL.format(lat=lat, lon=lon),
+        cache_key=_cache_key(lat, lon),
+        ttl_seconds=WEATHER_CACHE_TTL_SECONDS,
+        label="weather",
+        redis_client=_redis_client,
+        headers={"User-Agent": _USER_AGENT},
+    )
