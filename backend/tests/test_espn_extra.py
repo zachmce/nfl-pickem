@@ -47,6 +47,8 @@ _NEWS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_news.json"
 _ROSTER_FIXTURE = Path(__file__).parent / "fixtures" / "espn_team_roster.json"
 _STATS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_athlete_stats.json"
 _SEARCH_FIXTURE = Path(__file__).parent / "fixtures" / "espn_athlete_search.json"
+_SCHEDULE_FIXTURE = Path(__file__).parent / "fixtures" / "espn_team_schedule.json"
+_GAME_LEADERS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_game_leaders.json"
 
 # The DISTINCTIVE KC headline the no-rephrasing regression asserts survives byte-for-byte.
 _KC_HEADLINE = "Patrick Mahomes throws for 5 touchdowns as Chiefs storm past Bills 38-20"
@@ -66,6 +68,23 @@ def _load_news_fixture() -> dict:
 
 def _load_roster_fixture() -> dict:
     return json.loads(_ROSTER_FIXTURE.read_text())
+
+
+def _load_schedule_fixture() -> dict:
+    """KC's REAL 2025 regular-season schedule, captured 2026-08-21 and trimmed to weeks
+    1, 9, 11 and 18 (9 and 11 straddle KC's real week-10 bye) plus ONE hand-added
+    synthetic week-19 event that is not completed, so the not-yet-played branch has a
+    case without a second capture. The misleading top-level ``season`` block is kept
+    VERBATIM as a decoy: it claims 2026 Preseason on a request that returned 2025."""
+    return json.loads(_SCHEDULE_FIXTURE.read_text())
+
+
+def _load_game_leaders_fixture() -> dict:
+    """The REAL summary leaders for KC at LV, 2025 week 18, captured 2026-08-21 and cut
+    to the keys the parser reads. The two scores are replaced with the SENTINELS 9991
+    and 9992, which is how D-2's never-read rule becomes an assertion rather than a
+    comment."""
+    return json.loads(_GAME_LEADERS_FIXTURE.read_text())
 
 
 def _load_search_fixture() -> dict:
@@ -1678,6 +1697,59 @@ class GamesPlayedTests(unittest.TestCase):
         for bogus in (None, [], {}, {"Passing": "nope"}, {"Passing": {"Passing Yards": "462"}}):
             with self.subTest(stats=bogus):
                 self.assertIsNone(espn_extra.games_played(bogus))
+
+
+# --------------------------------------------------------------------------- #
+# Team schedule + game leaders (Route D of issue #183).
+# --------------------------------------------------------------------------- #
+
+
+class ParseTeamScheduleTests(unittest.TestCase):
+    def test_no_week_selects_the_most_recent_completed_game(self) -> None:
+        out = espn_extra.parse_team_schedule(_load_schedule_fixture())
+        assert out is not None
+        assert out["game"] is not None
+        self.assertEqual(out["game"]["event_id"], "401772957")
+        self.assertEqual(out["game"]["week"], 18)
+        self.assertEqual(out["game"]["name"], "Kansas City Chiefs at Las Vegas Raiders")
+        self.assertTrue(out["game"]["completed"])
+        self.assertEqual(out["team"], "Kansas City Chiefs")
+
+    def test_the_season_comes_from_requested_season_and_never_from_the_decoy(self) -> None:
+        # The fixture's own top-level ``season`` block says 2026 Preseason on a payload
+        # that carries 2025's games. ``requestedSeason`` is the authoritative echo.
+        fixture = _load_schedule_fixture()
+        self.assertEqual(fixture["season"]["year"], 2026)
+        out = espn_extra.parse_team_schedule(fixture)
+        assert out is not None
+        self.assertEqual(out["season"], 2025)
+
+    def test_an_explicit_week_selects_that_same_game(self) -> None:
+        out = espn_extra.parse_team_schedule(_load_schedule_fixture(), week=18)
+        assert out is not None
+        assert out["game"] is not None
+        self.assertEqual(out["game"]["event_id"], "401772957")
+        self.assertEqual(out["game"]["week"], 18)
+
+
+class ParseGameLeadersTests(unittest.TestCase):
+    def test_both_clubs_come_back_keyed_by_full_display_name(self) -> None:
+        out = espn_extra.parse_game_leaders(_load_game_leaders_fixture())
+        assert out is not None
+        leaders = out["leaders"]
+        self.assertEqual(sorted(leaders), ["Kansas City Chiefs", "Las Vegas Raiders"])
+        kc_passing = next(
+            r for r in leaders["Kansas City Chiefs"] if r["category"] == "Passing Yards"
+        )
+        self.assertEqual(kc_passing["player"], "Shane Buechele")
+        self.assertEqual(kc_passing["stat_line"], "7/14, 88 YDS")
+        self.assertEqual(kc_passing["position"], "QB")
+        lv_rushing = next(
+            r for r in leaders["Las Vegas Raiders"] if r["category"] == "Rushing Yards"
+        )
+        self.assertEqual(lv_rushing["player"], "Ashton Jeanty")
+        self.assertEqual(lv_rushing["stat_line"], "26 CAR, 87 YDS")
+        self.assertEqual(out["winner"], "Las Vegas Raiders")
 
 
 @unittest.skipUnless(

@@ -516,6 +516,7 @@ class ShippedRegistryTests(unittest.TestCase):
                 "lookup_team_roster",
                 "lookup_player_season_stats",
                 "lookup_player_current_team",
+                "lookup_game_leaders",
             ],
         )
         params = qa_open.TOOLS[0].spec["function"]["parameters"]
@@ -638,7 +639,7 @@ class ShippedRegistryTests(unittest.TestCase):
         self.assertIn("does not know which team he played for in any earlier season", description)
 
     def test_each_shipped_description_says_what_it_is_for_without_overlapping(self) -> None:
-        # Three tools is a NEW selection surface; each opener must name a different
+        # Four tools is a NEW selection surface; each opener must name a different
         # question, and the two older tools must route a current-team question away.
         openers = {
             tool.name: tool.spec["function"]["description"].split(".")[0] for tool in qa_open.TOOLS
@@ -656,6 +657,11 @@ class ShippedRegistryTests(unittest.TestCase):
         self.assertEqual(
             openers["lookup_player_current_team"],
             "Look up which NFL team one player is on RIGHT NOW",
+        )
+        self.assertEqual(
+            openers["lookup_game_leaders"],
+            "Look up how one NFL team's game went and which players led that single game "
+            "in passing, rushing, receiving, sacks and tackles",
         )
         for name in ("lookup_team_roster", "lookup_player_season_stats"):
             with self.subTest(tool=name):
@@ -694,7 +700,18 @@ class ShippedRegistryTests(unittest.TestCase):
     def test_no_shipped_spec_may_declare_a_request_target_parameter(self) -> None:
         # The model selects a tool BY NAME and NEVER builds a URL (T-lw6-02), and never
         # supplies an athlete id either — that is resolved from a roster payload (D-4).
-        forbidden = {"url", "endpoint", "path", "host", "uri", "base_url", "athlete_id"}
+        # ``event_id`` joins them for the same reason (T-f0s-03): the event id is read out
+        # of a schedule payload, so no spec may ever let the model name one.
+        forbidden = {
+            "url",
+            "endpoint",
+            "path",
+            "host",
+            "uri",
+            "base_url",
+            "athlete_id",
+            "event_id",
+        }
         for tool in qa_open.TOOLS:
             params = tool.spec["function"]["parameters"]
             for param_name in params.get("properties", {}):
@@ -1562,6 +1579,59 @@ class CurrentTeamToolTests(unittest.TestCase):
             with self.subTest(), self._search_returns(payload):
                 out = _run(qa_open._lookup_player_current_team(player="Josh Allen"))
             self.assertLess(len(json.dumps(out).encode()), 1024)
+
+
+_SCHEDULE_FIXTURE = Path(__file__).parent / "fixtures" / "espn_team_schedule.json"
+_GAME_LEADERS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_game_leaders.json"
+
+
+class GameLeadersToolTests(unittest.TestCase):
+    """The SHIPPED game tool, end to end: Route D of issue #183."""
+
+    def _schedule(self) -> dict:
+        return json.loads(_SCHEDULE_FIXTURE.read_text())
+
+    def _leaders(self) -> dict:
+        return json.loads(_GAME_LEADERS_FIXTURE.read_text())
+
+    def test_a_game_round_feeds_back_the_leaders_the_week_and_the_year(self) -> None:
+        schedule, summary = self._schedule(), self._leaders()
+
+        async def _fake_schedule(team_abbr, *, season=None):
+            return schedule
+
+        async def _fake_summary(event_id):
+            return summary
+
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_game_leaders", '{"team": "KC"}'),
+            _text("Buechele threw for 88 yards in the Chiefs' week 18 game at Las Vegas."),
+        )
+        with (
+            mock.patch.object(espn_extra, "fetch_team_schedule", _fake_schedule),
+            mock.patch.object(espn_extra, "fetch_game_summary", _fake_summary),
+            patcher,
+        ):
+            out = _run(
+                qa_open.answer_open("how did the Chiefs do in their last game?", voice=_VOICE)
+            )
+
+        self.assertEqual(
+            out, "Buechele threw for 88 yards in the Chiefs' week 18 game at Las Vegas."
+        )
+        results = _tool_messages(calls[1]["messages"])
+        self.assertEqual(len(results), 1)
+        self.assertIn("Shane Buechele", results[0]["content"])
+        self.assertIn("26 CAR, 87 YDS", results[0]["content"])
+        body = json.loads(results[0]["content"])
+        # The week and the season are INTEGERS the model cannot misread, and the
+        # statement is the voiceable form of the same two facts (D-3).
+        self.assertEqual(body["week"], 18)
+        self.assertEqual(body["season"], 2025)
+        statement = body["game_statement"]
+        self.assertIn("Kansas City Chiefs at Las Vegas Raiders", statement)
+        self.assertIn("week 18", statement)
+        self.assertIn("2025", statement)
 
 
 class ToolLoopTests(unittest.TestCase):

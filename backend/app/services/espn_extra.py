@@ -13,11 +13,15 @@ Design — impure shell / pure never-raising core (mirrors :mod:`app.scoreboard.
   single ``httpx`` GET, then a best-effort cache write. It NEVER raises: any
   HTTP/timeout/non-200/parse error degrades to ``None`` (the caller shows a fixed degrade
   line, never an invented fact), and a Redis outage FAILS OPEN on both the read and the
-  write. :func:`fetch_injuries`, :func:`fetch_news`, :func:`fetch_team_roster`,
-  :func:`fetch_athlete_stats`, :func:`fetch_athlete_search` and :func:`fetch_league`
-  are thin delegations supplying their own URL, cache key, TTL and log label.
+  write. :func:`fetch_game_summary`, :func:`fetch_news`, :func:`fetch_team_roster`,
+  :func:`fetch_athlete_stats`, :func:`fetch_athlete_search`, :func:`fetch_league` and
+  :func:`fetch_team_schedule` are thin delegations supplying their own URL, cache key,
+  TTL and log label. :func:`fetch_injuries` delegates one step further, to
+  :func:`fetch_game_summary`, so the injuries path and the game-leaders path share ONE
+  Redis entry rather than fetching the same 635 KB payload twice (D-8).
 * PURE: one parser per endpoint (:func:`parse_injuries`, :func:`parse_news`,
-  :func:`parse_team_roster`, :func:`parse_athlete_stats`, :func:`parse_athlete_search`),
+  :func:`parse_team_roster`, :func:`parse_athlete_stats`, :func:`parse_athlete_search`,
+  :func:`parse_team_schedule`, :func:`parse_game_leaders`),
   plus :func:`find_roster_athletes` resolving a name against a raw roster payload and
   :func:`league_season_year` reading the season being played, turning an already-parsed
   payload into facts. Defensive on EVERY field (isinstance
@@ -58,8 +62,12 @@ DEFAULT_TIMEOUT = 10.0
 INJURIES_CACHE_TTL_SECONDS = 600
 
 
-def _cache_key(event_id: int) -> str:
-    """The Redis key for one event's cached ``summary`` payload."""
+def _cache_key(event_id: int | str) -> str:
+    """The Redis key for one event's cached ``summary`` payload.
+
+    ``int | str`` because :func:`fetch_game_summary` normalises the id to a digit string
+    before it gets here; the f-string output is identical either way (D-8).
+    """
     return f"qa:injuries:summary:{event_id}"
 
 
@@ -216,6 +224,67 @@ STATS_CAVEAT = (
     "official season total. When a category shows the player had no attempts in "
     "it, do not report that category's rate statistics such as a passer rating or a "
     "yards per attempt average, because a rate worked out on no attempts is meaningless."
+)
+
+
+# The public, no-auth ESPN team ``schedule`` endpoint (SAME host family as the roster).
+# Measured 2026-08-21: the path accepts the standard ABBREVIATION, so the roster's
+# 32-abbreviation allowlist guards this URL too and no numeric team-id table is needed.
+REGULAR_SEASON_TYPE = 2
+
+# ``seasontype`` is PINNED on BOTH forms: without it the endpoint serves the PRESEASON,
+# whose ``week.number`` disagrees with its own week text ("Preseason Week 1" carries
+# number 2), and a week number that lies is worse than no week number at all.
+TEAM_SCHEDULE_URL = (
+    "https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/{team}/schedule"
+    f"?season={{season}}&seasontype={REGULAR_SEASON_TYPE}"
+)
+
+# The season-less form. Measured to return the CURRENT season's regular schedule AND to
+# echo its year in ``requestedSeason`` — which is what makes the season year cost no extra
+# hop and never be a guess (D-5).
+CURRENT_TEAM_SCHEDULE_URL = (
+    "https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/{team}/schedule"
+    f"?seasontype={REGULAR_SEASON_TYPE}"
+)
+
+# D-9: a schedule's ``completed`` flags move on game days, the same freshness argument the
+# ten-minute injuries feed carries. One TTL for every season, so there is no branch that
+# could go stale the moment the model asks for the current year explicitly.
+SCHEDULE_CACHE_TTL_SECONDS = 600
+
+# The bounds on ``season`` before it is formatted into a URL — the ``_ATHLETE_ID_RE``
+# discipline (T-s5y-01) applied to an integer instead of a string.
+_SCHEDULE_SEASON_MIN = 1920
+_SCHEDULE_SEASON_MAX = 2100
+
+# The event id comes from a schedule payload rather than the model, and is still
+# ``fullmatch``ed before the summary URL is formatted (T-f0s-03).
+_EVENT_ID_RE = re.compile(r"[0-9]{1,12}")
+
+
+def _schedule_cache_key(team_abbr: str, season: int | None) -> str:
+    """The Redis key for one team-season's cached ``schedule`` payload.
+
+    A season-less request keys on the literal ``current`` rather than on a year worked
+    out here — the year it will turn out to be is ESPN's to echo, not ours to predict.
+    """
+    return f"qa:schedule:team:{team_abbr}:{season if season is not None else 'current'}"
+
+
+# The sentences the model is most likely to voice, so each is concrete and complete rather
+# than a terse fragment (memory: qa-phrasing-inversion). The starter sentence is stated
+# UNCONDITIONALLY (D-4): KC's measured week-18 passing leader was Shane Buechele, a backup,
+# because teams rest starters in the final week — and a caveat the model has to decide
+# whether to apply is a caveat it drops (measured 3/3 on this branch).
+GAME_LEADERS_CAVEAT = (
+    "Each list of leaders below belongs only to the club it is named under, so never say "
+    "that a player led the other club in anything and never move a player from one club's "
+    "list to the other's. Every figure here is from that ONE single game and none of them "
+    "is any player's total for a season, so never call any of these figures a season "
+    "total. The player who led a game in passing is not necessarily that team's starting "
+    "quarterback, because teams rest their starters and give backups snaps, so never call "
+    "any player named here a starter."
 )
 
 
@@ -1040,6 +1109,204 @@ def games_played(stats: Any) -> str | None:
     return None
 
 
+def parse_team_schedule(payload: Any, *, week: int | None = None) -> dict | None:
+    """Select ONE regular-season game out of a team ``schedule`` payload.
+
+    Pure and never-raising (mirrors :func:`parse_team_roster`). Returns ``None`` ONLY when
+    the top-level shape is unusable — a non-dict payload, ``events`` that is not a list, or
+    a ``requestedSeason.type`` that is not the regular season, since a payload that is not
+    the regular season is not the thing this parser contracts to read.
+
+    The season comes from ``requestedSeason.year`` and NEVER from the sibling top-level
+    ``season`` block, which measured ``{year: 2026, type: 1, Preseason}`` even on a request
+    that correctly returned 2025's seventeen games. ``requestedSeason`` is the authoritative
+    echo; the other one lies.
+
+    With a ``week`` the selected ``game`` is the event at that week number, which is how a
+    bye week and an unplayed week come back as no game rather than as a different one. With
+    no ``week`` it is the COMPLETED event with the highest week number — chosen by week
+    number rather than by list position, so a reordered payload cannot pick the wrong game.
+    ``any_completed`` reports whether the season has begun at all, which is D-7's fallback
+    predicate.
+    """
+    if not isinstance(payload, dict):
+        return None
+    events = payload.get("events")
+    if not isinstance(events, list):
+        return None
+    requested = payload.get("requestedSeason")
+    requested = requested if isinstance(requested, dict) else {}
+    if requested.get("type") != REGULAR_SEASON_TYPE:
+        return None
+
+    year = requested.get("year")
+    team = payload.get("team")
+    team = team if isinstance(team, dict) else {}
+    bye = payload.get("byeWeek")
+    asked = week if isinstance(week, int) and not isinstance(week, bool) else None
+
+    usable: list[dict[str, Any]] = []
+    any_completed = False
+    for event in events:
+        parsed = _parse_one_scheduled_event(event)
+        if parsed is None:
+            continue
+        any_completed = any_completed or parsed["completed"]
+        usable.append(parsed)
+
+    game: dict[str, Any] | None = None
+    if asked is not None:
+        for candidate in usable:
+            if candidate["week"] == asked:
+                game = candidate
+                break
+    else:
+        for candidate in usable:
+            if candidate["completed"] and (game is None or candidate["week"] > game["week"]):
+                game = candidate
+
+    return {
+        "season": year if isinstance(year, int) and not isinstance(year, bool) else None,
+        "team": _first_str(team.get("displayName")),
+        "bye_week": bye if isinstance(bye, int) and not isinstance(bye, bool) else None,
+        "any_completed": any_completed,
+        "game": game,
+    }
+
+
+def _parse_one_scheduled_event(event: Any) -> dict[str, Any] | None:
+    """Normalize one ``events[]`` entry, or ``None`` when it could not be selected anyway.
+
+    Defensive on every field; degrades a missing name or date to ``None`` and never raises.
+    An event with no digit id could not be fetched and one with no integer week number could
+    not be asked for, so both are dropped rather than emitted half-empty.
+    """
+    if not isinstance(event, dict):
+        return None
+    event_id = _first_str(event.get("id"))
+    if event_id is None or _EVENT_ID_RE.fullmatch(event_id) is None:
+        return None
+    week_block = event.get("week")
+    week_block = week_block if isinstance(week_block, dict) else {}
+    number = week_block.get("number")
+    if not isinstance(number, int) or isinstance(number, bool):
+        return None
+
+    competitions = event.get("competitions")
+    competition = competitions[0] if isinstance(competitions, list) and competitions else None
+    competition = competition if isinstance(competition, dict) else {}
+    status = competition.get("status")
+    status = status if isinstance(status, dict) else {}
+    status_type = status.get("type")
+    status_type = status_type if isinstance(status_type, dict) else {}
+
+    return {
+        "event_id": event_id,
+        "week": number,
+        "name": _first_str(event.get("name")),
+        "date": _first_str(event.get("date")),
+        # Identity, not truthiness: only ESPN's own boolean means the game is finished.
+        "completed": status_type.get("completed") is True,
+    }
+
+
+def _parse_one_game_leader(category: Any) -> dict[str, str | None] | None:
+    """Normalize one leaders category into ``{category, player, position, stat_line}``.
+
+    ``stat_line`` is ESPN's OWN formatted line ("10/22, 102 YDS"), relayed verbatim so no
+    figure is ever recomputed here. A category with no usable athlete or no display value is
+    dropped rather than emitted half-empty (mirrors :func:`_parse_one_athlete`).
+    """
+    if not isinstance(category, dict):
+        return None
+    label = _first_str(category.get("displayName"), category.get("name"))
+    if label is None:
+        return None
+    entries = category.get("leaders")
+    if not isinstance(entries, list) or not entries:
+        return None
+    entry = entries[0]
+    if not isinstance(entry, dict):
+        return None
+    stat_line = _first_str(entry.get("displayValue"))
+    if stat_line is None:
+        return None
+    athlete = entry.get("athlete")
+    athlete = athlete if isinstance(athlete, dict) else {}
+    player = _first_str(athlete.get("displayName"))
+    if player is None:
+        return None
+    position = athlete.get("position")
+    position = position if isinstance(position, dict) else {}
+
+    return {
+        "category": label,
+        "player": player,
+        "position": _first_str(position.get("abbreviation")),
+        "stat_line": stat_line,
+    }
+
+
+def _winning_team(payload: dict) -> str | None:
+    """The display name of the competitor ESPN flags as the winner, or ``None``.
+
+    ``is True`` and not merely truthy: a ``1`` or a ``"true"`` in that field is a shape this
+    parser does not recognize, and guessing a winner is worse than reporting none.
+    """
+    header = payload.get("header")
+    header = header if isinstance(header, dict) else {}
+    competitions = header.get("competitions")
+    competition = competitions[0] if isinstance(competitions, list) and competitions else None
+    competition = competition if isinstance(competition, dict) else {}
+    competitors = competition.get("competitors")
+    if not isinstance(competitors, list):
+        return None
+    for competitor in competitors:
+        if not isinstance(competitor, dict) or competitor.get("winner") is not True:
+            continue
+        team = competitor.get("team")
+        team = team if isinstance(team, dict) else {}
+        return _first_str(team.get("displayName"))
+    return None
+
+
+def parse_game_leaders(payload: Any) -> dict | None:
+    """Extract both clubs' game leaders and the winner from a game ``summary`` payload.
+
+    Pure and never-raising. Returns ``None`` when the payload is not a dict or ``leaders``
+    is not a list — which is the MEASURED shape of a game that has not been played, whose
+    ``leaders`` key is absent entirely, so this is the second barrier behind the caller's
+    completed-gate.
+
+    Each club's leaders are keyed on its FULL display name rather than its abbreviation, so
+    every player sits under a spelled-out club and cannot be read off against the other one
+    (D-3). ``score`` is never read on ANY path: ``OPEN_OWNERSHIP_CLAUSE`` forbids the model
+    stating a game score, and a field the model can see is a field it may voice (D-2).
+    """
+    if not isinstance(payload, dict):
+        return None
+    blocks = payload.get("leaders")
+    if not isinstance(blocks, list):
+        return None
+
+    leaders: dict[str, list[dict[str, str | None]]] = {}
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        team = block.get("team")
+        team = team if isinstance(team, dict) else {}
+        club = _first_str(team.get("displayName"))
+        if club is None:
+            continue
+        categories = block.get("leaders")
+        if not isinstance(categories, list):
+            continue
+        rows = [row for row in map(_parse_one_game_leader, categories) if row is not None]
+        leaders[club] = rows
+
+    return {"leaders": leaders, "winner": _winning_team(payload)}
+
+
 # ---------------------------------------------------------------------------
 # Impure shell (best-effort HTTP + short Redis cache — never raises)
 # ---------------------------------------------------------------------------
@@ -1141,20 +1408,45 @@ async def _fetch_cached(url: str, *, cache_key: str, ttl_seconds: int, label: st
     return payload
 
 
-async def fetch_injuries(espn_event_id: int) -> dict | None:
-    """Fetch the raw ESPN ``summary`` payload for ``espn_event_id`` — best-effort.
+async def fetch_game_summary(event_id: Any) -> dict | None:
+    """Fetch the raw ESPN game ``summary`` payload for ``event_id`` — best-effort.
 
-    A thin delegation to :func:`_fetch_cached` (cache-first, one GET, never raises,
-    fail-open Redis) carrying the injuries URL, key, TTL and log label. Returns the
-    parsed ``summary`` dict, or ``None`` on any failure — the caller shows a fixed
-    degrade line, never an invented injury.
+    The DIGIT GUARD runs FIRST, before the URL is formatted and before Redis or HTTP is
+    touched: the id is read out of a schedule payload rather than supplied by the model,
+    but a guard applied after the format string is not a guard (T-f0s-03, the same
+    discipline as :func:`fetch_athlete_stats`). A ``bool`` is rejected explicitly, because
+    ``str(True)`` failing the digit test is an accident rather than an intention.
+
+    A pass delegates to :func:`_fetch_cached` (cache-first, one GET, never raises,
+    fail-open Redis). ONE payload carries the injuries, the game leaders and the header,
+    which is why :func:`fetch_injuries` delegates HERE rather than fetching its own copy.
     """
+    candidate = "" if isinstance(event_id, bool) else str(event_id).strip()
+    if _EVENT_ID_RE.fullmatch(candidate) is None:
+        # Truncated before it reaches the log — the value is unbounded by contract.
+        logger.warning("summary_event_id_rejected", event_id=str(event_id)[:12])
+        return None
+
     return await _fetch_cached(
-        SUMMARY_URL.format(event_id=espn_event_id),
-        cache_key=_cache_key(espn_event_id),
+        SUMMARY_URL.format(event_id=candidate),
+        cache_key=_cache_key(candidate),
         ttl_seconds=INJURIES_CACHE_TTL_SECONDS,
         label="injuries",
     )
+
+
+async def fetch_injuries(espn_event_id: int) -> dict | None:
+    """Fetch the raw ESPN ``summary`` payload for ``espn_event_id`` — best-effort.
+
+    Returns the parsed ``summary`` dict, or ``None`` on any failure — the caller shows a
+    fixed degrade line, never an invented injury.
+
+    D-8: this name and :func:`fetch_game_summary` are ONE fetch writing ONE Redis entry,
+    on purpose. The injuries path and the game-leaders path read the same 635 KB payload,
+    so whichever asks first warms the other, and the ``qa:injuries:`` key namespace and
+    log label stay as they were rather than forking into a second copy.
+    """
+    return await fetch_game_summary(espn_event_id)
 
 
 async def fetch_news(limit: int = NEWS_FETCH_LIMIT) -> dict | None:
@@ -1274,4 +1566,45 @@ async def fetch_league() -> dict | None:
         cache_key=_LEAGUE_CACHE_KEY,
         ttl_seconds=LEAGUE_CACHE_TTL_SECONDS,
         label="league",
+    )
+
+
+async def fetch_team_schedule(team_abbr: str, *, season: int | None = None) -> dict | None:
+    """Fetch one team's regular-season ``schedule`` payload — best-effort.
+
+    BOTH guards run FIRST, before any URL is formatted and before Redis or HTTP is touched
+    (T-f0s-01/02). ``team_abbr`` goes through the SAME canonical 32-abbreviation allowlist
+    :func:`fetch_team_roster` uses — measured 2026-08-21, this path accepts the standard
+    abbreviation, so no numeric team-id table and no second allowlist exists to drift.
+    ``season``, when given, must be a real ``int`` (never a ``bool``) inside a plausible
+    four-digit range. Either reject returns ``None`` having attempted nothing.
+
+    A pass delegates to :func:`_fetch_cached` (cache-first, one GET, never raises,
+    fail-open Redis). With no ``season`` the season-less URL is used, whose reply carries
+    the CURRENT season's games AND echoes its year in ``requestedSeason`` (D-5).
+    """
+    canonical = team_abbr.strip().upper() if isinstance(team_abbr, str) else ""
+    if canonical not in NFL_TEAM_ABBRS:
+        # Model-supplied and unbounded — truncated before it reaches the log.
+        logger.warning("schedule_team_rejected", team=str(team_abbr)[:8])
+        return None
+
+    if season is not None and (
+        not isinstance(season, int)
+        or isinstance(season, bool)
+        or not _SCHEDULE_SEASON_MIN <= season <= _SCHEDULE_SEASON_MAX
+    ):
+        logger.warning("schedule_season_rejected", season=str(season)[:8])
+        return None
+
+    url = (
+        CURRENT_TEAM_SCHEDULE_URL.format(team=canonical)
+        if season is None
+        else TEAM_SCHEDULE_URL.format(team=canonical, season=season)
+    )
+    return await _fetch_cached(
+        url,
+        cache_key=_schedule_cache_key(canonical, season),
+        ttl_seconds=SCHEDULE_CACHE_TTL_SECONDS,
+        label="schedule",
     )

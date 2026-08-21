@@ -27,11 +27,11 @@ of two, and resolving "Chicago Bears" to ``CHI`` unaided): the model selects fro
 FIXED :data:`TOOLS` whitelist BY NAME and NEVER builds a URL — no tool spec may
 declare a ``url`` / ``endpoint`` / ``path`` / ``host`` parameter. Every tool's ``run``
 must hold the Path B adapter contract: never raises, fails open on Redis, degrades to
-``None`` on any HTTP error. The registry ships with THREE tools —
-``lookup_team_roster`` (issue #179), ``lookup_player_season_stats`` (issue #183) and
-``lookup_player_current_team`` — each grounding its question in current ESPN data
-instead of the model's training cutoff; an EMPTY registry stays a supported fallback
-branch.
+``None`` on any HTTP error. The registry ships with FOUR tools —
+``lookup_team_roster`` (issue #179), ``lookup_player_season_stats`` (issue #183),
+``lookup_player_current_team`` and ``lookup_game_leaders`` (issue #183 Route D) — each
+grounding its question in current ESPN data instead of the model's training cutoff; an
+EMPTY registry stays a supported fallback branch.
 """
 
 from __future__ import annotations
@@ -764,6 +764,219 @@ _CURRENT_TEAM_TOOL_DESCRIPTION = (
 )
 
 
+# --------------------------------------------------------------------------- #
+# The GAME tool (Route D of issue #183). It owns the game as a WHOLE — who led it and
+# who won it — off the SAME ``summary`` payload the injuries path already caches. What a
+# named player did in a named game is deliberately NOT here: ``athletes/{id}/gamelog``
+# answers that for every game in one cached payload, where this path would cost a
+# schedule fetch plus a summary fetch per game asked about (D-1).
+# --------------------------------------------------------------------------- #
+
+
+async def _lookup_game_leaders(
+    team: str = "", week: int | None = None, season: int | None = None
+) -> object | None:
+    """Look up who led ONE of ``team``'s regular-season games, and who won it.
+
+    Two cached hops on the happy path: the schedule resolves which game is meant, then the
+    game summary yields the leaders. The summary is NOT fetched on any miss branch — the
+    measured unplayed payload is 109 KB and carries no ``leaders`` key at all, so fetching
+    it would cost that much to learn nothing.
+
+    ``week`` and ``season`` never reach a URL as the model wrote them: ``week`` is a parser
+    argument only, and ``season`` passes an integer range check inside the seam before the
+    format string runs. With no ``week`` the most recent COMPLETED game is selected and the
+    payload says which week that was (D-6); with no ``season`` ESPN's own
+    ``requestedSeason`` echo names the year, so the model never works one out from "last
+    year" (D-5).
+
+    Every argument defaults so a model that forgets one degrades rather than raising a
+    TypeError into the loop, and an empty ``team`` returns before the first hop — there is
+    nothing to resolve, so no live GET is worth making. Past that point every outcome is a
+    NOTE, never bare ``None``, which becomes :data:`_NO_DATA_PAYLOAD` and sends the model
+    back to the stale memory this tool exists to replace (D-5 of the predecessor task).
+    """
+    from app.services import espn_extra
+
+    team_abbr = team.strip().upper() if isinstance(team, str) else ""
+    if not team_abbr:
+        return None
+
+    asked_week = week if isinstance(week, int) and not isinstance(week, bool) else None
+    asked_season = season if isinstance(season, int) and not isinstance(season, bool) else None
+
+    payload = await espn_extra.fetch_team_schedule(team_abbr, season=asked_season)
+    if payload is None:
+        return None
+    schedule = espn_extra.parse_team_schedule(payload, week=asked_week)
+    if schedule is None:
+        return None
+
+    # D-7, checked ONCE and on a deliberately narrow predicate: "the season has not
+    # started" falls back, "that week has not been played yet" does not. Measured
+    # 2026-08-21, the current regular season had 0 completed games, so without this every
+    # default-path question declines for the whole offseason — and a decline is silence.
+    unstarted_season: int | None = None
+    if asked_season is None and not schedule["any_completed"]:
+        newer = schedule["season"]
+        if isinstance(newer, int):
+            older = await espn_extra.fetch_team_schedule(team_abbr, season=newer - 1)
+            fallback = (
+                espn_extra.parse_team_schedule(older, week=asked_week)
+                if older is not None
+                else None
+            )
+            if fallback is not None and fallback["any_completed"]:
+                schedule, unstarted_season = fallback, newer
+
+    club = schedule["team"] or team_abbr
+    year = schedule["season"]
+    game = schedule["game"]
+
+    if game is None:
+        if asked_week is not None and asked_week == schedule["bye_week"]:
+            return {"note": _BYE_WEEK_NOTE.format(team=club, week=asked_week, season=year)}
+        if asked_week is not None:
+            return {"note": _NO_GAME_THAT_WEEK_NOTE.format(team=club, week=asked_week, season=year)}
+        return {"note": _NO_COMPLETED_GAMES_NOTE.format(team=club, season=year)}
+
+    fixture = game["name"] if isinstance(game["name"], str) else f"the {club} game"
+    if not game["completed"]:
+        when = game["date"] if isinstance(game["date"], str) else "a date ESPN does not give"
+        return {
+            "note": _NOT_YET_PLAYED_NOTE.format(
+                game=fixture, date=when, week=game["week"], season=year
+            )
+        }
+
+    summary = await espn_extra.fetch_game_summary(game["event_id"])
+    facts = espn_extra.parse_game_leaders(summary) if summary is not None else None
+    if facts is None:
+        # The game identity was already PROVED, so the miss keeps it: a bare miss after a
+        # successful resolution made the model deny what it had just found (260820-s5y).
+        return {"note": _NO_LEADERS_NOTE.format(game=fixture, week=game["week"], season=year)}
+
+    # Phrased HERE and not in the parser, which never phrases: a bare integer in a dict
+    # body is readable but not voiceable, and the sentence is what the model repeats.
+    statement = _GAME_STATEMENT.format(game=fixture, week=game["week"], season=year)
+    winner = facts["winner"]
+    if isinstance(winner, str):
+        statement += _GAME_WINNER_CLAUSE.format(winner=winner)
+    statement += _NO_SCORE_CLAUSE
+    if unstarted_season is not None:
+        statement = (
+            _UNSTARTED_SEASON_STATEMENT.format(team=club, current=unstarted_season, season=year)
+            + " "
+            + statement
+        )
+
+    return {
+        "leaders": facts["leaders"],
+        "winner": winner,
+        "season": year,
+        "week": game["week"],
+        "game": fixture,
+        "game_statement": statement,
+        "caveat": espn_extra.GAME_LEADERS_CAVEAT,
+    }
+
+
+# D-3: the game is STATED, never implied. One concrete full sentence naming both clubs,
+# the week and the season, so the model never has to work out which game it is holding —
+# and so the residual D-10 hazard (the member names an opponent, the model omits the week,
+# a different game comes back) is answered in the payload rather than assumed away.
+_GAME_STATEMENT = (
+    "Every figure below comes from ONE single NFL game: {game}, played in week {week} of "
+    "the {season} NFL season. Name both of those teams and say week {week} of {season} "
+    "whenever you report any figure from this answer, so the member knows exactly which "
+    "game you are talking about."
+)
+# D-2: the winner IS returned. It is not on OPEN_OWNERSHIP_CLAUSE's list, and "who won" is
+# the first thing anyone asks about a game — leaving it out leaves the biggest hole in the
+# answer for the model to fill, and it has no real memory of this result to fall back on.
+_GAME_WINNER_CLAUSE = " The {winner} won that game."
+# D-2, and UNCONDITIONAL rather than an "if": the score is never read out of the payload at
+# all, because a field the model can see is a field it may voice — and OPEN_OWNERSHIP_CLAUSE
+# already forbids stating one, so a score here would contradict the system prompt.
+_NO_SCORE_CLAUSE = (
+    " The final score of that game is not in this answer at all. Never state the score of "
+    "that game, never say how many points either team scored, and never work a score out "
+    "from the figures below."
+)
+# D-7, in the shape _NO_CURRENT_SEASON_STATEMENT was measured working in: state the fact
+# unconditionally and ban the wrong phrasing outright.
+_UNSTARTED_SEASON_STATEMENT = (
+    "The {current} NFL season has not started yet and the {team} have not played a game "
+    "in it at all, so the game described below is from the {season} season instead, which "
+    "is the most recent season they played. Say the year {season} when you talk about this "
+    "game, and never call it a game from this season or from this year."
+)
+
+# Every miss is a concrete full sentence telling the model what to do next, returned in a
+# dict body because a bare string fact gets voiced or swallowed (memory:
+# qa-phrasing-inversion) and a bare ``None`` sends it back to its own stale memory.
+_BYE_WEEK_NOTE = (
+    "The {team} did not play at all in week {week} of the {season} NFL season, because "
+    "that week was their bye week. Tell the member plainly that they were on their bye "
+    "week that week and had no game, and never give him a different week's game instead."
+)
+_NO_GAME_THAT_WEEK_NOTE = (
+    "ESPN's schedule shows no {team} regular-season game in week {week} of the {season} "
+    "NFL season, so this tool has no game at all for that week. Tell the member plainly "
+    "that you have no game for that week, and never give him a different week's game "
+    "instead."
+)
+_NO_COMPLETED_GAMES_NOTE = (
+    "The {team} have not finished a single regular-season game in the {season} NFL season, "
+    "so this tool has no game to report for them. Tell the member plainly that ESPN has no "
+    "finished {season} game for them yet, and never describe a game from your own memory "
+    "instead."
+)
+_NOT_YET_PLAYED_NOTE = (
+    "{game} is scheduled for {date}, in week {week} of the {season} NFL season, and it has "
+    "not been played yet, so there are no figures from it at all. Tell the member plainly "
+    "that the game has not been played yet and say when it is scheduled for, and never "
+    "describe how it went or who led it."
+)
+_NO_LEADERS_NOTE = (
+    "This tool did find the game the member asked about — {game}, in week {week} of the "
+    "{season} NFL season — but ESPN publishes no game leaders for it, so this tool has no "
+    "figures from it. Say that you found the game but have no figures from it, never say "
+    "that the game did not happen, and never give a figure from your own memory instead."
+)
+
+# INSTRUCT first, CONSTRAIN second — measured twice on this branch, not stylistic: a
+# disclaimer-only description suppressed the call 5/5. The starter constraint is why the
+# ordering matters most here (D-4): it is a disclaimer about a DIFFERENT question from the
+# one the opener instructs on, so it constrains the answer without suppressing the call.
+# The season wording is copied from _STATS_TOOL_DESCRIPTION on purpose, so the model learns
+# ONE rule rather than two (D-5).
+_GAME_LEADERS_TOOL_DESCRIPTION = (
+    "Look up how one NFL team's game went and which players led that single game in "
+    "passing, rushing, receiving, sacks and tackles. Call this tool every time the member "
+    "asks how a team did in a game, how their last game went, who led a game in yards, "
+    "catches, sacks or tackles, or how a named team did in a given week, because your own "
+    "memory of any individual game is often a year or more out of date. The team argument "
+    "is that team's standard abbreviation, for example KC for the Kansas City Chiefs, LV "
+    "for the Las Vegas Raiders, or CHI for the Chicago Bears. Pass the week argument ONLY "
+    "when the member named a week number, and leave the week argument out when he says "
+    "their last game or their most recent game, because this tool finds the most recent "
+    "finished game by itself and tells you which week it was. Pass the season argument "
+    "ONLY when the member named a specific year such as 2024. LEAVE THE SEASON ARGUMENT "
+    "OUT for every other phrasing, including last year, last season and this season, "
+    "because this tool already knows which season is the most recent one ESPN has and you "
+    "do not. Never work out a year number for yourself from a phrase like last year. This "
+    "tool covers regular-season games only. It carries neither team's score, so never "
+    "state the score of the game and never say how many points either team scored. The "
+    "player who led a game in passing is not necessarily that team's starting quarterback, "
+    "because teams rest their starters and give backups snaps, so never call any player "
+    "this tool names a starter. When the member asks who STARTS at a position, "
+    "lookup_team_roster is the tool for that question and this one is not. When he asks "
+    "what a player did across a whole season rather than in one game, "
+    "lookup_player_season_stats is the tool for that question and this one is not."
+)
+
+
 TOOLS: tuple[_Tool, ...] = (
     _Tool(
         name="lookup_team_roster",
@@ -850,6 +1063,43 @@ TOOLS: tuple[_Tool, ...] = (
             },
         },
         run=_lookup_player_current_team,
+    ),
+    _Tool(
+        name="lookup_game_leaders",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_game_leaders",
+                "description": _GAME_LEADERS_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {
+                            "type": "string",
+                            "description": "The team's standard abbreviation, such as KC.",
+                        },
+                        "week": {
+                            "type": "integer",
+                            "description": (
+                                "The week number, and ONLY when the member named one. "
+                                "Leave it out for their last game or their most recent "
+                                "game."
+                            ),
+                        },
+                        "season": {
+                            "type": "integer",
+                            "description": (
+                                "The four-digit year, and ONLY when the member named "
+                                "one. Leave it out for last year, last season or this "
+                                "season."
+                            ),
+                        },
+                    },
+                    "required": ["team"],
+                },
+            },
+        },
+        run=_lookup_game_leaders,
     ),
 )
 
