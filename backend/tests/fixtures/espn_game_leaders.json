@@ -1,0 +1,208 @@
+{
+  "header": {
+    "week": 18,
+    "season": {
+      "year": 2025,
+      "current": false,
+      "type": 2
+    },
+    "competitions": [
+      {
+        "status": {
+          "type": {
+            "name": "STATUS_FINAL",
+            "completed": true
+          }
+        },
+        "competitors": [
+          {
+            "homeAway": "home",
+            "winner": true,
+            "score": "9991",
+            "team": {
+              "abbreviation": "LV",
+              "displayName": "Las Vegas Raiders"
+            }
+          },
+          {
+            "homeAway": "away",
+            "winner": false,
+            "score": "9992",
+            "team": {
+              "abbreviation": "KC",
+              "displayName": "Kansas City Chiefs"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "leaders": [
+    {
+      "team": {
+        "abbreviation": "LV",
+        "displayName": "Las Vegas Raiders"
+      },
+      "leaders": [
+        {
+          "name": "passingYards",
+          "displayName": "Passing Yards",
+          "leaders": [
+            {
+              "displayValue": "10/22, 102 YDS",
+              "athlete": {
+                "displayName": "Aidan O'Connell",
+                "position": {
+                  "abbreviation": "QB"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "rushingYards",
+          "displayName": "Rushing Yards",
+          "leaders": [
+            {
+              "displayValue": "26 CAR, 87 YDS",
+              "athlete": {
+                "displayName": "Ashton Jeanty",
+                "position": {
+                  "abbreviation": "RB"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "receivingYards",
+          "displayName": "Receiving Yards",
+          "leaders": [
+            {
+              "displayValue": "3 REC, 47 YDS",
+              "athlete": {
+                "displayName": "Michael Mayer",
+                "position": {
+                  "abbreviation": "TE"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "sacks",
+          "displayName": "Sacks",
+          "leaders": [
+            {
+              "displayValue": "2",
+              "athlete": {
+                "displayName": "Charles Snowden",
+                "position": {
+                  "abbreviation": "LB"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "totalTackles",
+          "displayName": "Tackles",
+          "leaders": [
+            {
+              "displayValue": "6",
+              "athlete": {
+                "displayName": "Devin White",
+                "position": {
+                  "abbreviation": "LB"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "team": {
+        "abbreviation": "KC",
+        "displayName": "Kansas City Chiefs"
+      },
+      "leaders": [
+        {
+          "name": "passingYards",
+          "displayName": "Passing Yards",
+          "leaders": [
+            {
+              "displayValue": "7/14, 88 YDS",
+              "athlete": {
+                "displayName": "Shane Buechele",
+                "position": {
+                  "abbreviation": "QB"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "rushingYards",
+          "displayName": "Rushing Yards",
+          "leaders": [
+            {
+              "displayValue": "12 CAR, 56 YDS",
+              "athlete": {
+                "displayName": "Brashard Smith",
+                "position": {
+                  "abbreviation": "RB"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "receivingYards",
+          "displayName": "Receiving Yards",
+          "leaders": [
+            {
+              "displayValue": "3 REC, 64 YDS",
+              "athlete": {
+                "displayName": "Hollywood Brown",
+                "position": {
+                  "abbreviation": "WR"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "sacks",
+          "displayName": "Sacks",
+          "leaders": [
+            {
+              "displayValue": "2",
+              "athlete": {
+                "displayName": "Chris Jones",
+                "position": {
+                  "abbreviation": "DT"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "totalTackles",
+          "displayName": "Tackles",
+          "leaders": [
+            {
+              "displayValue": "9",
+              "athlete": {
+                "displayName": "Nick Bolton",
+                "position": {
+                  "abbreviation": "LB"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

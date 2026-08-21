@@ -1,0 +1,152 @@
+{
+  "team": {
+    "abbreviation": "KC",
+    "displayName": "Kansas City Chiefs"
+  },
+  "byeWeek": 10,
+  "season": {
+    "year": 2026,
+    "type": 1,
+    "name": "Preseason",
+    "displayName": "2026",
+    "half": 1
+  },
+  "requestedSeason": {
+    "year": 2025,
+    "type": 2,
+    "name": "Regular Season",
+    "displayName": "2025"
+  },
+  "events": [
+    {
+      "id": "401772714",
+      "name": "Kansas City Chiefs at Los Angeles Chargers",
+      "shortName": "KC VS LAC",
+      "date": "2025-09-06T00:00Z",
+      "week": {
+        "number": 1,
+        "text": "Week 1"
+      },
+      "seasonType": {
+        "id": "2",
+        "type": 2,
+        "name": "Regular Season",
+        "abbreviation": "reg"
+      },
+      "competitions": [
+        {
+          "status": {
+            "type": {
+              "name": "STATUS_FINAL",
+              "completed": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "401772768",
+      "name": "Kansas City Chiefs at Buffalo Bills",
+      "shortName": "KC @ BUF",
+      "date": "2025-11-02T21:25Z",
+      "week": {
+        "number": 9,
+        "text": "Week 9"
+      },
+      "seasonType": {
+        "id": "2",
+        "type": 2,
+        "name": "Regular Season",
+        "abbreviation": "reg"
+      },
+      "competitions": [
+        {
+          "status": {
+            "type": {
+              "name": "STATUS_FINAL",
+              "completed": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "401772778",
+      "name": "Kansas City Chiefs at Denver Broncos",
+      "shortName": "KC @ DEN",
+      "date": "2025-11-16T21:25Z",
+      "week": {
+        "number": 11,
+        "text": "Week 11"
+      },
+      "seasonType": {
+        "id": "2",
+        "type": 2,
+        "name": "Regular Season",
+        "abbreviation": "reg"
+      },
+      "competitions": [
+        {
+          "status": {
+            "type": {
+              "name": "STATUS_FINAL",
+              "completed": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "401772957",
+      "name": "Kansas City Chiefs at Las Vegas Raiders",
+      "shortName": "KC @ LV",
+      "date": "2026-01-04T21:25Z",
+      "week": {
+        "number": 18,
+        "text": "Week 18"
+      },
+      "seasonType": {
+        "id": "2",
+        "type": 2,
+        "name": "Regular Season",
+        "abbreviation": "reg"
+      },
+      "competitions": [
+        {
+          "status": {
+            "type": {
+              "name": "STATUS_FINAL",
+              "completed": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "401772958",
+      "name": "Kansas City Chiefs at Las Vegas Raiders",
+      "shortName": "KC @ LV",
+      "date": "2026-01-11T21:25Z",
+      "week": {
+        "number": 19,
+        "text": "Week 19"
+      },
+      "seasonType": {
+        "id": "2",
+        "type": 2,
+        "name": "Regular Season",
+        "abbreviation": "reg"
+      },
+      "competitions": [
+        {
+          "status": {
+            "type": {
+              "name": "STATUS_SCHEDULED",
+              "completed": false
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

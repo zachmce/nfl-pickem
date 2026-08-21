@@ -1,0 +1,53 @@
+{
+  "season": {
+    "type": 3,
+    "year": 2025
+  },
+  "week": {
+    "number": 5
+  },
+  "events": [
+    {
+      "id": "401772988",
+      "name": "Seattle Seahawks at New England Patriots",
+      "shortName": "SEA VS NE",
+      "date": "2026-02-08T23:30Z",
+      "competitions": [
+        {
+          "notes": [
+            {
+              "type": "event",
+              "headline": "Super Bowl LX"
+            }
+          ],
+          "status": {
+            "type": {
+              "name": "STATUS_FINAL",
+              "completed": true
+            }
+          },
+          "competitors": [
+            {
+              "homeAway": "home",
+              "winner": false,
+              "score": "9991",
+              "team": {
+                "abbreviation": "NE",
+                "displayName": "New England Patriots"
+              }
+            },
+            {
+              "homeAway": "away",
+              "winner": true,
+              "score": "9992",
+              "team": {
+                "abbreviation": "SEA",
+                "displayName": "Seattle Seahawks"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
