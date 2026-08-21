@@ -310,12 +310,9 @@ TEAM_SCHEDULE_CAVEAT = (
 )
 
 
-# The public, no-auth ESPN league-leaders endpoint. ``seasontype`` is baked into the
-# CONSTANT and is spelled all-lowercase on purpose: measured 2026-08-21, a season passed
-# WITHOUT a season type answers the POSTSEASON while echoing a plausible year (Barkley
-# 499 rushing yards rather than 2,005), and the camel-cased ``seasonType`` is ignored and
-# falls back the same way. ``{sort}`` is a code-owned literal out of LEADER_SORTS,
-# percent-encoded, so no model-written text ever reaches the request target (T-jbh-01).
+# The public, no-auth ESPN league-leaders endpoint. ``seasontype`` is baked in and spelled
+# all-lowercase: a season without one answers the POSTSEASON, and the camel-cased spelling
+# is ignored and falls back the same way. ``{sort}`` is a LEADER_SORTS literal (T-jbh-01).
 LEADERS_URL = (
     "https://site.web.api.espn.com/apis/common/v3/sports/football/nfl/statistics/byathlete"
     f"?limit={{limit}}&sort={{sort}}&seasontype={REGULAR_SEASON_TYPE}"
@@ -331,11 +328,9 @@ LEADERS_MAX_FACTS = 8
 # Leaders move on game days, the same freshness argument the schedule carries.
 LEADERS_CACHE_TTL_SECONDS = 600
 
-# The CODE-OWNED allowlist: a model-facing category name -> the (category, stat) pair the
-# sort value is BUILT from. Every stat half is a real ``names`` entry of its own category
-# block, verified live 2026-08-21 — an unknown one answers HTTP 400. The interceptions
-# category is spelled ``defensiveInterceptions`` in a SORT and ``defensiveinterceptions``
-# in the payload's own block name, which is why the parser matches case-insensitively.
+# The CODE-OWNED allowlist: a model-facing name -> the (category, stat) the sort is BUILT
+# from. Every pair verified live 2026-08-21; an unknown one answers HTTP 400. A SORT spells
+# it ``defensiveInterceptions`` and the payload ``defensiveinterceptions``, hence the fold.
 LEADER_SORTS: dict[str, tuple[str, str]] = {
     "passing yards": ("passing", "passingYards"),
     "passing touchdowns": ("passing", "passingTouchdowns"),
@@ -407,11 +402,9 @@ GAMELOG_URL = (
 # schedule's ten minutes.
 GAMELOG_CACHE_TTL_SECONDS = 21600
 
-# MEASURED 2026-08-21 against Stafford's real 2024 log: one game of a sixteen-wide
-# quarterback row is ~580 bytes, so six games alone was 3,492 against the shipped
-# 3,400-byte payload ceiling and three games plus the statement and the caveat is 2,840.
-# The fact cap is the widest measured row, because a lower one drops every rushing figure
-# a quarterback has: rushing yards sit at index 12 of 16.
+# MEASURED 2026-08-21 on a real quarterback log: a sixteen-wide row is ~580 bytes a game,
+# so six games alone was 3,492 against the 3,400-byte payload ceiling. The fact cap is the
+# full row width because a lower one drops every rushing figure (index 12 of 16).
 GAME_LOG_MAX_EVENTS = 3
 GAME_LOG_MAX_FACTS = 16
 
@@ -487,9 +480,8 @@ _TEAM_RECORD_LABELS: dict[str, str] = {
 }
 
 # The sentences the model is most likely to voice, so each is concrete and complete
-# rather than a terse fragment (memory: qa-phrasing-inversion). The second one answers
-# the guard collision: OPEN_OWNERSHIP_CLAUSE bans a standings POSITION, and a win-loss
-# record is not one.
+# (memory: qa-phrasing-inversion). The second answers the guard collision: a win-loss
+# record is not the standings POSITION that OPEN_OWNERSHIP_CLAUSE bans.
 TEAM_RECORD_CAVEAT = (
     "Every figure here is ESPN's own win-loss record for the one NFL season this answer "
     "names, so say that season's year when you report any of them. A win-loss record is "
@@ -1500,11 +1492,10 @@ _SEASON_GAME_FIELDS = ("week", "name", "date", "completed")
 def parse_team_season(payload: Any) -> dict | None:
     """Extract a team's WHOLE regular-season fixture list from a ``schedule`` payload.
 
-    Pure and never-raising. Rejects the SAME three unusable shapes
-    :func:`parse_team_schedule` rejects, and reads the season from ``requestedSeason``
-    for the same reason — the sibling ``season`` block lies. Games are projected down to
-    :data:`_SEASON_GAME_FIELDS`, sorted by week so a reordered payload cannot present a
-    scrambled season, and capped at :data:`SCHEDULE_MAX_EVENTS`.
+    Pure and never-raising. Rejects the SAME three shapes :func:`parse_team_schedule`
+    rejects and reads the season from ``requestedSeason`` for the same reason. Games are
+    projected to :data:`_SEASON_GAME_FIELDS` and sorted by week, so a reordered payload
+    cannot present a scrambled season.
     """
     if not isinstance(payload, dict):
         return None
@@ -1635,14 +1626,10 @@ def _leader_block(blocks: Any, name: str) -> dict | None:
 def parse_league_leaders(payload: Any, category: Any) -> dict | None:
     """Extract ONE statistic's league leaders from a raw ``byathlete`` payload.
 
-    Pure and never-raising. Returns ``None`` when the top-level shape is unusable, when
-    ``category`` is outside the allowlist, or when the payload's OWN ``requestedSeason``
-    echo is not the regular season — that last check is the second half of the M-4 guard,
-    because a postseason reply carries real figures about the wrong thing.
-
-    Each leader's figures are keyed against the TOP-LEVEL block's names, which the athlete
-    rows do not carry, and read out of ``totals`` — never ``values``, which is raw float.
-    No athlete id is carried (D-4).
+    Pure and never-raising. Returns ``None`` on an unusable shape, on a category outside the
+    allowlist, and on a payload whose OWN ``requestedSeason`` echo is not the regular season — the
+    second half of the M-4 guard. Figures are keyed against the TOP-LEVEL block's names and read out
+    of ``totals``, never ``values``, which is raw float. No athlete id is carried (D-4).
     """
     if not isinstance(payload, dict):
         return None
@@ -1751,13 +1738,10 @@ def _parse_one_logged_game(
 def parse_athlete_gamelog(payload: Any, *, week: int | None = None) -> dict | None:
     """Extract ONE game, or the most recent games, from a raw athlete game-log payload.
 
-    Pure and never-raising. Returns ``None`` only when the top-level shape is unusable —
-    a non-dict payload, ``seasonTypes`` that is not a list, or ``events`` that is not the
-    dict this endpoint keys by event id (M-1).
-
-    The stats row is keyed against the TOP-LEVEL ``displayNames``/``names``, which are
-    unique; ``labels`` repeats YDS, AVG, TD and LNG across passing and rushing, so a
-    label-keyed mapping silently overwrites passing yards with rushing yards.
+    Pure and never-raising. Returns ``None`` only on an unusable top-level shape; ``events``
+    is the dict this endpoint keys by event id, not a list (M-1). The stats row is keyed
+    against the TOP-LEVEL ``displayNames``/``names``, which are unique: ``labels`` repeats
+    YDS, AVG, TD and LNG, so a label-keyed mapping overwrites passing yards with rushing.
     """
     if not isinstance(payload, dict):
         return None
@@ -1808,12 +1792,10 @@ def _record_stat(record: Any, name: str) -> str | None:
 def parse_team_record(payload: Any, team_abbr: Any) -> dict | None:
     """Extract ONE club's win-loss record summaries from a whole-league standings payload.
 
-    Pure and never-raising. Returns ``None`` only when the top-level shape is unusable —
-    a non-dict payload, or ``standings`` that is not a list. A club the payload does not
-    carry comes back with ``team`` ``None`` and no records, which the caller phrases;
-    another club's record is never substituted for it. No playoff seed, no rank, no
-    league table place and no points total is read on ANY path, because
-    ``OPEN_OWNERSHIP_CLAUSE`` forbids the model stating a standings position or a score.
+    Pure and never-raising. Returns ``None`` only on an unusable top-level shape. A club
+    the payload does not carry comes back with no records for the caller to phrase, and
+    another club's record is never substituted for it. No seed, rank, table place or
+    points total is read on ANY path — ``OPEN_OWNERSHIP_CLAUSE`` bans both of those.
     """
     if not isinstance(payload, dict):
         return None
@@ -2361,12 +2343,10 @@ async def fetch_athlete_stats(athlete_id: Any) -> dict | None:
 async def fetch_league_leaders(category: Any, season: int | None = None) -> dict | None:
     """Fetch ONE statistic's regular-season league leaders — best-effort.
 
-    The ALLOWLIST runs FIRST and the sort value comes OUT of :data:`LEADER_SORTS`, never
-    out of the argument: an allowlist applied after the format string is not an allowlist
-    (T-jbh-01). A category outside it returns ``None`` having attempted nothing. The
-    resolved pair is percent-encoded with ``quote(safe="")``, exactly as
-    :func:`fetch_athlete_search` encodes its query, so the colon cannot alter the request
-    target. ``season`` reuses the same bounds every other endpoint here holds.
+    The ALLOWLIST runs FIRST and the sort comes OUT of :data:`LEADER_SORTS`, never out of
+    the argument: an allowlist applied after the format string is not an allowlist
+    (T-jbh-01). A miss returns ``None`` having attempted nothing. The resolved pair is
+    encoded with ``quote(safe="")`` so the colon cannot alter the target.
     """
     key = league_leader_category(category)
     if key is None:
@@ -2395,13 +2375,10 @@ async def fetch_league_leaders(category: Any, season: int | None = None) -> dict
 async def fetch_athlete_gamelog(athlete_id: Any, season: int | None = None) -> dict | None:
     """Fetch one athlete's raw ESPN GAME LOG for one season — best-effort.
 
-    BOTH guards run FIRST, before the URL is formatted and before Redis or HTTP is
-    touched, reusing the digit pattern :func:`fetch_athlete_stats` holds and the season
-    bounds the schedule holds, so neither has a second copy that could drift (T-s5y-01,
-    T-jbh-02). Either reject returns ``None`` having attempted nothing.
-
-    ``?season=`` is appended only when a season was given: M-1 measured the parameterless
-    form answering the CURRENT season, so no year is ever guessed here.
+    BOTH guards run FIRST, before the URL is formatted, reusing the digit pattern
+    :func:`fetch_athlete_stats` holds and the season bounds the schedule holds (T-s5y-01,
+    T-jbh-02). ``?season=`` is appended only when a season was given: the parameterless
+    form answers the CURRENT season (M-1), so no year is ever guessed here.
     """
     candidate = athlete_id.strip() if isinstance(athlete_id, str) else ""
     if _ATHLETE_ID_RE.fullmatch(candidate) is None:
@@ -2517,11 +2494,10 @@ async def fetch_team_schedule(team_abbr: str, *, season: int | None = None) -> d
 async def fetch_standings(season: int) -> dict | None:
     """Fetch ONE season's whole-league regular-season standings — best-effort.
 
-    The season range guard runs FIRST, before the URL is formatted and before Redis or
-    HTTP is touched, reusing the SAME bounds the schedule and the postseason scoreboard
-    hold so one pair covers every endpoint (T-jbh-02). A reject returns ``None`` having
-    attempted nothing. A pass delegates to :func:`_fetch_cached` (D-7): ONE fetch carries
-    all 32 clubs, so a second club asked about is served from this same cache entry.
+    The season range guard runs FIRST, before the URL is formatted, reusing the SAME
+    bounds the schedule holds so one pair covers every endpoint (T-jbh-02). A pass
+    delegates to :func:`_fetch_cached` (D-7): ONE fetch carries all 32 clubs, so a second
+    club asked about is served from this same cache entry.
     """
     if (
         not isinstance(season, int)

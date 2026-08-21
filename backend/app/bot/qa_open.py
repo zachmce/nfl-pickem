@@ -479,18 +479,11 @@ def _resolved_parts(resolved: dict[str, object]) -> tuple[str, dict[str, object]
 async def _resolve_player(player: str, team: str) -> dict[str, object]:
     """Resolve ``player`` to an athlete id, to a terminal note, or to nothing. One copy.
 
-    THE resolution both player tools call, extracted rather than copied: issue #182
-    exists because copies of a shell were allowed to accumulate. With a team in hand the
-    cached roster hop runs first and reads the RAW payload, because
-    :func:`~app.services.espn_extra.parse_team_roster` drops the id on purpose; a roster
-    miss falls through to :func:`_resolve_off_roster`, which is how a player asked about
-    on the team he PLAYED that season for still resolves. No id ever comes from the model.
-
-    Three outcomes. A hit is ``{"athlete_id", "identity", "on_roster"}``; a miss the
-    caller can phrase is a terminal ``{"note": ...}``; and an EMPTY dict is the third on
-    purpose — a roster hop that failed outright is the one case the shipped stats tool
-    degrades to bare ``None`` on, and this extraction changes no behaviour. ``player`` is
-    already non-empty by the time it gets here.
+    THE resolution both player tools call, extracted rather than copied (issue #182). With
+    a team it reads the RAW roster payload, where the id survives; a roster miss falls
+    through to :func:`_resolve_off_roster`, and no id comes from the model. A hit carries
+    ``athlete_id``/``identity``/``on_roster``, a miss carries ``note``, and an EMPTY dict
+    is the one case the caller degrades to bare ``None`` on.
     """
     from app.services import espn_extra
 
@@ -1546,21 +1539,17 @@ _PLAYOFF_TOOL_DESCRIPTION = (
 
 
 # --------------------------------------------------------------------------- #
-# The SCHEDULE tool (Route E of issue #183). ``lookup_game_leaders`` already reads this
-# same endpoint to resolve ONE game; this one relays the whole fixture list, which is the
-# question the model answered from a two-year-old memory of the schedule.
+# The SCHEDULE tool (Route E of issue #183) — the whole fixture list, never one game.
 # --------------------------------------------------------------------------- #
 
 
 async def _lookup_team_schedule(team: str = "", season: int | None = None) -> object | None:
     """Look up every regular-season game one NFL team plays in one season.
 
-    ONE cached hop. The seam bounds ``team`` through the canonical 32-abbreviation
-    allowlist and ``season`` through its integer range before any URL is formatted, and
-    the season-less form echoes the year it answered, so neither branch needs a league
-    root hop (D-2). Every argument defaults so a forgotten one degrades rather than
-    raising a TypeError into the loop, and EVERY outcome is a dict carrying a note, never
-    bare ``None``, which becomes :data:`_NO_DATA_PAYLOAD` and sends the model to memory.
+    ONE cached hop. The seam bounds ``team`` and ``season`` before any URL is formatted,
+    and the season-less form echoes the year it answered, so neither branch needs a league
+    root hop (D-2). Every argument defaults, and EVERY outcome is a dict carrying a note,
+    never the bare ``None`` that sends the model back to its own stale memory.
     """
     from app.services import espn_extra
 
@@ -1686,25 +1675,17 @@ _TEAM_SCHEDULE_TOOL_DESCRIPTION = (
 
 
 # --------------------------------------------------------------------------- #
-# The RECORD tool (Route F of issue #183). It collides with OPEN_OWNERSHIP_CLAUSE, which
-# bans stating "a standings position" — meaning this league's own LEADERBOARD, but the
-# words the model reads do not say so. The guard is byte-pinned and is NOT edited here;
-# the payload reconciles the two instead, because the payload is the last thing the model
-# reads before it answers.
+# The RECORD tool (Route F of issue #183) — the payload, never the guard, reconciles it.
 # --------------------------------------------------------------------------- #
 
 
 async def _lookup_team_record(team: str = "", season: int | None = None) -> object | None:
     """Look up ONE NFL club's win-loss record for ONE whole season.
 
-    ONE cached hop past the season: M-3 measured group 9 carrying all 32 clubs, and each
-    club's ``$ref`` is regexed and mapped locally, so no club costs a second request
-    (T-jbh-05). The standings URL needs a season in its PATH, so with none given the year
-    comes from ESPN's league root — the entry ``_calendar_facts`` has already warmed on
-    this very call (D-2) — and a league root that fails asks rather than guesses.
-
-    Every argument defaults and EVERY outcome is a dict carrying a note, never bare
-    ``None``, which becomes :data:`_NO_DATA_PAYLOAD` and sends the model to stale memory.
+    ONE cached hop past the season: group 9 carries all 32 clubs and each club's ``$ref``
+    is regexed and mapped locally, so no club costs a second request (T-jbh-05). The URL
+    needs a season in its PATH, so with none given the year comes from the league root the
+    calendar preamble already warmed (D-2). EVERY outcome is a dict carrying a note.
     """
     from app.services import espn_extra
 
@@ -1826,9 +1807,7 @@ _TEAM_RECORD_TOOL_DESCRIPTION = (
 
 
 # --------------------------------------------------------------------------- #
-# The GAME LOG tool (Route C of issue #183). ``lookup_player_season_stats`` owns a whole
-# season; this one owns ONE game, off a single cached payload that carries every game of
-# the season, so "how has he played lately" costs the same one hop as "week 5 did".
+# The GAME LOG tool (Route C of issue #183) — ONE game, off one cached season payload.
 # --------------------------------------------------------------------------- #
 
 
@@ -1837,13 +1816,10 @@ async def _lookup_player_game_log(
 ) -> object | None:
     """Look up what ONE NFL player did in ONE game, or in his most recent games.
 
-    The player is resolved through :func:`_resolve_player`, the ONE copy both player
-    tools share (issue #182). Past resolution his identity is PROVEN, so a game-log miss
-    KEEPS it: a bare miss after a successful resolution made the model deny a player it
-    had just found (260820-s5y). No athlete id ever reaches the model (D-4).
-
-    Every argument defaults so a forgotten one degrades rather than raising a TypeError
-    into the loop, and EVERY outcome is a dict carrying a note, never bare ``None``.
+    The player is resolved through :func:`_resolve_player`, the ONE copy both player tools
+    share (issue #182). Past resolution his identity is PROVEN, so a game-log miss KEEPS
+    it: a bare miss after a successful resolution made the model deny a player it had just
+    found (260820-s5y). No athlete id reaches the model (D-4), and every miss is a note.
     """
     from app.services import espn_extra
 
@@ -1978,24 +1954,17 @@ _GAME_LOG_TOOL_DESCRIPTION = (
 
 
 # --------------------------------------------------------------------------- #
-# The LEAGUE LEADERS tool (Route G of issue #183). The season-type trap is the sharpest
-# one in this registry: measured 2026-08-21, a season passed WITHOUT a season type
-# answers the POSTSEASON while echoing a plausible year — Barkley with 499 rushing yards
-# instead of 2,005, a real figure about the wrong thing. The seam pins the parameter and
-# the parser verifies the payload's own echo, so neither half stands alone.
+# The LEADERS tool (Route G of issue #183) — the season type is pinned twice over (M-4).
 # --------------------------------------------------------------------------- #
 
 
 async def _lookup_league_leaders(category: str = "", season: int | None = None) -> object | None:
     """Look up which players led the whole NFL in ONE statistic in ONE season.
 
-    ONE cached hop. The category is resolved to a code-owned literal inside the seam
-    before any URL is formatted, so the model's own string never reaches the request
-    target (T-jbh-01). With no season none is passed: the season-less call answers the
-    CURRENT regular season and echoes its year, so no league-root hop is needed (D-2).
-
-    Every argument defaults and EVERY outcome is a dict carrying a note, never bare
-    ``None``, which becomes :data:`_NO_DATA_PAYLOAD` and sends the model to stale memory.
+    ONE cached hop. The category resolves to a code-owned literal inside the seam before
+    any URL is formatted, so the model's own string never reaches the request target
+    (T-jbh-01). With no season none is passed: the season-less call answers the CURRENT
+    regular season and echoes its year (D-2). EVERY outcome is a dict carrying a note.
     """
     from app.services import espn_extra
 
