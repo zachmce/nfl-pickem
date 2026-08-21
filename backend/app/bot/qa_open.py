@@ -404,45 +404,13 @@ async def _lookup_player_season_stats(
         # not-found note that names nobody.
         return None
 
-    team_abbr = team.strip().upper() if isinstance(team, str) else ""
-    if team_abbr:
-        roster = await espn_extra.fetch_team_roster(team_abbr)
-        if roster is None:
-            return None
-        matches = espn_extra.find_roster_athletes(roster, asked_for)
-        if matches is None:
-            return None
-    else:
-        matches = []
-
-    if len(matches) > 1:
-        candidates = [str(match["display_name"]) for match in matches]
-        return {
-            "note": _AMBIGUOUS_PLAYER_NOTE.format(team=team_abbr, candidates=", ".join(candidates)),
-            "candidates": candidates,
-        }
-
-    if matches:
-        match = matches[0]
-        name = str(match["display_name"])
-        athlete_id = str(match["athlete_id"])
-        identity: dict[str, object] = {"player": name, "position": match["position"]}
-        # Kept OUT of ``identity``: the team a player is on today is not the team a past
-        # season's figures belong to, and a team name the model can see is one it may
-        # attach to the season. It reaches the model only inside the two roster miss
-        # notes below, where there is no season for it to be attached to.
-        on_roster = team_abbr
-    else:
-        resolved = await _resolve_off_roster(asked_for, team_abbr)
-        found_id = resolved.pop("athlete_id", None)
-        if not isinstance(found_id, str):
-            return resolved  # a terminal note: unfound, ambiguous, or search unavailable
-        athlete_id = found_id
-        name = str(resolved["player"])
-        # Popped rather than carried: the model never sees an athlete id, so it can never
-        # learn to send one back (D-4).
-        identity = resolved
-        on_roster = None
+    resolved = await _resolve_player(asked_for, team)
+    if not resolved:
+        return None
+    if "athlete_id" not in resolved:
+        return resolved  # a terminal note: unfound, ambiguous, or a lookup that failed
+    athlete_id, identity, on_roster = _resolved_parts(resolved)
+    name = str(identity["player"])
 
     # Past this point the resolution already PROVED who this player is, so a stats miss
     # must keep that identity (D-5) — bare ``None`` here made the model deny him.
@@ -495,6 +463,70 @@ async def _lookup_player_season_stats(
         name, selected, facts["season_teams"]
     )
     return facts
+
+
+def _resolved_parts(resolved: dict[str, object]) -> tuple[str, dict[str, object], str | None]:
+    """Unpack a :func:`_resolve_player` HIT into its three parts. Pure, never raises."""
+    identity = resolved.get("identity")
+    on_roster = resolved.get("on_roster")
+    return (
+        str(resolved.get("athlete_id")),
+        identity if isinstance(identity, dict) else {},
+        on_roster if isinstance(on_roster, str) else None,
+    )
+
+
+async def _resolve_player(player: str, team: str) -> dict[str, object]:
+    """Resolve ``player`` to an athlete id, to a terminal note, or to nothing. One copy.
+
+    THE resolution both player tools call, extracted rather than copied (issue #182). With
+    a team it reads the RAW roster payload, where the id survives; a roster miss falls
+    through to :func:`_resolve_off_roster`, and no id comes from the model. A hit carries
+    ``athlete_id``/``identity``/``on_roster``, a miss carries ``note``, and an EMPTY dict
+    is the one case the caller degrades to bare ``None`` on.
+    """
+    from app.services import espn_extra
+
+    team_abbr = team.strip().upper() if isinstance(team, str) else ""
+    if team_abbr:
+        roster = await espn_extra.fetch_team_roster(team_abbr)
+        if roster is None:
+            return {}
+        matches = espn_extra.find_roster_athletes(roster, player)
+        if matches is None:
+            return {}
+    else:
+        matches = []
+
+    if len(matches) > 1:
+        candidates = [str(match["display_name"]) for match in matches]
+        return {
+            "note": _AMBIGUOUS_PLAYER_NOTE.format(team=team_abbr, candidates=", ".join(candidates)),
+            "candidates": candidates,
+        }
+
+    if matches:
+        match = matches[0]
+        identity: dict[str, object] = {
+            "player": str(match["display_name"]),
+            "position": match["position"],
+        }
+        # ``on_roster`` is kept OUT of ``identity``: the team a player is on today is not
+        # the team a past season's figures belong to, and a team name the model can see is
+        # one it may attach to the season. It reaches the model only inside the miss notes.
+        return {
+            "athlete_id": str(match["athlete_id"]),
+            "identity": identity,
+            "on_roster": team_abbr,
+        }
+
+    resolved = await _resolve_off_roster(player, team_abbr)
+    found_id = resolved.pop("athlete_id", None)
+    if not isinstance(found_id, str):
+        return resolved  # a terminal note: unfound, ambiguous, or search unavailable
+    # Popped rather than carried: the model never sees an athlete id, so it can never
+    # learn to send one back (D-4).
+    return {"athlete_id": found_id, "identity": resolved, "on_roster": None}
 
 
 def _join_teams(teams: list[str]) -> str:
@@ -1506,10 +1538,536 @@ _PLAYOFF_TOOL_DESCRIPTION = (
 )
 
 
+# --------------------------------------------------------------------------- #
+# The SCHEDULE tool (Route E of issue #183) — the whole fixture list, never one game.
+# --------------------------------------------------------------------------- #
+
+
+async def _lookup_team_schedule(team: str = "", season: int | None = None) -> object | None:
+    """Look up every regular-season game one NFL team plays in one season.
+
+    ONE cached hop. The seam bounds ``team`` and ``season`` before any URL is formatted,
+    and the season-less form echoes the year it answered, so neither branch needs a league
+    root hop (D-2). Every argument defaults, and EVERY outcome is a dict carrying a note,
+    never the bare ``None`` that sends the model back to its own stale memory.
+    """
+    from app.services import espn_extra
+
+    team_abbr = team.strip().upper() if isinstance(team, str) else ""
+    if not team_abbr:
+        # Nothing to resolve, so no live GET is worth making.
+        return {"note": _NO_TEAM_TO_SCHEDULE_NOTE}
+
+    asked_season = season if isinstance(season, int) and not isinstance(season, bool) else None
+    payload = await espn_extra.fetch_team_schedule(team_abbr, season=asked_season)
+    facts = espn_extra.parse_team_season(payload) if payload is not None else None
+    if facts is None or not facts["games"]:
+        # Measured 2026-08-21: a season outside ESPN's record answers 200 with no
+        # ``requestedSeason`` and no events, which is the same dead end a failed fetch
+        # reaches, so one note covers both.
+        if asked_season is not None:
+            return {"note": _NO_SEASON_SCHEDULE_NOTE.format(team=team_abbr, season=asked_season)}
+        return {"note": _NO_SCHEDULE_NOTE.format(team=team_abbr)}
+
+    club = facts["team"] or team_abbr
+    year = facts["season"]
+    statement = _TEAM_SCHEDULE_STATEMENT.format(team=club, season=year)
+    for game in facts["games"]:
+        statement += _schedule_game_clause(game)
+    bye = facts["bye_week"]
+    if isinstance(bye, int):
+        statement += _SCHEDULE_BYE_CLAUSE.format(team=club, week=bye, season=year)
+    statement += (
+        _SCHEDULE_ALL_PLAYED_CLAUSE if facts["any_completed"] else _SCHEDULE_NONE_PLAYED_CLAUSE
+    )
+
+    # The fixture list reaches the model as the STATEMENT rather than twice: the two
+    # together measured 3,683 bytes against a 3,400-byte ceiling, and prose is the half
+    # the model can voice (memory: qa-phrasing-inversion).
+    return {
+        "season": year,
+        "team": club,
+        "bye_week": bye,
+        "game_count": len(facts["games"]),
+        "any_completed": facts["any_completed"],
+        "schedule_statement": statement,
+        "caveat": espn_extra.TEAM_SCHEDULE_CAVEAT,
+    }
+
+
+def _schedule_game_clause(game: dict) -> str:
+    """The sentence naming ONE scheduled game, its week and its kick-off. Pure.
+
+    ESPN's own timestamp is relayed verbatim rather than rewritten into a spoken day: a
+    late kick-off is the day before in the United States, so a spoken day would be wrong
+    for those games and a wrong day is worse than an unfriendly one.
+    """
+    fixture = game["name"] if isinstance(game["name"], str) else "a game ESPN does not name"
+    when = game["date"] if isinstance(game["date"], str) else "a date ESPN does not give"
+    return _SCHEDULE_GAME_CLAUSE.format(week=game["week"], game=fixture, date=when)
+
+
+# D-3 of the predecessor, applied to a whole season: the club and the season are STATED,
+# never implied, and the games are listed as sentences because a dict field is readable
+# but not voiceable.
+_TEAM_SCHEDULE_STATEMENT = (
+    "Every game listed below is a game the {team} play in the {season} NFL season, and "
+    "together they are that club's whole regular-season schedule for that one season. "
+    "Say the year {season} whenever you report any game from this answer."
+)
+_SCHEDULE_GAME_CLAUSE = " In week {week} they play {game}, on {date}."
+_SCHEDULE_BYE_CLAUSE = (
+    " The {team} play no game at all in week {week} of the {season} season, because that "
+    "week is their bye week."
+)
+# Unconditional in wording on both branches, because a caveat the model has to decide
+# whether to apply is a caveat it drops (measured 3/3 on this branch).
+_SCHEDULE_ALL_PLAYED_CLAUSE = (
+    " This answer says of each game whether it has been played yet. Never say that a game "
+    "it marks as not played yet has already happened."
+)
+_SCHEDULE_NONE_PLAYED_CLAUSE = (
+    " Not one of these games has been played yet, so never report a result for any of "
+    "them and never say how any of them went."
+)
+
+# Every miss is a concrete full sentence telling the model what to do next, returned in a
+# dict body because a bare string fact gets voiced or swallowed (memory:
+# qa-phrasing-inversion) and a bare ``None`` sends it back to its own stale memory.
+_NO_TEAM_TO_SCHEDULE_NOTE = (
+    "The member's question named no NFL team, so this tool has no schedule at all to look "
+    "up. Ask the member which team's schedule he means, and never list a team's games "
+    "from your own memory instead."
+)
+_NO_SEASON_SCHEDULE_NOTE = (
+    "This tool has no regular-season schedule at all for {team} in the {season} NFL "
+    "season, either because ESPN's record does not carry that season or because the "
+    "lookup of it failed just now. Tell the member plainly that you could not look that "
+    "season's schedule up, and never list a game from your own memory instead."
+)
+_NO_SCHEDULE_NOTE = (
+    "This tool has no regular-season schedule at all for {team} right now, because the "
+    "lookup of it failed just now. Tell the member plainly that you could not look their "
+    "schedule up, and never list a game from your own memory instead."
+)
+
+# INSTRUCT first, CONSTRAIN second — measured, not stylistic: a disclaimer-only
+# description suppressed the call 5/5 on this branch. The route-away sentences name the
+# two tools this one is most likely to be confused with.
+_TEAM_SCHEDULE_TOOL_DESCRIPTION = (
+    "Look up the whole list of regular-season games one NFL team plays in one season. "
+    "Call this tool every time the member asks who a team plays, which games they play "
+    "this year, who they play in a given week, when one of their games is, or when their "
+    "bye week is, because your own memory of an NFL schedule is often a year or more out "
+    "of date and this tool reads ESPN's own fixture list. The team argument is that "
+    "team's standard abbreviation, for example CHI for the Chicago Bears, KC for the "
+    "Kansas City Chiefs, or LV for the Las Vegas Raiders. Pass the season argument ONLY "
+    "when the member named a specific year such as 2024, and LEAVE THE SEASON ARGUMENT "
+    "OUT for every other phrasing, including this year and last season, because this "
+    "tool already knows which season is being played and you do not. This tool carries "
+    "no score and no result for any game on it, so when the member asks who WON a game "
+    "or who led one, lookup_game_leaders is the tool for that question and this one is "
+    "not, and when he asks what a team's win-loss record was, lookup_team_record is the "
+    "tool for that question and this one is not. It covers the regular season only and "
+    "carries no playoff game at all, so when the member asks about a playoff game or a "
+    "Super Bowl, lookup_playoff_results is the tool for that question and this one is not."
+)
+
+
+# --------------------------------------------------------------------------- #
+# The RECORD tool (Route F of issue #183) — the payload, never the guard, reconciles it.
+# --------------------------------------------------------------------------- #
+
+
+async def _lookup_team_record(team: str = "", season: int | None = None) -> object | None:
+    """Look up ONE NFL club's win-loss record for ONE whole season.
+
+    ONE cached hop past the season: group 9 carries all 32 clubs and each club's ``$ref``
+    is regexed and mapped locally, so no club costs a second request (T-jbh-05). The URL
+    needs a season in its PATH, so with none given the year comes from the league root the
+    calendar preamble already warmed (D-2). EVERY outcome is a dict carrying a note.
+    """
+    from app.services import espn_extra
+
+    team_abbr = team.strip().upper() if isinstance(team, str) else ""
+    if not team_abbr:
+        return {"note": _NO_TEAM_TO_RECORD_NOTE}
+
+    asked_season = season if isinstance(season, int) and not isinstance(season, bool) else None
+    if asked_season is None:
+        asked_season = espn_extra.league_season_year(await espn_extra.fetch_league())
+        if asked_season is None:
+            return {"note": _NO_SEASON_TO_RECORD_NOTE.format(team=team_abbr)}
+
+    payload = await espn_extra.fetch_standings(asked_season)
+    facts = espn_extra.parse_team_record(payload, team_abbr) if payload is not None else None
+    if facts is None:
+        return {"note": _NO_STANDINGS_NOTE.format(team=team_abbr, season=asked_season)}
+    if not facts["records"]:
+        return {"note": _TEAM_NOT_IN_STANDINGS_NOTE.format(team=team_abbr, season=asked_season)}
+
+    club = facts["team"] or team_abbr
+    year = facts["season"] if isinstance(facts["season"], int) else asked_season
+    games = facts["games_played"]
+    if isinstance(games, str) and games.strip() in espn_extra._ZEROISH_STAT_VALUES:
+        # A 0-0 relayed as a result is the "the season is still ongoing" class of defect
+        # issue #183 was opened for, so it is never relayed at all.
+        return {"note": _SEASON_NOT_BEGUN_NOTE.format(team=club, season=year)}
+
+    overall = facts["records"].get("overall record")
+    statement = _TEAM_RECORD_STATEMENT.format(team=club, season=year, record=overall)
+    for label, summary in facts["records"].items():
+        if label != "overall record":
+            statement += _TEAM_RECORD_SPLIT_CLAUSE.format(team=club, label=label, record=summary)
+    if isinstance(games, str):
+        statement += _TEAM_RECORD_GAMES_CLAUSE.format(team=club, games=games, season=year)
+    statement += _TEAM_RECORD_RECONCILIATION_CLAUSE.format(team=club, record=overall)
+
+    return {
+        "season": year,
+        "team": club,
+        "records": facts["records"],
+        "games_played": games,
+        "record_statement": statement,
+        "caveat": espn_extra.TEAM_RECORD_CAVEAT,
+    }
+
+
+# The club, the season and the record are STATED, never implied: a dict field is readable
+# but not voiceable, and the record is the one fact the question is asked for.
+_TEAM_RECORD_STATEMENT = (
+    "The {team} finished the {season} NFL season with a win-loss record of {record}. "
+    "That is ESPN's own record of how many games they won and lost in that one season."
+)
+_TEAM_RECORD_SPLIT_CLAUSE = " The {team} {label} that season was {record}."
+_TEAM_RECORD_GAMES_CLAUSE = " The {team} played {games} games in the {season} season."
+# THE guard collision, answered in the payload rather than by editing a byte-pinned guard
+# clause. Unconditional, because a caveat the model has to decide whether to apply is a
+# caveat it drops (measured 3/3 on this branch).
+_TEAM_RECORD_RECONCILIATION_CLAUSE = (
+    " A win-loss record is not a standings position and it is not a game score, so you "
+    "are allowed to report {record} and you must say it plainly. This is not this "
+    "pick'em league's own standings and it is not any member's standing, which are a "
+    "different thing this tool knows nothing about, so never decline to give the {team} "
+    "record and never say that you cannot give it."
+)
+
+# Every miss is a concrete full sentence telling the model what to do next, returned in a
+# dict body because a bare string fact gets voiced or swallowed (memory:
+# qa-phrasing-inversion) and a bare ``None`` sends it back to its own stale memory.
+_NO_TEAM_TO_RECORD_NOTE = (
+    "The member's question named no NFL team, so this tool has no record at all to look "
+    "up. Ask the member which team he means, and never give a team's record from your "
+    "own memory instead."
+)
+_NO_SEASON_TO_RECORD_NOTE = (
+    "The member named no season, and the lookup that would have told you which NFL "
+    "season is being played failed just now, so this tool has no record for {team} this "
+    "time. Ask the member which season he means, and never work a year out for yourself."
+)
+_NO_STANDINGS_NOTE = (
+    "This tool has no win-loss record at all for {team} in the {season} NFL season, "
+    "either because ESPN's record does not carry that season or because the lookup of it "
+    "failed just now. Tell the member plainly that you could not look that record up, "
+    "and never give him a record from your own memory instead."
+)
+_TEAM_NOT_IN_STANDINGS_NOTE = (
+    "ESPN's {season} standings carry no club under the abbreviation {team}, so this tool "
+    "has no record for it. Ask the member which team he means, and never give another "
+    "club's record as though it were his team's."
+)
+_SEASON_NOT_BEGUN_NOTE = (
+    "The {team} have not played a single game in the {season} NFL season, so they have "
+    "no win-loss record for it at all. Tell the member plainly that the {season} season "
+    "has not begun for them, never report a record of nothing and nothing as a result, "
+    "and never give him a record from your own memory instead."
+)
+
+# INSTRUCT first, CONSTRAIN second — measured, not stylistic: a disclaimer-only
+# description suppressed the call 5/5 on this branch.
+_TEAM_RECORD_TOOL_DESCRIPTION = (
+    "Look up one NFL team's win-loss record for one whole season. Call this tool every "
+    "time the member asks how a team did in a season, what their record was, how many "
+    "games they won or lost, or whether they had a winning season, because your own "
+    "memory of a team's record is often a year or more out of date and this tool reads "
+    "ESPN's own record of it. The team argument is that team's standard abbreviation, "
+    "for example NE for the New England Patriots. "
+    "Pass the season argument ONLY when the member named a specific year such as 2024, "
+    "and leave it out for last year, last season and this season, because this tool "
+    "already knows which season is being played and you do not. A win-loss record is not "
+    "a standings position and it is not a game score, so report the record this tool "
+    "gives you plainly and never decline to give it. This tool carries no score, no "
+    "playoff seed and no league table place, and it is not this app's own member "
+    "standings. When the member asks how ONE game went or who led one, "
+    "lookup_game_leaders is the tool for that question and this one is not. When he asks "
+    "who won a playoff round or a Super Bowl, lookup_playoff_results is the tool for that "
+    "question and this one is not. When he asks which games a team plays, "
+    "lookup_team_schedule is the tool for that question and this one is not."
+)
+
+
+# --------------------------------------------------------------------------- #
+# The GAME LOG tool (Route C of issue #183) — ONE game, off one cached season payload.
+# --------------------------------------------------------------------------- #
+
+
+async def _lookup_player_game_log(
+    player: str = "", team: str = "", season: int | None = None, week: int | None = None
+) -> object | None:
+    """Look up what ONE NFL player did in ONE game, or in his most recent games.
+
+    The player is resolved through :func:`_resolve_player`, the ONE copy both player tools
+    share (issue #182). Past resolution his identity is PROVEN, so a game-log miss KEEPS
+    it: a bare miss after a successful resolution made the model deny a player it had just
+    found (260820-s5y). No athlete id reaches the model (D-4), and every miss is a note.
+    """
+    from app.services import espn_extra
+
+    asked_for = player.strip() if isinstance(player, str) else ""
+    if not asked_for:
+        return {"note": _NO_PLAYER_TO_LOG_NOTE}
+
+    resolved = await _resolve_player(asked_for, team)
+    if not resolved:
+        return {"note": _PLAYER_LOOKUP_FAILED_NOTE.format(player=asked_for)}
+    if "athlete_id" not in resolved:
+        return resolved  # a terminal note: unfound, ambiguous, or a lookup that failed
+    athlete_id, identity, _on_roster = _resolved_parts(resolved)
+    name = str(identity["player"])
+
+    asked_season = season if isinstance(season, int) and not isinstance(season, bool) else None
+    asked_week = week if isinstance(week, int) and not isinstance(week, bool) else None
+    payload = await espn_extra.fetch_athlete_gamelog(athlete_id, season=asked_season)
+    facts = espn_extra.parse_athlete_gamelog(payload, week=asked_week) if payload else None
+    if facts is None:
+        return {**identity, "note": _NO_GAME_LOG_NOTE.format(player=name)}
+
+    year = facts["season"]
+    if not facts["games"]:
+        if asked_week is not None:
+            note = _NO_GAME_THAT_WEEK_FOR_PLAYER_NOTE.format(
+                player=name, week=asked_week, season=_season_phrase(year)
+            )
+        else:
+            note = _NO_GAMES_LOGGED_NOTE.format(player=name, season=_season_phrase(year))
+        return {**identity, "note": note}
+
+    first = facts["games"][0]
+    if asked_week is not None:
+        statement = _ONE_GAME_STATEMENT.format(
+            player=name,
+            week=asked_week,
+            season=_season_phrase(year),
+            opponent=first["opponent"] or "a club ESPN does not name",
+        )
+    else:
+        statement = _RECENT_GAMES_STATEMENT.format(
+            player=name, count=len(facts["games"]), season=_season_phrase(year)
+        )
+
+    return {
+        **identity,
+        "season": year,
+        "week": facts["week"],
+        "games": facts["games"],
+        "game_log_statement": statement,
+        "caveat": espn_extra.GAME_LOG_CAVEAT,
+    }
+
+
+def _season_phrase(season: object) -> str:
+    """The season named, or the words that name no year at all. Pure.
+
+    M-1: this endpoint can carry no readable year, and a year the model fills in for
+    itself is the defect this whole path exists to remove.
+    """
+    return f"the {season} NFL season" if isinstance(season, int) else "the season asked about"
+
+
+# The game is STATED, never implied: a dict field is readable but not voiceable, and the
+# residual hazard is the model reading one game's figures as a season's.
+_ONE_GAME_STATEMENT = (
+    "Every figure below comes from ONE single game: the game {player} played in week "
+    "{week} of {season}, against the {opponent}. Say week {week} and name that opponent "
+    "whenever you report any figure from this answer, so the member knows exactly which "
+    "game you are talking about, and never report any of these figures as a season total."
+)
+_RECENT_GAMES_STATEMENT = (
+    "Every figure below comes from ONE single game, and this answer lists {player}'s "
+    "{count} most recent games in {season}, newest first. Each game says which week it "
+    "was, whether it was played at home or away, and which club it was against. Report "
+    "each game's figures under that game only, and never add them together into a total."
+)
+
+# Every miss is a concrete full sentence telling the model what to do next, returned in a
+# dict body because a bare string fact gets voiced or swallowed (memory:
+# qa-phrasing-inversion) and a bare ``None`` sends it back to its own stale memory.
+_NO_PLAYER_TO_LOG_NOTE = (
+    "The member's question named no player, so this tool has no game to look up. Ask the "
+    "member which player he means, and never describe a game from your own memory instead."
+)
+_PLAYER_LOOKUP_FAILED_NOTE = (
+    "The lookup that would have found {player} failed just now, so this tool has no "
+    "figures for him this time. Say that you could not look him up, and never give a "
+    "figure from your own memory instead."
+)
+_NO_GAME_LOG_NOTE = (
+    "ESPN publishes no game-by-game log at all for {player} in the season asked about, "
+    "so this tool has no figures for him from any single game. Say that you found the "
+    "player and have no game figures for him, never say that he does not play, and never "
+    "give a figure from your own memory instead."
+)
+# THE anti-substitution note. The live 260821-f0s defect answered about a different game
+# and never said it had changed games, so this says plainly that he did not play.
+_NO_GAME_THAT_WEEK_FOR_PLAYER_NOTE = (
+    "ESPN's game log shows no game at all for {player} in week {week} of {season}, so he "
+    "did not play a game that week. Tell the member plainly that {player} has no game in "
+    "week {week}, never give him a different week's figures instead, and never say how "
+    "{player} played that week."
+)
+_NO_GAMES_LOGGED_NOTE = (
+    "ESPN's game log lists no games at all for {player} in {season}, so this tool has no "
+    "figures for him. Tell the member plainly that you have no games for him in that "
+    "season, and never give a figure from your own memory instead."
+)
+
+# INSTRUCT first, CONSTRAIN second — measured, not stylistic: a disclaimer-only
+# description suppressed the call 5/5 on this branch. The team wording is copied from
+# _STATS_TOOL_DESCRIPTION on purpose, so the model learns ONE rule rather than two.
+_GAME_LOG_TOOL_DESCRIPTION = (
+    "Look up what one NFL player did in ONE single game. Call this tool every time the "
+    "member asks what a player did in one game, in a given week, last week or lately, "
+    "because your own memory of any single game is often a year or more out of date. The "
+    "player argument is the player's name exactly as the member wrote it. Pass the team "
+    "argument only when the member's own question names a team, and then it is that "
+    "team's standard abbreviation such as LAR. Pass the week argument ONLY when the "
+    "member named a week number, and pass the season argument ONLY when he named a "
+    "specific year; leave both out for last week, lately or this "
+    "season, because this tool knows which season is the most recent one and you do not. "
+    "With no week it reports his most recent games and not his whole season. Every "
+    "figure it returns belongs to the ONE game it is listed under, so never report one "
+    "of them as a season total. It carries no score, so never say "
+    "how many points either team scored. When the member asks what a player did across a "
+    "WHOLE season, lookup_player_season_stats is the tool for that question and this one "
+    "is not."
+)
+
+
+# --------------------------------------------------------------------------- #
+# The LEADERS tool (Route G of issue #183) — the season type is pinned twice over (M-4).
+# --------------------------------------------------------------------------- #
+
+
+async def _lookup_league_leaders(category: str = "", season: int | None = None) -> object | None:
+    """Look up which players led the whole NFL in ONE statistic in ONE season.
+
+    ONE cached hop. The category resolves to a code-owned literal inside the seam before
+    any URL is formatted, so the model's own string never reaches the request target
+    (T-jbh-01). With no season none is passed: the season-less call answers the CURRENT
+    regular season and echoes its year (D-2). EVERY outcome is a dict carrying a note.
+    """
+    from app.services import espn_extra
+
+    key = espn_extra.league_leader_category(category)
+    if key is None:
+        return {"note": _UNKNOWN_LEADER_CATEGORY_NOTE.format(categories=_leader_categories())}
+
+    asked_season = season if isinstance(season, int) and not isinstance(season, bool) else None
+    payload = await espn_extra.fetch_league_leaders(key, season=asked_season)
+    facts = espn_extra.parse_league_leaders(payload, key) if payload is not None else None
+    if facts is None or not facts["leaders"]:
+        return {"note": _NO_LEADERS_FOUND_NOTE.format(category=key)}
+
+    year = facts["season"]
+    leaders = facts["leaders"]
+    statement = _LEAGUE_LEADERS_STATEMENT.format(
+        season=year if isinstance(year, int) else "the season this answer is about",
+        category=key,
+        leader=leaders[0]["player"],
+        team=leaders[0]["team"] or "a club ESPN does not name",
+    )
+    for place, leader in enumerate(leaders[1:], start=2):
+        statement += _LEAGUE_LEADER_CLAUSE.format(
+            place=place,
+            player=leader["player"],
+            team=leader["team"] or "a club ESPN does not name",
+        )
+
+    return {
+        "season": year,
+        "category": key,
+        "leaders": leaders,
+        "leaders_statement": statement,
+        "caveat": espn_extra.LEAGUE_LEADERS_CAVEAT,
+    }
+
+
+def _leader_categories() -> str:
+    """The categories this tool covers, as a phrase a person would say. Pure."""
+    from app.services import espn_extra
+
+    names = list(espn_extra.LEADER_SORTS)
+    return f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+# The season, the category and the leader are STATED, never implied: a dict field is
+# readable but not voiceable, and the leader is the one fact the question is asked for.
+_LEAGUE_LEADERS_STATEMENT = (
+    "{leader} of the {team} led the whole NFL in {category} in the {season} regular "
+    "season, and the players below are ESPN's own top few in that statistic for that one "
+    "season, in ESPN's own order. Say the year {season} whenever you report any of these "
+    "figures."
+)
+_LEAGUE_LEADER_CLAUSE = " Number {place} was {player} of the {team}."
+
+# Every miss is a concrete full sentence telling the model what to do next, returned in a
+# dict body because a bare string fact gets voiced or swallowed (memory:
+# qa-phrasing-inversion) and a bare ``None`` sends it back to its own stale memory.
+_UNKNOWN_LEADER_CATEGORY_NOTE = (
+    "This tool has no league leaders for the statistic the member asked about. The only "
+    "statistics it covers are {categories}. Ask the member which of those he means, and "
+    "never name a league leader from your own memory instead."
+)
+_NO_LEADERS_FOUND_NOTE = (
+    "This tool has no {category} leaders at all for the season asked about, either "
+    "because ESPN's record does not carry that season or because the lookup of it failed "
+    "just now. Tell the member plainly that you could not look those leaders up, and "
+    "never name a leader from your own memory instead."
+)
+
+# INSTRUCT first, CONSTRAIN second — measured, not stylistic: a disclaimer-only
+# description suppressed the call 5/5 on this branch.
+_LEAGUE_LEADERS_TOOL_DESCRIPTION = (
+    "Look up which players lead the whole NFL in one statistic for one season. Call this "
+    "tool every time the member asks who leads or led the league in anything, who the "
+    "top rusher, passer, receiver or tackler is, or who has the most of any statistic, "
+    "because your own memory of a league leader is often a year or more out of date. The "
+    "category argument is one of the listed names and this tool answers one category per "
+    "call. Pass the season argument ONLY when the member named a specific year, and "
+    "leave it out for this season and last season, because this tool already knows which "
+    "season is being played and you do not. It ranks PLAYERS and never teams, so when "
+    "the member asks about a team's record, lookup_team_record is the tool for that "
+    "question and this one is not. It covers the regular season only and carries no "
+    "playoff figure. When the member asks what ONE named player did in a season, "
+    "lookup_player_season_stats is the tool for that question and this one is not."
+)
+
+
 # ONE round vocabulary across both tools that take a round, so the model learns one set of
 # names rather than two. The enum is a second bound on a model-written value; either
 # adapter still resolves anything else through espn_extra's own keyword table.
 _PLAYOFF_ROUND_ENUM = ["wild card", "divisional", "conference championships", "super bowl"]
+
+
+def _leader_category_enum() -> list[str]:
+    """The category names the seam accepts, DERIVED so the two cannot drift apart.
+
+    A function rather than a constant so the ``espn_extra`` import stays deferred, as it
+    is in every adapter here; ``TOOLS`` calls it once while the module is being built.
+    """
+    from app.services import espn_extra
+
+    return list(espn_extra.LEADER_SORTS)
 
 
 TOOLS: tuple[_Tool, ...] = (
@@ -1682,6 +2240,130 @@ TOOLS: tuple[_Tool, ...] = (
             },
         },
         run=_lookup_playoff_results,
+    ),
+    _Tool(
+        name="lookup_team_schedule",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_team_schedule",
+                "description": _TEAM_SCHEDULE_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {
+                            "type": "string",
+                            "description": "The team's standard abbreviation, such as CHI.",
+                        },
+                        "season": {
+                            "type": "integer",
+                            "description": (
+                                "The four-digit year, and ONLY when the member named "
+                                "one. Leave it out for this season."
+                            ),
+                        },
+                    },
+                    "required": ["team"],
+                },
+            },
+        },
+        run=_lookup_team_schedule,
+    ),
+    _Tool(
+        name="lookup_team_record",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_team_record",
+                "description": _TEAM_RECORD_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {
+                            "type": "string",
+                            "description": "The team's standard abbreviation, such as NE.",
+                        },
+                        "season": {
+                            "type": "integer",
+                            "description": (
+                                "The four-digit year, and ONLY when the member named "
+                                "one. Leave it out for last season."
+                            ),
+                        },
+                    },
+                    "required": ["team"],
+                },
+            },
+        },
+        run=_lookup_team_record,
+    ),
+    _Tool(
+        name="lookup_player_game_log",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_player_game_log",
+                "description": _GAME_LOG_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "player": {
+                            "type": "string",
+                            "description": "The player's name as the member wrote it.",
+                        },
+                        "team": {
+                            "type": "string",
+                            "description": (
+                                "Optional team abbreviation, and ONLY when the member's "
+                                "own question names a team."
+                            ),
+                        },
+                        "season": {
+                            "type": "integer",
+                            "description": (
+                                "The four-digit year, and ONLY when the member named one."
+                            ),
+                        },
+                        "week": {
+                            "type": "integer",
+                            "description": ("The week number, and ONLY when the member named one."),
+                        },
+                    },
+                    "required": ["player"],
+                },
+            },
+        },
+        run=_lookup_player_game_log,
+    ),
+    _Tool(
+        name="lookup_league_leaders",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_league_leaders",
+                "description": _LEAGUE_LEADERS_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "category": {
+                            "type": "string",
+                            # DERIVED from the seam's own allowlist, so the enum the model
+                            # reads and the sorts the code will accept cannot drift apart.
+                            "enum": _leader_category_enum(),
+                            "description": "Which statistic to rank players by.",
+                        },
+                        "season": {
+                            "type": "integer",
+                            "description": (
+                                "The four-digit year, and ONLY when the member named one."
+                            ),
+                        },
+                    },
+                    "required": ["category"],
+                },
+            },
+        },
+        run=_lookup_league_leaders,
     ),
 )
 

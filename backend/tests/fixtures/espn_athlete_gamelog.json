@@ -1,0 +1,473 @@
+{
+  "names": [
+    "completions",
+    "passingAttempts",
+    "passingYards",
+    "completionPct",
+    "yardsPerPassAttempt",
+    "passingTouchdowns",
+    "interceptions",
+    "longPassing",
+    "sacks",
+    "QBRating",
+    "adjQBR",
+    "rushingAttempts",
+    "rushingYards",
+    "yardsPerRushAttempt",
+    "rushingTouchdowns",
+    "longRushing"
+  ],
+  "labels": [
+    "CMP",
+    "ATT",
+    "YDS",
+    "CMP%",
+    "AVG",
+    "TD",
+    "INT",
+    "LNG",
+    "SACK",
+    "RTG",
+    "QBR",
+    "CAR",
+    "YDS",
+    "AVG",
+    "TD",
+    "LNG"
+  ],
+  "displayNames": [
+    "Completions",
+    "Passing Attempts",
+    "Passing Yards",
+    "Completion Percentage",
+    "Yards Per Pass Attempt",
+    "Passing Touchdowns",
+    "Interceptions",
+    "Longest Pass",
+    "Total Sacks",
+    "Passer Rating",
+    "Adjusted QBR",
+    "Rushing Attempts",
+    "Rushing Yards",
+    "Yards Per Rush Attempt",
+    "Rushing Touchdowns",
+    "Long Rushing"
+  ],
+  "filters": [
+    {
+      "displayName": "Season",
+      "name": "season",
+      "value": "2024"
+    }
+  ],
+  "seasonTypes": [
+    {
+      "displayName": "2024 Postseason",
+      "categories": [
+        {
+          "displayName": "Postseason",
+          "type": "event",
+          "splitType": "3",
+          "events": [
+            {
+              "eventId": "401671937",
+              "stats": [
+                "26",
+                "44",
+                "324",
+                "59.1",
+                "7.4",
+                "2",
+                "0",
+                "48",
+                "5",
+                "97.2",
+                "49.7",
+                "2",
+                "5",
+                "2.5",
+                "0",
+                "5"
+              ]
+            },
+            {
+              "eventId": "401671882",
+              "stats": [
+                "19",
+                "27",
+                "209",
+                "70.4",
+                "7.7",
+                "2",
+                "0",
+                "29",
+                "2",
+                "117.7",
+                "69.8",
+                "2",
+                "-1",
+                "-0.5",
+                "0",
+                "0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "displayName": "2024 Regular Season",
+      "categories": [
+        {
+          "displayName": "Regular Season Stats",
+          "type": "event",
+          "splitType": "2",
+          "events": [
+            {
+              "eventId": "401671829",
+              "stats": [
+                "17",
+                "32",
+                "189",
+                "53.1",
+                "5.9",
+                "0",
+                "0",
+                "29",
+                "0",
+                "71.0",
+                "46.5",
+                "6",
+                "16",
+                "2.7",
+                "0",
+                "12"
+              ]
+            },
+            {
+              "eventId": "401671818",
+              "stats": [
+                "16",
+                "27",
+                "160",
+                "59.3",
+                "5.9",
+                "0",
+                "0",
+                "51",
+                "0",
+                "76.2",
+                "61.3",
+                "4",
+                "18",
+                "4.5",
+                "0",
+                "11"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "events": {
+    "401671882": {
+      "id": "401671882",
+      "links": [
+        {
+          "language": "en",
+          "rel": [
+            "summary",
+            "desktop",
+            "event"
+          ],
+          "href": "https://www.espn.com/nfl/game/_/gameId/401671882/vikings-rams",
+          "text": "Gamecast",
+          "shortText": "Summary",
+          "isExternal": false,
+          "isPremium": false
+        }
+      ],
+      "week": 1,
+      "atVs": "vs",
+      "gameDate": "2025-01-14T01:00:00.000+00:00",
+      "score": "27-9",
+      "homeTeamId": "14",
+      "awayTeamId": "16",
+      "homeTeamScore": "27",
+      "awayTeamScore": "9",
+      "gameResult": "W",
+      "opponent": {
+        "id": "16",
+        "uid": "s:20~l:28~t:16",
+        "displayName": "Minnesota Vikings",
+        "abbreviation": "MIN",
+        "links": [
+          {
+            "language": "en",
+            "rel": [
+              "clubhouse",
+              "desktop",
+              "team"
+            ],
+            "href": "https://www.espn.com/nfl/team/_/name/min/minnesota-vikings",
+            "text": "Clubhouse",
+            "shortText": "Clubhouse",
+            "isExternal": false,
+            "isPremium": false
+          }
+        ],
+        "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/min.png"
+      },
+      "leagueName": "National Football League",
+      "leagueAbbreviation": "NFL",
+      "leagueShortName": "NFL",
+      "eventNote": "NFC Wild Card Playoffs - Moved to Arizona due to wildfires in Los Angeles",
+      "team": {
+        "id": "14",
+        "uid": "s:20~l:28~t:14",
+        "abbreviation": "LAR",
+        "links": [
+          {
+            "language": "en",
+            "rel": [
+              "clubhouse",
+              "desktop",
+              "team"
+            ],
+            "href": "https://www.espn.com/nfl/team/_/name/lar/los-angeles-rams",
+            "text": "Clubhouse",
+            "shortText": "Clubhouse",
+            "isExternal": false,
+            "isPremium": false
+          }
+        ],
+        "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/lar.png",
+        "isAllStar": false
+      }
+    },
+    "401671829": {
+      "id": "401671829",
+      "links": [
+        {
+          "language": "en",
+          "rel": [
+            "summary",
+            "desktop",
+            "event"
+          ],
+          "href": "https://www.espn.com/nfl/game/_/gameId/401671829/cardinals-rams",
+          "text": "Gamecast",
+          "shortText": "Summary",
+          "isExternal": false,
+          "isPremium": false
+        }
+      ],
+      "week": 17,
+      "atVs": "vs",
+      "gameDate": "2024-12-29T01:00:00.000+00:00",
+      "score": "13-9",
+      "homeTeamId": "14",
+      "awayTeamId": "22",
+      "homeTeamScore": "13",
+      "awayTeamScore": "9",
+      "gameResult": "W",
+      "opponent": {
+        "id": "22",
+        "uid": "s:20~l:28~t:22",
+        "displayName": "Arizona Cardinals",
+        "abbreviation": "ARI",
+        "links": [
+          {
+            "language": "en",
+            "rel": [
+              "clubhouse",
+              "desktop",
+              "team"
+            ],
+            "href": "https://www.espn.com/nfl/team/_/name/ari/arizona-cardinals",
+            "text": "Clubhouse",
+            "shortText": "Clubhouse",
+            "isExternal": false,
+            "isPremium": false
+          }
+        ],
+        "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/ari.png"
+      },
+      "leagueName": "National Football League",
+      "leagueAbbreviation": "NFL",
+      "leagueShortName": "NFL",
+      "team": {
+        "id": "14",
+        "uid": "s:20~l:28~t:14",
+        "abbreviation": "LAR",
+        "links": [
+          {
+            "language": "en",
+            "rel": [
+              "clubhouse",
+              "desktop",
+              "team"
+            ],
+            "href": "https://www.espn.com/nfl/team/_/name/lar/los-angeles-rams",
+            "text": "Clubhouse",
+            "shortText": "Clubhouse",
+            "isExternal": false,
+            "isPremium": false
+          }
+        ],
+        "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/lar.png",
+        "isAllStar": false
+      }
+    },
+    "401671937": {
+      "id": "401671937",
+      "links": [
+        {
+          "language": "en",
+          "rel": [
+            "summary",
+            "desktop",
+            "event"
+          ],
+          "href": "https://www.espn.com/nfl/game/_/gameId/401671937/rams-eagles",
+          "text": "Gamecast",
+          "shortText": "Summary",
+          "isExternal": false,
+          "isPremium": false
+        }
+      ],
+      "week": 2,
+      "atVs": "@",
+      "gameDate": "2025-01-19T20:00:00.000+00:00",
+      "score": "28-22",
+      "homeTeamId": "21",
+      "awayTeamId": "14",
+      "homeTeamScore": "28",
+      "awayTeamScore": "22",
+      "gameResult": "L",
+      "opponent": {
+        "id": "21",
+        "uid": "s:20~l:28~t:21",
+        "displayName": "Philadelphia Eagles",
+        "abbreviation": "PHI",
+        "links": [
+          {
+            "language": "en",
+            "rel": [
+              "clubhouse",
+              "desktop",
+              "team"
+            ],
+            "href": "https://www.espn.com/nfl/team/_/name/phi/philadelphia-eagles",
+            "text": "Clubhouse",
+            "shortText": "Clubhouse",
+            "isExternal": false,
+            "isPremium": false
+          }
+        ],
+        "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/phi.png"
+      },
+      "leagueName": "National Football League",
+      "leagueAbbreviation": "NFL",
+      "leagueShortName": "NFL",
+      "eventNote": "NFC Divisional Playoffs",
+      "team": {
+        "id": "14",
+        "uid": "s:20~l:28~t:14",
+        "abbreviation": "LAR",
+        "links": [
+          {
+            "language": "en",
+            "rel": [
+              "clubhouse",
+              "desktop",
+              "team"
+            ],
+            "href": "https://www.espn.com/nfl/team/_/name/lar/los-angeles-rams",
+            "text": "Clubhouse",
+            "shortText": "Clubhouse",
+            "isExternal": false,
+            "isPremium": false
+          }
+        ],
+        "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/lar.png",
+        "isAllStar": false
+      }
+    },
+    "401671818": {
+      "id": "401671818",
+      "links": [
+        {
+          "language": "en",
+          "rel": [
+            "summary",
+            "desktop",
+            "event"
+          ],
+          "href": "https://www.espn.com/nfl/game/_/gameId/401671818/rams-49ers",
+          "text": "Gamecast",
+          "shortText": "Summary",
+          "isExternal": false,
+          "isPremium": false
+        }
+      ],
+      "week": 15,
+      "atVs": "@",
+      "gameDate": "2024-12-13T01:15:00.000+00:00",
+      "score": "12-6",
+      "homeTeamId": "25",
+      "awayTeamId": "14",
+      "homeTeamScore": "6",
+      "awayTeamScore": "12",
+      "gameResult": "W",
+      "opponent": {
+        "id": "25",
+        "uid": "s:20~l:28~t:25",
+        "displayName": "San Francisco 49ers",
+        "abbreviation": "SF",
+        "links": [
+          {
+            "language": "en",
+            "rel": [
+              "clubhouse",
+              "desktop",
+              "team"
+            ],
+            "href": "https://www.espn.com/nfl/team/_/name/sf/san-francisco-49ers",
+            "text": "Clubhouse",
+            "shortText": "Clubhouse",
+            "isExternal": false,
+            "isPremium": false
+          }
+        ],
+        "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/sf.png"
+      },
+      "leagueName": "National Football League",
+      "leagueAbbreviation": "NFL",
+      "leagueShortName": "NFL",
+      "team": {
+        "id": "14",
+        "uid": "s:20~l:28~t:14",
+        "abbreviation": "LAR",
+        "links": [
+          {
+            "language": "en",
+            "rel": [
+              "clubhouse",
+              "desktop",
+              "team"
+            ],
+            "href": "https://www.espn.com/nfl/team/_/name/lar/los-angeles-rams",
+            "text": "Clubhouse",
+            "shortText": "Clubhouse",
+            "isExternal": false,
+            "isPremium": false
+          }
+        ],
+        "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/lar.png",
+        "isAllStar": false
+      }
+    }
+  }
+}
