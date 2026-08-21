@@ -653,6 +653,7 @@ class ShippedRegistryTests(_OpenPathTestCase):
                 "lookup_player_current_team",
                 "lookup_game_leaders",
                 "lookup_playoff_results",
+                "lookup_team_schedule",
             ],
         )
         params = qa_open.TOOLS[0].spec["function"]["parameters"]
@@ -906,12 +907,12 @@ class ShippedRegistryTests(_OpenPathTestCase):
 
     def test_the_whole_registry_stays_inside_a_stated_prompt_budget(self) -> None:
         # Every spec costs tokens on EVERY open call and adds a way to mis-select, so the
-        # total is pinned rather than left to drift. Measured 2026-08-21: 12,447 bytes
-        # across five tools, up from 11,272 when lookup_game_leaders gained its postseason
-        # branch. The pin was NOT raised for that growth, which leaves 53 bytes — the next
-        # edit that adds a sentence must weigh it against the pin rather than slip past it.
+        # total is pinned rather than left to drift. Measured 2026-08-21: 14,146 bytes
+        # across six tools, up from 12,447 across five when lookup_team_schedule shipped.
+        # The pin is raised ONCE per new tool, to the measured total rounded up to the
+        # next hundred, so raising it stays a decision rather than a rubber stamp.
         total = sum(len(json.dumps(tool.spec)) for tool in qa_open.TOOLS)
-        self.assertLess(total, 12500, f"the shipped tool specs now total {total} bytes")
+        self.assertLess(total, 14200, f"the shipped tool specs now total {total} bytes")
 
     def test_each_shipped_description_says_what_it_is_for_without_overlapping(self) -> None:
         # Five tools is a growing selection surface; each opener must name a different
@@ -945,6 +946,10 @@ class ShippedRegistryTests(_OpenPathTestCase):
             openers["lookup_playoff_results"],
             "Look up which teams won one round of one NFL season's playoffs, including "
             "the Super Bowl",
+        )
+        self.assertEqual(
+            openers["lookup_team_schedule"],
+            "Look up the whole list of regular-season games one NFL team plays in one season",
         )
         for name in ("lookup_team_roster", "lookup_player_season_stats"):
             with self.subTest(tool=name):
@@ -2480,6 +2485,80 @@ class PlayoffGameLeadersToolTests(_OpenPathTestCase):
         self.assertIn("Never state the score of that game", statement)
         ban = statement[statement.index("The final score") :]
         self.assertNotRegex(ban, r"\bif\b")
+
+
+class TeamScheduleToolTests(_OpenPathTestCase):
+    """Route E of issue #183: the whole fixture list, from ESPN rather than from memory."""
+
+    def _schedule_returns(self, payload: object):
+        async def _fake(team_abbr, *, season=None):
+            return payload
+
+        return mock.patch.object(espn_extra, "fetch_team_schedule", _fake)
+
+    def test_a_schedule_round_feeds_back_every_game_with_its_week(self) -> None:
+        payload = json.loads(_SCHEDULE_FIXTURE.read_text())
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_team_schedule", '{"team": "KC"}'),
+            _text("The Chiefs open at the Chargers."),
+        )
+        with self._schedule_returns(payload), patcher:
+            out = _run(qa_open.answer_open("who do the chiefs play this year?", voice=_VOICE))
+
+        self.assertEqual(out, "The Chiefs open at the Chargers.")
+        results = _tool_messages(calls[1]["messages"])
+        self.assertEqual(len(results), 1)
+        facts = json.loads(results[0]["content"])
+        self.assertEqual(facts["season"], 2025)
+        self.assertEqual(facts["game_count"], 5)
+        self.assertIn(
+            "In week 1 they play Kansas City Chiefs at Los Angeles Chargers",
+            facts["schedule_statement"],
+        )
+        self.assertIn(espn_extra.TEAM_SCHEDULE_CAVEAT, facts["caveat"])
+
+    def test_the_statement_names_the_club_the_season_and_the_bye_week(self) -> None:
+        payload = json.loads(_SCHEDULE_FIXTURE.read_text())
+        with self._schedule_returns(payload):
+            out = _run(qa_open._lookup_team_schedule(team="KC"))
+        assert isinstance(out, dict)
+        statement = out["schedule_statement"]
+        self.assertIn("the Kansas City Chiefs play in the 2025 NFL season", statement)
+        self.assertIn("no game at all in week 10 of the 2025 season", statement)
+
+    def test_a_forgotten_team_returns_a_note_and_fetches_nothing(self) -> None:
+        # No stub at all: a live GET here would be a real socket, so this proves the
+        # early return happens BEFORE the first hop.
+        out = _run(qa_open._lookup_team_schedule())
+        assert isinstance(out, dict)
+        self.assertIn("named no NFL team", out["note"])
+
+    def test_a_failed_fetch_returns_a_note_never_the_bare_none_that_reads_as_silence(
+        self,
+    ) -> None:
+        with self._schedule_returns(None):
+            out = _run(qa_open._lookup_team_schedule(team="KC"))
+        assert isinstance(out, dict)
+        self.assertIn("never list a game from your own memory", out["note"])
+
+    def test_a_season_espn_does_not_carry_names_that_season_in_its_note(self) -> None:
+        # Measured 2026-08-21: 1930 answers 200 with no ``requestedSeason`` and no events.
+        with self._schedule_returns({"events": [], "season": {"year": 2026}}):
+            out = _run(qa_open._lookup_team_schedule(team="KC", season=1930))
+        assert isinstance(out, dict)
+        self.assertIn("KC in the 1930 NFL season", out["note"])
+
+    def test_the_payload_stays_inside_the_shipped_tools_budget(self) -> None:
+        payload = json.loads(_SCHEDULE_FIXTURE.read_text())
+        with self._schedule_returns(payload):
+            out = _run(qa_open._lookup_team_schedule(team="KC"))
+        self.assertLess(len(json.dumps(out)), 3400)
+
+    def test_no_payload_ever_carries_an_event_id(self) -> None:
+        payload = json.loads(_SCHEDULE_FIXTURE.read_text())
+        with self._schedule_returns(payload):
+            out = _run(qa_open._lookup_team_schedule(team="KC"))
+        self.assertNotIn("401772957", json.dumps(out))
 
 
 class _FrozenClock:

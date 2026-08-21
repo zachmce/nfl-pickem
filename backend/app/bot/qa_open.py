@@ -1506,6 +1506,146 @@ _PLAYOFF_TOOL_DESCRIPTION = (
 )
 
 
+# --------------------------------------------------------------------------- #
+# The SCHEDULE tool (Route E of issue #183). ``lookup_game_leaders`` already reads this
+# same endpoint to resolve ONE game; this one relays the whole fixture list, which is the
+# question the model answered from a two-year-old memory of the schedule.
+# --------------------------------------------------------------------------- #
+
+
+async def _lookup_team_schedule(team: str = "", season: int | None = None) -> object | None:
+    """Look up every regular-season game one NFL team plays in one season.
+
+    ONE cached hop. The seam bounds ``team`` through the canonical 32-abbreviation
+    allowlist and ``season`` through its integer range before any URL is formatted, and
+    the season-less form echoes the year it answered, so neither branch needs a league
+    root hop (D-2). Every argument defaults so a forgotten one degrades rather than
+    raising a TypeError into the loop, and EVERY outcome is a dict carrying a note, never
+    bare ``None``, which becomes :data:`_NO_DATA_PAYLOAD` and sends the model to memory.
+    """
+    from app.services import espn_extra
+
+    team_abbr = team.strip().upper() if isinstance(team, str) else ""
+    if not team_abbr:
+        # Nothing to resolve, so no live GET is worth making.
+        return {"note": _NO_TEAM_TO_SCHEDULE_NOTE}
+
+    asked_season = season if isinstance(season, int) and not isinstance(season, bool) else None
+    payload = await espn_extra.fetch_team_schedule(team_abbr, season=asked_season)
+    facts = espn_extra.parse_team_season(payload) if payload is not None else None
+    if facts is None or not facts["games"]:
+        # Measured 2026-08-21: a season outside ESPN's record answers 200 with no
+        # ``requestedSeason`` and no events, which is the same dead end a failed fetch
+        # reaches, so one note covers both.
+        if asked_season is not None:
+            return {"note": _NO_SEASON_SCHEDULE_NOTE.format(team=team_abbr, season=asked_season)}
+        return {"note": _NO_SCHEDULE_NOTE.format(team=team_abbr)}
+
+    club = facts["team"] or team_abbr
+    year = facts["season"]
+    statement = _TEAM_SCHEDULE_STATEMENT.format(team=club, season=year)
+    for game in facts["games"]:
+        statement += _schedule_game_clause(game)
+    bye = facts["bye_week"]
+    if isinstance(bye, int):
+        statement += _SCHEDULE_BYE_CLAUSE.format(team=club, week=bye, season=year)
+    statement += (
+        _SCHEDULE_ALL_PLAYED_CLAUSE if facts["any_completed"] else _SCHEDULE_NONE_PLAYED_CLAUSE
+    )
+
+    # The fixture list reaches the model as the STATEMENT rather than twice: the two
+    # together measured 3,683 bytes against a 3,400-byte ceiling, and prose is the half
+    # the model can voice (memory: qa-phrasing-inversion).
+    return {
+        "season": year,
+        "team": club,
+        "bye_week": bye,
+        "game_count": len(facts["games"]),
+        "any_completed": facts["any_completed"],
+        "schedule_statement": statement,
+        "caveat": espn_extra.TEAM_SCHEDULE_CAVEAT,
+    }
+
+
+def _schedule_game_clause(game: dict) -> str:
+    """The sentence naming ONE scheduled game, its week and its kick-off. Pure.
+
+    ESPN's own timestamp is relayed verbatim rather than rewritten into a spoken day: a
+    late kick-off is the day before in the United States, so a spoken day would be wrong
+    for those games and a wrong day is worse than an unfriendly one.
+    """
+    fixture = game["name"] if isinstance(game["name"], str) else "a game ESPN does not name"
+    when = game["date"] if isinstance(game["date"], str) else "a date ESPN does not give"
+    return _SCHEDULE_GAME_CLAUSE.format(week=game["week"], game=fixture, date=when)
+
+
+# D-3 of the predecessor, applied to a whole season: the club and the season are STATED,
+# never implied, and the games are listed as sentences because a dict field is readable
+# but not voiceable.
+_TEAM_SCHEDULE_STATEMENT = (
+    "Every game listed below is a game the {team} play in the {season} NFL season, and "
+    "together they are that club's whole regular-season schedule for that one season. "
+    "Say the year {season} whenever you report any game from this answer."
+)
+_SCHEDULE_GAME_CLAUSE = " In week {week} they play {game}, on {date}."
+_SCHEDULE_BYE_CLAUSE = (
+    " The {team} play no game at all in week {week} of the {season} season, because that "
+    "week is their bye week."
+)
+# Unconditional in wording on both branches, because a caveat the model has to decide
+# whether to apply is a caveat it drops (measured 3/3 on this branch).
+_SCHEDULE_ALL_PLAYED_CLAUSE = (
+    " This answer says of each game whether it has been played yet. Never say that a game "
+    "it marks as not played yet has already happened."
+)
+_SCHEDULE_NONE_PLAYED_CLAUSE = (
+    " Not one of these games has been played yet, so never report a result for any of "
+    "them and never say how any of them went."
+)
+
+# Every miss is a concrete full sentence telling the model what to do next, returned in a
+# dict body because a bare string fact gets voiced or swallowed (memory:
+# qa-phrasing-inversion) and a bare ``None`` sends it back to its own stale memory.
+_NO_TEAM_TO_SCHEDULE_NOTE = (
+    "The member's question named no NFL team, so this tool has no schedule at all to look "
+    "up. Ask the member which team's schedule he means, and never list a team's games "
+    "from your own memory instead."
+)
+_NO_SEASON_SCHEDULE_NOTE = (
+    "This tool has no regular-season schedule at all for {team} in the {season} NFL "
+    "season, either because ESPN's record does not carry that season or because the "
+    "lookup of it failed just now. Tell the member plainly that you could not look that "
+    "season's schedule up, and never list a game from your own memory instead."
+)
+_NO_SCHEDULE_NOTE = (
+    "This tool has no regular-season schedule at all for {team} right now, because the "
+    "lookup of it failed just now. Tell the member plainly that you could not look their "
+    "schedule up, and never list a game from your own memory instead."
+)
+
+# INSTRUCT first, CONSTRAIN second — measured, not stylistic: a disclaimer-only
+# description suppressed the call 5/5 on this branch. The route-away sentences name the
+# two tools this one is most likely to be confused with.
+_TEAM_SCHEDULE_TOOL_DESCRIPTION = (
+    "Look up the whole list of regular-season games one NFL team plays in one season. "
+    "Call this tool every time the member asks who a team plays, which games they play "
+    "this year, who they play in a given week, when one of their games is, or when their "
+    "bye week is, because your own memory of an NFL schedule is often a year or more out "
+    "of date and this tool reads ESPN's own fixture list. The team argument is that "
+    "team's standard abbreviation, for example CHI for the Chicago Bears, KC for the "
+    "Kansas City Chiefs, or LV for the Las Vegas Raiders. Pass the season argument ONLY "
+    "when the member named a specific year such as 2024, and LEAVE THE SEASON ARGUMENT "
+    "OUT for every other phrasing, including this year and last season, because this "
+    "tool already knows which season is being played and you do not. This tool carries "
+    "no score and no result for any game on it, so when the member asks who WON a game "
+    "or who led one, lookup_game_leaders is the tool for that question and this one is "
+    "not, and when he asks what a team's win-loss record was, lookup_team_record is the "
+    "tool for that question and this one is not. It covers the regular season only and "
+    "carries no playoff game at all, so when the member asks about a playoff game or a "
+    "Super Bowl, lookup_playoff_results is the tool for that question and this one is not."
+)
+
+
 # ONE round vocabulary across both tools that take a round, so the model learns one set of
 # names rather than two. The enum is a second bound on a model-written value; either
 # adapter still resolves anything else through espn_extra's own keyword table.
@@ -1682,6 +1822,34 @@ TOOLS: tuple[_Tool, ...] = (
             },
         },
         run=_lookup_playoff_results,
+    ),
+    _Tool(
+        name="lookup_team_schedule",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_team_schedule",
+                "description": _TEAM_SCHEDULE_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {
+                            "type": "string",
+                            "description": "The team's standard abbreviation, such as CHI.",
+                        },
+                        "season": {
+                            "type": "integer",
+                            "description": (
+                                "The four-digit year, and ONLY when the member named "
+                                "one. Leave it out for this season."
+                            ),
+                        },
+                    },
+                    "required": ["team"],
+                },
+            },
+        },
+        run=_lookup_team_schedule,
     ),
 )
 

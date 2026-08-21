@@ -1904,6 +1904,69 @@ class ParseTeamScheduleTests(unittest.TestCase):
             self.assertIsNone(week_out["game"]["name"])
 
 
+class ParseTeamSeasonTests(unittest.TestCase):
+    def test_the_whole_regular_season_comes_back_week_ordered(self) -> None:
+        out = espn_extra.parse_team_season(_load_schedule_fixture())
+        assert out is not None
+        self.assertEqual([game["week"] for game in out["games"]], [1, 9, 11, 18, 19])
+        self.assertEqual(out["team"], "Kansas City Chiefs")
+        self.assertEqual(out["bye_week"], 10)
+        self.assertTrue(out["any_completed"])
+
+    def test_a_reordered_payload_is_still_presented_in_week_order(self) -> None:
+        # Sorted by week rather than by list position, so a reordered payload cannot
+        # present a scrambled season.
+        fixture = _load_schedule_fixture()
+        fixture["events"].reverse()
+        out = espn_extra.parse_team_season(fixture)
+        assert out is not None
+        self.assertEqual([game["week"] for game in out["games"]], [1, 9, 11, 18, 19])
+
+    def test_the_season_comes_from_requested_season_and_never_from_the_decoy(self) -> None:
+        # The fixture's own top-level ``season`` block says 2026 Preseason on a payload
+        # that carries 2025's games. ``requestedSeason`` is the authoritative echo.
+        fixture = _load_schedule_fixture()
+        self.assertEqual(fixture["season"]["year"], 2026)
+        out = espn_extra.parse_team_season(fixture)
+        assert out is not None
+        self.assertEqual(out["season"], 2025)
+
+    def test_a_preseason_payload_can_never_be_parsed_as_a_regular_season(self) -> None:
+        fixture = _load_schedule_fixture()
+        fixture["requestedSeason"]["type"] = 1
+        self.assertIsNone(espn_extra.parse_team_season(fixture))
+
+    def test_no_event_id_ever_reaches_the_output(self) -> None:
+        # An id the model can see is an id it may learn to send back (D-4 of 260820-s5y).
+        out = espn_extra.parse_team_season(_load_schedule_fixture())
+        assert out is not None
+        serialized = json.dumps(out)
+        self.assertNotIn("event_id", serialized)
+        self.assertNotIn("401772957", serialized)
+        for game in out["games"]:
+            self.assertEqual(sorted(game), ["completed", "date", "name", "week"])
+
+    def test_an_unusable_top_level_shape_returns_none(self) -> None:
+        for bogus in (None, [], "x", {}, {"events": "nope"}, {"events": []}):
+            with self.subTest(payload=bogus):
+                bad: Any = bogus
+                self.assertIsNone(espn_extra.parse_team_season(bad))
+
+    def test_the_event_cap_holds(self) -> None:
+        with mock.patch.object(espn_extra, "SCHEDULE_MAX_EVENTS", 2):
+            out = espn_extra.parse_team_season(_load_schedule_fixture())
+        assert out is not None
+        self.assertEqual([game["week"] for game in out["games"]], [1, 9])
+
+    def test_an_unusable_event_is_skipped_without_raising(self) -> None:
+        fixture = _load_schedule_fixture()
+        fixture["events"].append({"id": "nope", "week": {"number": 3}})
+        fixture["events"].append("not a dict")
+        out = espn_extra.parse_team_season(fixture)
+        assert out is not None
+        self.assertEqual(len(out["games"]), 5)
+
+
 class ParseGameLeadersTests(unittest.TestCase):
     def test_both_clubs_come_back_keyed_by_full_display_name(self) -> None:
         out = espn_extra.parse_game_leaders(_load_game_leaders_fixture())

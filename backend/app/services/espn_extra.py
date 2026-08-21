@@ -257,6 +257,10 @@ CURRENT_TEAM_SCHEDULE_URL = (
 # could go stale the moment the model asks for the current year explicitly.
 SCHEDULE_CACHE_TTL_SECONDS = 600
 
+# A full NFL regular season is 17 games plus a bye, so this is a defensive ceiling on the
+# tool loop's token budget rather than a routine truncation.
+SCHEDULE_MAX_EVENTS = 22
+
 # The bounds on ``season`` before it is formatted into a URL — the ``_ATHLETE_ID_RE``
 # discipline (T-s5y-01) applied to an integer instead of a string.
 _SCHEDULE_SEASON_MIN = 1920
@@ -289,6 +293,20 @@ GAME_LEADERS_CAVEAT = (
     "total. The player who led a game in passing is not necessarily that team's starting "
     "quarterback, because teams rest their starters and give backups snaps, so never call "
     "any player named here a starter."
+)
+
+
+# The sentences the model is most likely to voice, so each is concrete and complete rather
+# than a terse fragment (memory: qa-phrasing-inversion). The last one is unconditional
+# because a caveat the model has to decide whether to apply is a caveat it drops.
+TEAM_SCHEDULE_CAVEAT = (
+    "Every game listed here is a regular-season game, and this list carries no playoff "
+    "game at all, so never call any game on it a playoff game and never say that it "
+    "shows how a team did in the playoffs. It carries no score and no result for any "
+    "game on it, so never say who won any of these games and never say how many points "
+    "either team scored. A game this list says has not been played yet has not been "
+    "played, so never report it as a game that has already happened. Every kick-off time "
+    "here is given in UTC, so never state one of them as a local time."
 )
 
 
@@ -1273,6 +1291,52 @@ def _parse_one_scheduled_event(event: Any) -> dict[str, Any] | None:
         "date": _first_str(event.get("date")),
         # Identity, not truthiness: only ESPN's own boolean means the game is finished.
         "completed": status_type.get("completed") is True,
+    }
+
+
+# The fields one scheduled game carries into a MODEL-facing payload. ``event_id`` is
+# absent on purpose: an id the model can see is an id it may learn to send back (D-4 of
+# 260820-s5y), and it is the one field a fixture list has no use for.
+_SEASON_GAME_FIELDS = ("week", "name", "date", "completed")
+
+
+def parse_team_season(payload: Any) -> dict | None:
+    """Extract a team's WHOLE regular-season fixture list from a ``schedule`` payload.
+
+    Pure and never-raising. Rejects the SAME three unusable shapes
+    :func:`parse_team_schedule` rejects, and reads the season from ``requestedSeason``
+    for the same reason — the sibling ``season`` block lies. Games are projected down to
+    :data:`_SEASON_GAME_FIELDS`, sorted by week so a reordered payload cannot present a
+    scrambled season, and capped at :data:`SCHEDULE_MAX_EVENTS`.
+    """
+    if not isinstance(payload, dict):
+        return None
+    events = payload.get("events")
+    if not isinstance(events, list):
+        return None
+    requested = payload.get("requestedSeason")
+    requested = requested if isinstance(requested, dict) else {}
+    if requested.get("type") != REGULAR_SEASON_TYPE:
+        return None
+
+    year = requested.get("year")
+    team = payload.get("team")
+    team = team if isinstance(team, dict) else {}
+    bye = payload.get("byeWeek")
+
+    parsed = [game for game in map(_parse_one_scheduled_event, events) if game is not None]
+    parsed.sort(key=lambda game: game["week"])
+    games = [
+        {field: game[field] for field in _SEASON_GAME_FIELDS}
+        for game in parsed[:SCHEDULE_MAX_EVENTS]
+    ]
+
+    return {
+        "season": year if isinstance(year, int) and not isinstance(year, bool) else None,
+        "team": _first_str(team.get("displayName")),
+        "bye_week": bye if isinstance(bye, int) and not isinstance(bye, bool) else None,
+        "games": games,
+        "any_completed": any(game["completed"] for game in games),
     }
 
 
