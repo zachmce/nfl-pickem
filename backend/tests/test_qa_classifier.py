@@ -800,6 +800,33 @@ class ClassifyWireFormatRegressionTests(unittest.TestCase):
         self.assertIn("Vary your closing line", body["messages"][0]["content"])
 
 
+class ScoresClassifierPromptTests(unittest.TestCase):
+    """The measured cause of #187. Each fragment is chosen to BREAK if the clause is
+    softened back into a bare limitation (the #179 failure: a route described only by
+    what it does not cover was skipped 5 times out of 5)."""
+
+    def test_scores_is_scoped_to_the_current_week_score(self) -> None:
+        self.assertIn(
+            "the final or in-progress SCORE of a game in the CURRENT week",
+            qa.CLASSIFIER_SYSTEM_PROMPT,
+        )
+
+    def test_statistics_are_routed_to_open_nfl_as_an_instruction(self) -> None:
+        prompt = qa.CLASSIFIER_SYSTEM_PROMPT
+        self.assertIn("a player's or a team's STATISTICS in a game", prompt)
+        self.assertIn("is open_nfl, NOT scores", prompt)
+
+    def test_the_pronoun_case_is_named(self) -> None:
+        self.assertIn(
+            'even when the question calls the game "that game"', qa.CLASSIFIER_SYSTEM_PROMPT
+        )
+
+    def test_an_earlier_season_is_open_nfl(self) -> None:
+        self.assertIn(
+            "a game in an EARLIER season is open_nfl, not scores", qa.CLASSIFIER_SYSTEM_PROMPT
+        )
+
+
 class GameStatisticsPredicateTests(unittest.TestCase):
     """The pure subject predicate behind the stats-phrased ``scores`` guard (#187)."""
 

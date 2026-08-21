@@ -144,8 +144,13 @@ CLASSIFIER_SYSTEM_PROMPT = (
     '"intent", "team", "week", "subject", "nfl". '
     '"intent" MUST be one of: pick_status (their own pick/lock status), standings '
     "(the leaderboard or someone's rank), lines_slate (the spread, total, this "
-    "week's games, or when the window closes), scores (final or in-progress game "
-    "scores), injuries (a team's injury report — who is hurt, out, doubtful, or "
+    "week's games, or when the window closes), "
+    "scores (the final or in-progress SCORE of a game in the CURRENT week — who won "
+    "and by how much; a question about a player's or a team's STATISTICS in a game — "
+    "yards, touchdowns, tackles, or who led the game — is open_nfl, NOT scores, even "
+    'when the question calls the game "that game"; a question about a game in an '
+    "EARLIER season is open_nfl, not scores), "
+    "injuries (a team's injury report — who is hurt, out, doubtful, or "
     "questionable), weather (the game-time forecast or conditions for a team's "
     "game), news (recent ESPN headlines about a specific team or the league), "
     "prediction (who will win a specific team's game — the pick, the cover or "
