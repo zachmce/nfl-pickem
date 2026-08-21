@@ -310,6 +310,63 @@ TEAM_SCHEDULE_CAVEAT = (
 )
 
 
+# The public, no-auth ESPN core-API standings. The season TYPE and the GROUP are module
+# constants rather than parameters: M-3 measured group 9 as all 32 clubs in ONE fetch
+# where group 8 is one conference, so no caller ever chooses either.
+LEAGUE_STANDINGS_GROUP = 9
+
+STANDINGS_URL = (
+    "https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/{season}"
+    f"/types/{REGULAR_SEASON_TYPE}/groups/{LEAGUE_STANDINGS_GROUP}/standings/0"
+)
+
+# Records move on game days, the same freshness argument the schedule carries.
+STANDINGS_CACHE_TTL_SECONDS = 600
+
+# The trailing team id of a ``$ref`` path. The ``$ref`` is a URL supplied by a remote
+# payload and it is NEVER fetched, joined or passed to httpx — only regexed (T-jbh-05).
+_TEAM_REF_ID_RE = re.compile(r"/teams/([0-9]{1,4})(?:[?/]|$)")
+
+# The season the standings payload says it is, out of its own ``$ref`` — the same
+# echo-before-relay discipline ``requestedSeason`` carries on the schedule.
+_STANDINGS_SEASON_RE = re.compile(r"/seasons/([0-9]{4})/")
+
+# DERIVED from the canonical seed table, never retyped (same reason as NFL_TEAM_ABBRS).
+NFL_TEAM_BY_ID: dict[str, tuple[str, str]] = {
+    str(espn_id): (abbr, display_name) for espn_id, abbr, display_name in NFL_TEAMS
+}
+
+# The record TYPES relayed, mapped to the words a person would say. A camelCase or terse
+# token handed to the model comes back out of its mouth verbatim (memory:
+# qa-phrasing-inversion), and everything outside this table is never read at all.
+_TEAM_RECORD_LABELS: dict[str, str] = {
+    "total": "overall record",
+    "home": "record at home",
+    "road": "record on the road",
+    "vsdiv": "record against teams in their own division",
+}
+
+# The sentences the model is most likely to voice, so each is concrete and complete
+# rather than a terse fragment (memory: qa-phrasing-inversion). The second one answers
+# the guard collision: OPEN_OWNERSHIP_CLAUSE bans a standings POSITION, and a win-loss
+# record is not one.
+TEAM_RECORD_CAVEAT = (
+    "Every figure here is ESPN's own win-loss record for the one NFL season this answer "
+    "names, so say that season's year when you report any of them. A win-loss record is "
+    "not a standings position, it is not a league table place and it is not a game "
+    "score, so none of the things you are told never to state applies to it. This is not "
+    "this pick'em league's own standings and it is not any league member's standing, so "
+    "never report it as either of those. It carries no score at all, so never say how "
+    "many points any team scored. Where this answer says a season has not begun, never "
+    "report a record for that season."
+)
+
+
+def _standings_cache_key(season: int) -> str:
+    """The Redis key for one season's cached whole-league standings payload."""
+    return f"qa:standings:{season}"
+
+
 # The public, no-auth ESPN scoreboard, PINNED to the postseason (SAME host family as the
 # schedule). Measured 2026-08-21 against the whole 2025 bracket: it resolves every playoff
 # round, and only the postseason, which is what keeps it from competing with the
@@ -1377,6 +1434,72 @@ def _parse_one_game_leader(category: Any) -> dict[str, str | None] | None:
     }
 
 
+def _record_stat(record: Any, name: str) -> str | None:
+    """One named ``records[].stats[]`` value, relayed verbatim as a string. Pure."""
+    stats = record.get("stats") if isinstance(record, dict) else None
+    for stat in stats if isinstance(stats, list) else []:
+        if isinstance(stat, dict) and stat.get("name") == name:
+            return _stat_value(stat.get("displayValue"))
+    return None
+
+
+def parse_team_record(payload: Any, team_abbr: Any) -> dict | None:
+    """Extract ONE club's win-loss record summaries from a whole-league standings payload.
+
+    Pure and never-raising. Returns ``None`` only when the top-level shape is unusable —
+    a non-dict payload, or ``standings`` that is not a list. A club the payload does not
+    carry comes back with ``team`` ``None`` and no records, which the caller phrases;
+    another club's record is never substituted for it. No playoff seed, no rank, no
+    league table place and no points total is read on ANY path, because
+    ``OPEN_OWNERSHIP_CLAUSE`` forbids the model stating a standings position or a score.
+    """
+    if not isinstance(payload, dict):
+        return None
+    entries = payload.get("standings")
+    if not isinstance(entries, list):
+        return None
+
+    needle = team_abbr.strip().upper() if isinstance(team_abbr, str) else ""
+    reference = payload.get("$ref")
+    season = _STANDINGS_SEASON_RE.search(reference) if isinstance(reference, str) else None
+
+    club: str | None = None
+    records: dict[str, str] = {}
+    games_played: str | None = None
+    for entry in entries if needle else []:
+        if not isinstance(entry, dict):
+            continue
+        team = entry.get("team")
+        team = team if isinstance(team, dict) else {}
+        ref = team.get("$ref")
+        found = _TEAM_REF_ID_RE.search(ref) if isinstance(ref, str) else None
+        if found is None:
+            continue
+        mapped = NFL_TEAM_BY_ID.get(found.group(1))
+        if mapped is None or mapped[0] != needle:
+            continue
+
+        club = mapped[1]
+        rows = entry.get("records")
+        for index, record in enumerate(rows if isinstance(rows, list) else []):
+            if not isinstance(record, dict):
+                continue
+            label = _TEAM_RECORD_LABELS.get(_first_str(record.get("type")) or "")
+            summary = _stat_value(record.get("summary"))
+            if label is not None and summary is not None and label not in records:
+                records[label] = summary
+            if index == 0:
+                games_played = _record_stat(record, "gamesPlayed")
+        break
+
+    return {
+        "season": int(season.group(1)) if season is not None else None,
+        "team": club,
+        "records": records,
+        "games_played": games_played,
+    }
+
+
 def _winning_team(payload: dict) -> str | None:
     """The display name of the competitor ESPN flags as the winner, or ``None``.
 
@@ -1958,6 +2081,31 @@ async def fetch_team_schedule(team_abbr: str, *, season: int | None = None) -> d
         cache_key=_schedule_cache_key(canonical, season),
         ttl_seconds=SCHEDULE_CACHE_TTL_SECONDS,
         label="schedule",
+    )
+
+
+async def fetch_standings(season: int) -> dict | None:
+    """Fetch ONE season's whole-league regular-season standings — best-effort.
+
+    The season range guard runs FIRST, before the URL is formatted and before Redis or
+    HTTP is touched, reusing the SAME bounds the schedule and the postseason scoreboard
+    hold so one pair covers every endpoint (T-jbh-02). A reject returns ``None`` having
+    attempted nothing. A pass delegates to :func:`_fetch_cached` (D-7): ONE fetch carries
+    all 32 clubs, so a second club asked about is served from this same cache entry.
+    """
+    if (
+        not isinstance(season, int)
+        or isinstance(season, bool)
+        or not _SCHEDULE_SEASON_MIN <= season <= _SCHEDULE_SEASON_MAX
+    ):
+        logger.warning("standings_season_rejected", season=str(season)[:8])
+        return None
+
+    return await _fetch_cached(
+        STANDINGS_URL.format(season=season),
+        cache_key=_standings_cache_key(season),
+        ttl_seconds=STANDINGS_CACHE_TTL_SECONDS,
+        label="standings",
     )
 
 
