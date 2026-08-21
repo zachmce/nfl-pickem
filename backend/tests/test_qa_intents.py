@@ -606,31 +606,31 @@ class LinesTeamPerspectiveTests(unittest.TestCase):
     def test_asked_underdog_is_framed_as_underdog_vs_opponent(self) -> None:
         # "what's the line for the boys?" -> anchored to Dallas, the underdog.
         out = qa._slate_fact(self._slate("DAL"))
-        assert isinstance(out, str)
-        self.assertIn("DAL are 7.5-point underdogs vs. PHI.", out)
-        self.assertNotIn("PHI favored by 7.5.", out)  # never the favorite's framing
-        self.assertIn("Total is 47.5.", out)
+        assert isinstance(out, qa._ListAnswer)
+        self.assertIn("DAL are 7.5-point underdogs vs. PHI", out.body)
+        self.assertNotIn("PHI -7.5", out.body)  # never the favorite's framing
+        self.assertIn("(O/U 47.5)", out.body)
 
     def test_asked_favorite_is_framed_as_favorite_vs_opponent(self) -> None:
         out = qa._slate_fact(self._slate("PHI"))
-        assert isinstance(out, str)
-        self.assertIn("PHI favored by 7.5 vs. DAL.", out)
+        assert isinstance(out, qa._ListAnswer)
+        self.assertIn("PHI favored by 7.5 vs. DAL", out.body)
 
     def test_no_asked_team_keeps_neutral_favorite_framing(self) -> None:
-        # Teamless single-game path (asked_team None) -> unchanged neutral phrasing.
+        # Teamless single-game path (asked_team None) -> the neutral multi-game form.
         out = qa._slate_fact(self._slate(None))
-        assert isinstance(out, str)
-        self.assertIn("PHI favored by 7.5.", out)
-        self.assertNotIn("vs.", out)
+        assert isinstance(out, qa._ListAnswer)
+        self.assertIn("PHI -7.5", out.body)
+        self.assertNotIn("vs.", out.body)
 
     def test_missing_underdog_abbr_degrades_to_neutral(self) -> None:
         # No opponent abbr to name -> fall back to neutral rather than invent one.
         slate = self._slate("PHI")
         slate["games"][0]["underdog"] = None
         out = qa._slate_fact(slate)
-        assert isinstance(out, str)
-        self.assertIn("PHI favored by 7.5.", out)
-        self.assertNotIn("vs.", out)
+        assert isinstance(out, qa._ListAnswer)
+        self.assertIn("PHI -7.5", out.body)
+        self.assertNotIn("vs.", out.body)
 
 
 class SingleGameAnswerIsProtectedTests(unittest.TestCase):

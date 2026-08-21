@@ -889,52 +889,70 @@ def _standings_fact(ctx: dict) -> str:
 
 
 def _spread_clause(favorite: str, underdog: str | None, spread: str, asked_team: str | None) -> str:
-    """The spread sentence, framed from the asked team's side when one was asked.
+    """The spread SEGMENT of the never-phrased body line, framed from the asked team's side.
 
     When the user asked about a specific team (single-game path, ``asked_team`` set),
-    phrase the line relative to THAT team and name the opponent — "FAV favored by N
-    vs. DOG" or "DOG are N-point underdogs vs. FAV". Otherwise (teamless / whole-slate,
-    or the opponent abbr is missing) keep the neutral favorite-anchored phrasing.
-    Deterministic FACT only — invents nothing beyond the two team abbrs + the spread.
+    frame the segment relative to THAT team and name the opponent — "FAV favored by N
+    vs. DOG" or "DOG are N-point underdogs vs. FAV" (issue #115). Otherwise (teamless /
+    whole-slate, or the opponent abbr is missing) the neutral form is ``FAV -N``, which is
+    exactly the segment the multi-game slate body line already used — one builder now
+    serves both branches, so a one-game and a multi-game answer read the same. A line
+    FRAGMENT, not a sentence: no trailing period. Deterministic FACT only — invents
+    nothing beyond the two team abbrs + the spread.
     """
     if underdog:
         if asked_team == favorite:
-            return f"{favorite} favored by {spread} vs. {underdog}."
+            return f"{favorite} favored by {spread} vs. {underdog}"
         if asked_team == underdog:
-            return f"{underdog} are {spread}-point underdogs vs. {favorite}."
-    return f"{favorite} favored by {spread}."
+            return f"{underdog} are {spread}-point underdogs vs. {favorite}"
+    return f"{favorite} -{spread}"
+
+
+def _slate_body_line(game: dict, asked_team: str | None = None) -> str:
+    """One game's deterministic slate line: matchup, spread segment, total."""
+    line = f"{game.get('away')} @ {game.get('home')}"
+    favorite = game.get("favorite")
+    spread = game.get("spread")
+    if favorite and spread:
+        line += f" — {_spread_clause(favorite, game.get('underdog'), spread, asked_team)}"
+    total = game.get("total")
+    if total:
+        line += f" (O/U {total})"
+    return line
 
 
 def _one_game_line_fact(
     game: dict, week: int | None, when: str | None, pick_open: bool, asked_team: str | None = None
-) -> str:
-    """A single game's line fact (matchup + favorite/spread + total + close).
+) -> _ListAnswer:
+    """A single game's line fact, with its anchors in the never-phrased body.
+
+    This used to be a bare ``str``, which means the model's own text WAS the answer —
+    and the twin scores fact proved live on 2026-08-21 (issue #188) that the voicing
+    drops the week and turns ``at`` into a comma. So the week, the ``@`` home/away
+    relationship, the spread and the close clause ride in the :class:`_ListAnswer` body
+    the orchestrator appends verbatim; the header is the only phrasable part and carries
+    no number. The header does NOT call this the week's only game — the single-game
+    branch is also taken for a TEAM-NARROWED slate, where other games exist.
 
     ``asked_team`` (the canonical abbr of the team the user asked about, if any) frames
-    the spread from that team's perspective — see :func:`_spread_clause`.
+    the spread segment from that team's perspective — see :func:`_spread_clause`.
     """
-    away = game.get("away")
-    home = game.get("home")
-    parts = [f"Week {week}: {away} at {home}."]
-    favorite = game.get("favorite")
-    spread = game.get("spread")
-    if favorite and spread:
-        parts.append(_spread_clause(favorite, game.get("underdog"), spread, asked_team))
-    total = game.get("total")
-    if total:
-        parts.append(f"Total is {total}.")
+    body = f"Week {week} — {_slate_body_line(game, asked_team)}"
     close_clause = _close_clause(when, pick_open)
     if close_clause:
-        parts.append(close_clause)
-    return " ".join(parts)
+        body += f"\n{close_clause}"
+    return _ListAnswer(
+        header_fact=f"Week {week} line — {game.get('away')} at {game.get('home')}.", body=body
+    )
 
 
 def _slate_fact(slate: dict) -> str | _ListAnswer:
     """Build the lines/slate answer.
 
-    A single game (or a team-narrowed slate) stays a one-liner. A whole multi-game
-    slate becomes a :class:`_ListAnswer`: a short in-character header + a
-    deterministic one-line-per-game block, so the full slate always lands.
+    Both the single-game (or team-narrowed) branch and the whole-slate branch return a
+    :class:`_ListAnswer`: a short in-character header + a deterministic one-line-per-game
+    block appended verbatim, so neither a full slate nor one game's numbers can be phrased
+    away. Only the no-games case is still a bare ``str``.
     """
     games = slate.get("games") or []
     week = slate.get("week")
@@ -946,17 +964,7 @@ def _slate_fact(slate: dict) -> str | _ListAnswer:
     if len(games) == 1:
         return _one_game_line_fact(games[0], week, when, pick_open, asked_team)
 
-    body_lines = []
-    for game in games:
-        line = f"{game.get('away')} @ {game.get('home')}"
-        favorite = game.get("favorite")
-        spread = game.get("spread")
-        if favorite and spread:
-            line += f" — {favorite} -{spread}"
-        total = game.get("total")
-        if total:
-            line += f" (O/U {total})"
-        body_lines.append(line)
+    body_lines = [_slate_body_line(game) for game in games]
     header = f"Week {week}'s full slate — {len(games)} games."
     close_clause = _close_clause(when, pick_open)
     if close_clause:
@@ -964,37 +972,55 @@ def _slate_fact(slate: dict) -> str | _ListAnswer:
     return _ListAnswer(header_fact=header, body="\n".join(body_lines))
 
 
-def _scores_one_line(game: dict, week: int | None) -> str:
-    """A single game's score fact (display-only)."""
-    tag = "final" if game.get("status") == "FINAL" else "in progress"
+def _score_tag(game: dict) -> str:
+    """``final`` / ``in progress`` — the tag that says whether the game is settled."""
+    return "final" if game.get("status") == "FINAL" else "in progress"
+
+
+def _score_body_line(game: dict) -> str:
+    """One game's deterministic score line: away, ``@``, home, status tag."""
     return (
-        f"Week {week}: {game.get('away')} {game.get('away_score')} at "
-        f"{game.get('home')} {game.get('home_score')} ({tag})."
+        f"{game.get('away')} {game.get('away_score')} @ "
+        f"{game.get('home')} {game.get('home_score')} ({_score_tag(game)})"
+    )
+
+
+def _scores_one_game_fact(game: dict, week: int | None) -> _ListAnswer:
+    """A single game's score fact, with its anchors in the never-phrased body.
+
+    As a bare ``str`` this fact was handed whole to the voice and the voicing WAS the
+    answer. Live on 2026-08-21 (issue #188) ``Week 8: MIN 10 at LAC 37 (final).`` posted
+    as ``Minnesota 10, Los Angeles Chargers 37.`` — the week gone, ``at`` turned into a
+    comma so the answer no longer said who hosted, and ``(final)`` gone, which made an
+    in-progress game read as settled. The week, the ``@`` and the status tag now ride in
+    the :class:`_ListAnswer` body the orchestrator appends verbatim; the header is the
+    only phrasable part and carries no score.
+    """
+    return _ListAnswer(
+        header_fact=(
+            f"Week {week} scoreboard — {game.get('away')} at {game.get('home')}, "
+            f"{_score_tag(game)}."
+        ),
+        body=f"Week {week} — {_score_body_line(game)}",
     )
 
 
 def _scores_fact(scores: dict) -> str | _ListAnswer:
     """Build the scores answer (final + in-progress) for the week.
 
-    One scored game is a one-liner; a full scoreboard becomes a :class:`_ListAnswer`
-    (a short header + a deterministic per-game score block) so no score is dropped.
+    Both branches are a :class:`_ListAnswer` (a short header + a deterministic per-game
+    score block appended verbatim) so no score — and no status tag — is dropped.
     """
     games = scores.get("games") or []
     week = scores.get("week")
     if not games:
         return f"No scores yet for week {week}."
     if len(games) == 1:
-        return _scores_one_line(games[0], week)
+        return _scores_one_game_fact(games[0], week)
 
     n_final = sum(1 for game in games if game.get("status") == "FINAL")
     n_live = len(games) - n_final
-    body_lines = []
-    for game in games:
-        tag = "final" if game.get("status") == "FINAL" else "in progress"
-        body_lines.append(
-            f"{game.get('away')} {game.get('away_score')} @ "
-            f"{game.get('home')} {game.get('home_score')} ({tag})"
-        )
+    body_lines = [_score_body_line(game) for game in games]
     header = f"Week {week} scoreboard — {n_final} final, {n_live} in progress."
     return _ListAnswer(header_fact=header, body="\n".join(body_lines))
 
