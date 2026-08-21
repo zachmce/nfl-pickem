@@ -930,9 +930,9 @@ def _one_game_line_fact(
     and the twin scores fact proved live on 2026-08-21 (issue #188) that the voicing
     drops the week and turns ``at`` into a comma. So the week, the ``@`` home/away
     relationship, the spread and the close clause ride in the :class:`_ListAnswer` body
-    the orchestrator appends verbatim; the header is the only phrasable part and carries
-    no number. The header does NOT call this the week's only game — the single-game
-    branch is also taken for a TEAM-NARROWED slate, where other games exist.
+    the orchestrator appends verbatim. The header does NOT call this the week's only game
+    — the single-game branch is also taken for a TEAM-NARROWED slate, where other games
+    exist.
 
     The header still STATES the line rather than merely pointing at the game. A header
     naming only the two teams was measured at 5/6 invented spreads (and two inversions
