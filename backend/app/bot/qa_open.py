@@ -404,45 +404,13 @@ async def _lookup_player_season_stats(
         # not-found note that names nobody.
         return None
 
-    team_abbr = team.strip().upper() if isinstance(team, str) else ""
-    if team_abbr:
-        roster = await espn_extra.fetch_team_roster(team_abbr)
-        if roster is None:
-            return None
-        matches = espn_extra.find_roster_athletes(roster, asked_for)
-        if matches is None:
-            return None
-    else:
-        matches = []
-
-    if len(matches) > 1:
-        candidates = [str(match["display_name"]) for match in matches]
-        return {
-            "note": _AMBIGUOUS_PLAYER_NOTE.format(team=team_abbr, candidates=", ".join(candidates)),
-            "candidates": candidates,
-        }
-
-    if matches:
-        match = matches[0]
-        name = str(match["display_name"])
-        athlete_id = str(match["athlete_id"])
-        identity: dict[str, object] = {"player": name, "position": match["position"]}
-        # Kept OUT of ``identity``: the team a player is on today is not the team a past
-        # season's figures belong to, and a team name the model can see is one it may
-        # attach to the season. It reaches the model only inside the two roster miss
-        # notes below, where there is no season for it to be attached to.
-        on_roster = team_abbr
-    else:
-        resolved = await _resolve_off_roster(asked_for, team_abbr)
-        found_id = resolved.pop("athlete_id", None)
-        if not isinstance(found_id, str):
-            return resolved  # a terminal note: unfound, ambiguous, or search unavailable
-        athlete_id = found_id
-        name = str(resolved["player"])
-        # Popped rather than carried: the model never sees an athlete id, so it can never
-        # learn to send one back (D-4).
-        identity = resolved
-        on_roster = None
+    resolved = await _resolve_player(asked_for, team)
+    if not resolved:
+        return None
+    if "athlete_id" not in resolved:
+        return resolved  # a terminal note: unfound, ambiguous, or a lookup that failed
+    athlete_id, identity, on_roster = _resolved_parts(resolved)
+    name = str(identity["player"])
 
     # Past this point the resolution already PROVED who this player is, so a stats miss
     # must keep that identity (D-5) — bare ``None`` here made the model deny him.
@@ -495,6 +463,77 @@ async def _lookup_player_season_stats(
         name, selected, facts["season_teams"]
     )
     return facts
+
+
+def _resolved_parts(resolved: dict[str, object]) -> tuple[str, dict[str, object], str | None]:
+    """Unpack a :func:`_resolve_player` HIT into its three parts. Pure, never raises."""
+    identity = resolved.get("identity")
+    on_roster = resolved.get("on_roster")
+    return (
+        str(resolved.get("athlete_id")),
+        identity if isinstance(identity, dict) else {},
+        on_roster if isinstance(on_roster, str) else None,
+    )
+
+
+async def _resolve_player(player: str, team: str) -> dict[str, object]:
+    """Resolve ``player`` to an athlete id, to a terminal note, or to nothing. One copy.
+
+    THE resolution both player tools call, extracted rather than copied: issue #182
+    exists because copies of a shell were allowed to accumulate. With a team in hand the
+    cached roster hop runs first and reads the RAW payload, because
+    :func:`~app.services.espn_extra.parse_team_roster` drops the id on purpose; a roster
+    miss falls through to :func:`_resolve_off_roster`, which is how a player asked about
+    on the team he PLAYED that season for still resolves. No id ever comes from the model.
+
+    Three outcomes. A hit is ``{"athlete_id", "identity", "on_roster"}``; a miss the
+    caller can phrase is a terminal ``{"note": ...}``; and an EMPTY dict is the third on
+    purpose — a roster hop that failed outright is the one case the shipped stats tool
+    degrades to bare ``None`` on, and this extraction changes no behaviour. ``player`` is
+    already non-empty by the time it gets here.
+    """
+    from app.services import espn_extra
+
+    team_abbr = team.strip().upper() if isinstance(team, str) else ""
+    if team_abbr:
+        roster = await espn_extra.fetch_team_roster(team_abbr)
+        if roster is None:
+            return {}
+        matches = espn_extra.find_roster_athletes(roster, player)
+        if matches is None:
+            return {}
+    else:
+        matches = []
+
+    if len(matches) > 1:
+        candidates = [str(match["display_name"]) for match in matches]
+        return {
+            "note": _AMBIGUOUS_PLAYER_NOTE.format(team=team_abbr, candidates=", ".join(candidates)),
+            "candidates": candidates,
+        }
+
+    if matches:
+        match = matches[0]
+        identity: dict[str, object] = {
+            "player": str(match["display_name"]),
+            "position": match["position"],
+        }
+        # ``on_roster`` is kept OUT of ``identity``: the team a player is on today is not
+        # the team a past season's figures belong to, and a team name the model can see is
+        # one it may attach to the season. It reaches the model only inside the miss notes.
+        return {
+            "athlete_id": str(match["athlete_id"]),
+            "identity": identity,
+            "on_roster": team_abbr,
+        }
+
+    resolved = await _resolve_off_roster(player, team_abbr)
+    found_id = resolved.pop("athlete_id", None)
+    if not isinstance(found_id, str):
+        return resolved  # a terminal note: unfound, ambiguous, or search unavailable
+    # Popped rather than carried: the model never sees an athlete id, so it can never
+    # learn to send one back (D-4).
+    return {"athlete_id": found_id, "identity": resolved, "on_roster": None}
 
 
 def _join_teams(teams: list[str]) -> str:
@@ -1786,6 +1825,158 @@ _TEAM_RECORD_TOOL_DESCRIPTION = (
 )
 
 
+# --------------------------------------------------------------------------- #
+# The GAME LOG tool (Route C of issue #183). ``lookup_player_season_stats`` owns a whole
+# season; this one owns ONE game, off a single cached payload that carries every game of
+# the season, so "how has he played lately" costs the same one hop as "week 5 did".
+# --------------------------------------------------------------------------- #
+
+
+async def _lookup_player_game_log(
+    player: str = "", team: str = "", season: int | None = None, week: int | None = None
+) -> object | None:
+    """Look up what ONE NFL player did in ONE game, or in his most recent games.
+
+    The player is resolved through :func:`_resolve_player`, the ONE copy both player
+    tools share (issue #182). Past resolution his identity is PROVEN, so a game-log miss
+    KEEPS it: a bare miss after a successful resolution made the model deny a player it
+    had just found (260820-s5y). No athlete id ever reaches the model (D-4).
+
+    Every argument defaults so a forgotten one degrades rather than raising a TypeError
+    into the loop, and EVERY outcome is a dict carrying a note, never bare ``None``.
+    """
+    from app.services import espn_extra
+
+    asked_for = player.strip() if isinstance(player, str) else ""
+    if not asked_for:
+        return {"note": _NO_PLAYER_TO_LOG_NOTE}
+
+    resolved = await _resolve_player(asked_for, team)
+    if not resolved:
+        return {"note": _PLAYER_LOOKUP_FAILED_NOTE.format(player=asked_for)}
+    if "athlete_id" not in resolved:
+        return resolved  # a terminal note: unfound, ambiguous, or a lookup that failed
+    athlete_id, identity, _on_roster = _resolved_parts(resolved)
+    name = str(identity["player"])
+
+    asked_season = season if isinstance(season, int) and not isinstance(season, bool) else None
+    asked_week = week if isinstance(week, int) and not isinstance(week, bool) else None
+    payload = await espn_extra.fetch_athlete_gamelog(athlete_id, season=asked_season)
+    facts = espn_extra.parse_athlete_gamelog(payload, week=asked_week) if payload else None
+    if facts is None:
+        return {**identity, "note": _NO_GAME_LOG_NOTE.format(player=name)}
+
+    year = facts["season"]
+    if not facts["games"]:
+        if asked_week is not None:
+            note = _NO_GAME_THAT_WEEK_FOR_PLAYER_NOTE.format(
+                player=name, week=asked_week, season=_season_phrase(year)
+            )
+        else:
+            note = _NO_GAMES_LOGGED_NOTE.format(player=name, season=_season_phrase(year))
+        return {**identity, "note": note}
+
+    first = facts["games"][0]
+    if asked_week is not None:
+        statement = _ONE_GAME_STATEMENT.format(
+            player=name,
+            week=asked_week,
+            season=_season_phrase(year),
+            opponent=first["opponent"] or "a club ESPN does not name",
+        )
+    else:
+        statement = _RECENT_GAMES_STATEMENT.format(
+            player=name, count=len(facts["games"]), season=_season_phrase(year)
+        )
+
+    return {
+        **identity,
+        "season": year,
+        "week": facts["week"],
+        "games": facts["games"],
+        "game_log_statement": statement,
+        "caveat": espn_extra.GAME_LOG_CAVEAT,
+    }
+
+
+def _season_phrase(season: object) -> str:
+    """The season named, or the words that name no year at all. Pure.
+
+    M-1: this endpoint can carry no readable year, and a year the model fills in for
+    itself is the defect this whole path exists to remove.
+    """
+    return f"the {season} NFL season" if isinstance(season, int) else "the season asked about"
+
+
+# The game is STATED, never implied: a dict field is readable but not voiceable, and the
+# residual hazard is the model reading one game's figures as a season's.
+_ONE_GAME_STATEMENT = (
+    "Every figure below comes from ONE single game: the game {player} played in week "
+    "{week} of {season}, against the {opponent}. Say week {week} and name that opponent "
+    "whenever you report any figure from this answer, so the member knows exactly which "
+    "game you are talking about, and never report any of these figures as a season total."
+)
+_RECENT_GAMES_STATEMENT = (
+    "Every figure below comes from ONE single game, and this answer lists {player}'s "
+    "{count} most recent games in {season}, newest first. Each game says which week it "
+    "was, whether it was played at home or away, and which club it was against. Report "
+    "each game's figures under that game only, and never add them together into a total."
+)
+
+# Every miss is a concrete full sentence telling the model what to do next, returned in a
+# dict body because a bare string fact gets voiced or swallowed (memory:
+# qa-phrasing-inversion) and a bare ``None`` sends it back to its own stale memory.
+_NO_PLAYER_TO_LOG_NOTE = (
+    "The member's question named no player, so this tool has no game to look up. Ask the "
+    "member which player he means, and never describe a game from your own memory instead."
+)
+_PLAYER_LOOKUP_FAILED_NOTE = (
+    "The lookup that would have found {player} failed just now, so this tool has no "
+    "figures for him this time. Say that you could not look him up, and never give a "
+    "figure from your own memory instead."
+)
+_NO_GAME_LOG_NOTE = (
+    "ESPN publishes no game-by-game log at all for {player} in the season asked about, "
+    "so this tool has no figures for him from any single game. Say that you found the "
+    "player and have no game figures for him, never say that he does not play, and never "
+    "give a figure from your own memory instead."
+)
+# THE anti-substitution note. The live 260821-f0s defect answered about a different game
+# and never said it had changed games, so this says plainly that he did not play.
+_NO_GAME_THAT_WEEK_FOR_PLAYER_NOTE = (
+    "ESPN's game log shows no game at all for {player} in week {week} of {season}, so he "
+    "did not play a game that week. Tell the member plainly that {player} has no game in "
+    "week {week}, never give him a different week's figures instead, and never say how "
+    "{player} played that week."
+)
+_NO_GAMES_LOGGED_NOTE = (
+    "ESPN's game log lists no games at all for {player} in {season}, so this tool has no "
+    "figures for him. Tell the member plainly that you have no games for him in that "
+    "season, and never give a figure from your own memory instead."
+)
+
+# INSTRUCT first, CONSTRAIN second — measured, not stylistic: a disclaimer-only
+# description suppressed the call 5/5 on this branch. The team wording is copied from
+# _STATS_TOOL_DESCRIPTION on purpose, so the model learns ONE rule rather than two.
+_GAME_LOG_TOOL_DESCRIPTION = (
+    "Look up what one NFL player did in ONE single game. Call this tool every time the "
+    "member asks what a player did in one game, in a given week, last week or lately, "
+    "because your own memory of any single game is often a year or more out of date. The "
+    "player argument is the player's name exactly as the member wrote it. Pass the team "
+    "argument only when the member's own question names a team, and then it is that "
+    "team's standard abbreviation such as LAR. Pass the week argument ONLY when the "
+    "member named a week number, and pass the season argument ONLY when he named a "
+    "specific year; leave both out for last week, lately or this "
+    "season, because this tool knows which season is the most recent one and you do not. "
+    "With no week it reports his most recent games and not his whole season. Every "
+    "figure it returns belongs to the ONE game it is listed under, so never report one "
+    "of them as a season total. It carries no score, so never say "
+    "how many points either team scored. When the member asks what a player did across a "
+    "WHOLE season, lookup_player_season_stats is the tool for that question and this one "
+    "is not."
+)
+
+
 # ONE round vocabulary across both tools that take a round, so the model learns one set of
 # names rather than two. The enum is a second bound on a model-written value; either
 # adapter still resolves anything else through espn_extra's own keyword table.
@@ -2018,6 +2209,44 @@ TOOLS: tuple[_Tool, ...] = (
             },
         },
         run=_lookup_team_record,
+    ),
+    _Tool(
+        name="lookup_player_game_log",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_player_game_log",
+                "description": _GAME_LOG_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "player": {
+                            "type": "string",
+                            "description": "The player's name as the member wrote it.",
+                        },
+                        "team": {
+                            "type": "string",
+                            "description": (
+                                "Optional team abbreviation, and ONLY when the member's "
+                                "own question names a team."
+                            ),
+                        },
+                        "season": {
+                            "type": "integer",
+                            "description": (
+                                "The four-digit year, and ONLY when the member named one."
+                            ),
+                        },
+                        "week": {
+                            "type": "integer",
+                            "description": ("The week number, and ONLY when the member named one."),
+                        },
+                    },
+                    "required": ["player"],
+                },
+            },
+        },
+        run=_lookup_player_game_log,
     ),
 )
 

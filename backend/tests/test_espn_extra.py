@@ -2178,7 +2178,8 @@ class ParseAthleteGamelogTests(unittest.TestCase):
         self.assertIsNone(out["week"])
 
     def test_a_postseason_game_is_labelled_as_one(self) -> None:
-        out = espn_extra.parse_athlete_gamelog(_load_gamelog_fixture())
+        with mock.patch.object(espn_extra, "GAME_LOG_MAX_EVENTS", 6):
+            out = espn_extra.parse_athlete_gamelog(_load_gamelog_fixture())
         assert out is not None
         seasons = {game["season_type"] for game in out["games"]}
         self.assertIn("2024 Postseason", seasons)
@@ -2234,7 +2235,8 @@ class ParseAthleteGamelogTests(unittest.TestCase):
         fixture = _load_gamelog_fixture()
         fixture["seasonTypes"][1]["categories"][0]["events"].append({"eventId": "nope"})
         fixture["seasonTypes"][1]["categories"][0]["events"].append("not a dict")
-        out = espn_extra.parse_athlete_gamelog(fixture)
+        with mock.patch.object(espn_extra, "GAME_LOG_MAX_EVENTS", 6):
+            out = espn_extra.parse_athlete_gamelog(fixture)
         assert out is not None
         self.assertEqual(len(out["games"]), 4)
 

@@ -909,7 +909,7 @@ class ShippedRegistryTests(_OpenPathTestCase):
 
     def test_the_whole_registry_stays_inside_a_stated_prompt_budget(self) -> None:
         # Every spec costs tokens on EVERY open call and adds a way to mis-select, so the
-        # total is pinned rather than left to drift. Measured 2026-08-21: 17,527 bytes
+        # total is pinned rather than left to drift. Measured 2026-08-21: 17,525 bytes
         # across eight tools, up from 12,447 across five. The pin is raised ONCE per new
         # tool, to the measured total rounded up to the next hundred, so raising it stays
         # a decision rather than a rubber stamp, and no one new spec may exceed 1,700
@@ -2720,9 +2720,10 @@ class ResolvePlayerTests(unittest.TestCase):
         roster, search = self._stubs(_lar_roster(), _NO_SEARCH_HITS)
         with roster, search:
             out = _run(qa_open._resolve_player("Stafford", "LAR"))
-        self.assertEqual(out["athlete_id"], "12483")
-        self.assertEqual(out["identity"]["player"], "Matthew Stafford")
-        self.assertEqual(out["on_roster"], "LAR")
+        athlete_id, identity, on_roster = qa_open._resolved_parts(out)
+        self.assertEqual(athlete_id, "12483")
+        self.assertEqual(identity["player"], "Matthew Stafford")
+        self.assertEqual(on_roster, "LAR")
 
     def test_a_player_who_changed_teams_resolves_through_the_search(self) -> None:
         roster, search = self._stubs(_lar_roster(), _pacheco_search())
