@@ -310,6 +310,93 @@ TEAM_SCHEDULE_CAVEAT = (
 )
 
 
+# The public, no-auth ESPN league-leaders endpoint. ``seasontype`` is baked into the
+# CONSTANT and is spelled all-lowercase on purpose: measured 2026-08-21, a season passed
+# WITHOUT a season type answers the POSTSEASON while echoing a plausible year (Barkley
+# 499 rushing yards rather than 2,005), and the camel-cased ``seasonType`` is ignored and
+# falls back the same way. ``{sort}`` is a code-owned literal out of LEADER_SORTS,
+# percent-encoded, so no model-written text ever reaches the request target (T-jbh-01).
+LEADERS_URL = (
+    "https://site.web.api.espn.com/apis/common/v3/sports/football/nfl/statistics/byathlete"
+    f"?limit={{limit}}&sort={{sort}}&seasontype={REGULAR_SEASON_TYPE}"
+)
+
+LEADERS_LIMIT = 5
+
+# Measured 2026-08-21: every stat in LEADER_SORTS sits within the first eight ``names`` of
+# its own category block, so this cap costs no allowlisted figure and keeps five leaders
+# of the widest block (receiving, twelve names) inside the payload ceiling.
+LEADERS_MAX_FACTS = 8
+
+# Leaders move on game days, the same freshness argument the schedule carries.
+LEADERS_CACHE_TTL_SECONDS = 600
+
+# The CODE-OWNED allowlist: a model-facing category name -> the (category, stat) pair the
+# sort value is BUILT from. Every stat half is a real ``names`` entry of its own category
+# block, verified live 2026-08-21 — an unknown one answers HTTP 400. The interceptions
+# category is spelled ``defensiveInterceptions`` in a SORT and ``defensiveinterceptions``
+# in the payload's own block name, which is why the parser matches case-insensitively.
+LEADER_SORTS: dict[str, tuple[str, str]] = {
+    "passing yards": ("passing", "passingYards"),
+    "passing touchdowns": ("passing", "passingTouchdowns"),
+    "rushing yards": ("rushing", "rushingYards"),
+    "rushing touchdowns": ("rushing", "rushingTouchdowns"),
+    "receiving yards": ("receiving", "receivingYards"),
+    "receptions": ("receiving", "receptions"),
+    "receiving touchdowns": ("receiving", "receivingTouchdowns"),
+    "sacks": ("defensive", "sacks"),
+    "tackles": ("defensive", "totalTackles"),
+    "interceptions": ("defensiveInterceptions", "interceptions"),
+}
+
+# Substring -> allowlist key, tried IN THIS ORDER so "touchdown passes" never falls
+# through to the yards entry and "receptions" never reaches the receiving-yards one. The
+# shape :data:`_ROUND_KEYWORD_WEEKS` already holds: model-written text selects a LITERAL.
+_LEADER_KEYWORDS: tuple[tuple[str, str], ...] = (
+    ("passing touchdown", "passing touchdowns"),
+    ("passing td", "passing touchdowns"),
+    ("touchdown pass", "passing touchdowns"),
+    ("rushing touchdown", "rushing touchdowns"),
+    ("rushing td", "rushing touchdowns"),
+    ("receiving touchdown", "receiving touchdowns"),
+    ("receiving td", "receiving touchdowns"),
+    ("reception", "receptions"),
+    ("catch", "receptions"),
+    ("passing", "passing yards"),
+    ("passer", "passing yards"),
+    ("pass", "passing yards"),
+    ("rushing", "rushing yards"),
+    ("rusher", "rushing yards"),
+    ("rush", "rushing yards"),
+    ("receiving", "receiving yards"),
+    ("receiver", "receiving yards"),
+    ("sack", "sacks"),
+    ("tackle", "tackles"),
+    ("interception", "interceptions"),
+)
+
+# The sentences the model is most likely to voice, so each is concrete and complete rather
+# than a terse fragment (memory: qa-phrasing-inversion). The interceptions sentence is
+# unconditional because the same word names two different statistics.
+LEAGUE_LEADERS_CAVEAT = (
+    "Every figure here is from the REGULAR season only and no playoff figure is in it, so "
+    "never say that any of it includes a playoff game. This is a ranking of individual "
+    "PLAYERS and it is not a team standing, so never report it as one. The order below is "
+    "ESPN's own order, so never reorder it and never add a player to it from your own "
+    "memory. Where this answer reports interceptions, those are interceptions CAUGHT by "
+    "defenders and they are never interceptions thrown by a quarterback."
+)
+
+
+def _leaders_cache_key(category: str, season: int | None) -> str:
+    """The Redis key for one category-and-season's cached leaders page.
+
+    Keyed on the RESOLVED allowlist name, so every near-miss phrasing of one category
+    shares one entry rather than opening a new one per wording.
+    """
+    return f"qa:leaders:{category}:{season if season is not None else 'current'}"
+
+
 # The public, no-auth ESPN per-athlete GAME LOG — the same subdomain as the career-stats
 # table above, so still an ESPN edge and still no custom User-Agent.
 GAMELOG_URL = (
@@ -1487,6 +1574,127 @@ def _parse_one_game_leader(category: Any) -> dict[str, str | None] | None:
     }
 
 
+# How much longer than a keyword its matching word may be — enough for a plural or a
+# gerund ("catches", "interceptions") and no more, so a run-together injection attempt
+# such as "rushing.rushingYards:desc&limit=9999" resolves to nothing at all.
+_KEYWORD_SUFFIX_MAX = 3
+
+
+def _keyword_matches(words: list[str], keyword: str) -> bool:
+    """Whether ``keyword``'s words run consecutively through ``words``. Pure.
+
+    The last keyword word matches as a BOUNDED prefix rather than anywhere in the string:
+    "catches" lands on "catch", while "etcpasswd" does not land on "pass" and a
+    run-together injection attempt does not land on "rushing".
+    """
+    parts = keyword.split()
+    for start in range(len(words) - len(parts) + 1):
+        window = words[start : start + len(parts)]
+        last = window[-1]
+        if (
+            window[:-1] == parts[:-1]
+            and last.startswith(parts[-1])
+            and len(last) - len(parts[-1]) <= _KEYWORD_SUFFIX_MAX
+        ):
+            return True
+    return False
+
+
+def league_leader_category(category: Any) -> str | None:
+    """The one :data:`LEADER_SORTS` key a model-written category name selects, or ``None``.
+
+    The ONLY producer of the category :func:`fetch_league_leaders` accepts, so the sort
+    value that reaches a URL is always a code-owned literal (T-jbh-01). Pure, never raises.
+    """
+    if not isinstance(category, str):
+        return None
+    letters = "".join(one for one in category.lower() if one.isalpha() or one.isspace())
+    words = letters.split()
+    if not words:
+        return None
+    if " ".join(words) in LEADER_SORTS:
+        return " ".join(words)
+    for keyword, key in _LEADER_KEYWORDS:
+        if _keyword_matches(words, keyword):
+            return key
+    return None
+
+
+def _leader_block(blocks: Any, name: str) -> dict | None:
+    """The ``categories[]`` entry called ``name``, matched case-insensitively. Pure.
+
+    Case-insensitively because the SORT spelling and the payload's own block name
+    disagree: ``defensiveInterceptions`` against ``defensiveinterceptions`` (measured).
+    """
+    for block in blocks if isinstance(blocks, list) else []:
+        if isinstance(block, dict) and str(block.get("name")).lower() == name.lower():
+            return block
+    return None
+
+
+def parse_league_leaders(payload: Any, category: Any) -> dict | None:
+    """Extract ONE statistic's league leaders from a raw ``byathlete`` payload.
+
+    Pure and never-raising. Returns ``None`` when the top-level shape is unusable, when
+    ``category`` is outside the allowlist, or when the payload's OWN ``requestedSeason``
+    echo is not the regular season — that last check is the second half of the M-4 guard,
+    because a postseason reply carries real figures about the wrong thing.
+
+    Each leader's figures are keyed against the TOP-LEVEL block's names, which the athlete
+    rows do not carry, and read out of ``totals`` — never ``values``, which is raw float.
+    No athlete id is carried (D-4).
+    """
+    if not isinstance(payload, dict):
+        return None
+    key = league_leader_category(category)
+    if key is None:
+        return None
+    requested = payload.get("requestedSeason")
+    requested = requested if isinstance(requested, dict) else {}
+    season_type = requested.get("type")
+    season_type = season_type if isinstance(season_type, dict) else {}
+    if season_type.get("type") != REGULAR_SEASON_TYPE:
+        return None
+
+    name, _stat = LEADER_SORTS[key]
+    block = _leader_block(payload.get("categories"), name)
+    if block is None:
+        return None
+
+    leaders: list[dict[str, Any]] = []
+    for entry in payload.get("athletes") or []:
+        if len(leaders) >= LEADERS_LIMIT:
+            break
+        if not isinstance(entry, dict):
+            continue
+        athlete = entry.get("athlete")
+        athlete = athlete if isinstance(athlete, dict) else {}
+        player = _first_str(athlete.get("displayName"))
+        row = _leader_block(entry.get("categories"), name)
+        if player is None or row is None:
+            continue
+        facts = _category_facts(block, row.get("totals"))
+        if not facts:
+            continue
+        position = athlete.get("position")
+        position = position if isinstance(position, dict) else {}
+        leaders.append(
+            {
+                "player": player,
+                "position": _first_str(position.get("abbreviation")),
+                "team": _first_str(athlete.get("teamName")),
+                "stats": dict(list(facts.items())[:LEADERS_MAX_FACTS]),
+            }
+        )
+
+    year = requested.get("year")
+    return {
+        "season": year if isinstance(year, int) and not isinstance(year, bool) else None,
+        "category": key,
+        "leaders": leaders,
+    }
+
+
 def _gamelog_season(payload: dict) -> int | None:
     """The season a game log is for, or ``None``. Pure, never raises.
 
@@ -2147,6 +2355,40 @@ async def fetch_athlete_stats(athlete_id: Any) -> dict | None:
         cache_key=_athlete_stats_cache_key(candidate),
         ttl_seconds=ATHLETE_STATS_CACHE_TTL_SECONDS,
         label="athlete_stats",
+    )
+
+
+async def fetch_league_leaders(category: Any, season: int | None = None) -> dict | None:
+    """Fetch ONE statistic's regular-season league leaders — best-effort.
+
+    The ALLOWLIST runs FIRST and the sort value comes OUT of :data:`LEADER_SORTS`, never
+    out of the argument: an allowlist applied after the format string is not an allowlist
+    (T-jbh-01). A category outside it returns ``None`` having attempted nothing. The
+    resolved pair is percent-encoded with ``quote(safe="")``, exactly as
+    :func:`fetch_athlete_search` encodes its query, so the colon cannot alter the request
+    target. ``season`` reuses the same bounds every other endpoint here holds.
+    """
+    key = league_leader_category(category)
+    if key is None:
+        # Model-written and unbounded — truncated before it reaches the log.
+        logger.warning("leaders_category_rejected", category=str(category)[:24])
+        return None
+
+    if season is not None and (
+        not isinstance(season, int)
+        or isinstance(season, bool)
+        or not _SCHEDULE_SEASON_MIN <= season <= _SCHEDULE_SEASON_MAX
+    ):
+        logger.warning("leaders_season_rejected", season=str(season)[:8])
+        return None
+
+    name, stat = LEADER_SORTS[key]
+    url = LEADERS_URL.format(limit=LEADERS_LIMIT, sort=quote(f"{name}.{stat}:desc", safe=""))
+    return await _fetch_cached(
+        url if season is None else f"{url}&season={season}",
+        cache_key=_leaders_cache_key(key, season),
+        ttl_seconds=LEADERS_CACHE_TTL_SECONDS,
+        label="leaders",
     )
 
 

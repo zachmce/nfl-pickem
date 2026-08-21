@@ -1977,10 +1977,128 @@ _GAME_LOG_TOOL_DESCRIPTION = (
 )
 
 
+# --------------------------------------------------------------------------- #
+# The LEAGUE LEADERS tool (Route G of issue #183). The season-type trap is the sharpest
+# one in this registry: measured 2026-08-21, a season passed WITHOUT a season type
+# answers the POSTSEASON while echoing a plausible year — Barkley with 499 rushing yards
+# instead of 2,005, a real figure about the wrong thing. The seam pins the parameter and
+# the parser verifies the payload's own echo, so neither half stands alone.
+# --------------------------------------------------------------------------- #
+
+
+async def _lookup_league_leaders(category: str = "", season: int | None = None) -> object | None:
+    """Look up which players led the whole NFL in ONE statistic in ONE season.
+
+    ONE cached hop. The category is resolved to a code-owned literal inside the seam
+    before any URL is formatted, so the model's own string never reaches the request
+    target (T-jbh-01). With no season none is passed: the season-less call answers the
+    CURRENT regular season and echoes its year, so no league-root hop is needed (D-2).
+
+    Every argument defaults and EVERY outcome is a dict carrying a note, never bare
+    ``None``, which becomes :data:`_NO_DATA_PAYLOAD` and sends the model to stale memory.
+    """
+    from app.services import espn_extra
+
+    key = espn_extra.league_leader_category(category)
+    if key is None:
+        return {"note": _UNKNOWN_LEADER_CATEGORY_NOTE.format(categories=_leader_categories())}
+
+    asked_season = season if isinstance(season, int) and not isinstance(season, bool) else None
+    payload = await espn_extra.fetch_league_leaders(key, season=asked_season)
+    facts = espn_extra.parse_league_leaders(payload, key) if payload is not None else None
+    if facts is None or not facts["leaders"]:
+        return {"note": _NO_LEADERS_FOUND_NOTE.format(category=key)}
+
+    year = facts["season"]
+    leaders = facts["leaders"]
+    statement = _LEAGUE_LEADERS_STATEMENT.format(
+        season=year if isinstance(year, int) else "the season this answer is about",
+        category=key,
+        leader=leaders[0]["player"],
+        team=leaders[0]["team"] or "a club ESPN does not name",
+    )
+    for place, leader in enumerate(leaders[1:], start=2):
+        statement += _LEAGUE_LEADER_CLAUSE.format(
+            place=place,
+            player=leader["player"],
+            team=leader["team"] or "a club ESPN does not name",
+        )
+
+    return {
+        "season": year,
+        "category": key,
+        "leaders": leaders,
+        "leaders_statement": statement,
+        "caveat": espn_extra.LEAGUE_LEADERS_CAVEAT,
+    }
+
+
+def _leader_categories() -> str:
+    """The categories this tool covers, as a phrase a person would say. Pure."""
+    from app.services import espn_extra
+
+    names = list(espn_extra.LEADER_SORTS)
+    return f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+# The season, the category and the leader are STATED, never implied: a dict field is
+# readable but not voiceable, and the leader is the one fact the question is asked for.
+_LEAGUE_LEADERS_STATEMENT = (
+    "{leader} of the {team} led the whole NFL in {category} in the {season} regular "
+    "season, and the players below are ESPN's own top few in that statistic for that one "
+    "season, in ESPN's own order. Say the year {season} whenever you report any of these "
+    "figures."
+)
+_LEAGUE_LEADER_CLAUSE = " Number {place} was {player} of the {team}."
+
+# Every miss is a concrete full sentence telling the model what to do next, returned in a
+# dict body because a bare string fact gets voiced or swallowed (memory:
+# qa-phrasing-inversion) and a bare ``None`` sends it back to its own stale memory.
+_UNKNOWN_LEADER_CATEGORY_NOTE = (
+    "This tool has no league leaders for the statistic the member asked about. The only "
+    "statistics it covers are {categories}. Ask the member which of those he means, and "
+    "never name a league leader from your own memory instead."
+)
+_NO_LEADERS_FOUND_NOTE = (
+    "This tool has no {category} leaders at all for the season asked about, either "
+    "because ESPN's record does not carry that season or because the lookup of it failed "
+    "just now. Tell the member plainly that you could not look those leaders up, and "
+    "never name a leader from your own memory instead."
+)
+
+# INSTRUCT first, CONSTRAIN second — measured, not stylistic: a disclaimer-only
+# description suppressed the call 5/5 on this branch.
+_LEAGUE_LEADERS_TOOL_DESCRIPTION = (
+    "Look up which players lead the whole NFL in one statistic for one season. Call this "
+    "tool every time the member asks who leads or led the league in anything, who the "
+    "top rusher, passer, receiver or tackler is, or who has the most of any statistic, "
+    "because your own memory of a league leader is often a year or more out of date. The "
+    "category argument is one of the listed names and this tool answers one category per "
+    "call. Pass the season argument ONLY when the member named a specific year, and "
+    "leave it out for this season and last season, because this tool already knows which "
+    "season is being played and you do not. It ranks PLAYERS and never teams, so when "
+    "the member asks about a team's record, lookup_team_record is the tool for that "
+    "question and this one is not. It covers the regular season only and carries no "
+    "playoff figure. When the member asks what ONE named player did in a season, "
+    "lookup_player_season_stats is the tool for that question and this one is not."
+)
+
+
 # ONE round vocabulary across both tools that take a round, so the model learns one set of
 # names rather than two. The enum is a second bound on a model-written value; either
 # adapter still resolves anything else through espn_extra's own keyword table.
 _PLAYOFF_ROUND_ENUM = ["wild card", "divisional", "conference championships", "super bowl"]
+
+
+def _leader_category_enum() -> list[str]:
+    """The category names the seam accepts, DERIVED so the two cannot drift apart.
+
+    A function rather than a constant so the ``espn_extra`` import stays deferred, as it
+    is in every adapter here; ``TOOLS`` calls it once while the module is being built.
+    """
+    from app.services import espn_extra
+
+    return list(espn_extra.LEADER_SORTS)
 
 
 TOOLS: tuple[_Tool, ...] = (
@@ -2247,6 +2365,36 @@ TOOLS: tuple[_Tool, ...] = (
             },
         },
         run=_lookup_player_game_log,
+    ),
+    _Tool(
+        name="lookup_league_leaders",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_league_leaders",
+                "description": _LEAGUE_LEADERS_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "category": {
+                            "type": "string",
+                            # DERIVED from the seam's own allowlist, so the enum the model
+                            # reads and the sorts the code will accept cannot drift apart.
+                            "enum": _leader_category_enum(),
+                            "description": "Which statistic to rank players by.",
+                        },
+                        "season": {
+                            "type": "integer",
+                            "description": (
+                                "The four-digit year, and ONLY when the member named one."
+                            ),
+                        },
+                    },
+                    "required": ["category"],
+                },
+            },
+        },
+        run=_lookup_league_leaders,
     ),
 )
 

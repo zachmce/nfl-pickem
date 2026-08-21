@@ -910,13 +910,13 @@ class ShippedRegistryTests(_OpenPathTestCase):
 
     def test_the_whole_registry_stays_inside_a_stated_prompt_budget(self) -> None:
         # Every spec costs tokens on EVERY open call and adds a way to mis-select, so the
-        # total is pinned rather than left to drift. Measured 2026-08-21: 19,300 bytes
+        # total is pinned rather than left to drift. Measured 2026-08-21: 19,031 bytes
         # across nine tools, up from 12,447 across five. The pin is raised ONCE per new
         # tool, to the measured total rounded up to the next hundred, so raising it stays
         # a decision rather than a rubber stamp, and no one new spec may exceed 1,700
         # bytes on its own.
         total = sum(len(json.dumps(tool.spec)) for tool in qa_open.TOOLS)
-        self.assertLess(total, 19400, f"the shipped tool specs now total {total} bytes")
+        self.assertLess(total, 19100, f"the shipped tool specs now total {total} bytes")
         for tool in qa_open.TOOLS[5:]:
             with self.subTest(tool=tool.name):
                 self.assertLess(len(json.dumps(tool.spec)), 1700)
