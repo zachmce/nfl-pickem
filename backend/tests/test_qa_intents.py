@@ -633,6 +633,157 @@ class LinesTeamPerspectiveTests(unittest.TestCase):
         self.assertNotIn("vs.", out)
 
 
+class SingleGameAnswerIsProtectedTests(unittest.TestCase):
+    """Issue #188: a SINGLE-game scores/lines answer keeps its anchors.
+
+    Both single-game facts used to be a bare ``str``, so whatever the model returned
+    WAS the answer. The week, the ``@`` home/away relationship and the status tag now
+    ride in the :class:`qa._ListAnswer` body, which ``answer_question`` appends verbatim
+    and never sends to the LLM.
+    """
+
+    @staticmethod
+    def _scores(status: str = "FINAL") -> dict:
+        return {
+            "week": 8,
+            "games": [
+                {
+                    "away": "MIN",
+                    "home": "LAC",
+                    "away_score": 10,
+                    "home_score": 37,
+                    "status": status,
+                }
+            ],
+        }
+
+    @staticmethod
+    def _slate(asked_team: str | None = "DAL") -> dict:
+        return {
+            "week": 5,
+            "close_at": datetime(2026, 7, 6, 12, 22, tzinfo=timezone.utc),
+            "pick_open": True,
+            "asked_team": asked_team,
+            "games": [
+                {
+                    "away": "DAL",
+                    "home": "PHI",
+                    "favorite": "PHI",
+                    "underdog": "DAL",
+                    "spread": "7.5",
+                    "total": "47.5",
+                }
+            ],
+        }
+
+    def _answer_scores(self, phrased, status="FINAL"):
+        seam_patch, _ = _seam("get_week_scores_async", self._scores(status))
+        phrase_patch, calls = _phrase_returns(phrased)
+        with (
+            _classify_returns({"intent": "scores"}),
+            _tokens("KC"),
+            seam_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            return _run(qa.answer_question("what's the score?", discord_id=7)), calls
+
+    def _answer_slate(self, phrased, asked_team="DAL"):
+        seam_patch, _ = _seam("get_lines_slate_async", self._slate(asked_team))
+        phrase_patch, calls = _phrase_returns(phrased)
+        with (
+            _classify_returns({"intent": "lines_slate", "team": "Cowboys"}),
+            _tokens("DAL", "COWBOYS"),
+            seam_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            return _run(qa.answer_question("what's the dallas line?", discord_id=7)), calls
+
+    def test_single_game_score_body_survives_a_mangling_phrasing(self) -> None:
+        # The EXACT text the live model posted on 2026-08-21 (issue #188): it dropped the
+        # week, turned "at" into a comma and dropped "(final)". The body must land anyway.
+        out, _ = self._answer_scores("Minnesota 10, Los Angeles Chargers 37.")
+        self.assertEqual(
+            out, "Minnesota 10, Los Angeles Chargers 37.\nWeek 8 — MIN 10 @ LAC 37 (final)"
+        )
+
+    def test_single_game_slate_body_carries_spread_and_close_clause(self) -> None:
+        out, _ = self._answer_slate("Dallas is cooked 🙄")
+        lines = out.splitlines()
+        self.assertEqual(lines[0], "Dallas is cooked 🙄")
+        self.assertEqual(
+            lines[1], "Week 5 — DAL @ PHI — DAL are 7.5-point underdogs vs. PHI (O/U 47.5)"
+        )
+        self.assertEqual(lines[2], "Picks close Mon Jul 6, 12:22 PM UTC.")
+
+    def test_the_phrased_header_carries_no_score_and_no_spread(self) -> None:
+        _, score_calls = self._answer_scores("whatever")
+        header = score_calls[0]["fact"]
+        self.assertIn("MIN at LAC", header)
+        self.assertNotIn("10", header)
+        self.assertNotIn("37", header)
+        _, slate_calls = self._answer_slate("whatever")
+        header = slate_calls[0]["fact"]
+        self.assertIn("DAL at PHI", header)
+        self.assertNotIn("7.5", header)
+        self.assertNotIn("47.5", header)
+
+    def test_multi_game_body_lines_are_unchanged_by_the_refactor(self) -> None:
+        # The single-game fix reuses the multi-game line builders; their output must stay
+        # byte-identical (the two multi-game pins above are the end-to-end guarantee).
+        scores = qa._scores_fact(
+            {
+                "week": 1,
+                "games": [
+                    {
+                        "away": "DAL",
+                        "home": "PHI",
+                        "away_score": 20,
+                        "home_score": 24,
+                        "status": "FINAL",
+                    },
+                    {
+                        "away": "BAL",
+                        "home": "BUF",
+                        "away_score": 40,
+                        "home_score": 41,
+                        "status": "IN_PROGRESS",
+                    },
+                ],
+            }
+        )
+        assert isinstance(scores, qa._ListAnswer)
+        self.assertEqual(scores.body, "DAL 20 @ PHI 24 (final)\nBAL 40 @ BUF 41 (in progress)")
+        slate = qa._slate_fact(
+            {
+                "week": 1,
+                "close_at": None,
+                "pick_open": False,
+                "games": [
+                    {
+                        "away": "DAL",
+                        "home": "PHI",
+                        "favorite": "PHI",
+                        "spread": "7.5",
+                        "total": "47.5",
+                    },
+                    {
+                        "away": "KC",
+                        "home": "LAC",
+                        "favorite": "KC",
+                        "spread": "3.5",
+                        "total": "47.5",
+                    },
+                ],
+            }
+        )
+        assert isinstance(slate, qa._ListAnswer)
+        self.assertEqual(
+            slate.body, "DAL @ PHI — PHI -7.5 (O/U 47.5)\nKC @ LAC — KC -3.5 (O/U 47.5)"
+        )
+
+
 class InjuriesIntentTests(unittest.TestCase):
     """The Path-B injuries intent: routes to ESPN via the espn_extra seam, builds a
     deterministic FACT, and NEVER invents an injury on any resolution/fetch failure."""
