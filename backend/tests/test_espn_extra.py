@@ -49,6 +49,7 @@ _STATS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_athlete_stats.json"
 _SEARCH_FIXTURE = Path(__file__).parent / "fixtures" / "espn_athlete_search.json"
 _SCHEDULE_FIXTURE = Path(__file__).parent / "fixtures" / "espn_team_schedule.json"
 _GAME_LEADERS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_game_leaders.json"
+_SUPER_BOWL_FIXTURE = Path(__file__).parent / "fixtures" / "espn_postseason_super_bowl.json"
 
 # The DISTINCTIVE KC headline the no-rephrasing regression asserts survives byte-for-byte.
 _KC_HEADLINE = "Patrick Mahomes throws for 5 touchdowns as Chiefs storm past Bills 38-20"
@@ -85,6 +86,87 @@ def _load_game_leaders_fixture() -> dict:
     and 9992, which is how D-2's never-read rule becomes an assertion rather than a
     comment."""
     return json.loads(_GAME_LEADERS_FIXTURE.read_text())
+
+
+def _load_super_bowl_fixture() -> dict:
+    """The REAL 2025 postseason week 5 — Super Bowl LX, captured 2026-08-21 and cut to the
+    keys the parser reads. The two scores are replaced with the SENTINELS 9991 and 9992,
+    which is how "the score is never read" becomes an assertion rather than a comment."""
+    return json.loads(_SUPER_BOWL_FIXTURE.read_text())
+
+
+def _unplayed_super_bowl() -> dict:
+    """The MEASURED shape of a postseason still ahead of the calendar (``dates=2026``).
+
+    Built here rather than captured because it will stop being true in February 2027: ESPN
+    schedules the whole bracket with ``TBD`` competitors, which is exactly why the caller
+    must never relay the games on this branch.
+    """
+    return {
+        "season": {"type": 3, "year": 2026},
+        "week": {"number": 5},
+        "events": [
+            {
+                "id": "401856001",
+                "shortName": "TBD VS TBD",
+                "date": "2027-02-14T23:30Z",
+                "competitions": [
+                    {
+                        "notes": [{"type": "event", "headline": "Super Bowl LXI"}],
+                        "status": {"type": {"name": "STATUS_SCHEDULED", "completed": False}},
+                        "competitors": [
+                            {"winner": None, "score": "0", "team": {"displayName": "TBD"}},
+                            {"winner": None, "score": "0", "team": {"displayName": "TBD"}},
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def _conference_championships() -> dict:
+    """The REAL 2025 postseason week 3, read live 2026-08-21 and trimmed by hand.
+
+    Two games under two different ESPN headlines is the case a single-game fixture cannot
+    cover, and the scores are the same sentinels for the same reason.
+    """
+
+    def _game(headline: str, winner: str, loser: str, date: str) -> dict:
+        return {
+            "id": "401772980",
+            "shortName": f"{winner} @ {loser}",
+            "date": date,
+            "competitions": [
+                {
+                    "notes": [{"type": "event", "headline": headline}],
+                    "status": {"type": {"name": "STATUS_FINAL", "completed": True}},
+                    "competitors": [
+                        {"winner": False, "score": "9991", "team": {"displayName": loser}},
+                        {"winner": True, "score": "9992", "team": {"displayName": winner}},
+                    ],
+                }
+            ],
+        }
+
+    return {
+        "season": {"type": 3, "year": 2025},
+        "week": {"number": 3},
+        "events": [
+            _game(
+                "AFC Championship",
+                "New England Patriots",
+                "Denver Broncos",
+                "2026-01-25T20:00Z",
+            ),
+            _game(
+                "NFC Championship",
+                "Seattle Seahawks",
+                "Los Angeles Rams",
+                "2026-01-25T23:30Z",
+            ),
+        ],
+    }
 
 
 def _load_search_fixture() -> dict:
@@ -2078,6 +2160,264 @@ class FetchGameSummaryTests(unittest.TestCase):
         self.assertIn("event=401772957", url)
         _key, _value, ex = fake.sets[0]
         self.assertEqual(ex, espn_extra.INJURIES_CACHE_TTL_SECONDS)
+
+
+class LeagueSeasonPhaseTests(unittest.TestCase):
+    def test_the_phase_is_read_from_the_season_type_and_lower_cased(self) -> None:
+        # Lower-cased because a capitalised token handed to the model comes back out of
+        # its mouth capitalised, mid-sentence (memory: qa-phrasing-inversion).
+        self.assertEqual(espn_extra.league_season_phase(_league_root()), "preseason")
+
+    def test_a_payload_without_a_usable_type_name_returns_none(self) -> None:
+        for bogus in (
+            None,
+            [],
+            {},
+            {"season": "2026"},
+            {"season": {"year": 2026}},
+            {"season": {"type": "Preseason"}},
+            {"season": {"type": {"id": "1"}}},
+            {"season": {"type": {"name": "   "}}},
+        ):
+            with self.subTest(payload=bogus):
+                self.assertIsNone(espn_extra.league_season_phase(bogus))
+
+
+class PostseasonRoundWeekTests(unittest.TestCase):
+    """The round resolver: the ONLY producer of a week number that reaches the URL."""
+
+    def test_every_spelling_of_the_four_rounds_resolves(self) -> None:
+        for spelling, week in (
+            ("super bowl", 5),
+            ("Super Bowl", 5),
+            ("the Super Bowl LX", 5),
+            ("superbowl", 5),
+            ("wild card", 1),
+            ("wild-card round", 1),
+            ("AFC Wild Card Playoffs", 1),
+            ("divisional", 2),
+            ("divisional round", 2),
+            ("NFC Divisional Playoffs", 2),
+            ("conference championships", 3),
+            ("AFC Championship", 3),
+            ("championship game", 3),
+        ):
+            with self.subTest(round=spelling):
+                self.assertEqual(espn_extra.postseason_round_week(spelling), week)
+
+    def test_no_round_name_can_ever_select_the_pro_bowl_week(self) -> None:
+        # THE trap of this endpoint: postseason week 4 is the Pro Bowl, an exhibition
+        # game, and reporting it as a playoff result is the failure worth pinning.
+        for spelling in ("pro bowl", "Pro Bowl", "the Pro-Bowl Games", "probowl", "PRO BOWL"):
+            with self.subTest(round=spelling):
+                self.assertIsNone(espn_extra.postseason_round_week(spelling))
+                self.assertTrue(espn_extra.asked_for_the_pro_bowl(spelling))
+        self.assertNotIn(espn_extra.PRO_BOWL_WEEK, espn_extra.POSTSEASON_WEEKS)
+        self.assertNotIn(espn_extra.PRO_BOWL_WEEK, espn_extra.POSTSEASON_ROUND_LABELS)
+
+    def test_an_unusable_or_unknown_round_resolves_to_nothing(self) -> None:
+        for bogus in (None, 5, [], "", "   ", "the quarterfinals", "week 4", "regular season"):
+            bad: Any = bogus
+            with self.subTest(round=bogus):
+                self.assertIsNone(espn_extra.postseason_round_week(bad))
+                self.assertFalse(espn_extra.asked_for_the_pro_bowl(bad))
+
+    def test_the_resolver_can_only_ever_produce_a_labelled_playoff_week(self) -> None:
+        # Whatever the model writes, the value that reaches the URL is one of four
+        # literals out of this module's own table.
+        for spelling in ("super bowl", "wild card", "divisional", "conference championships"):
+            week = espn_extra.postseason_round_week(spelling)
+            with self.subTest(round=spelling):
+                self.assertIn(week, espn_extra.POSTSEASON_WEEKS)
+                self.assertIn(week, espn_extra.POSTSEASON_ROUND_LABELS)
+
+
+class ParsePostseasonRoundTests(unittest.TestCase):
+    def test_the_super_bowl_resolves_to_its_winner_and_its_espn_headline(self) -> None:
+        facts = espn_extra.parse_postseason_round(_load_super_bowl_fixture())
+        assert facts is not None
+        self.assertEqual(facts["season"], 2025)
+        self.assertEqual(facts["week"], 5)
+        self.assertTrue(facts["any_completed"])
+        self.assertEqual(len(facts["games"]), 1)
+        game = facts["games"][0]
+        self.assertEqual(game["game"], "Super Bowl LX")
+        self.assertEqual(game["winner"], "Seattle Seahawks")
+        self.assertEqual(sorted(game["teams"]), ["New England Patriots", "Seattle Seahawks"])
+        self.assertEqual(game["date"], "2026-02-08T23:30Z")
+        self.assertTrue(game["completed"])
+
+    def test_neither_score_is_read_on_any_path(self) -> None:
+        # D-2, on the RUNTIME value: OPEN_OWNERSHIP_CLAUSE forbids the model stating a
+        # score, and a field it can see is a field it may voice. The fixture's two scores
+        # are the sentinels 9991 and 9992 precisely so this is an assertion.
+        rendered = json.dumps(espn_extra.parse_postseason_round(_load_super_bowl_fixture()))
+        self.assertNotIn("9991", rendered)
+        self.assertNotIn("9992", rendered)
+
+    def test_a_round_nobody_has_played_carries_no_winner_and_no_completion(self) -> None:
+        facts = espn_extra.parse_postseason_round(_unplayed_super_bowl())
+        assert facts is not None
+        self.assertFalse(facts["any_completed"])
+        self.assertIsNone(facts["games"][0]["winner"])
+        self.assertFalse(facts["games"][0]["completed"])
+
+    def test_both_conference_championships_come_back_under_their_own_headlines(self) -> None:
+        facts = espn_extra.parse_postseason_round(_conference_championships())
+        assert facts is not None
+        self.assertEqual(
+            [(game["game"], game["winner"]) for game in facts["games"]],
+            [
+                ("AFC Championship", "New England Patriots"),
+                ("NFC Championship", "Seattle Seahawks"),
+            ],
+        )
+
+    def test_a_payload_that_is_not_the_postseason_is_refused(self) -> None:
+        # The season echo is the discriminator: a regular-season or preseason payload is
+        # not the thing this parser contracts to read, so it degrades rather than
+        # relaying weeks whose numbers mean something else entirely.
+        for season in (None, {}, {"year": 2025}, {"type": 2, "year": 2025}, {"type": "3"}):
+            payload = {**_load_super_bowl_fixture(), "season": season}
+            with self.subTest(season=season):
+                self.assertIsNone(espn_extra.parse_postseason_round(payload))
+
+    def test_a_malformed_payload_never_raises(self) -> None:
+        for bogus in (
+            None,
+            [],
+            "nope",
+            {},
+            {"events": "nope"},
+            {"season": {"type": 3}, "events": []},
+            {"season": {"type": 3, "year": "2025"}, "week": "5", "events": [None, 7, {}]},
+            {"season": {"type": 3}, "events": [{"competitions": "nope"}]},
+            {"season": {"type": 3}, "events": [{"competitions": [{"competitors": [None]}]}]},
+        ):
+            with self.subTest(payload=bogus):
+                facts = espn_extra.parse_postseason_round(bogus)
+                self.assertTrue(facts is None or isinstance(facts, dict))
+
+    def test_a_game_naming_no_club_at_all_is_dropped_never_half_emitted(self) -> None:
+        payload = _load_super_bowl_fixture()
+        for competitor in payload["events"][0]["competitions"][0]["competitors"]:
+            competitor["team"] = {}
+        facts = espn_extra.parse_postseason_round(payload)
+        assert facts is not None
+        self.assertEqual(facts["games"], [])
+        self.assertFalse(facts["any_completed"])
+
+    def test_a_winner_flag_that_is_not_the_boolean_true_names_nobody(self) -> None:
+        # Identity, not truthiness: guessing a winner is worse than reporting none.
+        payload = _load_super_bowl_fixture()
+        for competitor in payload["events"][0]["competitions"][0]["competitors"]:
+            competitor["winner"] = "true"
+        facts = espn_extra.parse_postseason_round(payload)
+        assert facts is not None
+        self.assertIsNone(facts["games"][0]["winner"])
+
+
+class FetchPostseasonScoreboardTests(unittest.TestCase):
+    def _arm_client(self, response: object) -> None:
+        _CapturingAsyncClient.calls = 0
+        _CapturingAsyncClient.last_url = None
+        _CapturingAsyncClient.last_headers = _NEVER_CALLED
+        _CapturingAsyncClient.last_init_kwargs = None
+        _CapturingAsyncClient._response = response
+
+    def test_an_unusable_season_performs_zero_http_and_zero_redis(self) -> None:
+        # The same discipline the schedule holds, against the SAME bounds: the season is
+        # the one model-influenced value here, and a guard applied after the format string
+        # is not a guard.
+        fake = _FakeRedis()
+        for bogus in ("2025", 2025.0, True, False, 1919, 2101, -2025, None):
+            with self.subTest(season=bogus):
+                bad: Any = bogus
+                with (
+                    _redis_returns(fake),
+                    mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient),
+                ):
+                    self.assertIsNone(_run(espn_extra.fetch_postseason_scoreboard(bad, 5)))
+        self.assertEqual(fake.gets, [])
+        self.assertEqual(fake.sets, [])
+
+    def test_the_pro_bowl_week_can_never_be_requested(self) -> None:
+        # Week 4 is the Pro Bowl. It is not in POSTSEASON_ROUND_LABELS, so no round name
+        # produces it, and this guard is the second barrier: even a direct call for it
+        # performs no HTTP at all.
+        fake = _FakeRedis()
+        for bogus in (espn_extra.PRO_BOWL_WEEK, 0, 6, 18, -1, "5", 5.0, True, None):
+            with self.subTest(week=bogus):
+                bad: Any = bogus
+                with (
+                    _redis_returns(fake),
+                    mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient),
+                ):
+                    self.assertIsNone(_run(espn_extra.fetch_postseason_scoreboard(2025, bad)))
+        self.assertEqual(fake.gets, [])
+        self.assertEqual(fake.sets, [])
+
+    def test_cache_miss_issues_one_get_pinned_to_the_postseason(self) -> None:
+        payload = _load_super_bowl_fixture()
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(200, payload))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            out = _run(espn_extra.fetch_postseason_scoreboard(2025, 5))
+        self.assertEqual(out, payload)
+        self.assertEqual(_CapturingAsyncClient.calls, 1)
+        url = _CapturingAsyncClient.last_url
+        assert url is not None
+        self.assertIn("dates=2025", url)
+        # Without seasontype=3 this endpoint serves the regular season, whose week 5 is a
+        # different set of games entirely.
+        self.assertIn("seasontype=3", url)
+        self.assertIn("week=5", url)
+        self.assertIsNone(_CapturingAsyncClient.last_headers)
+        self.assertEqual(
+            _CapturingAsyncClient.last_init_kwargs, {"timeout": espn_extra.DEFAULT_TIMEOUT}
+        )
+        key, _value, ex = fake.sets[0]
+        self.assertEqual(key, espn_extra._postseason_cache_key(2025, 5))
+        self.assertEqual(ex, espn_extra.POSTSEASON_CACHE_TTL_SECONDS)
+
+    def test_each_season_and_round_keeps_its_own_cache_entry(self) -> None:
+        keys = {
+            espn_extra._postseason_cache_key(season, week)
+            for season in (2024, 2025)
+            for week in espn_extra.POSTSEASON_WEEKS
+        }
+        self.assertEqual(len(keys), 2 * len(espn_extra.POSTSEASON_WEEKS))
+
+    def test_cache_hit_returns_payload_without_http(self) -> None:
+        payload = _load_super_bowl_fixture()
+        fake = _FakeRedis({espn_extra._postseason_cache_key(2025, 5): json.dumps(payload)})
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient):
+            self.assertEqual(_run(espn_extra.fetch_postseason_scoreboard(2025, 5)), payload)
+        self.assertEqual(fake.sets, [])
+
+    def test_a_non_200_degrades_to_none(self) -> None:
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(503, {}))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            self.assertIsNone(_run(espn_extra.fetch_postseason_scoreboard(2025, 5)))
+        self.assertEqual(fake.sets, [])
+
+    def test_http_error_degrades_to_none(self) -> None:
+        fake = _FakeRedis()
+
+        class _BoomClient(_CapturingAsyncClient):
+            async def get(self, url, *, headers=None):
+                raise httpx.ConnectError("boom")
+
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _BoomClient):
+            self.assertIsNone(_run(espn_extra.fetch_postseason_scoreboard(2025, 5)))
+        self.assertEqual(fake.sets, [])
+
+    def test_a_redis_outage_fails_open_on_both_the_read_and_the_write(self) -> None:
+        payload = _load_super_bowl_fixture()
+        self._arm_client(_FakeResponse(200, payload))
+        with _redis_raises(), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            self.assertEqual(_run(espn_extra.fetch_postseason_scoreboard(2025, 5)), payload)
 
 
 @unittest.skipUnless(

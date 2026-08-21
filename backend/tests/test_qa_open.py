@@ -10,6 +10,9 @@ These tests NEVER touch a live LLM endpoint. Three seams are exercised:
   and PROVE the open path uses its OWN token cap / sampling knobs, is NOT fed the
   closer-variety chat directive, and still carries the mandatory
   ``chat_template_kwargs.enable_thinking = False``.
+* ``espn_extra.fetch_league`` and ``espn_extra.fetch_postseason_scoreboard`` are stubbed
+  by :class:`_OpenPathTestCase` for EVERY test that drives ``answer_open``, because the
+  date preamble reads both before the first model round.
 * ``espn_extra.fetch_team_roster``, ``espn_extra.fetch_athlete_stats``,
   ``espn_extra.fetch_athlete_search`` and ``espn_extra.fetch_league`` are stubbed with
   captured payloads (the last of them supplying the season being played) so the SHIPPED
@@ -33,6 +36,7 @@ import asyncio
 import inspect
 import json
 import unittest
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -49,6 +53,109 @@ _VOICE = PERSONALITIES[DEFAULT_PERSONALITY_ID]
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+# The league root trimmed to the two fields the calendar preamble reads (measured
+# 2026-08-21: the 2026 season, in its preseason).
+_LEAGUE_ROOT_2026 = {"season": {"year": 2026, "type": {"id": "1", "name": "Preseason"}}}
+
+_SUPER_BOWL_FIXTURE = Path(__file__).parent / "fixtures" / "espn_postseason_super_bowl.json"
+
+
+def _super_bowl(season: int = 2025) -> dict:
+    """The REAL 2025 Super Bowl LX payload, optionally relabelled to another season.
+
+    Its two scores are the sentinels 9991 and 9992, so "the score is never read" is an
+    assertion on every branch rather than a comment.
+    """
+    payload = json.loads(_SUPER_BOWL_FIXTURE.read_text())
+    payload["season"]["year"] = season
+    return payload
+
+
+def _unplayed_super_bowl(season: int = 2026) -> dict:
+    """The MEASURED shape of a postseason still ahead of the calendar: a TBD bracket."""
+    return {
+        "season": {"type": 3, "year": season},
+        "week": {"number": 5},
+        "events": [
+            {
+                "id": "401856001",
+                "shortName": "TBD VS TBD",
+                "date": f"{season + 1}-02-14T23:30Z",
+                "competitions": [
+                    {
+                        "notes": [{"type": "event", "headline": f"Super Bowl {season}"}],
+                        "status": {"type": {"name": "STATUS_SCHEDULED", "completed": False}},
+                        "competitors": [
+                            {"winner": None, "score": "0", "team": {"displayName": "TBD"}},
+                            {"winner": None, "score": "0", "team": {"displayName": "TBD"}},
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def _conference_championships() -> dict:
+    """The REAL 2025 postseason week 3 — two games under two ESPN headlines, sentinel
+    scores. Two games is the case the single-game fixture cannot cover."""
+
+    def _game(headline: str, winner: str, loser: str) -> dict:
+        return {
+            "id": "401772980",
+            "shortName": f"{winner} @ {loser}",
+            "date": "2026-01-25T20:00Z",
+            "competitions": [
+                {
+                    "notes": [{"type": "event", "headline": headline}],
+                    "status": {"type": {"name": "STATUS_FINAL", "completed": True}},
+                    "competitors": [
+                        {"winner": False, "score": "9991", "team": {"displayName": loser}},
+                        {"winner": True, "score": "9992", "team": {"displayName": winner}},
+                    ],
+                }
+            ],
+        }
+
+    return {
+        "season": {"type": 3, "year": 2025},
+        "week": {"number": 3},
+        "events": [
+            _game("AFC Championship", "New England Patriots", "Denver Broncos"),
+            _game("NFC Championship", "Seattle Seahawks", "Los Angeles Rams"),
+        ],
+    }
+
+
+def _calendar_patch(league: object = _LEAGUE_ROOT_2026, postseason: object = None):
+    """Patch the TWO ESPN hops :func:`qa_open._calendar_facts` makes.
+
+    Every ``answer_open`` test needs this: the date preamble is built BEFORE the first
+    model round, so an unstubbed test would open a live ESPN socket (and a real Redis one)
+    on its way there.
+    """
+
+    async def _fake_league():
+        return league
+
+    async def _fake_postseason(season, week):
+        return postseason(season, week) if callable(postseason) else postseason
+
+    return mock.patch.multiple(
+        espn_extra, fetch_league=_fake_league, fetch_postseason_scoreboard=_fake_postseason
+    )
+
+
+class _OpenPathTestCase(unittest.TestCase):
+    """Base for every test that drives ``answer_open`` end to end — see _calendar_patch."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        patcher = _calendar_patch()
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
 
 def _open_chat_returns(*messages: object):
@@ -138,7 +245,7 @@ class OpenPromptTests(unittest.TestCase):
         self.assertIn("pick", qa_open.OPEN_GUARD)
 
 
-class AnswerOpenTests(unittest.TestCase):
+class AnswerOpenTests(_OpenPathTestCase):
     """answer_open is best-effort None-by-contract and never reaches phrase()."""
 
     def test_returns_scrubbed_content_from_a_single_call(self) -> None:
@@ -149,11 +256,14 @@ class AnswerOpenTests(unittest.TestCase):
         # A round that answers in TEXT costs exactly one call, even with tools offered.
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0]["tools"], [t.spec for t in qa_open.TOOLS])
-        # Composed with the OPEN role/guard in the supplied voice.
-        self.assertEqual(
-            calls[0]["system_prompt"],
-            compose_prompt(_VOICE, qa_open.OPEN_ROLE, qa_open.OPEN_GUARD),
-        )
+        # Composed with the OPEN role/guard in the supplied voice, and the calendar facts
+        # BETWEEN them: the guard constants are never edited or relocated, so the prompt
+        # is still exactly voice + role + <calendar> + guard.
+        prompt = calls[0]["system_prompt"]
+        self.assertTrue(prompt.startswith(f"{_VOICE} {qa_open.OPEN_ROLE} "))
+        self.assertTrue(prompt.endswith(f" {qa_open.OPEN_GUARD}"))
+        calendar = prompt[len(f"{_VOICE} {qa_open.OPEN_ROLE} ") : -len(f" {qa_open.OPEN_GUARD}")]
+        self.assertTrue(calendar.startswith("Today's date is "))
 
     def test_returns_none_when_open_chat_returns_none(self) -> None:
         patcher, _ = _open_chat_returns(None)
@@ -508,7 +618,7 @@ def _tool_messages(sent: list[dict]) -> list[dict]:
     return [m for m in sent if m.get("role") == "tool"]
 
 
-class ShippedRegistryTests(unittest.TestCase):
+class ShippedRegistryTests(_OpenPathTestCase):
     def test_registry_ships_the_roster_tool(self) -> None:
         self.assertEqual(
             [t.name for t in qa_open.TOOLS],
@@ -517,6 +627,7 @@ class ShippedRegistryTests(unittest.TestCase):
                 "lookup_player_season_stats",
                 "lookup_player_current_team",
                 "lookup_game_leaders",
+                "lookup_playoff_results",
             ],
         )
         params = qa_open.TOOLS[0].spec["function"]["parameters"]
@@ -685,8 +796,66 @@ class ShippedRegistryTests(unittest.TestCase):
         self.assertIn("Pass the week argument ONLY when the member named a week", description)
         self.assertIn("finds the most recent finished game by itself", description)
 
+    def _playoff_description(self) -> str:
+        tool = next(t for t in qa_open.TOOLS if t.name == "lookup_playoff_results")
+        return tool.spec["function"]["description"]
+
+    def test_registry_ships_the_playoff_tool_with_two_optional_parameters(self) -> None:
+        tool = next(t for t in qa_open.TOOLS if t.name == "lookup_playoff_results")
+        params = tool.spec["function"]["parameters"]
+        self.assertEqual(sorted(params["properties"]), ["playoff_round", "season"])
+        self.assertEqual(params["properties"]["season"]["type"], "integer")
+        self.assertEqual(params["properties"]["playoff_round"]["type"], "string")
+        # NEITHER is required: the member's question supplies them only sometimes, and a
+        # required argument the model cannot fill invites it to chain tools (3/3).
+        self.assertEqual(params["required"], [])
+        # The enum is a second bound on a model-written value; the adapter still resolves
+        # anything else through espn_extra's own table.
+        self.assertEqual(
+            params["properties"]["playoff_round"]["enum"],
+            ["wild card", "divisional", "conference championships", "super bowl"],
+        )
+
+    def test_shipped_playoff_description_instructs_before_it_constrains(self) -> None:
+        description = self._playoff_description()
+        call = description.index("Call this tool every time")
+        self.assertLess(call, description.index("It carries neither team's score"))
+        self.assertLess(call, description.index("The Pro Bowl is an exhibition game"))
+
+    def test_shipped_playoff_description_maps_a_february_super_bowl_to_the_season_before(
+        self,
+    ) -> None:
+        # THE mistake the live defect made twice, so the rule is stated with the years
+        # filled in rather than left for the model to apply.
+        description = self._playoff_description()
+        self.assertIn("named for the year it STARTED in", description)
+        self.assertIn(
+            "the Super Bowl played in February 2026 belongs to the 2025 season", description
+        )
+
+    def test_the_playoff_tool_and_the_game_tool_route_to_each_other(self) -> None:
+        # Five tools is a bigger selection surface; the regular-season and postseason
+        # tools are the pair most likely to be confused, so each names the other.
+        self.assertIn(
+            "lookup_game_leaders is the tool for that question", self._playoff_description()
+        )
+        self.assertIn(
+            "lookup_playoff_results is the tool for that question",
+            self._game_leaders_description(),
+        )
+
+    def test_shipped_playoff_description_never_offers_the_pro_bowl(self) -> None:
+        self.assertIn("never call a Pro Bowl result a playoff result", self._playoff_description())
+
+    def test_the_whole_registry_stays_inside_a_stated_prompt_budget(self) -> None:
+        # Every spec costs tokens on EVERY open call and adds a way to mis-select, so the
+        # total is pinned rather than left to drift. Measured 2026-08-21: 11,272 bytes
+        # across five tools (8,804 across the four before this one).
+        total = sum(len(json.dumps(tool.spec)) for tool in qa_open.TOOLS)
+        self.assertLess(total, 12500, f"the shipped tool specs now total {total} bytes")
+
     def test_each_shipped_description_says_what_it_is_for_without_overlapping(self) -> None:
-        # Four tools is a NEW selection surface; each opener must name a different
+        # Five tools is a growing selection surface; each opener must name a different
         # question, and the two older tools must route a current-team question away.
         openers = {
             tool.name: tool.spec["function"]["description"].split(".")[0] for tool in qa_open.TOOLS
@@ -709,6 +878,11 @@ class ShippedRegistryTests(unittest.TestCase):
             openers["lookup_game_leaders"],
             "Look up how one NFL team's game went and which players led that single game "
             "in passing, rushing, receiving, sacks and tackles",
+        )
+        self.assertEqual(
+            openers["lookup_playoff_results"],
+            "Look up which teams won one round of one NFL season's playoffs, including "
+            "the Super Bowl",
         )
         for name in ("lookup_team_roster", "lookup_player_season_stats"):
             with self.subTest(tool=name):
@@ -779,7 +953,7 @@ class ShippedRegistryTests(unittest.TestCase):
 _ROSTER_FIXTURE = Path(__file__).parent / "fixtures" / "espn_team_roster.json"
 
 
-class RosterToolTests(unittest.TestCase):
+class RosterToolTests(_OpenPathTestCase):
     """The SHIPPED tool, end to end: a current roster fact must reach the model."""
 
     def _roster_returns(self, payload: object):
@@ -917,7 +1091,7 @@ def _split_season_stats() -> dict:
     return payload
 
 
-class StatsToolTests(unittest.TestCase):
+class StatsToolTests(_OpenPathTestCase):
     """The SHIPPED stats tool, end to end: the motivating question of issue #183."""
 
     def _espn_returns(
@@ -1516,7 +1690,7 @@ class TeamlessStatsToolTests(unittest.TestCase):
                 self.assertTrue(note.endswith("."))
 
 
-class CurrentTeamToolTests(unittest.TestCase):
+class CurrentTeamToolTests(_OpenPathTestCase):
     """The SHIPPED current-team tool: "who does he play for now" grounded, not guessed."""
 
     def _search_returns(self, payload: object):
@@ -1632,7 +1806,7 @@ _SCHEDULE_FIXTURE = Path(__file__).parent / "fixtures" / "espn_team_schedule.jso
 _GAME_LEADERS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_game_leaders.json"
 
 
-class GameLeadersToolTests(unittest.TestCase):
+class GameLeadersToolTests(_OpenPathTestCase):
     """The SHIPPED game tool, end to end: Route D of issue #183."""
 
     def _schedule(self) -> dict:
@@ -1848,7 +2022,337 @@ class GameLeadersToolTests(unittest.TestCase):
         self.assertLess(len(json.dumps(out)), 3400)
 
 
-class ToolLoopTests(unittest.TestCase):
+class _FrozenClock:
+    """A ``datetime`` stand-in whose ``now`` is fixed, so the preamble is assertable."""
+
+    frozen = datetime(2026, 8, 21, 12, 0, tzinfo=UTC)
+
+    @classmethod
+    def now(cls, _tz: object) -> datetime:
+        return cls.frozen
+
+
+class OpenCalendarTests(unittest.TestCase):
+    """The date preamble — the fix for the live 2026-08-21 grounding defect.
+
+    Reported from real Discord use: asked who backed up Mahomes in the 2025 season, and
+    who won the Super Bowl played in February 2026, the bot answered that neither had
+    happened yet. NOTHING in this path told it what day it is, so it resolved every
+    relative date against its training cutoff.
+    """
+
+    def _facts(self, **kwargs) -> str:
+        with _calendar_patch(**kwargs), mock.patch.object(qa_open, "datetime", _FrozenClock):
+            return _run(qa_open._calendar_facts())
+
+    def test_the_preamble_states_todays_date_as_a_full_sentence(self) -> None:
+        self.assertTrue(
+            self._facts().startswith("Today's date is Friday 21 August 2026,"), self._facts()
+        )
+
+    def test_the_preamble_names_the_season_being_played_and_the_phase_it_is_in(self) -> None:
+        facts = self._facts()
+        self.assertIn("The 2026 NFL season is the season being played right now.", facts)
+        # Lower-cased: a capitalised token comes back out of the model's mouth capitalised
+        # mid-sentence (memory: qa-phrasing-inversion).
+        self.assertIn("in its preseason at the moment", facts)
+
+    def test_the_preamble_spells_out_the_two_calendar_year_span_with_the_years_in_it(
+        self,
+    ) -> None:
+        # THE mapping the model got wrong twice, with the years filled in rather than left
+        # as a rule it has to apply.
+        facts = self._facts()
+        self.assertIn("An NFL season spans two calendar years", facts)
+        self.assertIn(
+            "the 2025 NFL season ran from September 2025 to its Super Bowl in February 2026",
+            facts,
+        )
+        self.assertIn("the 2026 NFL season will end with its Super Bowl in February 2027", facts)
+
+    def test_the_preamble_names_the_most_recently_finished_season(self) -> None:
+        facts = self._facts(postseason=_unplayed_super_bowl(2026))
+        self.assertIn("The most recent NFL season to have finished is the 2025 season", facts)
+        self.assertIn("its Super Bowl in February 2026, has already been played", facts)
+
+    def test_a_current_season_whose_super_bowl_is_played_becomes_the_most_recent_one(
+        self,
+    ) -> None:
+        # The window between a Super Bowl and ESPN rolling its season year over — the one
+        # a month-based derivation gets wrong, and the reason the check costs a hop.
+        facts = self._facts(postseason=_super_bowl(2026))
+        self.assertIn("The most recent NFL season to have finished is the 2026 season", facts)
+
+    def test_a_failed_postseason_check_drops_the_superlative_and_never_guesses(self) -> None:
+        facts = self._facts(postseason=None)
+        self.assertIn("The 2025 NFL season is over and finished", facts)
+        self.assertNotIn("most recent NFL season to have finished", facts)
+
+    def test_the_ban_on_saying_a_past_game_has_not_happened_is_unconditional(self) -> None:
+        # The exact sentence the live defect produced, banned outright: a caveat the model
+        # has to decide whether to apply is a caveat it drops (measured 3/3).
+        facts = self._facts()
+        ban = facts[facts.index("Never tell the member that an NFL season in the past") :]
+        self.assertIn("has not happened yet", ban)
+        self.assertIn("a game that has already been played has not happened yet", ban)
+        self.assertNotRegex(ban, r"\bif\b")
+
+    def test_an_unreadable_league_root_names_no_year_at_all(self) -> None:
+        # Degrade by saying LESS. A guessed season year is the one thing this must never
+        # produce, so nothing derives one from the month.
+        facts = self._facts(league=None)
+        self.assertIn("Today's date is Friday 21 August 2026", facts)
+        self.assertIn("say nothing at all about which season that is", facts)
+        for year in ("2024", "2025", "2026 NFL season", "2027"):
+            self.assertNotIn(year, facts)
+        self.assertIn("An NFL season spans two calendar years", facts)
+
+    def test_the_preamble_never_raises_and_is_never_empty(self) -> None:
+        for league in (None, {}, [], "nope", {"season": {"year": "2026"}}):
+            with self.subTest(league=league):
+                self.assertTrue(self._facts(league=league).strip())
+
+    def test_the_spoken_date_is_the_date_a_person_would_say(self) -> None:
+        self.assertEqual(
+            qa_open._spoken_date(datetime(2027, 2, 7, tzinfo=UTC)), "Sunday 7 February 2027"
+        )
+
+
+class PlayoffToolTests(_OpenPathTestCase):
+    """The SHIPPED fifth tool: postseason results, the other half of the calendar fix.
+
+    Date grounding ALONE was measured making the answer WORSE — told what year it was, the
+    model said Kansas City won the Super Bowl played in February 2026. Seattle beat New
+    England. No tool covered the postseason, so ungrounded memory was the only source.
+    """
+
+    def _adapter(
+        self, *, league: object = _LEAGUE_ROOT_2026, rounds: dict | None = None, **kwargs
+    ) -> tuple[object, list[tuple[object, object]]]:
+        """Drive the adapter with both seams stubbed, recording every postseason request.
+
+        ``rounds`` maps ``(season, week)`` to the payload that pair returns; a pair absent
+        from it returns ``None``, which is how a season outside ESPN's record is modelled.
+        """
+        requests: list[tuple[object, object]] = []
+
+        async def _fake_league():
+            return league
+
+        async def _fake_postseason(season, week):
+            requests.append((season, week))
+            return (rounds or {}).get((season, week))
+
+        with (
+            mock.patch.object(espn_extra, "fetch_league", _fake_league),
+            mock.patch.object(espn_extra, "fetch_postseason_scoreboard", _fake_postseason),
+        ):
+            return _run(qa_open._lookup_playoff_results(**kwargs)), requests
+
+    def _played_2025(self) -> dict:
+        return {(2025, 5): _super_bowl(), (2025, 3): _conference_championships()}
+
+    def test_a_super_bowl_round_feeds_back_the_winner_and_the_season_it_belongs_to(
+        self,
+    ) -> None:
+        # The reported question, end to end: "who won the superbowl that was played in
+        # 2026". The answer is the 2025 season's Super Bowl, and Seattle won it.
+        async def _fake_postseason(season, week):
+            return _super_bowl() if (season, week) == (2025, 5) else None
+
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_playoff_results", '{"season": 2025}'),
+            _text("The Seahawks won that one."),
+        )
+        with (
+            mock.patch.object(espn_extra, "fetch_postseason_scoreboard", _fake_postseason),
+            patcher,
+        ):
+            out = _run(qa_open.answer_open("who won the superbowl played in 2026?", voice=_VOICE))
+
+        self.assertEqual(out, "The Seahawks won that one.")
+        results = _tool_messages(calls[1]["messages"])
+        self.assertEqual(len(results), 1)
+        body = json.loads(results[0]["content"])
+        self.assertEqual(body["season"], 2025)
+        self.assertEqual(body["round"], "Super Bowl")
+        self.assertEqual(body["games"][0]["winner"], "Seattle Seahawks")
+        self.assertIn(
+            "The Seattle Seahawks beat the New England Patriots in Super Bowl LX.",
+            body["results_statement"],
+        )
+
+    def test_the_default_season_is_the_most_recent_finished_one_never_the_models_own(
+        self,
+    ) -> None:
+        # A required argument the model cannot fill invites tool chaining (measured 3/3),
+        # and a year it works out for itself is the defect this whole branch exists for.
+        out, requests = self._adapter(
+            rounds={**self._played_2025(), (2026, 5): _unplayed_super_bowl(2026)}
+        )
+        assert isinstance(out, dict)
+        self.assertEqual(out["season"], 2025)
+        # (2026, 5) is the "has the current season finished yet" check; (2025, 5) is the
+        # answer. Both are cached, and the first is the same entry the preamble reads.
+        self.assertEqual(requests, [(2026, 5), (2025, 5)])
+
+    def test_a_named_round_other_than_the_super_bowl_resolves_to_its_own_week(self) -> None:
+        out, requests = self._adapter(
+            rounds=self._played_2025(), season=2025, playoff_round="conference championships"
+        )
+        assert isinstance(out, dict)
+        self.assertEqual(requests, [(2025, 3)])
+        self.assertEqual(out["round"], "conference championship games")
+        self.assertEqual(
+            [game["winner"] for game in out["games"]],
+            ["New England Patriots", "Seattle Seahawks"],
+        )
+        statement = out["results_statement"]
+        self.assertIn("The New England Patriots beat the Denver Broncos in the AFC", statement)
+        self.assertIn("The Seattle Seahawks beat the Los Angeles Rams in the NFC", statement)
+
+    def test_the_pro_bowl_is_never_reported_as_a_playoff_result(self) -> None:
+        # THE trap of this endpoint: postseason week 4 is the Pro Bowl, an exhibition
+        # game. It is refused before any fetch, so week 4 is never even requested.
+        for spelling in ("pro bowl", "Pro Bowl", "the Pro-Bowl Games"):
+            with self.subTest(round=spelling):
+                out, requests = self._adapter(
+                    rounds=self._played_2025(), season=2025, playoff_round=spelling
+                )
+                assert isinstance(out, dict)
+                self.assertEqual(sorted(out), ["note"])
+                self.assertIn("not a playoff round", out["note"])
+                self.assertIn("never name a Pro Bowl team as a playoff winner", out["note"])
+                self.assertEqual(requests, [])
+
+    def test_only_a_playoff_week_ever_reaches_the_seam(self) -> None:
+        # Whatever the model writes for the round, the value that leaves this adapter is
+        # one of four literals out of espn_extra's own table — never week 4, never a
+        # number the model chose.
+        for spelling in (
+            "super bowl",
+            "wild card",
+            "divisional round",
+            "AFC Championship",
+            "pro bowl",
+            "the quarterfinals",
+            "week 4",
+            "",
+        ):
+            with self.subTest(round=spelling):
+                _out, requests = self._adapter(season=2025, playoff_round=spelling)
+                for _season, week in requests:
+                    self.assertIn(week, espn_extra.POSTSEASON_WEEKS)
+                    self.assertNotEqual(week, espn_extra.PRO_BOWL_WEEK)
+
+    def test_a_season_whose_postseason_is_not_played_says_so_about_that_season_only(
+        self,
+    ) -> None:
+        # The ONE case where "has not happened yet" is correct — stated as a fact about
+        # this named season, never as the blanket hedge the live defect produced.
+        out, _requests = self._adapter(rounds={(2026, 5): _unplayed_super_bowl(2026)}, season=2026)
+        assert isinstance(out, dict)
+        self.assertEqual(sorted(out), ["note"])
+        self.assertIn("The 2026 NFL season's postseason has not been played yet", out["note"])
+        self.assertIn("Say this about the 2026 season only", out["note"])
+        self.assertIn("every NFL season before it has already been played in full", out["note"])
+
+    def test_a_season_outside_espns_record_never_says_the_games_were_not_played(self) -> None:
+        # Measured 2026-08-21: 1966, 1960 and 2030 all answer 200 with no events and no
+        # season echo. Calling that "not played yet" would be a new falsehood.
+        out, requests = self._adapter(season=1966)
+        assert isinstance(out, dict)
+        self.assertEqual(sorted(out), ["note"])
+        self.assertEqual(requests, [(1966, 5)])
+        self.assertIn("no results at all for the Super Bowl of the 1966 NFL season", out["note"])
+        self.assertIn("never tell him that those games have not been played", out["note"])
+
+    def test_an_unknown_round_asks_which_one_instead_of_substituting_one(self) -> None:
+        out, requests = self._adapter(season=2025, playoff_round="the quarterfinals")
+        assert isinstance(out, dict)
+        self.assertIn("no playoff round by that name", out["note"])
+        self.assertIn("Ask the member which of those rounds he means", out["note"])
+        self.assertEqual(requests, [])
+
+    def test_an_unreadable_league_root_asks_for_a_season_instead_of_guessing_one(self) -> None:
+        out, requests = self._adapter(league=None)
+        assert isinstance(out, dict)
+        self.assertIn("never work a year out for yourself", out["note"])
+        self.assertEqual(requests, [])
+
+    def test_every_outcome_is_a_dict_never_the_bare_none_that_reads_as_silence(self) -> None:
+        # D-5 of the predecessor: a bare None becomes _NO_DATA_PAYLOAD, which tells the
+        # model to answer from the stale memory this tool exists to replace.
+        branches = {
+            "played": {"season": 2025},
+            "unplayed": {"season": 2026},
+            "no record": {"season": 1966},
+            "pro bowl": {"season": 2025, "playoff_round": "pro bowl"},
+            "unknown round": {"season": 2025, "playoff_round": "the quarterfinals"},
+            "no season": {},
+            "forgotten arguments": {},
+        }
+        for label, kwargs in branches.items():
+            with self.subTest(branch=label):
+                out, _requests = self._adapter(
+                    rounds={**self._played_2025(), (2026, 5): _unplayed_super_bowl(2026)},
+                    **kwargs,
+                )
+                self.assertIsInstance(out, dict)
+
+    def test_no_branch_ever_carries_either_team_score(self) -> None:
+        # D-2 of the predecessor, on the RUNTIME values: the fixture's two scores are the
+        # sentinels 9991 and 9992, so "never read" is an assertion, not a comment. The
+        # statements legitimately contain the word score in order to forbid it.
+        rounds = {**self._played_2025(), (2026, 5): _unplayed_super_bowl(2026)}
+        for label, kwargs in {
+            "super bowl": {"season": 2025},
+            "conference": {"season": 2025, "playoff_round": "conference championships"},
+            "default season": {},
+            "unplayed": {"season": 2026},
+        }.items():
+            with self.subTest(branch=label):
+                out, _requests = self._adapter(rounds=rounds, **kwargs)
+                rendered = json.dumps(out)
+                self.assertNotIn("9991", rendered)
+                self.assertNotIn("9992", rendered)
+
+    def test_the_statement_names_the_season_and_bans_the_score_unconditionally(self) -> None:
+        out, _requests = self._adapter(rounds=self._played_2025(), season=2025)
+        assert isinstance(out, dict)
+        statement = out["results_statement"]
+        self.assertIn("the Super Bowl of the 2025 NFL season", statement)
+        self.assertIn(
+            "an NFL season is named for the year it started in and not for the year its "
+            "playoffs were played in",
+            statement,
+        )
+        ban = statement[statement.index("The final score of every one") :]
+        self.assertNotRegex(ban, r"\bif\b")
+
+    def test_the_caveat_bans_the_not_happened_yet_answer_unconditionally(self) -> None:
+        out, _requests = self._adapter(rounds=self._played_2025(), season=2025)
+        assert isinstance(out, dict)
+        caveat = out["caveat"]
+        self.assertEqual(caveat, espn_extra.POSTSEASON_CAVEAT)
+        self.assertIn("never say that it has not happened yet", caveat)
+        self.assertNotRegex(caveat, r"\bif\b")
+
+    def test_every_payload_stays_inside_the_shipped_tools_budget(self) -> None:
+        # The wild card round is the biggest one at six games; the shipped stats tool
+        # returns 2.2-3.4 KB against a 3-round / 20-second loop.
+        wild_card = {
+            "season": {"type": 3, "year": 2025},
+            "week": {"number": 1},
+            "events": [_conference_championships()["events"][0] for _ in range(6)],
+        }
+        out, _requests = self._adapter(
+            rounds={(2025, 1): wild_card}, season=2025, playoff_round="wild card"
+        )
+        self.assertLess(len(json.dumps(out)), 3400)
+
+
+class ToolLoopTests(_OpenPathTestCase):
     def test_one_tool_call_runs_the_tool_and_feeds_the_result_back(self) -> None:
         tool, tool_calls = _fake_tool()
         patcher, calls = _open_chat_returns(
