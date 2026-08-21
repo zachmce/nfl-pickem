@@ -800,5 +800,110 @@ class ClassifyWireFormatRegressionTests(unittest.TestCase):
         self.assertIn("Vary your closing line", body["messages"][0]["content"])
 
 
+class GameStatisticsPredicateTests(unittest.TestCase):
+    """The pure subject predicate behind the stats-phrased ``scores`` guard (#187)."""
+
+    def test_statistics_phrases_hit(self) -> None:
+        for subject in (
+            "passing yards",
+            "yards passing",
+            "yardage",
+            "rushing",
+            "receiving",
+            "touchdowns",
+            "sacks",
+            "tackles",
+            "interceptions",
+            "completions",
+            "carries",
+            "receptions",
+            "catches",
+            "stats",
+            "statistics",
+            "who led the game",
+            "leader in rushing",
+            "passer rating",
+            "attempts",
+            "fumbles",
+            "targets",
+        ):
+            with self.subTest(subject=subject):
+                self.assertTrue(qa._wants_game_statistics(subject))
+
+    def test_score_phrases_miss(self) -> None:
+        # The regression pin: "points" and "score" are legitimately the scores intent.
+        # "status" and "called" are the measured bare-substring traps ("stat", "led").
+        for subject in (
+            "points",
+            "how many points did the vikings score",
+            "score",
+            "final score",
+            "who won",
+            "status",
+            "the game they called",
+            "standings",
+            "",
+            None,
+        ):
+            with self.subTest(subject=subject):
+                self.assertFalse(qa._wants_game_statistics(subject))
+
+
+class StatsPhrasedScoresGuardTests(unittest.TestCase):
+    """Issue #187: a statistics question the model labelled ``scores`` was answered
+    with the CURRENT week's scoreboard, because the scores handler ignores both the
+    team and the week. The guard reroutes it to the open path."""
+
+    def test_stats_phrased_scores_becomes_open_nfl_with_no_params(self) -> None:
+        out = validate_classification(
+            {
+                "intent": "scores",
+                "subject": "passing yards in that game",
+                "nfl": True,
+                "team": "SEA",
+                "week": 5,
+            },
+            known_team_tokens=_KNOWN_TEAMS,
+        )
+        self.assertEqual(out, QaResult(intent=QaIntent.open_nfl))
+
+    def test_guard_fails_closed_on_every_non_boolean_true_nfl_value(self) -> None:
+        # Same identity-against-True rule as the topic guard above it.
+        for raw in (
+            {"intent": "scores", "subject": "passing yards in that game"},
+            {"intent": "scores", "subject": "passing yards in that game", "nfl": False},
+            {"intent": "scores", "subject": "passing yards in that game", "nfl": None},
+            {"intent": "scores", "subject": "passing yards in that game", "nfl": "true"},
+            {"intent": "scores", "subject": "passing yards in that game", "nfl": 1},
+        ):
+            with self.subTest(raw=raw):
+                out = validate_classification(raw, known_team_tokens=_KNOWN_TEAMS)
+                self.assertEqual(out, QaResult(intent=QaIntent.unknown))
+
+    def test_a_real_score_question_is_untouched(self) -> None:
+        out = validate_classification(
+            {"intent": "scores", "subject": "how many points did the vikings score", "week": 5},
+            known_team_tokens=_KNOWN_TEAMS,
+        )
+        self.assertEqual(out, QaResult(intent=QaIntent.scores, week=5))
+
+    def test_guard_is_scoped_to_the_scores_intent(self) -> None:
+        lines = validate_classification(
+            {"intent": "lines_slate", "subject": "passing yards", "nfl": True},
+            known_team_tokens=_KNOWN_TEAMS,
+        )
+        news = validate_classification(
+            {"intent": "news", "subject": "passing yards", "nfl": True},
+            known_team_tokens=_KNOWN_TEAMS,
+        )
+        self.assertEqual(lines, QaResult(intent=QaIntent.lines_slate, subject="passing yards"))
+        self.assertEqual(news, QaResult(intent=QaIntent.news, subject="passing yards"))
+
+    def test_scores_is_absent_from_subject_intents(self) -> None:
+        # WHY the guard reads raw["subject"] before the scrub. If scores is ever added
+        # to this frozenset, the pre-scrub read is still correct — but deliberate.
+        self.assertNotIn(QaIntent.scores, qa._SUBJECT_INTENTS)
+
+
 if __name__ == "__main__":
     unittest.main()
