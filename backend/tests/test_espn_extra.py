@@ -50,6 +50,7 @@ _SEARCH_FIXTURE = Path(__file__).parent / "fixtures" / "espn_athlete_search.json
 _SCHEDULE_FIXTURE = Path(__file__).parent / "fixtures" / "espn_team_schedule.json"
 _GAME_LEADERS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_game_leaders.json"
 _SUPER_BOWL_FIXTURE = Path(__file__).parent / "fixtures" / "espn_postseason_super_bowl.json"
+_STANDINGS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_standings.json"
 
 # The DISTINCTIVE KC headline the no-rephrasing regression asserts survives byte-for-byte.
 _KC_HEADLINE = "Patrick Mahomes throws for 5 touchdowns as Chiefs storm past Bills 38-20"
@@ -69,6 +70,18 @@ def _load_news_fixture() -> dict:
 
 def _load_roster_fixture() -> dict:
     return json.loads(_ROSTER_FIXTURE.read_text())
+
+
+def _load_standings_fixture() -> dict:
+    """The REAL 2025 group-9 standings, trimmed to four entries (measured 2026-08-21).
+
+    New England (17) is the assertion anchor at 14-3 and Philadelphia (21) is a second
+    real club; a ``$ref`` naming team 999 is the unmappable decoy and one naming nothing
+    is the unparseable decoy. The seed, points for and points against are the sentinels
+    9993, 9994 and 9995, so "no seed and no points ever reach the model" is an assertion
+    on every branch rather than a comment.
+    """
+    return json.loads(_STANDINGS_FIXTURE.read_text())
 
 
 def _load_schedule_fixture() -> dict:
@@ -1965,6 +1978,149 @@ class ParseTeamSeasonTests(unittest.TestCase):
         out = espn_extra.parse_team_season(fixture)
         assert out is not None
         self.assertEqual(len(out["games"]), 5)
+
+
+class ParseTeamRecordTests(unittest.TestCase):
+    def test_the_anchor_club_returns_all_four_record_summaries(self) -> None:
+        out = espn_extra.parse_team_record(_load_standings_fixture(), "NE")
+        assert out is not None
+        self.assertEqual(out["team"], "New England Patriots")
+        self.assertEqual(out["season"], 2025)
+        self.assertEqual(out["games_played"], "17")
+        self.assertEqual(
+            out["records"],
+            {
+                "overall record": "14-3",
+                "record at home": "6-3",
+                "record on the road": "8-0",
+                "record against teams in their own division": "5-1",
+            },
+        )
+
+    def test_a_second_club_comes_out_of_the_same_payload(self) -> None:
+        out = espn_extra.parse_team_record(_load_standings_fixture(), "phi")
+        assert out is not None
+        self.assertEqual(out["team"], "Philadelphia Eagles")
+        self.assertEqual(out["records"]["overall record"], "11-6")
+
+    def test_a_team_not_in_the_payload_is_a_miss_and_never_another_clubs_record(
+        self,
+    ) -> None:
+        out = espn_extra.parse_team_record(_load_standings_fixture(), "KC")
+        assert out is not None
+        self.assertIsNone(out["team"])
+        self.assertEqual(out["records"], {})
+        self.assertNotIn("14-3", json.dumps(out))
+
+    def test_no_seed_no_rank_and_no_points_ever_reach_the_output(self) -> None:
+        # The fixture carries the sentinels ON PURPOSE, so this is a real test:
+        # OPEN_OWNERSHIP_CLAUSE forbids the model stating a standings position or a score.
+        serialized = json.dumps(espn_extra.parse_team_record(_load_standings_fixture(), "NE"))
+        for banned in ("playoffSeed", "9993", "9994", "9995", "pointsFor", "pointsAgainst"):
+            with self.subTest(banned=banned):
+                self.assertNotIn(banned, serialized)
+
+    def test_both_decoy_entries_are_skipped_without_raising(self) -> None:
+        # An unmappable id and an unparseable ``$ref`` are skipped rather than guessed at.
+        fixture = _load_standings_fixture()
+        self.assertIn("/teams/999?", json.dumps(fixture))
+        out = espn_extra.parse_team_record(fixture, "NE")
+        assert out is not None
+        self.assertEqual(out["records"]["overall record"], "14-3")
+
+    def test_an_unusable_top_level_shape_returns_none(self) -> None:
+        for bogus in (None, [], "x", {}, {"standings": "nope"}, 7):
+            with self.subTest(payload=bogus):
+                bad: Any = bogus
+                self.assertIsNone(espn_extra.parse_team_record(bad, "NE"))
+
+    def test_an_unusable_team_argument_returns_a_miss_rather_than_raising(self) -> None:
+        for bogus in (None, 17, [], ""):
+            with self.subTest(team=bogus):
+                bad: Any = bogus
+                out = espn_extra.parse_team_record(_load_standings_fixture(), bad)
+                assert out is not None
+                self.assertEqual(out["records"], {})
+
+    def test_a_season_that_has_not_begun_reports_zero_games_played(self) -> None:
+        # Measured 2026-08-21: the current season's standings answer 32 entries of 0-0.
+        fixture = _load_standings_fixture()
+        for record in fixture["standings"][0]["records"]:
+            record["summary"] = "0-0"
+            for stat in record.get("stats", []):
+                if stat["name"] == "gamesPlayed":
+                    stat["displayValue"] = "0"
+        out = espn_extra.parse_team_record(fixture, "NE")
+        assert out is not None
+        self.assertEqual(out["games_played"], "0")
+
+
+class FetchStandingsTests(unittest.TestCase):
+    def _arm_client(self, response: object) -> None:
+        _CapturingAsyncClient.calls = 0
+        _CapturingAsyncClient.last_url = None
+        _CapturingAsyncClient.last_headers = _NEVER_CALLED
+        _CapturingAsyncClient.last_init_kwargs = None
+        _CapturingAsyncClient._response = response
+
+    def test_an_unusable_season_performs_zero_http_and_zero_redis(self) -> None:
+        # T-jbh-02: the range check runs BEFORE the URL is formatted. A bool is rejected
+        # explicitly because ``True`` IS an int in Python and would format as "True".
+        fake = _FakeRedis()
+        for bogus in ("2025", 2025.0, True, False, 1919, 2101, -2025, None, ["2025"]):
+            with self.subTest(season=bogus):
+                bad: Any = bogus
+                with (
+                    _redis_returns(fake),
+                    mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient),
+                ):
+                    self.assertIsNone(_run(espn_extra.fetch_standings(bad)))
+        self.assertEqual(fake.gets, [])
+        self.assertEqual(fake.sets, [])
+
+    def test_one_get_carries_the_whole_league_group_and_the_regular_season(self) -> None:
+        payload = _load_standings_fixture()
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(200, payload))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            out = _run(espn_extra.fetch_standings(2025))
+        self.assertEqual(out, payload)
+        self.assertEqual(_CapturingAsyncClient.calls, 1)
+        url = _CapturingAsyncClient.last_url
+        assert url is not None
+        # M-3: group 9 is all 32 clubs in ONE fetch; group 8 is one conference.
+        self.assertIn("/seasons/2025/types/2/groups/9/standings/0", url)
+        self.assertIsNone(_CapturingAsyncClient.last_headers)
+        self.assertEqual(len(fake.sets), 1)
+        key, _value, ex = fake.sets[0]
+        self.assertEqual(key, espn_extra._standings_cache_key(2025))
+        self.assertEqual(ex, espn_extra.STANDINGS_CACHE_TTL_SECONDS)
+
+    def test_cache_hit_returns_payload_without_http(self) -> None:
+        payload = _load_standings_fixture()
+        fake = _FakeRedis({espn_extra._standings_cache_key(2025): json.dumps(payload)})
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient):
+            self.assertEqual(_run(espn_extra.fetch_standings(2025)), payload)
+        self.assertEqual(fake.sets, [])
+
+    def test_http_error_degrades_to_none(self) -> None:
+        fake = _FakeRedis()
+
+        class _BoomClient(_CapturingAsyncClient):
+            async def get(self, url, *, headers=None):
+                raise httpx.ConnectError("boom")
+
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _BoomClient):
+            self.assertIsNone(_run(espn_extra.fetch_standings(2025)))
+        self.assertEqual(fake.sets, [])
+
+
+class NflTeamByIdTests(unittest.TestCase):
+    def test_the_id_table_is_derived_from_the_seed_table_never_retyped(self) -> None:
+        # A drifted copy of the table that names a club is the failure worth preventing.
+        self.assertEqual(len(espn_extra.NFL_TEAM_BY_ID), 32)
+        self.assertEqual(espn_extra.NFL_TEAM_BY_ID["17"], ("NE", "New England Patriots"))
+        self.assertEqual(espn_extra.NFL_TEAM_BY_ID["21"], ("PHI", "Philadelphia Eagles"))
 
 
 class ParseGameLeadersTests(unittest.TestCase):

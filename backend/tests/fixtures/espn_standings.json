@@ -1,0 +1,312 @@
+{
+  "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/types/2/groups/9/standings/0?lang=en&region=us",
+  "id": "0",
+  "name": "overall",
+  "displayName": "Standings",
+  "standings": [
+    {
+      "team": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/teams/17?lang=en&region=us"
+      },
+      "records": [
+        {
+          "name": "overall",
+          "type": "total",
+          "summary": "14-3",
+          "stats": [
+            {
+              "name": "gamesPlayed",
+              "displayName": "Games Played",
+              "value": 17.0,
+              "displayValue": "17"
+            },
+            {
+              "name": "losses",
+              "displayName": "Losses",
+              "value": 3.0,
+              "displayValue": "3"
+            },
+            {
+              "name": "playoffSeed",
+              "displayName": "Position",
+              "value": 9993.0,
+              "displayValue": "9993"
+            },
+            {
+              "name": "pointsAgainst",
+              "displayName": "Points Against",
+              "value": 9995.0,
+              "displayValue": "9995"
+            },
+            {
+              "name": "pointsFor",
+              "displayName": "Points For",
+              "value": 9994.0,
+              "displayValue": "9994"
+            },
+            {
+              "name": "streak",
+              "displayName": "Streak",
+              "value": 3.0,
+              "displayValue": "W3"
+            },
+            {
+              "name": "wins",
+              "displayName": "Wins",
+              "value": 14.0,
+              "displayValue": "14"
+            }
+          ]
+        },
+        {
+          "name": "Home",
+          "type": "home",
+          "summary": "6-3"
+        },
+        {
+          "name": "Road",
+          "type": "road",
+          "summary": "8-0"
+        },
+        {
+          "name": "vs. Div.",
+          "type": "vsdiv",
+          "summary": "5-1"
+        },
+        {
+          "name": "vs. Conf.",
+          "type": "vsconf",
+          "summary": "9-3"
+        }
+      ]
+    },
+    {
+      "team": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/teams/21?lang=en&region=us"
+      },
+      "records": [
+        {
+          "name": "overall",
+          "type": "total",
+          "summary": "11-6",
+          "stats": [
+            {
+              "name": "gamesPlayed",
+              "displayName": "Games Played",
+              "value": 17.0,
+              "displayValue": "17"
+            },
+            {
+              "name": "losses",
+              "displayName": "Losses",
+              "value": 6.0,
+              "displayValue": "6"
+            },
+            {
+              "name": "playoffSeed",
+              "displayName": "Position",
+              "value": 9993.0,
+              "displayValue": "9993"
+            },
+            {
+              "name": "pointsAgainst",
+              "displayName": "Points Against",
+              "value": 9995.0,
+              "displayValue": "9995"
+            },
+            {
+              "name": "pointsFor",
+              "displayName": "Points For",
+              "value": 9994.0,
+              "displayValue": "9994"
+            },
+            {
+              "name": "streak",
+              "displayName": "Streak",
+              "value": -1.0,
+              "displayValue": "L1"
+            },
+            {
+              "name": "wins",
+              "displayName": "Wins",
+              "value": 11.0,
+              "displayValue": "11"
+            }
+          ]
+        },
+        {
+          "name": "Home",
+          "type": "home",
+          "summary": "5-3"
+        },
+        {
+          "name": "Road",
+          "type": "road",
+          "summary": "6-3"
+        },
+        {
+          "name": "vs. Div.",
+          "type": "vsdiv",
+          "summary": "3-3"
+        },
+        {
+          "name": "vs. Conf.",
+          "type": "vsconf",
+          "summary": "8-4"
+        }
+      ]
+    },
+    {
+      "team": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/teams/999?lang=en&region=us"
+      },
+      "records": [
+        {
+          "name": "overall",
+          "type": "total",
+          "summary": "11-6",
+          "stats": [
+            {
+              "name": "gamesPlayed",
+              "displayName": "Games Played",
+              "value": 17.0,
+              "displayValue": "17"
+            },
+            {
+              "name": "losses",
+              "displayName": "Losses",
+              "value": 6.0,
+              "displayValue": "6"
+            },
+            {
+              "name": "playoffSeed",
+              "displayName": "Position",
+              "value": 9993.0,
+              "displayValue": "9993"
+            },
+            {
+              "name": "pointsAgainst",
+              "displayName": "Points Against",
+              "value": 9995.0,
+              "displayValue": "9995"
+            },
+            {
+              "name": "pointsFor",
+              "displayName": "Points For",
+              "value": 9994.0,
+              "displayValue": "9994"
+            },
+            {
+              "name": "streak",
+              "displayName": "Streak",
+              "value": -1.0,
+              "displayValue": "L1"
+            },
+            {
+              "name": "wins",
+              "displayName": "Wins",
+              "value": 11.0,
+              "displayValue": "11"
+            }
+          ]
+        },
+        {
+          "name": "Home",
+          "type": "home",
+          "summary": "5-3"
+        },
+        {
+          "name": "Road",
+          "type": "road",
+          "summary": "6-3"
+        },
+        {
+          "name": "vs. Div.",
+          "type": "vsdiv",
+          "summary": "3-3"
+        },
+        {
+          "name": "vs. Conf.",
+          "type": "vsconf",
+          "summary": "8-4"
+        }
+      ]
+    },
+    {
+      "team": {
+        "$ref": "not-a-reference-at-all"
+      },
+      "records": [
+        {
+          "name": "overall",
+          "type": "total",
+          "summary": "11-6",
+          "stats": [
+            {
+              "name": "gamesPlayed",
+              "displayName": "Games Played",
+              "value": 17.0,
+              "displayValue": "17"
+            },
+            {
+              "name": "losses",
+              "displayName": "Losses",
+              "value": 6.0,
+              "displayValue": "6"
+            },
+            {
+              "name": "playoffSeed",
+              "displayName": "Position",
+              "value": 9993.0,
+              "displayValue": "9993"
+            },
+            {
+              "name": "pointsAgainst",
+              "displayName": "Points Against",
+              "value": 9995.0,
+              "displayValue": "9995"
+            },
+            {
+              "name": "pointsFor",
+              "displayName": "Points For",
+              "value": 9994.0,
+              "displayValue": "9994"
+            },
+            {
+              "name": "streak",
+              "displayName": "Streak",
+              "value": -1.0,
+              "displayValue": "L1"
+            },
+            {
+              "name": "wins",
+              "displayName": "Wins",
+              "value": 11.0,
+              "displayValue": "11"
+            }
+          ]
+        },
+        {
+          "name": "Home",
+          "type": "home",
+          "summary": "5-3"
+        },
+        {
+          "name": "Road",
+          "type": "road",
+          "summary": "6-3"
+        },
+        {
+          "name": "vs. Div.",
+          "type": "vsdiv",
+          "summary": "3-3"
+        },
+        {
+          "name": "vs. Conf.",
+          "type": "vsconf",
+          "summary": "8-4"
+        }
+      ]
+    }
+  ]
+}
