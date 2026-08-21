@@ -1,4 +1,4 @@
-"""Offline unit tests for the ESPN "extras" adapter (260709-u0z, 260820-oym).
+"""Offline unit tests for the ESPN "extras" adapter (260709-u0z, 260820-oym, 260820-s5y).
 
 Three layers are exercised, all fully OFFLINE (no network socket, no Redis socket):
 
@@ -6,12 +6,17 @@ Three layers are exercised, all fully OFFLINE (no network socket, no Redis socke
   ``summary`` fixture (multi-player team, empty-injuries team, team-filtering) plus
   inline malformed inputs — it must never raise and must return the right
   list / ``[]`` / ``None`` distinction;
+* the PURE :func:`find_roster_athletes` name resolver and :func:`parse_athlete_stats`
+  season selector, against a captured roster and a captured career table — the label
+  collision, the shared surname and the suffixed surname are the cases worth pinning;
 * the IMPURE per-endpoint fetches (:func:`fetch_injuries`, :func:`fetch_news`,
-  :func:`fetch_team_roster`) with ``httpx`` and the ``_redis_client`` seam monkeypatched
+  :func:`fetch_team_roster`, :func:`fetch_athlete_stats`) with ``httpx`` and the
+  ``_redis_client`` seam monkeypatched
   (mirroring the capturing-client style of ``tests/test_qa_classifier.py``) to prove
   cache HIT (no HTTP), cache MISS (HTTP + cache write), and best-effort ``None`` on a
   fetch/Redis failure — plus, for the roster, that a team outside the canonical 32
-  performs ZERO HTTP (T-oym-01);
+  performs ZERO HTTP (T-oym-01), and for the stats, that a non-digit athlete id does
+  the same (T-s5y-01);
 * the generic shell :func:`_fetch_cached` they all delegate to, driven with an arbitrary
   url/key/TTL, which is where the no-User-Agent and explicit-timeout invariants are
   pinned.
@@ -40,6 +45,8 @@ from app.services import espn_extra
 _FIXTURE = Path(__file__).parent / "fixtures" / "espn_summary_injuries.json"
 _NEWS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_news.json"
 _ROSTER_FIXTURE = Path(__file__).parent / "fixtures" / "espn_team_roster.json"
+_STATS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_athlete_stats.json"
+_SEARCH_FIXTURE = Path(__file__).parent / "fixtures" / "espn_athlete_search.json"
 
 # The DISTINCTIVE KC headline the no-rephrasing regression asserts survives byte-for-byte.
 _KC_HEADLINE = "Patrick Mahomes throws for 5 touchdowns as Chiefs storm past Bills 38-20"
@@ -59,6 +66,137 @@ def _load_news_fixture() -> dict:
 
 def _load_roster_fixture() -> dict:
     return json.loads(_ROSTER_FIXTURE.read_text())
+
+
+def _load_search_fixture() -> dict:
+    """The REAL "josh allen" search page, captured 2026-08-20 and kept verbatim.
+
+    Every trap issue #183 records for Route B is in this one page: a Luton Town soccer
+    player, two college programmes, a second NFL Josh Allen on Arizona, and the athlete
+    id sitting in ``uid`` while the top-level ``id`` is a GUID.
+    """
+    return json.loads(_SEARCH_FIXTURE.read_text())
+
+
+def _pacheco_search() -> dict:
+    """The measured single-NFL-match page — the case that motivated the fallback.
+
+    Read off the live endpoint on 2026-08-20: asked about on KC, ESPN has him on DET.
+    """
+    return {
+        "results": [
+            {
+                "type": "player",
+                "contents": [
+                    {
+                        "id": "b80fe7c4-00cc-27e8-a8a5-e4f408778fb0",
+                        "uid": "s:20~l:28~a:4361529",
+                        "type": "player",
+                        "displayName": "Isiah Pacheco",
+                        "subtitle": "Detroit Lions",
+                    }
+                ],
+            }
+        ]
+    }
+
+
+def _league_root() -> dict:
+    """The ESPN league root, trimmed to the block :func:`league_season_year` reads.
+
+    Measured live 2026-08-21: HTTP 200, 11,969 bytes, an explicit top-level
+    ``season.year`` of 2026. The ``$ref`` is kept and deliberately points at a DIFFERENT
+    year from the field beside it, so a test can tell "read the integer" apart from
+    "parsed the URL" — which no live payload could, since the two always agree there.
+    """
+    return {
+        "id": "28",
+        "name": "National Football League",
+        "season": {
+            "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025",
+            "year": 2026,
+            "startDate": "2026-08-06T07:00Z",
+            "endDate": "2027-02-16T07:59Z",
+            "displayName": "2026",
+            "type": {"id": "1", "name": "Preseason", "year": 2026},
+        },
+    }
+
+
+def _load_stats_fixture() -> dict:
+    """Matthew Stafford's real career table, trimmed to passing + defensive, 2024-2025.
+
+    ``defensive`` is kept BECAUSE its labels collide (``YDS`` twice) — the trim would be
+    pointless without the category the collision test needs.
+    """
+    return json.loads(_STATS_FIXTURE.read_text())
+
+
+def _split_season_stats() -> dict:
+    """The captured table with 2025 split between two clubs, in ESPN's measured shape.
+
+    Measured 2026-08-20 on Davante Adams (2024, LV then NYJ) and Diontae Johnson (2024,
+    three clubs): each club gets its own row carrying ``teamId`` and a resolvable
+    ``teamSlug``, and a FINAL combined row carries no ``teamId`` and slugs itself
+    "2024 Totals", which no ``teams`` entry resolves.
+    """
+    payload = _load_stats_fixture()
+    payload["teams"]["kansas-city-chiefs"] = {
+        "id": "12",
+        "abbreviation": "KC",
+        "displayName": "Kansas City Chiefs",
+    }
+    for category in payload["categories"]:
+        rows = category["statistics"]
+        combined = json.loads(json.dumps(rows[-1]))
+        moved = json.loads(json.dumps(rows[-1]))
+        moved["teamId"] = "12"
+        moved["teamSlug"] = "kansas-city-chiefs"
+        del combined["teamId"]
+        combined["teamSlug"] = "2025 Totals"
+        combined["displayName"] = "2025  Totals"
+        # Games Played tells the three rows apart, so a test can name which one was read.
+        rows[-1]["stats"][0], moved["stats"][0], combined["stats"][0] = "9", "8", "17"
+        rows.extend([moved, combined])
+    return payload
+
+
+# The LAR roster is built here rather than captured because the live one carries 93
+# players and the resolver only needs the awkward names. Every id, spelling and suffix
+# below was read off the live LAR roster on 2026-08-20 — Kyren and Mario Williams really
+# do share a surname on this team, so the ambiguity case is not contrived.
+def _lar_roster() -> dict:
+    def athlete(athlete_id: str, first: str, last: str, position: str) -> dict:
+        return {
+            "id": athlete_id,
+            "firstName": first,
+            "lastName": last,
+            "displayName": f"{first} {last}",
+            "position": {"abbreviation": position, "displayName": position},
+        }
+
+    return {
+        "team": {"abbreviation": "LAR", "displayName": "Los Angeles Rams"},
+        "athletes": [
+            {
+                "position": "offense",
+                "items": [
+                    athlete("12483", "Matthew", "Stafford", "QB"),
+                    athlete("4430737", "Kyren", "Williams", "RB"),
+                    athlete("4431618", "Mario", "Williams", "WR"),
+                    athlete("4426512", "Warren", "McClendon Jr.", "OT"),
+                    athlete("4259553", "Stetson", "Bennett IV", "QB"),
+                ],
+            },
+            {
+                "position": "defense",
+                "items": [
+                    athlete("4690606", "Al'zillion", "Hamilton", "CB"),
+                    athlete("4432266", "Nikhai", "Hill-Green", "LB"),
+                ],
+            },
+        ],
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -787,6 +925,759 @@ class FetchTeamRosterTests(unittest.TestCase):
         self.assertEqual(len(espn_extra.NFL_TEAM_ABBRS), 32)
         self.assertIn("WSH", espn_extra.NFL_TEAM_ABBRS)
         self.assertIn("JAX", espn_extra.NFL_TEAM_ABBRS)
+
+
+# --------------------------------------------------------------------------- #
+# Name -> athlete id resolution (pure, over the RAW roster payload).
+# --------------------------------------------------------------------------- #
+
+
+class FindRosterAthletesTests(unittest.TestCase):
+    def test_a_shortened_first_name_resolves_to_the_full_roster_name(self) -> None:
+        matches = espn_extra.find_roster_athletes(_lar_roster(), "Matt Stafford")
+        assert matches is not None
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["athlete_id"], "12483")
+        self.assertEqual(matches[0]["display_name"], "Matthew Stafford")
+        self.assertEqual(matches[0]["position"], "QB")
+
+    def test_a_full_first_name_resolves_a_shortened_roster_name(self) -> None:
+        # Prefix runs BOTH ways, so a roster carrying the short form still resolves.
+        payload = {
+            "athletes": [
+                {
+                    "items": [
+                        {
+                            "id": "12483",
+                            "firstName": "Matt",
+                            "lastName": "Stafford",
+                            "displayName": "Matt Stafford",
+                            "position": {"abbreviation": "QB"},
+                        }
+                    ]
+                }
+            ]
+        }
+        matches = espn_extra.find_roster_athletes(payload, "Matthew Stafford")
+        assert matches is not None
+        self.assertEqual(len(matches), 1)
+
+    def test_two_players_sharing_a_surname_both_come_back(self) -> None:
+        # Kyren Williams and Mario Williams are BOTH on the live LAR roster today, so
+        # this is a real ambiguous question and not a contrived one. The caller turns
+        # two matches into a question back to the member, never a silent pick (D-5).
+        matches = espn_extra.find_roster_athletes(_lar_roster(), "Williams")
+        assert matches is not None
+        self.assertEqual(
+            sorted(m["display_name"] for m in matches), ["Kyren Williams", "Mario Williams"]
+        )
+
+    def test_a_first_name_disambiguates_a_shared_surname(self) -> None:
+        matches = espn_extra.find_roster_athletes(_lar_roster(), "Kyren Williams")
+        assert matches is not None
+        self.assertEqual([m["athlete_id"] for m in matches], ["4430737"])
+
+    def test_a_name_on_no_roster_entry_returns_an_empty_list_not_none(self) -> None:
+        # [] means "the roster read fine and nobody matches" — a FACT the caller
+        # reports. None would collapse to the no-data payload and send the model back
+        # to its own stale memory, which is what this tool exists to remove.
+        matches = espn_extra.find_roster_athletes(_lar_roster(), "Tom Brady")
+        self.assertEqual(matches, [])
+
+    def test_a_surname_carrying_a_suffix_matches_the_bare_surname(self) -> None:
+        # ESPN puts the suffix INSIDE lastName (measured: 'McClendon Jr.').
+        for asked in ("McClendon", "Warren McClendon", "Warren McClendon Jr.", "mcclendon jr"):
+            with self.subTest(name=asked):
+                matches = espn_extra.find_roster_athletes(_lar_roster(), asked)
+                assert matches is not None
+                self.assertEqual([m["athlete_id"] for m in matches], ["4426512"])
+
+    def test_punctuated_surnames_match_their_unpunctuated_spellings(self) -> None:
+        for asked, expected in (
+            ("Nikhai Hill-Green", "4432266"),
+            ("Nikhai HillGreen", "4432266"),
+            ("Hill-Green", "4432266"),
+            ("Al'zillion Hamilton", "4690606"),
+            ("Alzillion Hamilton", "4690606"),
+        ):
+            with self.subTest(name=asked):
+                matches = espn_extra.find_roster_athletes(_lar_roster(), asked)
+                assert matches is not None
+                self.assertEqual([m["athlete_id"] for m in matches], [expected])
+
+    def test_an_athlete_without_a_digit_id_is_skipped(self) -> None:
+        # Only a value that could LEGALLY reach the stats URL is ever returned
+        # (T-s5y-01) — an id the guard would reject never leaves this function.
+        payload = {
+            "athletes": [
+                {
+                    "items": [
+                        {"displayName": "No Id At All", "position": {"abbreviation": "QB"}},
+                        {"id": "../../etc/passwd", "displayName": "Bad Id"},
+                        {"id": 12483, "displayName": "Numeric Id"},  # not a string
+                    ]
+                }
+            ]
+        }
+        for asked in ("No Id At All", "Bad Id", "Numeric Id"):
+            with self.subTest(name=asked):
+                self.assertEqual(espn_extra.find_roster_athletes(payload, asked), [])
+
+    def test_an_empty_or_unusable_query_matches_nobody(self) -> None:
+        for asked in ("", "   ", None, 42, ["Stafford"]):
+            with self.subTest(name=asked):
+                bad: Any = asked
+                self.assertEqual(espn_extra.find_roster_athletes(_lar_roster(), bad), [])
+
+    def test_unusable_top_level_shapes_return_none(self) -> None:
+        for bad in (None, "garbage", 42, ["athletes"]):
+            self.assertIsNone(espn_extra.find_roster_athletes(bad, "Stafford"))
+        self.assertIsNone(espn_extra.find_roster_athletes({"athletes": "nope"}, "Stafford"))
+        self.assertIsNone(espn_extra.find_roster_athletes({}, "Stafford"))
+
+    def test_malformed_entries_are_skipped_without_raising(self) -> None:
+        payload = {
+            "athletes": [
+                "garbage",
+                {"items": "not-a-list"},
+                {
+                    "items": [
+                        "nope",
+                        {"id": "1"},  # no display name -> never invented
+                        {"id": "2", "displayName": "Real Player", "position": "not-a-dict"},
+                    ]
+                },
+            ]
+        }
+        matches = espn_extra.find_roster_athletes(payload, "Real Player")
+        assert matches is not None
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["athlete_id"], "2")
+        self.assertIsNone(matches[0]["position"])  # degraded, not invented
+
+
+# --------------------------------------------------------------------------- #
+# Pure season-selecting stats parser.
+# --------------------------------------------------------------------------- #
+
+
+class ParseAthleteStatsTests(unittest.TestCase):
+    def test_no_season_argument_selects_the_newest_season_in_the_payload(self) -> None:
+        # D-1 (LOCKED): the default season comes from ESPN's OWN table, never a DB read.
+        facts = espn_extra.parse_athlete_stats(_load_stats_fixture())
+        assert facts is not None
+        self.assertEqual(facts["season"], 2025)
+        self.assertEqual(facts["available_seasons"], [2024, 2025])
+        self.assertEqual(facts["stats"]["Passing"]["Passing Yards"], "4,707")
+
+    def test_an_explicit_season_overrides_the_default(self) -> None:
+        # ESPN ignores ``?season=``, so ONE cached payload has to answer any season.
+        facts = espn_extra.parse_athlete_stats(_load_stats_fixture(), season=2024)
+        assert facts is not None
+        self.assertEqual(facts["season"], 2024)
+        self.assertEqual(facts["stats"]["Passing"]["Passing Yards"], "3,762")
+
+    def test_a_colliding_label_loses_no_statistic(self) -> None:
+        # MEASURED: the defensive labels repeat YDS (fumble-recovery yards, then
+        # interception yards), so ``dict(zip(labels, stats))`` silently drops one.
+        # Keying on displayNames (D-3) keeps both. The COUNT is asserted as well as the
+        # keys, so a future key-fallback change that starts overwriting is caught here.
+        facts = espn_extra.parse_athlete_stats(_load_stats_fixture())
+        assert facts is not None
+        defense = facts["stats"]["Defense"]
+        self.assertEqual(len(defense), 17)
+        self.assertIn("Fumbles Recovered Yards", defense)
+        self.assertIn("Interception Yards", defense)
+        # Independent values either side of the collision, not one value written twice.
+        self.assertEqual(defense["Total Tackles"], "1")
+        self.assertEqual(defense["Games Played"], "17")
+
+    def test_values_are_relayed_verbatim_with_their_thousands_separator(self) -> None:
+        # D-2: "4,707" reaches the model as "4,707". Normalising would mean parsing
+        # "65.0", "4,707" and "-" through one coercion that can fail, inside a function
+        # contracted never to raise, for no gain.
+        facts = espn_extra.parse_athlete_stats(_load_stats_fixture())
+        assert facts is not None
+        passing = facts["stats"]["Passing"]
+        self.assertEqual(passing["Passing Yards"], "4,707")
+        self.assertNotEqual(passing["Passing Yards"], "4707")
+        self.assertIsInstance(passing["Passing Yards"], str)
+        self.assertEqual(passing["Completion Percentage"], "65.0")
+        self.assertEqual(passing["Adjusted QBR"], "71.2")
+
+    def test_a_season_the_table_does_not_carry_returns_none_with_the_seasons_intact(
+        self,
+    ) -> None:
+        facts = espn_extra.parse_athlete_stats(_load_stats_fixture(), season=2009)
+        assert facts is not None
+        self.assertIsNone(facts["season"])  # the caller attaches the note; this never phrases
+        self.assertEqual(facts["stats"], {})
+        self.assertEqual(facts["available_seasons"], [2024, 2025])
+
+    def test_an_all_zero_category_is_dropped(self) -> None:
+        # D-6. Games Played is excluded from the test, so a category the player only
+        # appeared in is still dropped rather than shown as a wall of zeroes.
+        payload = {
+            "categories": [
+                {
+                    "displayName": "Kicking",
+                    "displayNames": ["Games Played", "Field Goals Made", "Points"],
+                    "statistics": [
+                        {"season": {"year": 2025}, "stats": ["17", "0", "-"]},
+                    ],
+                },
+                {
+                    "displayName": "Passing",
+                    "displayNames": ["Games Played", "Passing Yards"],
+                    "statistics": [
+                        {"season": {"year": 2025}, "stats": ["17", "4,707"]},
+                    ],
+                },
+            ]
+        }
+        facts = espn_extra.parse_athlete_stats(payload)
+        assert facts is not None
+        self.assertEqual(list(facts["stats"]), ["Passing"])
+
+    def test_the_category_count_is_capped(self) -> None:
+        cap = espn_extra.STATS_MAX_CATEGORIES
+        payload = {
+            "categories": [
+                {
+                    "displayName": f"Category {i}",
+                    "displayNames": ["Games Played", "Yards"],
+                    "statistics": [{"season": {"year": 2025}, "stats": ["17", "100"]}],
+                }
+                for i in range(cap + 3)
+            ]
+        }
+        facts = espn_extra.parse_athlete_stats(payload)
+        assert facts is not None
+        self.assertEqual(len(facts["stats"]), cap)
+
+    def test_caveat_is_the_module_constant_verbatim(self) -> None:
+        facts = espn_extra.parse_athlete_stats(_load_stats_fixture())
+        assert facts is not None
+        self.assertEqual(facts["caveat"], espn_extra.STATS_CAVEAT)
+        # The sentence the model is most likely to voice must name the SEASON, and must
+        # forbid the relative-time relabelling that is the measured failure (D-1).
+        self.assertIn("season's year", espn_extra.STATS_CAVEAT)
+        self.assertIn("last year's", espn_extra.STATS_CAVEAT)
+
+    def test_a_key_falls_back_to_names_then_labels(self) -> None:
+        payload = {
+            "categories": [
+                {
+                    "displayName": "Passing",
+                    "names": ["gamesPlayed", "passingYards"],
+                    "labels": ["GP", "YDS"],
+                    "statistics": [{"season": {"year": 2025}, "stats": ["17", "4,707"]}],
+                },
+                {
+                    "name": "rushing",
+                    "labels": ["GP", "YDS"],
+                    "statistics": [{"season": {"year": 2025}, "stats": ["17", "50"]}],
+                },
+            ]
+        }
+        facts = espn_extra.parse_athlete_stats(payload)
+        assert facts is not None
+        self.assertEqual(facts["stats"]["Passing"], {"gamesPlayed": "17", "passingYards": "4,707"})
+        self.assertEqual(facts["stats"]["rushing"], {"GP": "17", "YDS": "50"})
+
+    def test_unusable_top_level_shapes_return_none(self) -> None:
+        for bad in (None, "garbage", 42, ["categories"]):
+            self.assertIsNone(espn_extra.parse_athlete_stats(bad))
+        self.assertIsNone(espn_extra.parse_athlete_stats({"categories": "nope"}))
+        self.assertIsNone(espn_extra.parse_athlete_stats({}))
+
+    def test_malformed_entries_are_skipped_without_raising(self) -> None:
+        payload = {
+            "categories": [
+                "garbage",
+                {"displayName": "No Rows", "statistics": "not-a-list"},
+                {"displayNames": ["Yards"], "statistics": []},  # no usable label
+                {
+                    "displayName": "Passing",
+                    "displayNames": ["Games Played", None, "Passing Yards"],
+                    "statistics": [
+                        "nope",
+                        {"season": "not-a-dict", "stats": ["1"]},
+                        {"season": {"year": "2025"}, "stats": ["1"]},  # year not an int
+                        {"season": {"year": 2025}, "stats": ["17", {"a": 1}, "4,707"]},
+                    ],
+                },
+            ]
+        }
+        facts = espn_extra.parse_athlete_stats(payload)
+        assert facts is not None
+        self.assertEqual(facts["available_seasons"], [2025])
+        # The unusable value at index 1 is skipped WITHOUT shifting the ones after it —
+        # index 2 still pairs with displayNames[2], so nothing is mislabelled.
+        self.assertEqual(
+            facts["stats"]["Passing"], {"Games Played": "17", "Passing Yards": "4,707"}
+        )
+
+    def test_an_empty_category_list_returns_no_season(self) -> None:
+        facts = espn_extra.parse_athlete_stats({"categories": []})
+        assert facts is not None
+        self.assertIsNone(facts["season"])
+        self.assertEqual(facts["available_seasons"], [])
+        self.assertEqual(facts["stats"], {})
+
+    def test_the_season_team_is_the_one_that_seasons_rows_name(self) -> None:
+        # THE LIVE DEFECT (2026-08-20): the figures are a PAST season's and the only team
+        # name in hand was the player's CURRENT one, so the model said Pacheco played for
+        # Detroit in 2025. He played for Kansas City; his 2025 row says so.
+        facts = espn_extra.parse_athlete_stats(_load_stats_fixture())
+        assert facts is not None
+        self.assertEqual(facts["season_teams"], ["Los Angeles Rams"])
+
+    def test_an_unresolvable_team_slug_leaves_the_season_team_unstated(self) -> None:
+        # Degrade, never guess: a missing slug, an absent ``teams`` block and a slug the
+        # block does not carry all leave the season's team unsaid rather than borrowing
+        # one from somewhere else in the payload.
+        for mangle in ("drop-block", "drop-slug", "unknown-slug"):
+            with self.subTest(mangle=mangle):
+                payload = _load_stats_fixture()
+                if mangle == "drop-block":
+                    del payload["teams"]
+                for category in payload["categories"]:
+                    for row in category["statistics"]:
+                        if mangle == "drop-slug":
+                            del row["teamSlug"]
+                        elif mangle == "unknown-slug":
+                            row["teamSlug"] = "not-a-real-club"
+                facts = espn_extra.parse_athlete_stats(payload)
+                assert facts is not None
+                self.assertEqual(facts["season_teams"], [])
+                self.assertEqual(facts["stats"]["Passing"]["Passing Yards"], "4,707")
+
+    def test_a_malformed_teams_block_never_raises(self) -> None:
+        for teams in ("garbage", 42, ["los-angeles-rams"], {"los-angeles-rams": "nope"}):
+            with self.subTest(teams=teams):
+                payload = _load_stats_fixture()
+                payload["teams"] = teams
+                facts = espn_extra.parse_athlete_stats(payload)
+                assert facts is not None
+                self.assertEqual(facts["season_teams"], [])
+
+    def test_a_season_split_between_clubs_names_both_and_reads_the_combined_row(
+        self,
+    ) -> None:
+        # Measured live: one row per club plus a combined row. Taking the first match
+        # would report one club's PARTIAL figures as the season's own AND name only that
+        # club — the same misattribution, one layer down.
+        facts = espn_extra.parse_athlete_stats(_split_season_stats())
+        assert facts is not None
+        self.assertEqual(facts["season"], 2025)
+        self.assertEqual(facts["season_teams"], ["Los Angeles Rams", "Kansas City Chiefs"])
+        self.assertEqual(facts["stats"]["Passing"]["Games Played"], "17")
+
+    def test_a_split_season_with_no_combined_row_reports_no_figures_for_it(self) -> None:
+        # Defensive branch: ESPN has always emitted the combined row in every split season
+        # measured, so this shape is unverified against live data. One club's partial is
+        # never relayed as the season's total, and both clubs are still named.
+        payload = _split_season_stats()
+        for category in payload["categories"]:
+            category["statistics"] = [row for row in category["statistics"] if "teamId" in row]
+        facts = espn_extra.parse_athlete_stats(payload)
+        assert facts is not None
+        self.assertEqual(facts["season_teams"], ["Los Angeles Rams", "Kansas City Chiefs"])
+        self.assertEqual(facts["stats"], {})
+
+    def test_the_season_teams_survive_the_category_cap(self) -> None:
+        # Teams are gathered in their own pass, so the club a player moved to is named
+        # even when the category recording the move falls outside the relayed ones.
+        payload = _split_season_stats()
+        payload["categories"] = payload["categories"][:1] + [
+            {
+                "displayName": f"Category {i}",
+                "displayNames": ["Games Played", "Yards"],
+                "statistics": [{"season": {"year": 2025}, "stats": ["17", "100"], "teamId": "14"}],
+            }
+            for i in range(espn_extra.STATS_MAX_CATEGORIES + 3)
+        ]
+        facts = espn_extra.parse_athlete_stats(payload)
+        assert facts is not None
+        self.assertEqual(len(facts["stats"]), espn_extra.STATS_MAX_CATEGORIES)
+        self.assertIn("Kansas City Chiefs", facts["season_teams"])
+
+
+# --------------------------------------------------------------------------- #
+# Impure stats fetch — the DIGIT GUARD is the security assertion of this section.
+# --------------------------------------------------------------------------- #
+
+
+class FetchAthleteStatsTests(unittest.TestCase):
+    def _arm_client(self, response: object) -> None:
+        _CapturingAsyncClient.calls = 0
+        _CapturingAsyncClient.last_url = None
+        _CapturingAsyncClient.last_headers = _NEVER_CALLED
+        _CapturingAsyncClient.last_init_kwargs = None
+        _CapturingAsyncClient._response = response
+
+    def test_a_non_digit_id_performs_zero_http_and_zero_redis(self) -> None:
+        # T-s5y-01: the guard runs BEFORE the format string. A regression that formats
+        # first and validates second fails here, loudly.
+        fake = _FakeRedis()
+        for bogus in ("", "   ", "../../etc/passwd", "12483/../99", "12483;rm -rf /", "abc"):
+            with self.subTest(athlete_id=bogus):
+                with (
+                    _redis_returns(fake),
+                    mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient),
+                ):
+                    self.assertIsNone(_run(espn_extra.fetch_athlete_stats(bogus)))
+        self.assertEqual(fake.gets, [])  # Redis is not touched either
+        self.assertEqual(fake.sets, [])
+
+    def test_a_non_string_argument_does_not_raise(self) -> None:
+        fake = _FakeRedis()
+        for bogus in (None, 12483, ["12483"]):
+            with self.subTest(athlete_id=bogus):
+                with (
+                    _redis_returns(fake),
+                    mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient),
+                ):
+                    self.assertIsNone(_run(espn_extra.fetch_athlete_stats(bogus)))
+        self.assertEqual(fake.gets, [])
+
+    def test_an_over_long_digit_string_is_rejected(self) -> None:
+        fake = _FakeRedis()
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient):
+            self.assertIsNone(_run(espn_extra.fetch_athlete_stats("1" * 13)))
+        self.assertEqual(fake.gets, [])
+
+    def test_cache_miss_issues_one_get_on_the_web_api_host(self) -> None:
+        payload = _load_stats_fixture()
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(200, payload))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            out = _run(espn_extra.fetch_athlete_stats(" 12483 "))
+        self.assertEqual(out, payload)
+        self.assertEqual(_CapturingAsyncClient.calls, 1)
+        url = _CapturingAsyncClient.last_url
+        assert url is not None
+        # The NEW subdomain is still an ESPN edge, so the no-UA and explicit-timeout
+        # invariants hold here exactly as they do on the old one.
+        self.assertTrue(url.startswith("https://site.web.api.espn.com/"))
+        self.assertTrue(url.endswith("/athletes/12483/stats"))
+        self.assertIsNone(_CapturingAsyncClient.last_headers)
+        self.assertEqual(
+            _CapturingAsyncClient.last_init_kwargs, {"timeout": espn_extra.DEFAULT_TIMEOUT}
+        )
+
+    def test_cache_miss_writes_the_stats_key_and_ttl(self) -> None:
+        payload = _load_stats_fixture()
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(200, payload))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            _run(espn_extra.fetch_athlete_stats("12483"))
+        self.assertEqual(len(fake.sets), 1)
+        key, value, ex = fake.sets[0]
+        self.assertEqual(key, espn_extra._athlete_stats_cache_key("12483"))
+        self.assertEqual(json.loads(value), payload)
+        self.assertEqual(ex, espn_extra.ATHLETE_STATS_CACHE_TTL_SECONDS)
+
+    def test_cache_hit_returns_payload_without_http(self) -> None:
+        payload = _load_stats_fixture()
+        fake = _FakeRedis({espn_extra._athlete_stats_cache_key("12483"): json.dumps(payload)})
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient):
+            out = _run(espn_extra.fetch_athlete_stats("12483"))
+        self.assertEqual(out, payload)
+        self.assertEqual(fake.sets, [])
+
+    def test_http_error_degrades_to_none(self) -> None:
+        fake = _FakeRedis()
+
+        class _BoomClient(_CapturingAsyncClient):
+            async def get(self, url, *, headers=None):
+                raise httpx.ConnectError("boom")
+
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _BoomClient):
+            out = _run(espn_extra.fetch_athlete_stats("12483"))
+        self.assertIsNone(out)
+        self.assertEqual(fake.sets, [])
+
+
+class ParseAthleteSearchTests(unittest.TestCase):
+    def test_a_single_nfl_match_returns_the_id_from_uid_and_the_team_name(self) -> None:
+        # The motivating live case: asked about on KC, ESPN has him on DET, and the data
+        # was always answerable — only the id resolution failed.
+        found = espn_extra.parse_athlete_search(_pacheco_search())
+        self.assertEqual(
+            found,
+            [
+                {
+                    "athlete_id": "4361529",
+                    "display_name": "Isiah Pacheco",
+                    "team_name": "Detroit Lions",
+                }
+            ],
+        )
+
+    def test_the_id_never_comes_from_the_top_level_guid(self) -> None:
+        found = espn_extra.parse_athlete_search(_pacheco_search())
+        assert found is not None
+        self.assertNotIn("-", found[0]["athlete_id"])  # the GUID is hyphenated; the id is not
+
+    def test_the_cross_sport_and_college_results_are_filtered_out(self) -> None:
+        # Measured: "josh allen" returns a Luton Town SOCCER player and two college
+        # programmes alongside the NFL players. Only the 32 club subtitles survive.
+        found = espn_extra.parse_athlete_search(_load_search_fixture())
+        assert found is not None
+        self.assertEqual(
+            [(one["display_name"], one["team_name"]) for one in found],
+            [
+                ("Josh Allen", "Buffalo Bills"),
+                ("Josh Allen", "Arizona Cardinals"),
+                ("Josh Hines-Allen", "Jacksonville Jaguars"),
+            ],
+        )
+
+    def test_a_nonsense_query_page_returns_an_empty_list_not_none(self) -> None:
+        # Measured: a nonsense query answers 200 with no ``results`` key at all. That is
+        # "nobody by that name", which the caller reports — not a fetch failure.
+        self.assertEqual(espn_extra.parse_athlete_search({"totalFound": None}), [])
+
+    def test_a_non_dict_payload_returns_none(self) -> None:
+        for bogus in (None, [], "results", 7):
+            with self.subTest(payload=bogus):
+                self.assertIsNone(espn_extra.parse_athlete_search(bogus))
+
+    def test_malformed_entries_are_skipped_without_raising(self) -> None:
+        payload = {
+            "results": [
+                None,
+                "player",
+                {"contents": "nope"},
+                {
+                    "contents": [
+                        None,
+                        {"type": "team", "displayName": "Buffalo Bills", "uid": "s:20~l:28~t:2"},
+                        {"type": "player", "subtitle": "Buffalo Bills", "uid": "s:20~l:28~a:1"},
+                        {"type": "player", "displayName": "No Team", "uid": "s:20~l:28~a:2"},
+                        {"type": "player", "displayName": "No Uid", "subtitle": "Buffalo Bills"},
+                        {
+                            "type": "player",
+                            "displayName": "Bad Uid",
+                            "subtitle": "Buffalo Bills",
+                            "uid": "s:20~l:28~a:notdigits",
+                        },
+                        {
+                            "type": "player",
+                            "displayName": "Real Player",
+                            "subtitle": "buffalo bills",
+                            "uid": "s:20~l:28~a:99",
+                        },
+                    ]
+                },
+            ]
+        }
+        found = espn_extra.parse_athlete_search(payload)
+        self.assertEqual(
+            found,
+            [{"athlete_id": "99", "display_name": "Real Player", "team_name": "buffalo bills"}],
+        )
+
+
+class FetchAthleteSearchTests(unittest.TestCase):
+    def _arm_client(self, response: object) -> None:
+        _CapturingAsyncClient.calls = 0
+        _CapturingAsyncClient.last_url = None
+        _CapturingAsyncClient.last_headers = _NEVER_CALLED
+        _CapturingAsyncClient.last_init_kwargs = None
+        _CapturingAsyncClient._response = response
+
+    def test_an_empty_or_over_long_query_performs_zero_http_and_zero_redis(self) -> None:
+        # T-s5y-08: the cap and the encoding run BEFORE the format string, so a rejected
+        # query costs nothing and reaches nothing.
+        fake = _FakeRedis()
+        bogus: tuple[Any, ...] = ("", "   ", "x" * 41, None, 12483, ["josh allen"])
+        for query in bogus:
+            with self.subTest(query=query):
+                with (
+                    _redis_returns(fake),
+                    mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient),
+                ):
+                    self.assertIsNone(_run(espn_extra.fetch_athlete_search(query)))
+        self.assertEqual(fake.gets, [])
+        self.assertEqual(fake.sets, [])
+
+    def test_url_metacharacters_cannot_add_or_displace_a_query_parameter(self) -> None:
+        # The query is model-influenced text in a URL. ``quote(safe="")`` is the whole
+        # guarantee, so this pins it on the characters that would break out.
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(200, {"results": []}))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            _run(espn_extra.fetch_athlete_search("a&type=team#/../x?b"))
+        url = _CapturingAsyncClient.last_url
+        assert url is not None
+        base, _, query_string = url.partition("?")
+        self.assertEqual(base, "https://site.web.api.espn.com/apis/search/v2")
+        self.assertEqual(query_string, "query=a%26type%3Dteam%23%2F..%2Fx%3Fb&limit=6&type=player")
+        self.assertEqual(len(query_string.split("&")), 3)
+
+    def test_cache_miss_issues_one_get_on_the_web_api_host(self) -> None:
+        payload = _load_search_fixture()
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(200, payload))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            out = _run(espn_extra.fetch_athlete_search("  Josh   Allen "))
+        self.assertEqual(out, payload)
+        self.assertEqual(_CapturingAsyncClient.calls, 1)
+        url = _CapturingAsyncClient.last_url
+        assert url is not None
+        # Whitespace collapses and the query lower-cases, because ESPN's search is
+        # case-insensitive (measured) and one cache entry should serve either spelling.
+        self.assertIn("query=josh%20allen&", url)
+        self.assertIsNone(_CapturingAsyncClient.last_headers)
+        self.assertEqual(
+            _CapturingAsyncClient.last_init_kwargs, {"timeout": espn_extra.DEFAULT_TIMEOUT}
+        )
+
+    def test_cache_miss_writes_the_search_key_and_ttl(self) -> None:
+        payload = _load_search_fixture()
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(200, payload))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            _run(espn_extra.fetch_athlete_search("Josh Allen"))
+        self.assertEqual(len(fake.sets), 1)
+        key, value, ex = fake.sets[0]
+        self.assertEqual(key, espn_extra._athlete_search_cache_key("josh%20allen"))
+        self.assertEqual(json.loads(value), payload)
+        self.assertEqual(ex, espn_extra.ATHLETE_SEARCH_CACHE_TTL_SECONDS)
+
+    def test_cache_hit_returns_payload_without_http(self) -> None:
+        payload = _load_search_fixture()
+        fake = _FakeRedis(
+            {espn_extra._athlete_search_cache_key("josh%20allen"): json.dumps(payload)}
+        )
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient):
+            out = _run(espn_extra.fetch_athlete_search("josh allen"))
+        self.assertEqual(out, payload)
+        self.assertEqual(fake.sets, [])
+
+    def test_http_error_degrades_to_none(self) -> None:
+        fake = _FakeRedis()
+
+        class _BoomClient(_CapturingAsyncClient):
+            async def get(self, url, *, headers=None):
+                raise httpx.ConnectError("boom")
+
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _BoomClient):
+            self.assertIsNone(_run(espn_extra.fetch_athlete_search("josh allen")))
+        self.assertEqual(fake.sets, [])
+
+
+class LeagueSeasonYearTests(unittest.TestCase):
+    def test_the_explicit_year_field_is_read_and_the_ref_url_is_not_parsed(self) -> None:
+        # The league root is the ONE source of the current season: the stats payload
+        # carries none and D-1 forbids a database read. The ``$ref`` beside the year
+        # encodes 2025 here ON PURPOSE — reading it would be a guess about ESPN's path
+        # shape, and this is the value that must never be guessed.
+        self.assertEqual(espn_extra.league_season_year(_league_root()), 2026)
+
+    def test_a_payload_without_a_usable_season_block_returns_none(self) -> None:
+        for bogus in (
+            None,
+            [],
+            {},
+            {"season": "2026"},
+            {"season": {"year": "2026"}},
+            {"season": {"year": True}},
+            {"season": {"$ref": "http://x/seasons/2026?lang=en"}},
+        ):
+            with self.subTest(payload=bogus):
+                self.assertIsNone(espn_extra.league_season_year(bogus))
+
+
+class FetchLeagueTests(unittest.TestCase):
+    """The league-root fetch: one constant URL through the shared cache-and-fetch shell."""
+
+    def _arm_client(self, response: object) -> None:
+        _CapturingAsyncClient.calls = 0
+        _CapturingAsyncClient.last_url = None
+        _CapturingAsyncClient.last_headers = _NEVER_CALLED
+        _CapturingAsyncClient.last_init_kwargs = None
+        _CapturingAsyncClient._response = response
+
+    def test_cache_miss_issues_one_get_on_the_constant_core_api_url(self) -> None:
+        payload = _league_root()
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(200, payload))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            out = _run(espn_extra.fetch_league())
+        self.assertEqual(out, payload)
+        self.assertEqual(_CapturingAsyncClient.calls, 1)
+        # No format string, no parameter, no model-influenced segment — the whole URL is
+        # the constant, so the request target cannot vary at all.
+        self.assertEqual(
+            _CapturingAsyncClient.last_url,
+            "https://sports.core.api.espn.com/v2/sports/football/leagues/nfl",
+        )
+        self.assertIsNone(_CapturingAsyncClient.last_headers)
+        self.assertEqual(
+            _CapturingAsyncClient.last_init_kwargs, {"timeout": espn_extra.DEFAULT_TIMEOUT}
+        )
+
+    def test_cache_miss_writes_the_league_key_and_the_long_ttl(self) -> None:
+        payload = _league_root()
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(200, payload))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            _run(espn_extra.fetch_league())
+        self.assertEqual(len(fake.sets), 1)
+        key, value, ex = fake.sets[0]
+        self.assertEqual(key, espn_extra._LEAGUE_CACHE_KEY)
+        self.assertEqual(json.loads(value), payload)
+        # Hours, not the ten minutes the news and injury feeds take: the year behind this
+        # key moves once a season, so a per-question refetch would be pure waste.
+        self.assertEqual(ex, espn_extra.LEAGUE_CACHE_TTL_SECONDS)
+        self.assertGreaterEqual(espn_extra.LEAGUE_CACHE_TTL_SECONDS, 3600)
+
+    def test_cache_hit_returns_payload_without_http(self) -> None:
+        payload = _league_root()
+        fake = _FakeRedis({espn_extra._LEAGUE_CACHE_KEY: json.dumps(payload)})
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient):
+            self.assertEqual(_run(espn_extra.fetch_league()), payload)
+        self.assertEqual(fake.sets, [])
+
+    def test_a_non_200_degrades_to_none(self) -> None:
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(503, {}))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            self.assertIsNone(_run(espn_extra.fetch_league()))
+        self.assertEqual(fake.sets, [])
+
+    def test_http_error_degrades_to_none(self) -> None:
+        fake = _FakeRedis()
+
+        class _BoomClient(_CapturingAsyncClient):
+            async def get(self, url, *, headers=None):
+                raise httpx.ConnectError("boom")
+
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _BoomClient):
+            self.assertIsNone(_run(espn_extra.fetch_league()))
+        self.assertEqual(fake.sets, [])
+
+    def test_a_redis_outage_fails_open_on_both_the_read_and_the_write(self) -> None:
+        payload = _league_root()
+        self._arm_client(_FakeResponse(200, payload))
+        with _redis_raises(), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            self.assertEqual(_run(espn_extra.fetch_league()), payload)
+
+
+class GamesPlayedTests(unittest.TestCase):
+    def test_games_played_is_found_under_any_of_the_three_spellings(self) -> None:
+        for key in ("Games Played", "gamesPlayed", "GP"):
+            with self.subTest(key=key):
+                self.assertEqual(espn_extra.games_played({"Passing": {key: "13"}}), "13")
+
+    def test_stats_without_games_played_return_none(self) -> None:
+        for bogus in (None, [], {}, {"Passing": "nope"}, {"Passing": {"Passing Yards": "462"}}):
+            with self.subTest(stats=bogus):
+                self.assertIsNone(espn_extra.games_played(bogus))
 
 
 @unittest.skipUnless(

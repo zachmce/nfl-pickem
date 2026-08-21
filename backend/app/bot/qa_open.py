@@ -27,9 +27,11 @@ of two, and resolving "Chicago Bears" to ``CHI`` unaided): the model selects fro
 FIXED :data:`TOOLS` whitelist BY NAME and NEVER builds a URL — no tool spec may
 declare a ``url`` / ``endpoint`` / ``path`` / ``host`` parameter. Every tool's ``run``
 must hold the Path B adapter contract: never raises, fails open on Redis, degrades to
-``None`` on any HTTP error. The registry ships with ONE tool, ``lookup_team_roster``
-(issue #179), which grounds a roster question in current ESPN data instead of the
-model's training cutoff; an EMPTY registry stays a supported fallback branch.
+``None`` on any HTTP error. The registry ships with THREE tools —
+``lookup_team_roster`` (issue #179), ``lookup_player_season_stats`` (issue #183) and
+``lookup_player_current_team`` — each grounding its question in current ESPN data
+instead of the model's training cutoff; an EMPTY registry stays a supported fallback
+branch.
 """
 
 from __future__ import annotations
@@ -231,8 +233,536 @@ _ROSTER_TOOL_DESCRIPTION = (
     "that the roster does not show which of them starts. Never call any player a starter "
     "on the strength of this tool. It reports each player's roster status, such as Active "
     "or Day-To-Day, but it carries no injury detail at all — no body part and no return "
-    "date."
+    "date. This tool answers a question about a team the member has named. When the "
+    "member names a player instead and asks which team that player is on now, "
+    "lookup_player_current_team is the tool for that question and this one is not."
 )
+
+
+async def _lookup_player_season_stats(
+    player: str = "", team: str = "", season: int | None = None
+) -> object | None:
+    """Look up ONE player's ESPN totals for ONE season.
+
+    ``team`` is a HINT, not a requirement, and that is a MEASURED decision. While it was
+    required, the served model spent a whole extra round filling it in — it called
+    ``lookup_player_current_team`` first and this tool second, 3/3, on the commonest
+    question there is, burning two of the three rounds the loop allows. So with no team
+    in hand the name goes STRAIGHT to ESPN's player search: one cached hop to resolve the
+    athlete id, one to fetch the career table, and no roster fetch merely to obtain an id.
+
+    With a team in hand the roster hop runs first, unchanged: it is cached and often
+    already warm from a roster question, and it reads the RAW payload because
+    :func:`~app.services.espn_extra.parse_team_roster` drops the id on purpose (D-7). A
+    roster miss still falls through to :func:`_resolve_off_roster`, which is how a player
+    asked about on the team he PLAYED that season for still resolves. No id ever comes
+    from the model on either path.
+
+    The season being played comes from neither hop. It is read from ESPN's league root
+    (:func:`~app.services.espn_extra.fetch_league`), which needs no team and so answers
+    both paths identically — the fix for the live 2026-08-21 defect, where a team-less
+    question read no roster, got no year, and the model invented one.
+
+    Every argument defaults so a model that forgets one degrades rather than raising a
+    TypeError into the loop. A resolution miss returns a NOTE dict, never ``None``,
+    because ``None`` becomes :data:`_NO_DATA_PAYLOAD`, which tells the model to answer
+    from its own stale memory — exactly the failure this tool exists to remove (D-5).
+    """
+    from app.services import espn_extra
+
+    asked_for = player.strip() if isinstance(player, str) else ""
+    if not asked_for:
+        # There is no name to resolve, so no fetch is worth making. Returning before the
+        # first hop keeps a forgotten argument from costing a live GET, and stops a
+        # not-found note that names nobody.
+        return None
+
+    team_abbr = team.strip().upper() if isinstance(team, str) else ""
+    if team_abbr:
+        roster = await espn_extra.fetch_team_roster(team_abbr)
+        if roster is None:
+            return None
+        matches = espn_extra.find_roster_athletes(roster, asked_for)
+        if matches is None:
+            return None
+    else:
+        matches = []
+
+    if len(matches) > 1:
+        candidates = [str(match["display_name"]) for match in matches]
+        return {
+            "note": _AMBIGUOUS_PLAYER_NOTE.format(team=team_abbr, candidates=", ".join(candidates)),
+            "candidates": candidates,
+        }
+
+    if matches:
+        match = matches[0]
+        name = str(match["display_name"])
+        athlete_id = str(match["athlete_id"])
+        identity: dict[str, object] = {"player": name, "position": match["position"]}
+        # Kept OUT of ``identity``: the team a player is on today is not the team a past
+        # season's figures belong to, and a team name the model can see is one it may
+        # attach to the season. It reaches the model only inside the two roster miss
+        # notes below, where there is no season for it to be attached to.
+        on_roster = team_abbr
+    else:
+        resolved = await _resolve_off_roster(asked_for, team_abbr)
+        found_id = resolved.pop("athlete_id", None)
+        if not isinstance(found_id, str):
+            return resolved  # a terminal note: unfound, ambiguous, or search unavailable
+        athlete_id = found_id
+        name = str(resolved["player"])
+        # Popped rather than carried: the model never sees an athlete id, so it can never
+        # learn to send one back (D-4).
+        identity = resolved
+        on_roster = None
+
+    # Past this point the resolution already PROVED who this player is, so a stats miss
+    # must keep that identity (D-5) — bare ``None`` here made the model deny him.
+    payload = await espn_extra.fetch_athlete_stats(athlete_id)
+    if payload is None:
+        note = _note(
+            _STATS_FETCH_FAILED_NOTE, _SEARCHED_STATS_FETCH_FAILED_NOTE, team=on_roster, player=name
+        )
+        return {**identity, "note": note}
+    facts = espn_extra.parse_athlete_stats(payload, season=season)
+    if facts is None:
+        note = _note(
+            _NO_STATS_PUBLISHED_NOTE, _SEARCHED_NO_STATS_PUBLISHED_NOTE, team=on_roster, player=name
+        )
+        return {**identity, "note": note}
+
+    # The stats payload carries no name of its own, so identity comes from the resolution.
+    facts = {**facts, **identity}
+    selected = facts["season"]
+    if selected is None:
+        seasons = ", ".join(str(year) for year in facts["available_seasons"])
+        facts["note"] = _SEASON_UNAVAILABLE_NOTE.format(
+            player=name, seasons=seasons or "no seasons at all"
+        )
+        return facts
+
+    # ONE source for the season being played, read on BOTH paths so neither can produce a
+    # statement the other cannot. It came off the ROSTER until 2026-08-21, so a team-less
+    # question had no year, both statements below were skipped, and the model filled that
+    # silence with "since that season is still being played" about a finished season.
+    # Read here, after the figures are in hand, so no resolution miss costs a request.
+    current_season = espn_extra.league_season_year(await espn_extra.fetch_league())
+
+    if current_season is not None and selected >= current_season:
+        # ``>=`` and not ``==``: a row ahead of the league's own year is still a season
+        # nobody has finished, so it must not be called an official total either.
+        statement = _CURRENT_SEASON_STATEMENT.format(player=name, season=selected)
+        games = espn_extra.games_played(facts["stats"])
+        if games is not None:
+            statement += _GAMES_PLAYED_CLAUSE.format(games=games, season=selected)
+    else:
+        statement = _SEASON_STATEMENT.format(player=name, season=selected)
+        if current_season is not None:
+            statement += _FINISHED_SEASON_CLAUSE.format(season=selected, current=current_season)
+            if current_season not in facts["available_seasons"]:
+                facts["current_season_statement"] = _NO_CURRENT_SEASON_STATEMENT.format(
+                    player=name, current=current_season, season=selected
+                )
+    facts["season_statement"] = statement + _season_team_clause(
+        name, selected, facts["season_teams"]
+    )
+    return facts
+
+
+def _join_teams(teams: list[str]) -> str:
+    """Join club names into one readable phrase — "the A and the B", "the A, the B and…"."""
+    articled = [f"the {team}" for team in teams]
+    if len(articled) < 3:
+        return " and ".join(articled)
+    return f"{', '.join(articled[:-1])} and {articled[-1]}"
+
+
+def _season_team_clause(player: str, season: int, teams: object) -> str:
+    """The sentence naming the team ``player`` played for IN ``season``.
+
+    The whole point of the tool's team reporting: the club the FIGURES belong to is the
+    only club the model is told about, so it cannot borrow another team name in the
+    payload and hang it on a past season (the live Pacheco defect).
+    """
+    names = [str(team) for team in teams] if isinstance(teams, list) else []
+    if not names:
+        return _UNKNOWN_SEASON_TEAM_CLAUSE.format(player=player, season=season)
+    if len(names) == 1:
+        return _SEASON_TEAM_CLAUSE.format(player=player, season=season, team=names[0])
+    return _SPLIT_SEASON_TEAM_CLAUSE.format(player=player, season=season, teams=_join_teams(names))
+
+
+def _note(with_team: str, without_team: str, *, team: str | None, **fields: str) -> str:
+    """Pick a D-5 note's team-naming wording, or its team-less twin. Pure.
+
+    Every note past the point identity is proven comes in a pair, because half of them
+    affirm a club ("he IS on the KC roster") and that affirmation is only true when a
+    roster was actually read. Since ``team`` became optional the same rule covers the
+    resolution misses too: a note formatted with an empty ``team`` reads as a dangling
+    "on the  roster", which is precisely the sentence this makes impossible.
+    """
+    if team:
+        return with_team.format(team=team, **fields)
+    return without_team.format(**fields)
+
+
+async def _resolve_off_roster(player: str, team_abbr: str) -> dict[str, object]:
+    """Resolve a player through ESPN's player search. ``team_abbr`` may be empty.
+
+    The FIRST hop when no team was asked about, and the fallback hop after a roster miss
+    — which the roster takes for every player asked about on the team he played that
+    season for, since the roster is the CURRENT one. Always returns a dict: one carrying
+    ``athlete_id`` when EXACTLY one NFL player matches, otherwise a terminal ``note``
+    (D-5 — never bare ``None``, which would send the model back to the stale memory this
+    tool exists to replace). More than one NFL match returns the candidates, never a
+    silently picked one, on either path.
+
+    The team the search placed him on is used to FIND him and is then dropped. It is
+    where he plays today, which is not the team a past season's figures belong to, and
+    narrating it is what produced the live "he played for the Detroit Lions in 2025".
+    """
+    from app.services import espn_extra
+
+    payload = await espn_extra.fetch_athlete_search(player)
+    found = espn_extra.parse_athlete_search(payload) if payload is not None else None
+    if found is None:
+        note = _note(
+            _SEARCH_UNAVAILABLE_NOTE, _NAME_SEARCH_FAILED_NOTE, team=team_abbr, player=player
+        )
+        return {"note": note}
+    if not found:
+        note = _note(_NOT_ON_ROSTER_NOTE, _NAME_NOT_IN_NFL_NOTE, team=team_abbr, player=player)
+        return {"note": note}
+    if len(found) > 1:
+        candidates = [f"{one['display_name']} of the {one['team_name']}" for one in found]
+        return {
+            "note": _note(
+                _AMBIGUOUS_SEARCH_NOTE,
+                _AMBIGUOUS_NAME_NOTE,
+                team=team_abbr,
+                player=player,
+                candidates=", ".join(candidates),
+            ),
+            "candidates": candidates,
+        }
+
+    one = found[0]
+    return {
+        "athlete_id": str(one["athlete_id"]),
+        "player": str(one["display_name"]),
+        "position": None,
+    }
+
+
+# D-1b: the model narrates a year of its own choosing unless it can SEE the one it was
+# given, and a bare integer in a dict body is readable but not voiceable. This sentence
+# is the voiceable form; the integer ``season`` field stays alongside it as the
+# machine-readable one. Built here and not in the parser, which never phrases and does
+# not know the player's name.
+_SEASON_STATEMENT = (
+    "Every figure below is {player}'s official total for the {season} NFL season, so "
+    "say {season} when you report any of them."
+)
+
+# THE FIX for the live 2026-08-20 defect. Asked what Pacheco averaged per carry last year,
+# the payload named only his CURRENT club and the model answered that he played for the
+# Detroit Lions in 2025 — he played for Kansas City. ESPN's own per-season row carries the
+# season's team, so the season's team is now the one and only club the model is handed.
+_SEASON_TEAM_CLAUSE = (
+    " {player} played for the {team} in the {season} season, so say the {team} whenever "
+    "you say which team he was playing for while he put up any of these figures. The "
+    "{team} is the only team you may name anywhere in your answer about the {season} "
+    "season."
+)
+# Measured live: a split season yields one row per club PLUS a combined row, so the
+# figures below are the whole year's and belong to no single club.
+_SPLIT_SEASON_TEAM_CLAUSE = (
+    " {player} played for more than one team during the {season} season: he played for "
+    "{teams} that year, and every figure below is his combined total across all of them. "
+    "Say that he split the {season} season between {teams}, and never name just one of "
+    "them as the team he played for that season."
+)
+_UNKNOWN_SEASON_TEAM_CLAUSE = (
+    " ESPN does not say here which team {player} played for in the {season} season, so "
+    "say nothing at all about which team he was playing for that year and never name one."
+)
+
+# Gap 2, measured 2026-08-20: ESPN's newest row for Mahomes was 2025 while the season
+# being played was 2026, so "how many yards has he thrown this year" silently answered
+# about a different season — and mid-season the trap inverts, because a partial current
+# season row would be narrated as an official total. The current year comes from ESPN's
+# league root (the stats payload carries none), so both cases can be told apart.
+_CURRENT_SEASON_STATEMENT = (
+    "Every figure below is {player}'s total SO FAR in the {season} NFL season, which is "
+    "the season being played right now and is not finished, so say {season} when you "
+    "report any of them and say that they are his figures so far rather than a finished "
+    "season's total."
+)
+_GAMES_PLAYED_CLAUSE = " He has played {games} games in the {season} season so far."
+# THE FIX for the live 2026-08-21 defect: handed a finished season and no statement about
+# which season is being played, the model wrote its own — "since that season is still
+# being played" about 2025. _SEASON_STATEMENT already called those figures an official
+# total and that did not stop it, so the finish is now SAID, on every past season and not
+# only the ones _NO_CURRENT_SEASON_STATEMENT covers. Unconditional in wording, because a
+# caveat the model has to decide whether to apply is a caveat it drops (measured 3/3).
+_FINISHED_SEASON_CLAUSE = (
+    " The {season} NFL season is over and finished, and the {current} NFL season is the "
+    "one being played now. Never say that the {season} season is still being played, and "
+    'never say the words "so far" about any figure below.'
+)
+# Live-measured 2026-08-20: the FIRST wording made this conditional ("if the member was
+# asking about this season..."), and the model did not evaluate the condition — 3/3 it
+# answered "3,587 yards SO FAR in the 2025 season" to a "this year" question and never
+# said 2026 had no figures. State the fact unconditionally and ban the phrasing outright;
+# a caveat the model has to decide whether to apply is a caveat it drops.
+_NO_CURRENT_SEASON_STATEMENT = (
+    "The {current} NFL season is the season happening now, and ESPN publishes no figures "
+    "at all for {player} in it yet. The figures below are from the {season} season, which "
+    "is over and finished. Say the year {season} every time you report any of them. Never "
+    "call them this season's figures, never call them this year's figures, and never say "
+    'the words "so far" about them, because a finished season has no so far. If the '
+    "member asked about this season or this year, tell him plainly that ESPN has no "
+    "{current} figures for {player} yet, and give him the {season} figures only after you "
+    "have told him that."
+)
+
+# D-5: each resolution miss is a concrete full sentence telling the model what to do
+# next, returned in a dict body because a bare string fact gets voiced or swallowed
+# (memory: qa-phrasing-inversion).
+# The roster hop anchors on the CURRENT roster while the question is about a PAST season,
+# so it misses every player who changed teams. Only reached once ESPN's own player search
+# has ALSO failed to place him, which is why this no longer asks the model to supply the
+# team — its team knowledge is the stale thing this tool replaces.
+_NOT_ON_ROSTER_NOTE = (
+    "No player named {player} is on the {team} roster, and ESPN's own player search "
+    "found nobody by that name on any NFL team either, so this tool has no figures for "
+    "him at all. Tell the member plainly that you could not find that player in ESPN's "
+    "data, never give a figure from your own memory instead, and never guess which team "
+    "he plays for."
+)
+_SEARCH_UNAVAILABLE_NOTE = (
+    "No player named {player} is on the {team} roster, and the search that would have "
+    "found which team he is on failed just now, so this tool has no figures for him this "
+    "time. Say that you could not look him up, and never give a figure from your own "
+    "memory instead."
+)
+_AMBIGUOUS_SEARCH_NOTE = (
+    "No player named {player} is on the {team} roster, and ESPN's player search found "
+    "more than one NFL player by that name: {candidates}. Ask the member which one of "
+    "them he means, and do not report any figure until he answers."
+)
+_AMBIGUOUS_PLAYER_NOTE = (
+    "More than one player on the {team} roster matches that name: {candidates}. Ask the "
+    "member which one of them he means, and do not report any figure until he answers."
+)
+# The team-less twins of the three notes above, for the path where no team was asked
+# about and there is therefore no roster to say he is missing from. Each one carries the
+# same instruction as its twin; only the club disappears, because naming an empty team is
+# the dangling sentence :func:`_note` exists to prevent.
+_NAME_NOT_IN_NFL_NOTE = (
+    "ESPN's own player search found nobody in the NFL named {player}, so this tool has "
+    "no figures for him at all. Tell the member plainly that you could not find that "
+    "player in ESPN's data, never give a figure from your own memory instead, and never "
+    "guess which team he plays for."
+)
+_NAME_SEARCH_FAILED_NOTE = (
+    "The player search that would have found {player} failed just now, so this tool has "
+    "no figures for him this time. Say that you could not look him up, and never give a "
+    "figure from your own memory instead."
+)
+_AMBIGUOUS_NAME_NOTE = (
+    "ESPN's player search found more than one NFL player whose name matches {player}, "
+    "and here is each of them with the team he is on right now: {candidates}. Ask the "
+    "member which one of them he means, and do not report any figure until he answers."
+)
+# Live-measured 2026-08-20: ESPN answers 200 with NO ``categories`` key at all for a
+# rostered player who has no recorded stats (Mario Williams, LAR WR). Returning bare
+# ``None`` there sent the model to _NO_DATA_PAYLOAD and it DENIED a player it had just
+# resolved — "I don't recall a Mario Williams playing receiver for the Rams". D-5 says a
+# miss returns a note; these two carry the roster identity so the denial cannot recur.
+_NO_STATS_PUBLISHED_NOTE = (
+    "{player} is on the {team} roster right now, but ESPN publishes no season "
+    "statistics for him at all, so this tool has no figures for him. Say that he is on "
+    "the roster and that you have no statistics for him, and never say that he does not "
+    "play for that team."
+)
+_STATS_FETCH_FAILED_NOTE = (
+    "{player} is on the {team} roster right now, but the statistics lookup for him "
+    "failed just now, so this tool has no figures for him this time. Say that you could "
+    "not retrieve his statistics, and never give a figure from your own memory instead."
+)
+# The search-fallback twins of the two notes above. They affirm the identity the search
+# proved WITHOUT naming a club, because the only club the search knows is the one he is on
+# today and this branch has no season to attach it to.
+_SEARCHED_NO_STATS_PUBLISHED_NOTE = (
+    "ESPN's own data does list {player} as a current NFL player, but it publishes no "
+    "season statistics for him at all, so this tool has no figures for him. Say that you "
+    "found him and that you have no statistics for him, and never say that he is not an "
+    "NFL player."
+)
+_SEARCHED_STATS_FETCH_FAILED_NOTE = (
+    "ESPN's own data does list {player} as a current NFL player, but the statistics "
+    "lookup for him failed just now, so this tool has no figures for him this time. Say "
+    "that you could not retrieve his statistics, and never give a figure from your own "
+    "memory instead."
+)
+_SEASON_UNAVAILABLE_NOTE = (
+    "ESPN's table does not carry the season you asked about for {player}, so this tool "
+    "has no figures for that season. The only seasons ESPN carries for {player} are "
+    "{seasons}. Tell the member plainly that you do not have the season he asked "
+    "about, and never give him a figure from a different season as if it were that one."
+)
+
+# INSTRUCT first, CONSTRAIN second — measured, not stylistic. In the predecessor task a
+# description that only disclaimed a limitation suppressed the call 5/5 and the model
+# fell back to stale memory. The season clause is D-1a: the model resolves "last year"
+# against its TRAINING CUTOFF, which is the measured bug (Caleb Williams narrated as a
+# rookie in 2026), so the year is taken out of its hands entirely.
+_STATS_TOOL_DESCRIPTION = (
+    "Look up one NFL player's official ESPN statistics for a single season, such as how "
+    "many yards he threw or rushed for, how many touchdowns he scored, or how many "
+    "games he played. Call this tool for ANY question that asks what a player did in a "
+    "season, INCLUDING a question phrased as last year, last season or this season, "
+    "because your own memory of which season is the most recent one, and of what a "
+    "player did in it, is often a year or more out of date. The player argument is the "
+    "player's name exactly as the member wrote it, and it is the only argument this tool "
+    "needs, because it finds the player even when he has changed teams. The team "
+    "argument is optional. Pass the team argument only when the member's own question "
+    "names a team, and then it is that team's standard abbreviation, for example LAR for "
+    "the Los Angeles Rams or PHI for the Philadelphia Eagles. When his question names no "
+    "team, leave the team argument out and call this tool with the player's name alone. "
+    "Never call lookup_player_current_team first so that you can fill in the team "
+    "argument here, because this tool finds the player without it and calling another "
+    "tool first only spends a turn you need for the answer. Pass the season argument ONLY "
+    "when the member named a specific year such as 2024. LEAVE THE SEASON ARGUMENT OUT "
+    "for every other phrasing, including last year, last season and this season, "
+    "because this tool already knows which season is the most recent one ESPN has and "
+    "you do not. Never work out a year number for yourself from a phrase like last "
+    "year. This tool tells you which team he played for in the season it reports, and "
+    "that team is the only team you ever name in your answer, "
+    "because the team a player is on today is not the team a past season's figures "
+    "belong to. If it reports "
+    "that more than one player matches, ask the member which one he means instead of "
+    "guessing. Every figure it returns belongs to the one season the answer names, so "
+    "say that year when you report a figure and never describe it as this year's or "
+    "last year's. When it says the season it reports is still being played, say that "
+    "those are his figures so far and never call them a final total. When it says ESPN "
+    "has no figures yet for the season being played now, tell the member that plainly "
+    "instead of giving him an earlier season's figures as if they were this season's. "
+    "This tool answers what a player DID in a season. When the member asks only which "
+    "team a player is on now, lookup_player_current_team is the tool for that question "
+    "and this one is not."
+)
+
+
+# --------------------------------------------------------------------------- #
+# The CURRENT-TEAM tool. Its own tool rather than a field on the stats payload, for a
+# LIVE-MEASURED reason: the stats payload used to carry the player's current club and
+# the model glued that club to a PAST season — it said Pacheco played for Detroit in
+# 2025, when he played for Kansas City. A field the model can see is a field it may
+# voice, so the club a player is on today now reaches it only when the question asked
+# for it.
+# --------------------------------------------------------------------------- #
+
+
+async def _lookup_player_current_team(player: str = "") -> object | None:
+    """Look up which NFL club ``player`` is on RIGHT NOW, through ESPN's player search.
+
+    ONE hop, cached, through the ``espn_extra`` seam (deferred import, as in the other
+    two adapters). There is deliberately no team argument and no roster hop: the search
+    payload already carries the club, and the whole point of this tool is that the asker
+    does not know the team. The athlete id the search carries is dropped here and never
+    reaches the model (D-4).
+
+    ``player`` defaults so a model that forgets it degrades rather than raising a
+    TypeError into the loop, and an empty name returns before the fetch — there is
+    nothing to resolve, so no live GET is worth making. Past that point EVERY outcome is
+    a note, never bare ``None``, because ``None`` becomes :data:`_NO_DATA_PAYLOAD`,
+    which sends the model to the stale memory this tool exists to replace (D-5).
+    """
+    from app.services import espn_extra
+
+    asked_for = player.strip() if isinstance(player, str) else ""
+    if not asked_for:
+        return None
+
+    payload = await espn_extra.fetch_athlete_search(asked_for)
+    found = espn_extra.parse_athlete_search(payload) if payload is not None else None
+    if found is None:
+        return {"note": _CURRENT_TEAM_SEARCH_FAILED_NOTE.format(player=asked_for)}
+    if not found:
+        return {"note": _NO_SUCH_NFL_PLAYER_NOTE.format(player=asked_for)}
+    if len(found) > 1:
+        # Measured live 2026-08-20: "josh allen" is THREE NFL players, and the club is
+        # the only thing that tells them apart — so each candidate is named with his.
+        candidates = [f"{one['display_name']} of the {one['team_name']}" for one in found]
+        return {
+            "note": _AMBIGUOUS_CURRENT_TEAM_NOTE.format(
+                player=asked_for, candidates=", ".join(candidates)
+            ),
+            "candidates": candidates,
+        }
+
+    one = found[0]
+    name, team = str(one["display_name"]), str(one["team_name"])
+    return {
+        "player": name,
+        "current_team": team,
+        "current_team_statement": _CURRENT_TEAM_STATEMENT.format(player=name, team=team),
+    }
+
+
+# The voiceable form of the two fields above. A dict field is readable but not
+# voiceable, and the phrasing hazard applies to what the model READS as much as to what
+# it says (memory: qa-phrasing-inversion). The past-season ban is stated
+# UNCONDITIONALLY, because a caveat the model has to decide whether to apply is a caveat
+# it drops (measured 3/3 on this branch).
+_CURRENT_TEAM_STATEMENT = (
+    "{player} plays for the {team} right now, because that is the team ESPN lists him "
+    "on today. Say the {team} when you tell the member which team he plays for now. "
+    "This is the team he is on today and it is not the team he played for in any earlier "
+    "season, so never say that he played for the {team} in a past season and never "
+    "attach the {team} to a year."
+)
+_AMBIGUOUS_CURRENT_TEAM_NOTE = (
+    "ESPN's player search found more than one NFL player whose name matches {player}, "
+    "and here is each of them with the team he is on right now: {candidates}. Ask the "
+    "member which one of them he means, name none of them as the answer yet, and never "
+    "pick one of them yourself."
+)
+_NO_SUCH_NFL_PLAYER_NOTE = (
+    "ESPN lists no NFL player named {player} at all, so this tool cannot tell you which "
+    "team he is on. Tell the member plainly that you could not find that player in "
+    "ESPN's data, and never name a team for him from your own memory."
+)
+_CURRENT_TEAM_SEARCH_FAILED_NOTE = (
+    "The player search that would have found which NFL team {player} is on failed just "
+    "now, so this tool has no answer for him this time. Say that you could not look him "
+    "up, and never name a team for him from your own memory."
+)
+
+# INSTRUCT first, CONSTRAIN second — measured twice on this branch, not stylistic: a
+# disclaimer-only description suppressed the call 5/5, and a conditional caveat was
+# ignored 3/3. The opening sentence is also what keeps this tool distinct from the other
+# two at selection time (roster = who is on a team, stats = what a player did in a
+# season, this = which team a player is on now).
+_CURRENT_TEAM_TOOL_DESCRIPTION = (
+    "Look up which NFL team one player is on RIGHT NOW. Call this tool every time you "
+    "are asked which team a player plays for now, who he plays for, where he plays, or "
+    "which team he is on this season, because players change teams every year and your "
+    "own memory of where a player plays is often a year or more out of date. The player "
+    "argument is the player's name exactly as the member wrote it. There is no team "
+    "argument, because this tool finds the player without being told where he is, which "
+    "is the whole reason to call it. This tool knows only the team he is on today. It "
+    "has no statistics of any kind, it does not know what any player did in any season, "
+    "and it does not know which team he played for in any earlier season, so never "
+    "attach the team it names to a past year. If it reports that more than one NFL "
+    "player matches the name, ask the member which one of them he means instead of "
+    "guessing. If it reports that ESPN lists no NFL player by that name, tell the member "
+    "that plainly and never name a team for him from your own memory."
+)
+
 
 TOOLS: tuple[_Tool, ...] = (
     _Tool(
@@ -262,6 +792,64 @@ TOOLS: tuple[_Tool, ...] = (
             },
         },
         run=_lookup_team_roster,
+    ),
+    _Tool(
+        name="lookup_player_season_stats",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_player_season_stats",
+                "description": _STATS_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "player": {
+                            "type": "string",
+                            "description": "The player's name as the member wrote it.",
+                        },
+                        "team": {
+                            "type": "string",
+                            "description": (
+                                "Optional team abbreviation, such as LAR, and ONLY when "
+                                "the member's own question names a team. Leave it out "
+                                "when his question names no team."
+                            ),
+                        },
+                        "season": {
+                            "type": "integer",
+                            "description": (
+                                "The four-digit year, and ONLY when the member named "
+                                "one. Leave it out for last year, last season or this "
+                                "season."
+                            ),
+                        },
+                    },
+                    "required": ["player"],
+                },
+            },
+        },
+        run=_lookup_player_season_stats,
+    ),
+    _Tool(
+        name="lookup_player_current_team",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_player_current_team",
+                "description": _CURRENT_TEAM_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "player": {
+                            "type": "string",
+                            "description": "The player's name as the member wrote it.",
+                        },
+                    },
+                    "required": ["player"],
+                },
+            },
+        },
+        run=_lookup_player_current_team,
     ),
 )
 

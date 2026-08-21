@@ -1,0 +1,133 @@
+{
+  "totalFound": 1,
+  "resultTypes": [
+    {
+      "totalFound": 15,
+      "type": "player",
+      "displayName": "Players"
+    },
+    {
+      "totalFound": 145321,
+      "type": "article",
+      "displayName": "Articles"
+    },
+    {
+      "totalFound": 37,
+      "type": "clips",
+      "displayName": "Clips"
+    }
+  ],
+  "results": [
+    {
+      "type": "player",
+      "totalFound": 6,
+      "page": 1,
+      "limit": 6,
+      "displayName": "Players",
+      "contents": [
+        {
+          "id": "853f8768-54bd-6a4f-cb10-63d6df1e7742",
+          "uid": "s:20~l:28~a:3918298",
+          "guid": "853f8768-54bd-6a4f-cb10-63d6df1e7742",
+          "type": "player",
+          "displayName": "Josh Allen",
+          "description": "NFL",
+          "subtitle": "Buffalo Bills",
+          "link": {
+            "app": "sportscenter://x-callback-url/showClubhouse?uid=s:20~l:28~a:3918298",
+            "web": "https://www.espn.com/nfl/player/_/id/3918298/josh-allen"
+          },
+          "image": {
+            "default": "https://a.espncdn.com/i/headshots/nfl/players/full/3918298.png",
+            "defaultDark": "https://a.espncdn.com/i/headshots/nfl/players/full/3918298.png"
+          },
+          "defaultLeagueSlug": "nfl",
+          "sport": "football"
+        },
+        {
+          "id": "d3d59f5c-9006-4746-8879-20dbc3eb7eae",
+          "uid": "s:20~l:28~a:10795",
+          "guid": "d3d59f5c-9006-4746-8879-20dbc3eb7eae",
+          "type": "player",
+          "displayName": "Josh Allen",
+          "description": "NFL",
+          "subtitle": "Maryland Terrapins",
+          "link": {
+            "app": "sportscenter://x-callback-url/showClubhouse?uid=s:20~l:28~a:10795",
+            "web": "https://www.espn.com/nfl/player/_/id/10795/josh-allen"
+          },
+          "defaultLeagueSlug": "nfl",
+          "sport": "football"
+        },
+        {
+          "id": "237b9f2a-4701-8fc3-60eb-250978af9893",
+          "uid": "s:20~l:28~a:17102",
+          "guid": "237b9f2a-4701-8fc3-60eb-250978af9893",
+          "type": "player",
+          "displayName": "Josh Allen",
+          "description": "NFL",
+          "subtitle": "Arizona Cardinals",
+          "link": {
+            "app": "sportscenter://x-callback-url/showClubhouse?uid=s:20~l:28~a:17102",
+            "web": "https://www.espn.com/nfl/player/_/id/17102/josh-allen"
+          },
+          "image": {
+            "default": "https://a.espncdn.com/i/headshots/nfl/players/full/17102.png",
+            "defaultDark": "https://a.espncdn.com/i/headshots/nfl/players/full/17102.png"
+          },
+          "defaultLeagueSlug": "nfl",
+          "sport": "football"
+        },
+        {
+          "id": "b4b45558-b798-eb94-942b-9603e34c6b39",
+          "uid": "s:20~l:28~a:3915239",
+          "guid": "b4b45558-b798-eb94-942b-9603e34c6b39",
+          "type": "player",
+          "displayName": "Josh Hines-Allen",
+          "description": "NFL",
+          "subtitle": "Jacksonville Jaguars",
+          "link": {
+            "app": "sportscenter://x-callback-url/showClubhouse?uid=s:20~l:28~a:3915239",
+            "web": "https://www.espn.com/nfl/player/_/id/3915239/josh-hines-allen"
+          },
+          "image": {
+            "default": "https://a.espncdn.com/i/headshots/nfl/players/full/3915239.png",
+            "defaultDark": "https://a.espncdn.com/i/headshots/nfl/players/full/3915239.png"
+          },
+          "defaultLeagueSlug": "nfl",
+          "sport": "football"
+        },
+        {
+          "id": "119cf7f7-20e9-3e90-9b92-2b453917758e",
+          "uid": "s:20~l:23~a:4892153",
+          "guid": "119cf7f7-20e9-3e90-9b92-2b453917758e",
+          "type": "player",
+          "displayName": "Josh Allen",
+          "description": "NCAAF",
+          "subtitle": "Claremont Mudd Scripps Stags",
+          "link": {
+            "app": "sportscenter://x-callback-url/showClubhouse?uid=s:20~l:23~a:4892153",
+            "web": "https://www.espn.com/college-football/player/stats/_/id/4892153/josh-allen"
+          },
+          "defaultLeagueSlug": "college-football",
+          "sport": "football"
+        },
+        {
+          "id": "23e50c7a-2356-3b60-b9ef-aa8868e574fc",
+          "uid": "s:600~a:301389",
+          "guid": "23e50c7a-2356-3b60-b9ef-aa8868e574fc",
+          "type": "player",
+          "displayName": "Josh Allen",
+          "description": "EFL Championship",
+          "subtitle": "Luton Town",
+          "link": {
+            "app": "sportscenter://x-callback-url/showClubhouse?uid=s:600~a:301389",
+            "web": "https://www.espn.com/soccer/player/_/id/301389/josh-allen"
+          },
+          "defaultLeagueSlug": "eng.2",
+          "sport": "soccer"
+        }
+      ]
+    }
+  ]
+}
