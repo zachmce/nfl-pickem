@@ -240,18 +240,25 @@ _ROSTER_TOOL_DESCRIPTION = (
 
 
 async def _lookup_player_season_stats(
-    team: str = "", player: str = "", season: int | None = None
+    player: str = "", team: str = "", season: int | None = None
 ) -> object | None:
     """Look up ONE player's ESPN totals for ONE season.
 
-    Two hops, both cached and both through the ``espn_extra`` seam (deferred import,
-    same as :func:`_lookup_team_roster`): the roster payload resolves the name to an
-    athlete id, then that id fetches the career table. The roster hop reuses the
-    32-team allowlist as the ``team`` guard rather than rewriting it, and it reads the
-    RAW payload because :func:`~app.services.espn_extra.parse_team_roster` drops the id
-    on purpose (D-7). No id ever comes from the model. A roster MISS adds a third,
-    also-cached hop through :func:`_resolve_off_roster`, which is how a player who
-    changed teams still resolves.
+    ``team`` is a HINT, not a requirement, and that is a MEASURED decision. While it was
+    required, the served model spent a whole extra round filling it in — it called
+    ``lookup_player_current_team`` first and this tool second, 3/3, on the commonest
+    question there is, burning two of the three rounds the loop allows. So with no team
+    in hand the name goes STRAIGHT to ESPN's player search: one cached hop to resolve the
+    athlete id, one to fetch the career table, and no roster fetch merely to obtain an id.
+
+    With a team in hand the roster hop runs first, unchanged: it is cached and often
+    already warm from a roster question, it is the ONLY source of the season being played
+    now (the stats payload carries no current year and D-1 forbids reading the app's own
+    tables from here), and it reads the RAW payload because
+    :func:`~app.services.espn_extra.parse_team_roster` drops the id on purpose (D-7). A
+    roster miss still falls through to :func:`_resolve_off_roster`, which is how a player
+    asked about on the team he PLAYED that season for still resolves. No id ever comes
+    from the model on either path.
 
     Every argument defaults so a model that forgets one degrades rather than raising a
     TypeError into the loop. A resolution miss returns a NOTE dict, never ``None``,
@@ -263,22 +270,24 @@ async def _lookup_player_season_stats(
     asked_for = player.strip() if isinstance(player, str) else ""
     if not asked_for:
         # There is no name to resolve, so no fetch is worth making. Returning before the
-        # roster hop keeps a forgotten argument from costing a live GET, and stops a
-        # not-on-roster note that names nobody.
-        return None
-
-    roster = await espn_extra.fetch_team_roster(team)
-    if roster is None:
-        return None
-    matches = espn_extra.find_roster_athletes(roster, asked_for)
-    if matches is None:
+        # first hop keeps a forgotten argument from costing a live GET, and stops a
+        # not-found note that names nobody.
         return None
 
     team_abbr = team.strip().upper() if isinstance(team, str) else ""
-    # The roster hop carries ESPN's OWN current season, and it carries it even when the
-    # hop MISSED, which is the only source for it on either path: the stats payload has
-    # no current year and D-1 forbids reading the app's own tables from here.
-    current_season = espn_extra.roster_season_year(roster)
+    if team_abbr:
+        roster = await espn_extra.fetch_team_roster(team_abbr)
+        if roster is None:
+            return None
+        matches = espn_extra.find_roster_athletes(roster, asked_for)
+        if matches is None:
+            return None
+        current_season = espn_extra.roster_season_year(roster)
+    else:
+        # No roster was read, so nothing here knows which season is being played; the
+        # unfinished-season statements below are skipped rather than guessed at.
+        matches = []
+        current_season = None
 
     if len(matches) > 1:
         candidates = [str(match["display_name"]) for match in matches]
@@ -313,10 +322,16 @@ async def _lookup_player_season_stats(
     # must keep that identity (D-5) — bare ``None`` here made the model deny him.
     payload = await espn_extra.fetch_athlete_stats(athlete_id)
     if payload is None:
-        return {**identity, "note": _fetch_failed_note(name, on_roster)}
+        note = _note(
+            _STATS_FETCH_FAILED_NOTE, _SEARCHED_STATS_FETCH_FAILED_NOTE, team=on_roster, player=name
+        )
+        return {**identity, "note": note}
     facts = espn_extra.parse_athlete_stats(payload, season=season)
     if facts is None:
-        return {**identity, "note": _no_stats_note(name, on_roster)}
+        note = _note(
+            _NO_STATS_PUBLISHED_NOTE, _SEARCHED_NO_STATS_PUBLISHED_NOTE, team=on_roster, player=name
+        )
+        return {**identity, "note": note}
 
     # The stats payload carries no name of its own, so identity comes from the resolution.
     facts = {**facts, **identity}
@@ -370,29 +385,30 @@ def _season_team_clause(player: str, season: int, teams: object) -> str:
     return _SPLIT_SEASON_TEAM_CLAUSE.format(player=player, season=season, teams=_join_teams(names))
 
 
-def _fetch_failed_note(player: str, on_roster: str | None) -> str:
-    """The stats-fetch-failed note, with the roster affirmation only when one was made."""
-    if on_roster is None:
-        return _SEARCHED_STATS_FETCH_FAILED_NOTE.format(player=player)
-    return _STATS_FETCH_FAILED_NOTE.format(player=player, team=on_roster)
+def _note(with_team: str, without_team: str, *, team: str | None, **fields: str) -> str:
+    """Pick a D-5 note's team-naming wording, or its team-less twin. Pure.
 
-
-def _no_stats_note(player: str, on_roster: str | None) -> str:
-    """The no-published-stats note, with the roster affirmation only when one was made."""
-    if on_roster is None:
-        return _SEARCHED_NO_STATS_PUBLISHED_NOTE.format(player=player)
-    return _NO_STATS_PUBLISHED_NOTE.format(player=player, team=on_roster)
+    Every note past the point identity is proven comes in a pair, because half of them
+    affirm a club ("he IS on the KC roster") and that affirmation is only true when a
+    roster was actually read. Since ``team`` became optional the same rule covers the
+    resolution misses too: a note formatted with an empty ``team`` reads as a dangling
+    "on the  roster", which is precisely the sentence this makes impossible.
+    """
+    if team:
+        return with_team.format(team=team, **fields)
+    return without_team.format(**fields)
 
 
 async def _resolve_off_roster(player: str, team_abbr: str) -> dict[str, object]:
-    """Resolve a player who is NOT on the asked roster, through ESPN's player search.
+    """Resolve a player through ESPN's player search. ``team_abbr`` may be empty.
 
-    Reached only after the roster hop misses, which it does for every player who changed
-    teams — the roster is the CURRENT one and a stats question is about a PAST season.
-    Always returns a dict: one carrying ``athlete_id`` when EXACTLY one NFL player
-    matches, otherwise a terminal ``note`` (D-5 — never bare ``None``, which would send
-    the model back to the stale memory this tool exists to replace). More than one NFL
-    match returns the candidates, never a silently picked one.
+    The FIRST hop when no team was asked about, and the fallback hop after a roster miss
+    — which the roster takes for every player asked about on the team he played that
+    season for, since the roster is the CURRENT one. Always returns a dict: one carrying
+    ``athlete_id`` when EXACTLY one NFL player matches, otherwise a terminal ``note``
+    (D-5 — never bare ``None``, which would send the model back to the stale memory this
+    tool exists to replace). More than one NFL match returns the candidates, never a
+    silently picked one, on either path.
 
     The team the search placed him on is used to FIND him and is then dropped. It is
     where he plays today, which is not the team a past season's figures belong to, and
@@ -403,14 +419,22 @@ async def _resolve_off_roster(player: str, team_abbr: str) -> dict[str, object]:
     payload = await espn_extra.fetch_athlete_search(player)
     found = espn_extra.parse_athlete_search(payload) if payload is not None else None
     if found is None:
-        return {"note": _SEARCH_UNAVAILABLE_NOTE.format(player=player, team=team_abbr)}
+        note = _note(
+            _SEARCH_UNAVAILABLE_NOTE, _NAME_SEARCH_FAILED_NOTE, team=team_abbr, player=player
+        )
+        return {"note": note}
     if not found:
-        return {"note": _NOT_ON_ROSTER_NOTE.format(player=player, team=team_abbr)}
+        note = _note(_NOT_ON_ROSTER_NOTE, _NAME_NOT_IN_NFL_NOTE, team=team_abbr, player=player)
+        return {"note": note}
     if len(found) > 1:
         candidates = [f"{one['display_name']} of the {one['team_name']}" for one in found]
         return {
-            "note": _AMBIGUOUS_SEARCH_NOTE.format(
-                player=player, team=team_abbr, candidates=", ".join(candidates)
+            "note": _note(
+                _AMBIGUOUS_SEARCH_NOTE,
+                _AMBIGUOUS_NAME_NOTE,
+                team=team_abbr,
+                player=player,
+                candidates=", ".join(candidates),
             ),
             "candidates": candidates,
         }
@@ -513,6 +537,26 @@ _AMBIGUOUS_PLAYER_NOTE = (
     "More than one player on the {team} roster matches that name: {candidates}. Ask the "
     "member which one of them he means, and do not report any figure until he answers."
 )
+# The team-less twins of the three notes above, for the path where no team was asked
+# about and there is therefore no roster to say he is missing from. Each one carries the
+# same instruction as its twin; only the club disappears, because naming an empty team is
+# the dangling sentence :func:`_note` exists to prevent.
+_NAME_NOT_IN_NFL_NOTE = (
+    "ESPN's own player search found nobody in the NFL named {player}, so this tool has "
+    "no figures for him at all. Tell the member plainly that you could not find that "
+    "player in ESPN's data, never give a figure from your own memory instead, and never "
+    "guess which team he plays for."
+)
+_NAME_SEARCH_FAILED_NOTE = (
+    "The player search that would have found {player} failed just now, so this tool has "
+    "no figures for him this time. Say that you could not look him up, and never give a "
+    "figure from your own memory instead."
+)
+_AMBIGUOUS_NAME_NOTE = (
+    "ESPN's player search found more than one NFL player whose name matches {player}, "
+    "and here is each of them with the team he is on right now: {candidates}. Ask the "
+    "member which one of them he means, and do not report any figure until he answers."
+)
 # Live-measured 2026-08-20: ESPN answers 200 with NO ``categories`` key at all for a
 # rostered player who has no recorded stats (Mario Williams, LAR WR). Returning bare
 # ``None`` there sent the model to _NO_DATA_PAYLOAD and it DENIED a player it had just
@@ -562,17 +606,22 @@ _STATS_TOOL_DESCRIPTION = (
     "games he played. Call this tool for ANY question that asks what a player did in a "
     "season, INCLUDING a question phrased as last year, last season or this season, "
     "because your own memory of which season is the most recent one, and of what a "
-    "player did in it, is often a year or more out of date. The team argument is the "
-    "standard abbreviation of the team the player is on right now, for example LAR for "
-    "the Los Angeles Rams or PHI for the Philadelphia Eagles. The player argument is "
-    "the player's name exactly as the member wrote it. Pass the season argument ONLY "
+    "player did in it, is often a year or more out of date. The player argument is the "
+    "player's name exactly as the member wrote it, and it is the only argument this tool "
+    "needs, because it finds the player even when he has changed teams. The team "
+    "argument is optional. Pass the team argument only when the member's own question "
+    "names a team, and then it is that team's standard abbreviation, for example LAR for "
+    "the Los Angeles Rams or PHI for the Philadelphia Eagles. When his question names no "
+    "team, leave the team argument out and call this tool with the player's name alone. "
+    "Never call lookup_player_current_team first so that you can fill in the team "
+    "argument here, because this tool finds the player without it and calling another "
+    "tool first only spends a turn you need for the answer. Pass the season argument ONLY "
     "when the member named a specific year such as 2024. LEAVE THE SEASON ARGUMENT OUT "
     "for every other phrasing, including last year, last season and this season, "
     "because this tool already knows which season is the most recent one ESPN has and "
     "you do not. Never work out a year number for yourself from a phrase like last "
-    "year. This tool finds the player even when he has changed teams, so pass the team "
-    "the member named and call it anyway. It tells you which team he played for in the "
-    "season it reports, and that team is the only team you ever name in your answer, "
+    "year. This tool tells you which team he played for in the season it reports, and "
+    "that team is the only team you ever name in your answer, "
     "because the team a player is on today is not the team a past season's figures "
     "belong to. If it reports "
     "that more than one player matches, ask the member which one he means instead of "
@@ -735,16 +784,17 @@ TOOLS: tuple[_Tool, ...] = (
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "team": {
-                            "type": "string",
-                            "description": (
-                                "The standard abbreviation of the team the player is on "
-                                "right now, such as LAR."
-                            ),
-                        },
                         "player": {
                             "type": "string",
                             "description": "The player's name as the member wrote it.",
+                        },
+                        "team": {
+                            "type": "string",
+                            "description": (
+                                "Optional team abbreviation, such as LAR, and ONLY when "
+                                "the member's own question names a team. Leave it out "
+                                "when his question names no team."
+                            ),
                         },
                         "season": {
                             "type": "integer",
@@ -755,7 +805,7 @@ TOOLS: tuple[_Tool, ...] = (
                             ),
                         },
                     },
-                    "required": ["team", "player"],
+                    "required": ["player"],
                 },
             },
         },

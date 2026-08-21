@@ -547,7 +547,31 @@ class ShippedRegistryTests(unittest.TestCase):
         params = tool.spec["function"]["parameters"]
         self.assertEqual(sorted(params["properties"]), ["player", "season", "team"])
         self.assertEqual(params["properties"]["season"]["type"], "integer")
-        self.assertEqual(params["required"], ["team", "player"])
+        # OWNER DECISION after a live measurement: while ``team`` was required the model
+        # called lookup_player_current_team first to fill it in and this tool second, 3/3,
+        # spending two of the three rounds a question gets. The name is all it needs.
+        self.assertEqual(params["required"], ["player"])
+
+    def test_the_team_argument_is_a_hint_the_question_itself_supplies(self) -> None:
+        # Phrased as an instruction about the member's OWN wording, never as a condition
+        # the model has to evaluate about anything else — a conditional caveat was
+        # measured being ignored 3/3 on this branch.
+        tool = next(t for t in qa_open.TOOLS if t.name == "lookup_player_season_stats")
+        team = tool.spec["function"]["parameters"]["properties"]["team"]["description"]
+        self.assertIn("ONLY when the member's own question names a team", team)
+        self.assertIn("Leave it out when his question names no team", team)
+
+    def test_shipped_stats_description_forbids_looking_the_team_up_first(self) -> None:
+        # The measured chain this whole change exists to break: the model's reasoning was
+        # sound while the argument was required, so the description must say outright that
+        # the round is wasted.
+        description = self._stats_description()
+        self.assertIn("call this tool with the player's name alone", description)
+        self.assertIn(
+            "Never call lookup_player_current_team first so that you can fill in the "
+            "team argument here",
+            description,
+        )
 
     def test_shipped_stats_description_tells_the_model_to_call_on_a_last_year_question(
         self,
@@ -1201,19 +1225,141 @@ class StatsToolTests(unittest.TestCase):
         self.assertNotIn("stats", out)
         self.assertNotIn(qa_open._NO_DATA_PAYLOAD, json.dumps(out))
 
-    def test_a_forgotten_argument_degrades_without_raising_and_without_fetching(self) -> None:
-        # A missing player is refused BEFORE the roster hop, so the stub fails the test
-        # if it is reached at all.
-        async def _never(team_abbr):
+    def test_a_forgotten_player_degrades_without_raising_and_without_fetching(self) -> None:
+        # The player name is the ONE argument this tool cannot do without, and a call
+        # missing it is refused BEFORE either first hop — so both stubs fail the test if
+        # they are reached at all.
+        async def _never_roster(team_abbr):
             raise AssertionError("no fetch may be attempted without a player name")
 
-        with mock.patch.object(espn_extra, "fetch_team_roster", _never):
+        async def _never_search(name):
+            raise AssertionError("no fetch may be attempted without a player name")
+
+        with (
+            mock.patch.object(espn_extra, "fetch_team_roster", _never_roster),
+            mock.patch.object(espn_extra, "fetch_athlete_search", _never_search),
+        ):
             self.assertIsNone(_run(qa_open._lookup_player_season_stats()))
             self.assertIsNone(_run(qa_open._lookup_player_season_stats(team="LAR")))
             self.assertIsNone(_run(qa_open._lookup_player_season_stats(team="LAR", player="  ")))
-        # A missing TEAM degrades through the REAL 32-team allowlist, which rejects it
-        # before any URL is formatted — so this needs no stub and performs no HTTP.
-        self.assertIsNone(_run(qa_open._lookup_player_season_stats(player="Matt Stafford")))
+
+
+class TeamlessStatsToolTests(unittest.TestCase):
+    """The stats tool with NO team argument — the path the model now takes by default.
+
+    ``team`` stopped being required because the served model filled it in with a whole
+    extra ``lookup_player_current_team`` round first, 3/3 live. Every hop, note and
+    statement below is asserted with the roster stub wired to EXPLODE, which is what
+    proves no roster fetch is made merely to resolve an id.
+    """
+
+    def _teamless(self, stats: object, search: object, player: str = "Isiah Pacheco", **kwargs):
+        async def _never_roster(team_abbr):
+            raise AssertionError("a team-less question must never cost a roster fetch")
+
+        async def _fake_stats(athlete_id):
+            return stats
+
+        async def _fake_search(name):
+            return search
+
+        with (
+            mock.patch.object(espn_extra, "fetch_team_roster", _never_roster),
+            mock.patch.object(espn_extra, "fetch_athlete_stats", _fake_stats),
+            mock.patch.object(espn_extra, "fetch_athlete_search", _fake_search),
+        ):
+            return _run(qa_open._lookup_player_season_stats(player=player, **kwargs))
+
+    def _stats(self) -> dict:
+        return json.loads(_STATS_FIXTURE.read_text())
+
+    def test_a_bare_name_resolves_through_the_search_in_two_hops(self) -> None:
+        out = self._teamless(self._stats(), _pacheco_search())
+        assert isinstance(out, dict)
+        self.assertEqual(out["player"], "Isiah Pacheco")
+        self.assertTrue(out["stats"])
+        self.assertNotIn("note", out)
+        self.assertNotIn("athlete_id", out)  # the model never sees an id (D-4)
+
+    def test_the_season_team_still_comes_from_the_stats_row_not_the_search(self) -> None:
+        # The live defect, on the new path: the search places Pacheco in Detroit and the
+        # 2025 figures are Kansas City's. The club the FIGURES belong to is the only club
+        # the model is handed, with or without a team argument.
+        out = self._teamless(self._stats(), _pacheco_search())
+        assert isinstance(out, dict)
+        self.assertIn("Los Angeles Rams in the 2025 season", out["season_statement"])
+        self.assertNotIn("Detroit", json.dumps(out))
+
+    def test_the_unfinished_season_statements_are_skipped_rather_than_guessed(self) -> None:
+        # ESPN's own current year reaches this tool ONLY through a roster payload, and a
+        # team-less question reads none. Saying nothing about the season being played is
+        # the honest degrade; working a year out here would be the invented one.
+        out = self._teamless(self._stats(), _pacheco_search())
+        assert isinstance(out, dict)
+        self.assertEqual(out["season"], 2025)
+        self.assertIn("official total for the 2025", out["season_statement"])
+        self.assertNotIn("current_season_statement", out)
+
+    def test_more_than_one_nfl_match_returns_the_candidates_and_no_statistics(self) -> None:
+        # Requirement: the team-less path must never silently pick one. Measured live —
+        # "josh allen" is three NFL players, and the club is what tells them apart.
+        search = json.loads(_SEARCH_FIXTURE.read_text())
+        out = self._teamless(self._stats(), search, player="Josh Allen")
+        assert isinstance(out, dict)
+        self.assertEqual(
+            out["candidates"],
+            [
+                "Josh Allen of the Buffalo Bills",
+                "Josh Allen of the Arizona Cardinals",
+                "Josh Hines-Allen of the Jacksonville Jaguars",
+            ],
+        )
+        self.assertIn("Ask the member which one", out["note"])
+        self.assertNotIn("stats", out)
+
+    def test_no_nfl_match_returns_its_own_note_never_none(self) -> None:
+        out = self._teamless(self._stats(), _NO_SEARCH_HITS)
+        assert isinstance(out, dict)
+        self.assertIn("found nobody in the NFL named Isiah Pacheco", out["note"])
+        self.assertIn("never give a figure from your own memory", out["note"])
+        self.assertNotIn("stats", out)
+        self.assertNotIn(qa_open._NO_DATA_PAYLOAD, json.dumps(out))
+
+    def test_a_failed_search_returns_a_different_note_from_a_missing_player(self) -> None:
+        # "ESPN found nobody" and "the lookup failed" are different facts (D-5).
+        out = self._teamless(self._stats(), None)
+        assert isinstance(out, dict)
+        self.assertIn("failed just now", out["note"])
+        self.assertNotIn("found nobody", out["note"])
+        self.assertNotIn(qa_open._NO_DATA_PAYLOAD, json.dumps(out))
+
+    def test_a_resolved_player_keeps_his_identity_when_the_stats_fetch_fails(self) -> None:
+        # D-5 past the point identity is proven, on this path too.
+        out = self._teamless(None, _pacheco_search())
+        assert isinstance(out, dict)
+        self.assertEqual(out["player"], "Isiah Pacheco")
+        self.assertIn("does list Isiah Pacheco as a current NFL player", out["note"])
+        self.assertNotIn(qa_open._NO_DATA_PAYLOAD, json.dumps(out))
+
+    def test_no_team_less_note_ever_names_an_empty_team(self) -> None:
+        # The literal hazard of dropping the argument: every note in the pair below was
+        # written around "the {team} roster", which reads as a dangling "the  roster"
+        # once no team was asked about.
+        for label, stats, search in (
+            ("unfound", self._stats(), _NO_SEARCH_HITS),
+            ("search failed", self._stats(), None),
+            ("ambiguous", self._stats(), json.loads(_SEARCH_FIXTURE.read_text())),
+            ("stats failed", None, _pacheco_search()),
+            ("no stats published", {"filters": []}, _pacheco_search()),
+        ):
+            with self.subTest(note=label):
+                out = self._teamless(stats, search)
+                assert isinstance(out, dict)
+                note = out["note"]
+                assert isinstance(note, str)
+                self.assertNotIn("  ", note)
+                self.assertNotIn("roster", note)  # no roster was read, so none is named
+                self.assertTrue(note.endswith("."))
 
 
 class CurrentTeamToolTests(unittest.TestCase):
