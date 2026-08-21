@@ -27,6 +27,7 @@ in Task 2.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -450,6 +451,42 @@ def _coerce_subject(value: object) -> str | None:
     return subject or None
 
 
+# Subject hints that a ``scores`` question is really about game STATISTICS (#187).
+# Matched as WORD PREFIXES, never bare substrings: "stat" also matches "status" and "led"
+# also matches "called". "stats" and "statistic" stay separate stems for that reason. No
+# stem may be a prefix of "points" or "score" — those are the real ``scores`` intent.
+_GAME_STATISTIC_HINTS = (
+    "attempt",
+    "carr",
+    "catch",
+    "complet",
+    "fumble",
+    "interception",
+    "leader",
+    "led",
+    "passing",
+    "rating",
+    "receiv",
+    "reception",
+    "rushing",
+    "sack",
+    "statistic",
+    "stats",
+    "tackle",
+    "target",
+    "touchdown",
+    "yard",
+)
+
+
+def _wants_game_statistics(subject: str | None) -> bool:
+    """Whether a subject noun phrase asks for game STATISTICS rather than a score."""
+    if not subject:
+        return False
+    words = re.findall(r"[a-z]+", subject.lower())
+    return any(word.startswith(_GAME_STATISTIC_HINTS) for word in words)
+
+
 def validate_classification(raw: object, *, known_team_tokens: set[str]) -> QaResult:
     """Coerce an untrusted classifier output into a safe :class:`QaResult`.
 
@@ -493,6 +530,13 @@ def validate_classification(raw: object, *, known_team_tokens: set[str]) -> QaRe
     # decline (``_UNKNOWN_FACT``) rather than adding a new phrasing surface.
     if intent is QaIntent.open_nfl and raw.get("nfl") is not True:
         return QaResult(intent=QaIntent.unknown)
+
+    # Issue #187: a stats-phrased ``scores`` answered a Super Bowl question with the
+    # CURRENT week's scoreboard ("MIN 10, LAC 37") — that handler ignores team and week.
+    # The subject is read from the RAW dict because ``scores`` is absent from
+    # ``_SUBJECT_INTENTS``. Rewriting (not declining) reaches ``lookup_game_leaders``.
+    if intent is QaIntent.scores and _wants_game_statistics(_coerce_subject(raw.get("subject"))):
+        return QaResult(intent=QaIntent.open_nfl if raw.get("nfl") is True else QaIntent.unknown)
 
     # Resolve the team for team-bearing intents. On a team-REQUIRED intent a present-but-
     # non-real team is a coercion trigger: the model named a game we cannot trust, so fall
