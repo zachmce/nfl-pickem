@@ -934,6 +934,11 @@ def _one_game_line_fact(
     no number. The header does NOT call this the week's only game — the single-game
     branch is also taken for a TEAM-NARROWED slate, where other games exist.
 
+    The header still STATES the line rather than merely pointing at the game. A header
+    naming only the two teams was measured at 5/6 invented spreads (and two inversions
+    into "not available") — the model fills any gap it is left ([[llm-fills-any-gap-you-leave]]),
+    and a fabricated spread above a correct body is worse than the loss it replaced.
+
     ``asked_team`` (the canonical abbr of the team the user asked about, if any) frames
     the spread segment from that team's perspective — see :func:`_spread_clause`.
     """
@@ -941,9 +946,17 @@ def _one_game_line_fact(
     close_clause = _close_clause(when, pick_open)
     if close_clause:
         body += f"\n{close_clause}"
-    return _ListAnswer(
-        header_fact=f"Week {week} line — {game.get('away')} at {game.get('home')}.", body=body
-    )
+    header_parts = [f"Week {week} line — {game.get('away')} at {game.get('home')}."]
+    favorite = game.get("favorite")
+    spread = game.get("spread")
+    if favorite and spread:
+        header_parts.append(
+            f"{_spread_clause(favorite, game.get('underdog'), spread, asked_team)}."
+        )
+    total = game.get("total")
+    if total:
+        header_parts.append(f"Total is {total}.")
+    return _ListAnswer(header_fact=" ".join(header_parts), body=body)
 
 
 def _slate_fact(slate: dict) -> str | _ListAnswer:
@@ -993,13 +1006,18 @@ def _scores_one_game_fact(game: dict, week: int | None) -> _ListAnswer:
     as ``Minnesota 10, Los Angeles Chargers 37.`` — the week gone, ``at`` turned into a
     comma so the answer no longer said who hosted, and ``(final)`` gone, which made an
     in-progress game read as settled. The week, the ``@`` and the status tag now ride in
-    the :class:`_ListAnswer` body the orchestrator appends verbatim; the header is the
-    only phrasable part and carries no score.
+    the :class:`_ListAnswer` body the orchestrator appends verbatim.
+
+    The header still CARRIES the score. Dropping it there was measured at 5/6 invented
+    scores — "MIN 27, LAC 10" for a 10-37 game, naming the wrong winner — because the
+    model fills any gap it is left ([[llm-fills-any-gap-you-leave]]); handed the real
+    numbers it restated them 6/6. The score is redundant with the body by design: the
+    header exists to leave nothing to invent, the body to leave nothing to lose.
     """
     return _ListAnswer(
         header_fact=(
-            f"Week {week} scoreboard — {game.get('away')} at {game.get('home')}, "
-            f"{_score_tag(game)}."
+            f"Week {week} scoreboard — {game.get('away')} {game.get('away_score')} at "
+            f"{game.get('home')} {game.get('home_score')}, {_score_tag(game)}."
         ),
         body=f"Week {week} — {_score_body_line(game)}",
     )

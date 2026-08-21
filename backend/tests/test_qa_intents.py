@@ -725,17 +725,21 @@ class SingleGameAnswerIsProtectedTests(unittest.TestCase):
         )
         self.assertEqual(lines[2], "Picks close Mon Jul 6, 12:22 PM UTC.")
 
-    def test_the_phrased_header_carries_no_score_and_no_spread(self) -> None:
+    def test_the_phrased_header_leaves_the_model_no_number_to_invent(self) -> None:
+        # Measured, not assumed: a header naming only the teams made the live model
+        # invent a score in 5/6 samples ("MIN 27, LAC 10" for a 10-37 game, wrong
+        # winner) and a spread in 5/6, and invert twice into "not available". Handed
+        # the real numbers it restated them 6/6. So the header STATES the fact; the
+        # body is what guarantees the fact survives.
         _, score_calls = self._answer_scores("whatever")
         header = score_calls[0]["fact"]
-        self.assertIn("MIN at LAC", header)
-        self.assertNotIn("10", header)
-        self.assertNotIn("37", header)
+        self.assertIn("MIN 10 at LAC 37", header)
+        self.assertIn("final", header)
         _, slate_calls = self._answer_slate("whatever")
         header = slate_calls[0]["fact"]
         self.assertIn("DAL at PHI", header)
-        self.assertNotIn("7.5", header)
-        self.assertNotIn("47.5", header)
+        self.assertIn("7.5", header)
+        self.assertIn("47.5", header)
 
     def test_single_game_scores_fact_is_a_list_answer_not_a_bare_str(self) -> None:
         # The type IS the protection: a bare str is replaced by the model's own text,
@@ -788,13 +792,16 @@ class SingleGameAnswerIsProtectedTests(unittest.TestCase):
         self.assertIn("PHI -7.5", teamless.body)
         self.assertNotIn("vs.", teamless.body)
 
-    def test_neither_header_carries_a_number_the_model_could_move(self) -> None:
+    def test_both_headers_state_the_whole_fact(self) -> None:
         scores = qa._scores_fact(self._scores())
         slate = qa._slate_fact(self._slate())
         assert isinstance(scores, qa._ListAnswer)
         assert isinstance(slate, qa._ListAnswer)
-        self.assertEqual(scores.header_fact, "Week 8 scoreboard — MIN at LAC, final.")
-        self.assertEqual(slate.header_fact, "Week 5 line — DAL at PHI.")
+        self.assertEqual(scores.header_fact, "Week 8 scoreboard — MIN 10 at LAC 37, final.")
+        self.assertEqual(
+            slate.header_fact,
+            "Week 5 line — DAL at PHI. DAL are 7.5-point underdogs vs. PHI. Total is 47.5.",
+        )
 
     def test_multi_game_body_lines_are_unchanged_by_the_refactor(self) -> None:
         # The single-game fix reuses the multi-game line builders; their output must stay
