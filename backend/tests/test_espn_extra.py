@@ -51,6 +51,7 @@ _SCHEDULE_FIXTURE = Path(__file__).parent / "fixtures" / "espn_team_schedule.jso
 _GAME_LEADERS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_game_leaders.json"
 _SUPER_BOWL_FIXTURE = Path(__file__).parent / "fixtures" / "espn_postseason_super_bowl.json"
 _STANDINGS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_standings.json"
+_GAMELOG_FIXTURE = Path(__file__).parent / "fixtures" / "espn_athlete_gamelog.json"
 
 # The DISTINCTIVE KC headline the no-rephrasing regression asserts survives byte-for-byte.
 _KC_HEADLINE = "Patrick Mahomes throws for 5 touchdowns as Chiefs storm past Bills 38-20"
@@ -70,6 +71,18 @@ def _load_news_fixture() -> dict:
 
 def _load_roster_fixture() -> dict:
     return json.loads(_ROSTER_FIXTURE.read_text())
+
+
+def _load_gamelog_fixture() -> dict:
+    """Matthew Stafford's REAL 2024 game log, trimmed to four games (measured 2026-08-21).
+
+    Two regular-season games and two postseason ones, with the full 16-entry ``names`` /
+    ``labels`` / ``displayNames`` arrays kept: ``labels`` really does repeat YDS, AVG, TD
+    and LNG, so the duplicate-label trap is real here. Every event keeps its ``links``,
+    ``score``, ``homeTeamScore`` and ``awayTeamScore``, so "none of them reaches the
+    model" is an assertion rather than a comment.
+    """
+    return json.loads(_GAMELOG_FIXTURE.read_text())
 
 
 def _load_standings_fixture() -> dict:
@@ -2121,6 +2134,186 @@ class NflTeamByIdTests(unittest.TestCase):
         self.assertEqual(len(espn_extra.NFL_TEAM_BY_ID), 32)
         self.assertEqual(espn_extra.NFL_TEAM_BY_ID["17"], ("NE", "New England Patriots"))
         self.assertEqual(espn_extra.NFL_TEAM_BY_ID["21"], ("PHI", "Philadelphia Eagles"))
+
+
+class ParseAthleteGamelogTests(unittest.TestCase):
+    def test_passing_and_rushing_yards_are_two_keys_with_two_values(self) -> None:
+        # THE trap this parser exists for: ``labels`` repeats YDS across passing and
+        # rushing, so a label-keyed mapping overwrites the passing figure with the
+        # rushing one. ``names`` and ``displayNames`` are unique.
+        fixture = _load_gamelog_fixture()
+        self.assertNotEqual(len(set(fixture["labels"])), len(fixture["labels"]))
+        out = espn_extra.parse_athlete_gamelog(fixture, week=17)
+        assert out is not None
+        stats = out["games"][0]["stats"]
+        self.assertEqual(stats["Passing Yards"], "189")
+        self.assertEqual(stats["Rushing Yards"], "16")
+
+    def test_no_score_no_link_and_no_url_ever_reaches_the_output(self) -> None:
+        serialized = json.dumps(espn_extra.parse_athlete_gamelog(_load_gamelog_fixture()))
+        for banned in ("links", "score", "homeTeamScore", "awayTeamScore", "http", "logo"):
+            with self.subTest(banned=banned):
+                self.assertNotIn(banned, serialized)
+
+    def test_a_named_week_returns_that_one_regular_season_game(self) -> None:
+        out = espn_extra.parse_athlete_gamelog(_load_gamelog_fixture(), week=15)
+        assert out is not None
+        self.assertEqual(len(out["games"]), 1)
+        self.assertEqual(out["games"][0]["week"], 15)
+        self.assertEqual(out["games"][0]["opponent"], "San Francisco 49ers")
+        self.assertEqual(out["week"], 15)
+
+    def test_a_week_number_never_selects_a_postseason_game(self) -> None:
+        # The fixture's postseason block carries a week 2 as well, and a member asking
+        # about week 2 means the regular season's week 2, never a divisional playoff.
+        out = espn_extra.parse_athlete_gamelog(_load_gamelog_fixture(), week=2)
+        assert out is not None
+        self.assertEqual(out["games"], [])
+
+    def test_no_week_returns_the_most_recent_games_newest_first(self) -> None:
+        out = espn_extra.parse_athlete_gamelog(_load_gamelog_fixture())
+        assert out is not None
+        dates = [game["date"] for game in out["games"]]
+        self.assertEqual(dates, sorted(dates, reverse=True))
+        self.assertIsNone(out["week"])
+
+    def test_a_postseason_game_is_labelled_as_one(self) -> None:
+        out = espn_extra.parse_athlete_gamelog(_load_gamelog_fixture())
+        assert out is not None
+        seasons = {game["season_type"] for game in out["games"]}
+        self.assertIn("2024 Postseason", seasons)
+        self.assertIn("2024 Regular Season", seasons)
+
+    def test_the_season_comes_from_the_filters_block(self) -> None:
+        out = espn_extra.parse_athlete_gamelog(_load_gamelog_fixture())
+        assert out is not None
+        self.assertEqual(out["season"], 2024)
+
+    def test_the_season_falls_back_to_the_season_type_name(self) -> None:
+        # Measured 2026-08-21: this endpoint's ``requestedSeason`` is null, so the season
+        # comes from ``filters`` first and the four-digit prefix of the season-type name
+        # second. With neither, the caller names no year at all (M-1).
+        fixture = _load_gamelog_fixture()
+        fixture.pop("filters")
+        out = espn_extra.parse_athlete_gamelog(fixture)
+        assert out is not None
+        self.assertEqual(out["season"], 2024)
+
+        fixture["seasonTypes"] = [
+            {"displayName": "no year here", "categories": block["categories"]}
+            for block in fixture["seasonTypes"]
+        ]
+        out = espn_extra.parse_athlete_gamelog(fixture)
+        assert out is not None
+        self.assertIsNone(out["season"])
+
+    def test_an_unusable_top_level_shape_returns_none(self) -> None:
+        for bogus in (
+            None,
+            [],
+            "x",
+            {},
+            {"seasonTypes": "nope"},
+            {"seasonTypes": [], "events": []},
+        ):
+            with self.subTest(payload=bogus):
+                bad: Any = bogus
+                self.assertIsNone(espn_extra.parse_athlete_gamelog(bad))
+
+    def test_the_event_cap_and_the_fact_cap_both_hold(self) -> None:
+        with mock.patch.object(espn_extra, "GAME_LOG_MAX_EVENTS", 2):
+            out = espn_extra.parse_athlete_gamelog(_load_gamelog_fixture())
+        assert out is not None
+        self.assertEqual(len(out["games"]), 2)
+        with mock.patch.object(espn_extra, "GAME_LOG_MAX_FACTS", 3):
+            out = espn_extra.parse_athlete_gamelog(_load_gamelog_fixture(), week=17)
+        assert out is not None
+        self.assertEqual(len(out["games"][0]["stats"]), 3)
+
+    def test_an_unusable_event_is_skipped_without_raising(self) -> None:
+        fixture = _load_gamelog_fixture()
+        fixture["seasonTypes"][1]["categories"][0]["events"].append({"eventId": "nope"})
+        fixture["seasonTypes"][1]["categories"][0]["events"].append("not a dict")
+        out = espn_extra.parse_athlete_gamelog(fixture)
+        assert out is not None
+        self.assertEqual(len(out["games"]), 4)
+
+
+class FetchAthleteGamelogTests(unittest.TestCase):
+    def _arm_client(self, response: object) -> None:
+        _CapturingAsyncClient.calls = 0
+        _CapturingAsyncClient.last_url = None
+        _CapturingAsyncClient.last_headers = _NEVER_CALLED
+        _CapturingAsyncClient.last_init_kwargs = None
+        _CapturingAsyncClient._response = response
+
+    def test_a_non_digit_athlete_id_performs_zero_http_and_zero_redis(self) -> None:
+        # T-s5y-01, reused unchanged: the digit guard runs BEFORE the format string.
+        fake = _FakeRedis()
+        for bogus in ("", "  ", "abc", "12483/../", "12483;rm -rf /", None, 12483, True):
+            with self.subTest(athlete_id=bogus):
+                bad: Any = bogus
+                with (
+                    _redis_returns(fake),
+                    mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient),
+                ):
+                    self.assertIsNone(_run(espn_extra.fetch_athlete_gamelog(bad)))
+        self.assertEqual(fake.gets, [])
+        self.assertEqual(fake.sets, [])
+
+    def test_an_unusable_season_performs_zero_http_and_zero_redis(self) -> None:
+        fake = _FakeRedis()
+        for bogus in ("2024", 2024.0, True, 1919, 2101, -2024):
+            with self.subTest(season=bogus):
+                bad: Any = bogus
+                with (
+                    _redis_returns(fake),
+                    mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient),
+                ):
+                    self.assertIsNone(_run(espn_extra.fetch_athlete_gamelog("12483", season=bad)))
+        self.assertEqual(fake.gets, [])
+        self.assertEqual(fake.sets, [])
+
+    def test_a_season_less_call_carries_no_season_parameter(self) -> None:
+        # M-1: the parameterless form answers the CURRENT season, so no year is guessed.
+        payload = _load_gamelog_fixture()
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(200, payload))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            out = _run(espn_extra.fetch_athlete_gamelog("12483"))
+        self.assertEqual(out, payload)
+        url = _CapturingAsyncClient.last_url
+        assert url is not None
+        self.assertIn("/athletes/12483/gamelog", url)
+        self.assertNotIn("season=", url)
+        self.assertIsNone(_CapturingAsyncClient.last_headers)
+        key, _value, ex = fake.sets[0]
+        self.assertEqual(key, espn_extra._gamelog_cache_key("12483", None))
+        self.assertEqual(ex, espn_extra.GAMELOG_CACHE_TTL_SECONDS)
+
+    def test_an_explicit_season_carries_the_parameter_and_its_own_key(self) -> None:
+        payload = _load_gamelog_fixture()
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(200, payload))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            _run(espn_extra.fetch_athlete_gamelog("12483", season=2024))
+        url = _CapturingAsyncClient.last_url
+        assert url is not None
+        self.assertIn("season=2024", url)
+        key, _value, _ex = fake.sets[0]
+        self.assertEqual(key, espn_extra._gamelog_cache_key("12483", 2024))
+        self.assertNotEqual(key, espn_extra._gamelog_cache_key("12483", None))
+
+    def test_http_error_degrades_to_none(self) -> None:
+        fake = _FakeRedis()
+
+        class _BoomClient(_CapturingAsyncClient):
+            async def get(self, url, *, headers=None):
+                raise httpx.ConnectError("boom")
+
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _BoomClient):
+            self.assertIsNone(_run(espn_extra.fetch_athlete_gamelog("12483")))
+        self.assertEqual(fake.sets, [])
 
 
 class ParseGameLeadersTests(unittest.TestCase):
