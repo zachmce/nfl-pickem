@@ -640,6 +640,14 @@ class SingleGameAnswerIsProtectedTests(unittest.TestCase):
     WAS the answer. The week, the ``@`` home/away relationship and the status tag now
     ride in the :class:`qa._ListAnswer` body, which ``answer_question`` appends verbatim
     and never sends to the LLM.
+
+    THESE TESTS CANNOT CATCH THE DEFECT IN #188. They stub ``qa.llm_client.phrase``, so
+    they prove the FACT's shape and nothing whatsoever about what the live model does to
+    it. The loss reported in #188 happened INSIDE that stubbed call — it is structurally
+    invisible to this suite, and was invisible to it on the day it shipped. The type
+    assertions below are the real protection (an ``_ListAnswer`` body is never sent to
+    the model at all); the only evidence that the anchors survive real phrasing is the
+    live multi-sample probe recorded in the 260821-pav task SUMMARY.
     """
 
     @staticmethod
@@ -728,6 +736,65 @@ class SingleGameAnswerIsProtectedTests(unittest.TestCase):
         self.assertIn("DAL at PHI", header)
         self.assertNotIn("7.5", header)
         self.assertNotIn("47.5", header)
+
+    def test_single_game_scores_fact_is_a_list_answer_not_a_bare_str(self) -> None:
+        # The type IS the protection: a bare str is replaced by the model's own text,
+        # a _ListAnswer body is appended verbatim and never reaches the model.
+        fact = qa._scores_fact(self._scores())
+        self.assertIsInstance(fact, qa._ListAnswer)
+
+    def test_scores_body_carries_the_week_the_at_relationship_and_both_scores(self) -> None:
+        fact = qa._scores_fact(self._scores())
+        assert isinstance(fact, qa._ListAnswer)
+        self.assertIn("Week 8", fact.body)
+        self.assertIn("MIN 10 @ LAC 37", fact.body)
+
+    def test_scores_body_distinguishes_final_from_in_progress(self) -> None:
+        # The anchor that can be wrong with no classifier bug involved: the SAME game
+        # with only `status` changed must not read identically. Live on 2026-08-21 both
+        # posted as "Minnesota 10, Los Angeles Chargers 37." — a game still being played
+        # read as settled.
+        final = qa._scores_fact(self._scores("FINAL"))
+        live = qa._scores_fact(self._scores("IN_PROGRESS"))
+        assert isinstance(final, qa._ListAnswer)
+        assert isinstance(live, qa._ListAnswer)
+        self.assertIn("(final)", final.body)
+        self.assertNotIn("(in progress)", final.body)
+        self.assertIn("(in progress)", live.body)
+        self.assertNotEqual(final.body, live.body)
+
+    def test_single_game_slate_fact_is_a_list_answer_not_a_bare_str(self) -> None:
+        fact = qa._slate_fact(self._slate())
+        self.assertIsInstance(fact, qa._ListAnswer)
+
+    def test_slate_body_carries_week_matchup_spread_and_the_close_line(self) -> None:
+        fact = qa._slate_fact(self._slate())
+        assert isinstance(fact, qa._ListAnswer)
+        self.assertIn("Week 5", fact.body)
+        self.assertIn("DAL @ PHI", fact.body)
+        self.assertIn("7.5", fact.body)
+        self.assertIn("Picks close Mon Jul 6, 12:22 PM UTC.", fact.body)
+
+    def test_asked_team_framing_still_fires_inside_the_protected_body(self) -> None:
+        # Issue #115's framing must not be the price of #188's protection.
+        asked_dog = qa._slate_fact(self._slate("DAL"))
+        asked_fav = qa._slate_fact(self._slate("PHI"))
+        teamless = qa._slate_fact(self._slate(None))
+        assert isinstance(asked_dog, qa._ListAnswer)
+        assert isinstance(asked_fav, qa._ListAnswer)
+        assert isinstance(teamless, qa._ListAnswer)
+        self.assertIn("DAL are 7.5-point underdogs vs. PHI", asked_dog.body)
+        self.assertIn("PHI favored by 7.5 vs. DAL", asked_fav.body)
+        self.assertIn("PHI -7.5", teamless.body)
+        self.assertNotIn("vs.", teamless.body)
+
+    def test_neither_header_carries_a_number_the_model_could_move(self) -> None:
+        scores = qa._scores_fact(self._scores())
+        slate = qa._slate_fact(self._slate())
+        assert isinstance(scores, qa._ListAnswer)
+        assert isinstance(slate, qa._ListAnswer)
+        self.assertEqual(scores.header_fact, "Week 8 scoreboard — MIN at LAC, final.")
+        self.assertEqual(slate.header_fact, "Week 5 line — DAL at PHI.")
 
     def test_multi_game_body_lines_are_unchanged_by_the_refactor(self) -> None:
         # The single-game fix reuses the multi-game line builders; their output must stay
