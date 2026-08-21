@@ -1,0 +1,233 @@
+{
+  "requestedSeason": {
+    "year": 2024,
+    "displayName": "2024",
+    "type": {
+      "id": "2",
+      "type": 2,
+      "name": "Regular Season"
+    }
+  },
+  "categories": [
+    {
+      "name": "rushing",
+      "displayName": "Own Rushing",
+      "labels": [
+        "CAR",
+        "YDS",
+        "AVG",
+        "LNG",
+        "BIG",
+        "TD",
+        "YDS/G",
+        "FUM",
+        "LST",
+        "FD"
+      ],
+      "names": [
+        "rushingAttempts",
+        "rushingYards",
+        "yardsPerRushAttempt",
+        "longRushing",
+        "rushingBigPlays",
+        "rushingTouchdowns",
+        "rushingYardsPerGame",
+        "rushingFumbles",
+        "rushingFumblesLost",
+        "rushingFirstDowns"
+      ],
+      "displayNames": [
+        "Rushing Attempts",
+        "Rushing Yards",
+        "Yards Per Rush Attempt",
+        "Long Rushing",
+        "20+ Yard Rushing Plays",
+        "Rushing Touchdowns",
+        "Rushing Yards Per Game",
+        "Rushing Fumbles",
+        "Rushing Fumbles Lost",
+        "Rushing 1st downs"
+      ],
+      "descriptions": [
+        "The total number of attempted rushes.",
+        "The total rushing yards.",
+        "The average number of yards per rush attempt.",
+        "The amount of yards for the longest run.",
+        "The number of rushing big plays gained.",
+        "The total number of rushing touchdowns.",
+        "The average number of rushing yards per game.",
+        "The number of times there is a run and then the ball is fumbled.",
+        "The number of times there is a run and then the ball is fumbled.",
+        "The number of times a first down is picked up by a run."
+      ]
+    }
+  ],
+  "athletes": [
+    {
+      "athlete": {
+        "id": "3929630",
+        "displayName": "Saquon Barkley",
+        "position": {
+          "abbreviation": "RB"
+        },
+        "teamName": "Eagles",
+        "teamShortName": "PHI"
+      },
+      "categories": [
+        {
+          "name": "rushing",
+          "displayName": "Own Rushing",
+          "totals": [
+            "345",
+            "2,005",
+            "5.8",
+            "72",
+            "17",
+            "13",
+            "125.3",
+            "2",
+            "1",
+            "82"
+          ],
+          "values": [
+            345.0,
+            2005.0,
+            5.811999797821045,
+            72.0,
+            17.0,
+            13.0,
+            125.3125,
+            2.0,
+            1.0,
+            82.0
+          ],
+          "ranks": [
+            "1",
+            "1",
+            "4",
+            "2",
+            "2",
+            "8",
+            "0",
+            "14",
+            "13",
+            "3"
+          ]
+        }
+      ]
+    },
+    {
+      "athlete": {
+        "id": "3043078",
+        "displayName": "Derrick Henry",
+        "position": {
+          "abbreviation": "RB"
+        },
+        "teamName": "Ravens",
+        "teamShortName": "BAL"
+      },
+      "categories": [
+        {
+          "name": "rushing",
+          "displayName": "Own Rushing",
+          "totals": [
+            "325",
+            "1,921",
+            "5.9",
+            "87",
+            "19",
+            "16",
+            "113.0",
+            "3",
+            "1",
+            "94"
+          ],
+          "values": [
+            325.0,
+            1921.0,
+            5.910999774932861,
+            87.0,
+            19.0,
+            16.0,
+            113.0,
+            3.0,
+            1.0,
+            94.0
+          ],
+          "ranks": [
+            "2",
+            "2",
+            "3",
+            "1",
+            "1",
+            "1",
+            "2",
+            "7",
+            "13",
+            "1"
+          ]
+        }
+      ]
+    },
+    {
+      "athlete": {
+        "id": "4430807",
+        "displayName": "Bijan Robinson",
+        "position": {
+          "abbreviation": "RB"
+        },
+        "teamName": "Falcons",
+        "teamShortName": "ATL"
+      },
+      "categories": [
+        {
+          "name": "rushing",
+          "displayName": "Own Rushing",
+          "totals": [
+            "304",
+            "1,456",
+            "4.8",
+            "37",
+            "5",
+            "14",
+            "85.6",
+            "1",
+            "0",
+            "82"
+          ],
+          "values": [
+            304.0,
+            1456.0,
+            4.789000034332275,
+            37.0,
+            5.0,
+            14.0,
+            85.64705657958984,
+            1.0,
+            0.0,
+            82.0
+          ],
+          "ranks": [
+            "4",
+            "3",
+            "9",
+            "28",
+            "20",
+            "5",
+            "3",
+            "25",
+            "26",
+            "3"
+          ]
+        }
+      ]
+    },
+    {
+      "athlete": {
+        "id": "9999",
+        "displayName": "No Category Decoy",
+        "teamName": "Decoys"
+      }
+    }
+  ]
+}

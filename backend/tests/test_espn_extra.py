@@ -52,6 +52,7 @@ _GAME_LEADERS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_game_leaders.
 _SUPER_BOWL_FIXTURE = Path(__file__).parent / "fixtures" / "espn_postseason_super_bowl.json"
 _STANDINGS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_standings.json"
 _GAMELOG_FIXTURE = Path(__file__).parent / "fixtures" / "espn_athlete_gamelog.json"
+_LEADERS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_league_leaders.json"
 
 # The DISTINCTIVE KC headline the no-rephrasing regression asserts survives byte-for-byte.
 _KC_HEADLINE = "Patrick Mahomes throws for 5 touchdowns as Chiefs storm past Bills 38-20"
@@ -71,6 +72,17 @@ def _load_news_fixture() -> dict:
 
 def _load_roster_fixture() -> dict:
     return json.loads(_ROSTER_FIXTURE.read_text())
+
+
+def _load_leaders_fixture() -> dict:
+    """The REAL 2024 rushing leaders at limit 3, trimmed (measured 2026-08-21).
+
+    ``values`` is kept ON PURPOSE beside ``totals``: it carries raw floats such as
+    5.811999797821045 where ``totals`` carries the formatted "5.8", so "the parser reads
+    totals and never values" is an assertion rather than a comment. A fourth athlete
+    carrying no category block at all is the defensive decoy.
+    """
+    return json.loads(_LEADERS_FIXTURE.read_text())
 
 
 def _load_gamelog_fixture() -> dict:
@@ -2318,6 +2330,201 @@ class FetchAthleteGamelogTests(unittest.TestCase):
         self.assertEqual(fake.sets, [])
 
 
+class LeaderSortsTests(unittest.TestCase):
+    def test_every_allowlisted_sort_names_a_real_category_and_stat(self) -> None:
+        # An unknown sort value answers HTTP 400, which degrades to None (M-4), so a
+        # typo here would be a silently dead category.
+        self.assertGreaterEqual(len(espn_extra.LEADER_SORTS), 10)
+        for key, (category, stat) in espn_extra.LEADER_SORTS.items():
+            with self.subTest(category=key):
+                self.assertTrue(category and stat)
+                self.assertEqual(key, key.lower())
+
+    def test_a_near_miss_phrasing_still_lands_on_a_listed_category(self) -> None:
+        cases = {
+            "rushing": "rushing yards",
+            "Rushing Yards": "rushing yards",
+            "who leads in rushing": "rushing yards",
+            "passing touchdowns": "passing touchdowns",
+            "touchdown passes": "passing touchdowns",
+            "catches": "receptions",
+            "sacks": "sacks",
+            "tackles": "tackles",
+            "interceptions": "interceptions",
+            "receiving": "receiving yards",
+        }
+        for written, expected in cases.items():
+            with self.subTest(written=written):
+                self.assertEqual(espn_extra.league_leader_category(written), expected)
+
+    def test_a_category_outside_the_allowlist_resolves_to_nothing(self) -> None:
+        for bogus in ("", "   ", "hockey goals", None, 7, ["rushing"], "../../etc/passwd"):
+            with self.subTest(category=bogus):
+                bad: Any = bogus
+                self.assertIsNone(espn_extra.league_leader_category(bad))
+
+
+class ParseLeagueLeadersTests(unittest.TestCase):
+    def test_the_leaders_come_back_in_espns_own_order_with_their_clubs(self) -> None:
+        out = espn_extra.parse_league_leaders(_load_leaders_fixture(), "rushing yards")
+        assert out is not None
+        self.assertEqual(out["season"], 2024)
+        names = [leader["player"] for leader in out["leaders"]]
+        self.assertEqual(names, ["Saquon Barkley", "Derrick Henry", "Bijan Robinson"])
+        self.assertEqual(out["leaders"][0]["team"], "Eagles")
+        self.assertEqual(out["leaders"][0]["position"], "RB")
+        self.assertEqual(out["leaders"][0]["stats"]["Rushing Yards"], "2,005")
+
+    def test_the_parser_reads_totals_and_never_the_raw_values(self) -> None:
+        fixture = _load_leaders_fixture()
+        self.assertIn("5.811999797821045", json.dumps(fixture))
+        serialized = json.dumps(espn_extra.parse_league_leaders(fixture, "rushing yards"))
+        self.assertNotIn("5.811999797821045", serialized)
+        self.assertNotIn("2005.0", serialized)
+
+    def test_a_postseason_payload_is_refused_outright(self) -> None:
+        # M-4, the sharpest trap here: a season passed without a season type answers the
+        # POSTSEASON while echoing a plausible year — Barkley 499 rather than 2,005.
+        fixture = _load_leaders_fixture()
+        fixture["requestedSeason"]["type"]["type"] = 3
+        self.assertIsNone(espn_extra.parse_league_leaders(fixture, "rushing yards"))
+
+    def test_an_athlete_with_no_category_block_is_skipped_without_raising(self) -> None:
+        out = espn_extra.parse_league_leaders(_load_leaders_fixture(), "rushing yards")
+        assert out is not None
+        self.assertEqual(len(out["leaders"]), 3)
+        self.assertNotIn("No Category Decoy", json.dumps(out))
+
+    def test_no_athlete_id_ever_reaches_the_output(self) -> None:
+        serialized = json.dumps(
+            espn_extra.parse_league_leaders(_load_leaders_fixture(), "rushing yards")
+        )
+        self.assertNotIn("3929630", serialized)
+
+    def test_an_unusable_top_level_shape_returns_none(self) -> None:
+        for bogus in (None, [], "x", {}, {"athletes": "nope"}):
+            with self.subTest(payload=bogus):
+                bad: Any = bogus
+                self.assertIsNone(espn_extra.parse_league_leaders(bad, "rushing yards"))
+
+    def test_an_unlisted_category_returns_none(self) -> None:
+        self.assertIsNone(espn_extra.parse_league_leaders(_load_leaders_fixture(), "hockey goals"))
+
+    def test_the_leader_cap_holds(self) -> None:
+        with mock.patch.object(espn_extra, "LEADERS_LIMIT", 2):
+            out = espn_extra.parse_league_leaders(_load_leaders_fixture(), "rushing yards")
+        assert out is not None
+        self.assertEqual(len(out["leaders"]), 2)
+
+
+class FetchLeagueLeadersTests(unittest.TestCase):
+    def _arm_client(self, response: object) -> None:
+        _CapturingAsyncClient.calls = 0
+        _CapturingAsyncClient.last_url = None
+        _CapturingAsyncClient.last_headers = _NEVER_CALLED
+        _CapturingAsyncClient.last_init_kwargs = None
+        _CapturingAsyncClient._response = response
+
+    def test_a_category_outside_the_allowlist_performs_zero_http_and_zero_redis(self) -> None:
+        # T-jbh-01: the allowlist runs BEFORE the format string, and the sort value comes
+        # OUT of LEADER_SORTS rather than out of the argument. An allowlist applied after
+        # the format string is not an allowlist.
+        fake = _FakeRedis()
+        bogus_values = (
+            "",
+            "   ",
+            "hockey goals",
+            "rushing.rushingYards:desc&limit=9999",
+            "../../etc/passwd",
+            None,
+            7,
+            ["rushing"],
+        )
+        for bogus in bogus_values:
+            with self.subTest(category=bogus):
+                bad: Any = bogus
+                with (
+                    _redis_returns(fake),
+                    mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient),
+                ):
+                    self.assertIsNone(_run(espn_extra.fetch_league_leaders(bad)))
+        self.assertEqual(fake.gets, [])
+        self.assertEqual(fake.sets, [])
+
+    def test_an_unusable_season_performs_zero_http_and_zero_redis(self) -> None:
+        fake = _FakeRedis()
+        for bogus in ("2024", 2024.0, True, 1919, 2101, -2024):
+            with self.subTest(season=bogus):
+                bad: Any = bogus
+                with (
+                    _redis_returns(fake),
+                    mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient),
+                ):
+                    self.assertIsNone(
+                        _run(espn_extra.fetch_league_leaders("rushing yards", season=bad))
+                    )
+        self.assertEqual(fake.gets, [])
+        self.assertEqual(fake.sets, [])
+
+    def test_every_url_pins_the_lowercase_season_type_and_the_encoded_sort(self) -> None:
+        # M-4: the camel-cased ``seasonType`` is IGNORED and falls back to the postseason,
+        # so the all-lowercase spelling is the whole guard. The colon is percent-encoded
+        # so it cannot alter the request target.
+        payload = _load_leaders_fixture()
+        fake = _FakeRedis()
+        for category in espn_extra.LEADER_SORTS:
+            with self.subTest(category=category):
+                self._arm_client(_FakeResponse(200, payload))
+                with (
+                    _redis_returns(fake),
+                    mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient),
+                ):
+                    _run(espn_extra.fetch_league_leaders(category, season=2024))
+                url = _CapturingAsyncClient.last_url
+                assert url is not None
+                self.assertIn("seasontype=2", url)
+                self.assertNotIn("seasonType", url)
+                self.assertIn("season=2024", url)
+                self.assertIn("%3Adesc", url)
+                self.assertNotIn(":desc", url)
+                self.assertIsNone(_CapturingAsyncClient.last_headers)
+
+    def test_a_season_less_call_still_pins_the_season_type(self) -> None:
+        payload = _load_leaders_fixture()
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(200, payload))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            out = _run(espn_extra.fetch_league_leaders("rushing yards"))
+        self.assertEqual(out, payload)
+        url = _CapturingAsyncClient.last_url
+        assert url is not None
+        self.assertIn("seasontype=2", url)
+        self.assertNotIn("&season=", url)
+        key, _value, ex = fake.sets[0]
+        self.assertEqual(key, espn_extra._leaders_cache_key("rushing yards", None))
+        self.assertEqual(ex, espn_extra.LEADERS_CACHE_TTL_SECONDS)
+
+    def test_a_near_miss_phrasing_and_its_canonical_name_share_one_cache_entry(self) -> None:
+        payload = _load_leaders_fixture()
+        fake = _FakeRedis()
+        self._arm_client(_FakeResponse(200, payload))
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            _run(espn_extra.fetch_league_leaders("who leads in rushing", season=2024))
+        key, _value, _ex = fake.sets[0]
+        self.assertEqual(key, espn_extra._leaders_cache_key("rushing yards", 2024))
+
+    def test_http_error_degrades_to_none(self) -> None:
+        fake = _FakeRedis()
+
+        class _BoomClient(_CapturingAsyncClient):
+            async def get(self, url, *, headers=None):
+                raise httpx.ConnectError("boom")
+
+        with _redis_returns(fake), mock.patch.object(httpx, "AsyncClient", _BoomClient):
+            self.assertIsNone(_run(espn_extra.fetch_league_leaders("rushing yards")))
+        self.assertEqual(fake.sets, [])
+
+
 class ParseGameLeadersTests(unittest.TestCase):
     def test_both_clubs_come_back_keyed_by_full_display_name(self) -> None:
         out = espn_extra.parse_game_leaders(_load_game_leaders_fixture())
@@ -2925,6 +3132,18 @@ class FetchPostseasonScoreboardTests(unittest.TestCase):
 )
 class EspnExtraLiveSmokeTest(unittest.TestCase):
     """OPTIONAL, network-gated smoke test — skipped by default (offline suite)."""
+
+    def test_every_allowlisted_leader_sort_answers_a_usable_payload(self) -> None:
+        # What keeps LEADER_SORTS self-verifying after this task ends rather than correct
+        # only on the day it was written: an unknown sort value answers HTTP 400 (M-4).
+        for category in espn_extra.LEADER_SORTS:
+            with self.subTest(category=category):
+                payload = _run(espn_extra.fetch_league_leaders(category, season=2024))
+                self.assertIsInstance(payload, dict)
+                facts = espn_extra.parse_league_leaders(payload, category)
+                assert facts is not None
+                self.assertEqual(facts["season"], 2024)
+                self.assertTrue(facts["leaders"])
 
     def test_fetch_injuries_returns_a_dict(self) -> None:
         # A recent regular-season event id; the endpoint returns a large summary dict.

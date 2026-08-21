@@ -656,6 +656,7 @@ class ShippedRegistryTests(_OpenPathTestCase):
                 "lookup_team_schedule",
                 "lookup_team_record",
                 "lookup_player_game_log",
+                "lookup_league_leaders",
             ],
         )
         params = qa_open.TOOLS[0].spec["function"]["parameters"]
@@ -909,13 +910,13 @@ class ShippedRegistryTests(_OpenPathTestCase):
 
     def test_the_whole_registry_stays_inside_a_stated_prompt_budget(self) -> None:
         # Every spec costs tokens on EVERY open call and adds a way to mis-select, so the
-        # total is pinned rather than left to drift. Measured 2026-08-21: 17,525 bytes
-        # across eight tools, up from 12,447 across five. The pin is raised ONCE per new
+        # total is pinned rather than left to drift. Measured 2026-08-21: 19,300 bytes
+        # across nine tools, up from 12,447 across five. The pin is raised ONCE per new
         # tool, to the measured total rounded up to the next hundred, so raising it stays
         # a decision rather than a rubber stamp, and no one new spec may exceed 1,700
         # bytes on its own.
         total = sum(len(json.dumps(tool.spec)) for tool in qa_open.TOOLS)
-        self.assertLess(total, 17600, f"the shipped tool specs now total {total} bytes")
+        self.assertLess(total, 19400, f"the shipped tool specs now total {total} bytes")
         for tool in qa_open.TOOLS[5:]:
             with self.subTest(tool=tool.name):
                 self.assertLess(len(json.dumps(tool.spec)), 1700)
@@ -964,6 +965,10 @@ class ShippedRegistryTests(_OpenPathTestCase):
         self.assertEqual(
             openers["lookup_player_game_log"],
             "Look up what one NFL player did in ONE single game",
+        )
+        self.assertEqual(
+            openers["lookup_league_leaders"],
+            "Look up which players lead the whole NFL in one statistic for one season",
         )
         for name in ("lookup_team_roster", "lookup_player_season_stats"):
             with self.subTest(tool=name):
@@ -2839,6 +2844,113 @@ class PlayerGameLogToolTests(_OpenPathTestCase):
             with self.subTest(**kwargs):
                 out = self._lookup(payload, player="Stafford", team="LAR", **kwargs)
                 self.assertLess(len(json.dumps(out)), 3400)
+
+
+_LEADERS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_league_leaders.json"
+
+
+class LeagueLeadersToolTests(_OpenPathTestCase):
+    """Route G of issue #183, and the season-type trap that makes or breaks it (M-4)."""
+
+    def _leaders_returns(self, payload: object, calls: list | None = None):
+        async def _fake(category, season=None):
+            if calls is not None:
+                calls.append((category, season))
+            return payload
+
+        return mock.patch.object(espn_extra, "fetch_league_leaders", _fake)
+
+    def test_a_leaders_round_feeds_back_espns_own_order(self) -> None:
+        payload = json.loads(_LEADERS_FIXTURE.read_text())
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_league_leaders", '{"category": "rushing yards"}'),
+            _text("Saquon Barkley led the league."),
+        )
+        with self._leaders_returns(payload), patcher:
+            out = _run(qa_open.answer_open("who led the nfl in rushing?", voice=_VOICE))
+
+        self.assertEqual(out, "Saquon Barkley led the league.")
+        facts = json.loads(_tool_messages(calls[1]["messages"])[0]["content"])
+        self.assertEqual(facts["season"], 2024)
+        self.assertEqual(facts["leaders"][0]["player"], "Saquon Barkley")
+        self.assertIn(espn_extra.LEAGUE_LEADERS_CAVEAT, facts["caveat"])
+
+    def test_the_statement_names_the_season_the_category_and_the_leader(self) -> None:
+        payload = json.loads(_LEADERS_FIXTURE.read_text())
+        with self._leaders_returns(payload):
+            out = _run(qa_open._lookup_league_leaders(category="rushing yards"))
+        assert isinstance(out, dict)
+        statement = out["leaders_statement"]
+        self.assertIn("2024", statement)
+        self.assertIn("rushing yards", statement)
+        self.assertIn("Saquon Barkley", statement)
+        self.assertIn("Eagles", statement)
+
+    def test_an_unlisted_category_names_the_ones_this_tool_does_cover(self) -> None:
+        async def _never(category, season=None):
+            raise AssertionError("an unlisted category must never cost a fetch")
+
+        with mock.patch.object(espn_extra, "fetch_league_leaders", _never):
+            out = _run(qa_open._lookup_league_leaders(category="hockey goals"))
+        assert isinstance(out, dict)
+        for named in ("rushing yards", "passing yards", "sacks"):
+            with self.subTest(named=named):
+                self.assertIn(named, out["note"])
+
+    def test_a_forgotten_category_returns_a_note_and_fetches_nothing(self) -> None:
+        async def _never(category, season=None):
+            raise AssertionError("no category means no fetch")
+
+        with mock.patch.object(espn_extra, "fetch_league_leaders", _never):
+            out = _run(qa_open._lookup_league_leaders())
+        assert isinstance(out, dict)
+        self.assertIn("note", out)
+
+    def test_a_postseason_payload_returns_a_note_never_a_postseason_leader(self) -> None:
+        # M-4: the failure that survives casual reading is a REAL figure about the wrong
+        # thing — Barkley's 499 postseason yards presented as his season total.
+        payload = json.loads(_LEADERS_FIXTURE.read_text())
+        payload["requestedSeason"]["type"]["type"] = 3
+        with self._leaders_returns(payload):
+            out = _run(qa_open._lookup_league_leaders(category="rushing yards", season=2024))
+        assert isinstance(out, dict)
+        self.assertIn("note", out)
+        self.assertNotIn("Saquon Barkley", json.dumps(out))
+
+    def test_no_season_passes_none_rather_than_a_year_the_model_worked_out(self) -> None:
+        payload = json.loads(_LEADERS_FIXTURE.read_text())
+        calls: list = []
+        with self._leaders_returns(payload, calls):
+            _run(qa_open._lookup_league_leaders(category="rushing yards"))
+        self.assertEqual(calls, [("rushing yards", None)])
+
+    def test_every_miss_returns_a_dict_never_the_bare_none_that_reads_as_silence(
+        self,
+    ) -> None:
+        with self._leaders_returns(None):
+            self.assertIsInstance(
+                _run(qa_open._lookup_league_leaders(category="rushing yards")), dict
+            )
+
+    def test_no_payload_ever_carries_an_athlete_id_or_a_raw_float(self) -> None:
+        payload = json.loads(_LEADERS_FIXTURE.read_text())
+        with self._leaders_returns(payload):
+            out = _run(qa_open._lookup_league_leaders(category="rushing yards"))
+        serialized = json.dumps(out)
+        self.assertNotIn("3929630", serialized)
+        self.assertNotIn("5.811999797821045", serialized)
+
+    def test_the_payload_stays_inside_the_shipped_tools_budget(self) -> None:
+        payload = json.loads(_LEADERS_FIXTURE.read_text())
+        with self._leaders_returns(payload):
+            out = _run(qa_open._lookup_league_leaders(category="rushing yards"))
+        self.assertLess(len(json.dumps(out)), 3400)
+
+    def test_the_spec_enum_is_derived_from_the_allowlist_and_cannot_drift(self) -> None:
+        tool = next(t for t in qa_open.TOOLS if t.name == "lookup_league_leaders")
+        enum = tool.spec["function"]["parameters"]["properties"]["category"]["enum"]
+        self.assertEqual(enum, list(espn_extra.LEADER_SORTS))
+        self.assertEqual(tool.spec["function"]["parameters"]["required"], ["category"])
 
 
 class _FrozenClock:
