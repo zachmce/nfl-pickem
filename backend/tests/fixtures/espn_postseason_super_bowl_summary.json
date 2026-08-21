@@ -1,0 +1,208 @@
+{
+  "header": {
+    "week": 5,
+    "season": {
+      "year": 2025,
+      "current": false,
+      "type": 3
+    },
+    "competitions": [
+      {
+        "status": {
+          "type": {
+            "name": "STATUS_FINAL",
+            "completed": true
+          }
+        },
+        "competitors": [
+          {
+            "homeAway": "home",
+            "winner": false,
+            "score": "9991",
+            "team": {
+              "abbreviation": "NE",
+              "displayName": "New England Patriots"
+            }
+          },
+          {
+            "homeAway": "away",
+            "winner": true,
+            "score": "9992",
+            "team": {
+              "abbreviation": "SEA",
+              "displayName": "Seattle Seahawks"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "leaders": [
+    {
+      "team": {
+        "abbreviation": "NE",
+        "displayName": "New England Patriots"
+      },
+      "leaders": [
+        {
+          "name": "passingYards",
+          "displayName": "Passing Yards",
+          "leaders": [
+            {
+              "displayValue": "27/43, 295 YDS, 2 TD, 2 INT",
+              "athlete": {
+                "displayName": "Drake Maye",
+                "position": {
+                  "abbreviation": "QB"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "rushingYards",
+          "displayName": "Rushing Yards",
+          "leaders": [
+            {
+              "displayValue": "5 CAR, 37 YDS",
+              "athlete": {
+                "displayName": "Drake Maye",
+                "position": {
+                  "abbreviation": "QB"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "receivingYards",
+          "displayName": "Receiving Yards",
+          "leaders": [
+            {
+              "displayValue": "4 REC, 78 YDS, 1 TD",
+              "athlete": {
+                "displayName": "Mack Hollins",
+                "position": {
+                  "abbreviation": "WR"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "sacks",
+          "displayName": "Sacks",
+          "leaders": [
+            {
+              "displayValue": "1",
+              "athlete": {
+                "displayName": "Milton Williams",
+                "position": {
+                  "abbreviation": "DT"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "totalTackles",
+          "displayName": "Tackles",
+          "leaders": [
+            {
+              "displayValue": "10",
+              "athlete": {
+                "displayName": "Craig Woodson",
+                "position": {
+                  "abbreviation": "S"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "team": {
+        "abbreviation": "SEA",
+        "displayName": "Seattle Seahawks"
+      },
+      "leaders": [
+        {
+          "name": "passingYards",
+          "displayName": "Passing Yards",
+          "leaders": [
+            {
+              "displayValue": "19/38, 202 YDS, 1 TD",
+              "athlete": {
+                "displayName": "Sam Darnold",
+                "position": {
+                  "abbreviation": "QB"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "rushingYards",
+          "displayName": "Rushing Yards",
+          "leaders": [
+            {
+              "displayValue": "27 CAR, 135 YDS",
+              "athlete": {
+                "displayName": "Kenneth Walker III",
+                "position": {
+                  "abbreviation": "RB"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "receivingYards",
+          "displayName": "Receiving Yards",
+          "leaders": [
+            {
+              "displayValue": "6 REC, 61 YDS",
+              "athlete": {
+                "displayName": "Cooper Kupp",
+                "position": {
+                  "abbreviation": "WR"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "sacks",
+          "displayName": "Sacks",
+          "leaders": [
+            {
+              "displayValue": "2",
+              "athlete": {
+                "displayName": "Derick Hall",
+                "position": {
+                  "abbreviation": "LB"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "totalTackles",
+          "displayName": "Tackles",
+          "leaders": [
+            {
+              "displayValue": "11",
+              "athlete": {
+                "displayName": "Ernest Jones IV",
+                "position": {
+                  "abbreviation": "LB"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

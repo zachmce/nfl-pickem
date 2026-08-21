@@ -23,7 +23,9 @@ Design — impure shell / pure never-raising core (mirrors :mod:`app.scoreboard.
   :func:`parse_team_roster`, :func:`parse_athlete_stats`, :func:`parse_athlete_search`,
   :func:`parse_team_schedule`, :func:`parse_game_leaders`,
   :func:`parse_postseason_round`), plus :func:`find_roster_athletes` resolving a name
-  against a raw roster payload, :func:`league_season_year` / :func:`league_season_phase`
+  against a raw roster payload and :func:`find_postseason_games` /
+  :func:`postseason_games_for_team` resolving one playoff game against a raw scoreboard
+  payload, :func:`league_season_year` / :func:`league_season_phase`
   reading the season being played and the phase it is in, and
   :func:`postseason_round_week` turning a round name into the one week number that may
   reach a URL, turning an already-parsed payload into facts. Defensive on EVERY field (isinstance
@@ -1455,6 +1457,7 @@ def _parse_one_postseason_game(event: Any) -> dict[str, Any] | None:
     status_type = status_type if isinstance(status_type, dict) else {}
 
     teams: list[str] = []
+    abbreviations: list[str] = []
     winner: str | None = None
     competitors = competition.get("competitors")
     for competitor in competitors if isinstance(competitors, list) else []:
@@ -1466,11 +1469,18 @@ def _parse_one_postseason_game(event: Any) -> dict[str, Any] | None:
         if club is None:
             continue
         teams.append(club)
+        abbreviation = _first_str(team.get("abbreviation"))
+        if abbreviation is not None:
+            abbreviations.append(abbreviation.upper())
         # Identity, not truthiness: only ESPN's own boolean names a winner.
         if competitor.get("winner") is True:
             winner = club
     if not teams:
         return None
+
+    event_id = _first_str(event.get("id"))
+    if event_id is not None and _EVENT_ID_RE.fullmatch(event_id) is None:
+        event_id = None  # could not be fetched anyway, and must never reach a URL
 
     return {
         "game": _first_str(
@@ -1480,7 +1490,72 @@ def _parse_one_postseason_game(event: Any) -> dict[str, Any] | None:
         "winner": winner,
         "date": _first_str(event.get("date")),
         "completed": status_type.get("completed") is True,
+        "event_id": event_id,
+        "abbreviations": abbreviations,
     }
+
+
+# The fields a postseason game carries into a MODEL-facing payload. ``event_id`` and
+# ``abbreviations`` are absent on purpose: an id the model can see is an id it may learn to
+# send back (D-4 of 260820-s5y), and the abbreviations exist only to match a game.
+_POSTSEASON_RESULT_FIELDS = ("game", "teams", "winner", "date", "completed")
+
+
+def find_postseason_games(payload: Any, *, week: int | None = None) -> list[dict[str, Any]] | None:
+    """Every game in a raw postseason scoreboard, WITH the event id needed to fetch one.
+
+    Pure and never-raising. Reads the RAW payload rather than
+    :func:`parse_postseason_round`'s output, which drops the event id on purpose — the
+    same split :func:`find_roster_athletes` makes against :func:`parse_team_roster`.
+    Returns ``None`` ONLY when the top-level shape is unusable — a non-dict payload,
+    ``events`` that is not a list, or a ``season.type`` that is not the postseason — and
+    ``[]`` when the round carries no usable game, which is a fact the caller reports.
+
+    ``week``, when given, additionally requires the payload's own ``week.number`` echo to
+    match it, so a scoreboard answering a different round than the one asked for can never
+    be read as that round's games.
+    """
+    if not isinstance(payload, dict):
+        return None
+    events = payload.get("events")
+    if not isinstance(events, list):
+        return None
+    season = payload.get("season")
+    season = season if isinstance(season, dict) else {}
+    if season.get("type") != POSTSEASON_SEASON_TYPE:
+        return None
+    if week is not None:
+        echoed = payload.get("week")
+        echoed = echoed if isinstance(echoed, dict) else {}
+        if echoed.get("number") != week:
+            return None
+    return [game for game in map(_parse_one_postseason_game, events) if game is not None]
+
+
+def postseason_games_for_team(games: Any, team: Any) -> list[dict[str, Any]]:
+    """The games out of ``games`` that ``team`` played in. Pure, never raises.
+
+    Matching is EXACT against the club's abbreviation, its full display name, or the
+    nickname its display name ends in — never a substring, because "NE" is a substring of
+    "TENNESSEE TITANS" and a loose match here would return a different game than the one
+    asked about, which is the whole defect this matching exists to prevent (260821-f0s).
+    """
+    needle = team.strip().upper() if isinstance(team, str) else ""
+    if not needle:
+        return []
+    matched: list[dict[str, Any]] = []
+    for game in games if isinstance(games, list) else []:
+        if not isinstance(game, dict):
+            continue
+        candidates = {str(value).upper() for value in game.get("abbreviations") or []}
+        for club in game.get("teams") or []:
+            words = str(club).upper().split()
+            if words:
+                candidates.add(" ".join(words))
+                candidates.add(words[-1])
+        if needle in candidates:
+            matched.append(game)
+    return matched
 
 
 def parse_postseason_round(payload: Any) -> dict | None:
@@ -1496,22 +1571,20 @@ def parse_postseason_round(payload: Any) -> dict | None:
     is what tells a played round apart from a season whose postseason is still ahead of it
     — the measured unplayed shape is a full bracket of ``TBD`` competitors, which is why
     the caller must never relay the games on that branch.
+
+    Each game is PROJECTED down to :data:`_POSTSEASON_RESULT_FIELDS`, which is where the
+    event id stops before it can reach the model.
     """
-    if not isinstance(payload, dict):
-        return None
-    events = payload.get("events")
-    if not isinstance(events, list):
+    found = find_postseason_games(payload)
+    if found is None or not isinstance(payload, dict):
         return None
     season = payload.get("season")
     season = season if isinstance(season, dict) else {}
-    if season.get("type") != POSTSEASON_SEASON_TYPE:
-        return None
-
     week = payload.get("week")
     week = week if isinstance(week, dict) else {}
     year = season.get("year")
     number = week.get("number")
-    games = [game for game in map(_parse_one_postseason_game, events) if game is not None]
+    games = [{field: game[field] for field in _POSTSEASON_RESULT_FIELDS} for game in found]
 
     return {
         "season": year if isinstance(year, int) and not isinstance(year, bool) else None,

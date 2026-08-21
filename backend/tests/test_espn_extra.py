@@ -2317,6 +2317,91 @@ class ParsePostseasonRoundTests(unittest.TestCase):
         self.assertIsNone(facts["games"][0]["winner"])
 
 
+class FindPostseasonGamesTests(unittest.TestCase):
+    """The raw reader behind the game-leaders tool's postseason branch (260821-f0s fix).
+
+    ``parse_postseason_round`` drops the event id on purpose, exactly as
+    ``parse_team_roster`` drops the athlete id, so the id needed to FETCH one playoff
+    game's box score comes from here instead.
+    """
+
+    def test_the_event_id_comes_back_alongside_the_matchup(self) -> None:
+        games = espn_extra.find_postseason_games(_load_super_bowl_fixture())
+        assert games is not None
+        self.assertEqual(len(games), 1)
+        self.assertEqual(games[0]["event_id"], "401772988")
+        self.assertEqual(games[0]["abbreviations"], ["NE", "SEA"])
+        self.assertEqual(games[0]["game"], "Super Bowl LX")
+
+    def test_the_round_result_payload_never_carries_the_id_or_the_abbreviations(self) -> None:
+        # An id the model can SEE is an id it may learn to send back (D-4 of 260820-s5y),
+        # so the projection in parse_postseason_round is where it stops.
+        facts = espn_extra.parse_postseason_round(_load_super_bowl_fixture())
+        assert facts is not None
+        self.assertEqual(
+            sorted(facts["games"][0]), ["completed", "date", "game", "teams", "winner"]
+        )
+        self.assertNotIn("401772988", json.dumps(facts))
+
+    def test_a_non_digit_event_id_comes_back_as_none_never_as_a_url_segment(self) -> None:
+        payload = _load_super_bowl_fixture()
+        payload["events"][0]["id"] = "../../evil"
+        games = espn_extra.find_postseason_games(payload)
+        assert games is not None
+        self.assertIsNone(games[0]["event_id"])
+
+    def test_a_scoreboard_echoing_a_different_week_is_refused(self) -> None:
+        # The caller asks for one round; a payload answering another one must never be
+        # read as that round's games, which would be the substitution defect again.
+        self.assertIsNone(espn_extra.find_postseason_games(_load_super_bowl_fixture(), week=3))
+        self.assertIsNotNone(espn_extra.find_postseason_games(_load_super_bowl_fixture(), week=5))
+
+    def test_a_payload_that_is_not_the_postseason_is_refused(self) -> None:
+        payload = {**_load_super_bowl_fixture(), "season": {"type": 2, "year": 2025}}
+        self.assertIsNone(espn_extra.find_postseason_games(payload))
+
+    def test_a_malformed_payload_never_raises(self) -> None:
+        for bogus in (None, [], "nope", {}, {"events": "nope"}, {"season": {"type": 3}}):
+            with self.subTest(payload=bogus):
+                games = espn_extra.find_postseason_games(bogus)
+                self.assertTrue(games is None or isinstance(games, list))
+
+
+class PostseasonGamesForTeamTests(unittest.TestCase):
+    def test_one_club_selects_its_own_game_out_of_a_two_game_round(self) -> None:
+        # This fixture carries no abbreviations, so it also proves the display-name half
+        # of the match works on its own.
+        games = espn_extra.find_postseason_games(_conference_championships()) or []
+        matched = espn_extra.postseason_games_for_team(games, "seahawks")
+        self.assertEqual([game["game"] for game in matched], ["NFC Championship"])
+
+    def test_the_full_name_and_the_nickname_both_resolve(self) -> None:
+        games = espn_extra.find_postseason_games(_load_super_bowl_fixture()) or []
+        for spelling in ("SEA", "Seattle Seahawks", "seahawks"):
+            with self.subTest(team=spelling):
+                self.assertEqual(len(espn_extra.postseason_games_for_team(games, spelling)), 1)
+
+    def test_matching_is_never_a_substring_match(self) -> None:
+        # "NE" is a substring of "TENNESSEE TITANS"; a loose match here would hand back a
+        # different game than the one asked about, which is the whole defect (260821-f0s).
+        games = [{"teams": ["Tennessee Titans", "Houston Texans"], "abbreviations": ["TEN", "HOU"]}]
+        self.assertEqual(espn_extra.postseason_games_for_team(games, "NE"), [])
+        self.assertEqual(len(espn_extra.postseason_games_for_team(games, "TEN")), 1)
+
+    def test_a_team_that_played_no_game_in_the_round_matches_nothing(self) -> None:
+        games = espn_extra.find_postseason_games(_load_super_bowl_fixture()) or []
+        self.assertEqual(espn_extra.postseason_games_for_team(games, "KC"), [])
+
+    def test_an_empty_or_unusable_team_matches_nothing_and_never_raises(self) -> None:
+        games = espn_extra.find_postseason_games(_load_super_bowl_fixture()) or []
+        for bogus in ("", "   ", None, 7, ["SEA"]):
+            with self.subTest(team=bogus):
+                self.assertEqual(espn_extra.postseason_games_for_team(games, bogus), [])
+        for bogus_games in (None, "nope", [None, 7, {}, {"teams": None}]):
+            with self.subTest(games=bogus_games):
+                self.assertEqual(espn_extra.postseason_games_for_team(bogus_games, "SEA"), [])
+
+
 class FetchPostseasonScoreboardTests(unittest.TestCase):
     def _arm_client(self, response: object) -> None:
         _CapturingAsyncClient.calls = 0
