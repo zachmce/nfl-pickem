@@ -638,6 +638,53 @@ class ShippedRegistryTests(unittest.TestCase):
         self.assertIn("never attach the team it names to a past year", description)
         self.assertIn("does not know which team he played for in any earlier season", description)
 
+    def _game_leaders_description(self) -> str:
+        tool = next(t for t in qa_open.TOOLS if t.name == "lookup_game_leaders")
+        return tool.spec["function"]["description"]
+
+    def test_registry_ships_the_game_tool_with_only_three_parameters(self) -> None:
+        tool = next(t for t in qa_open.TOOLS if t.name == "lookup_game_leaders")
+        params = tool.spec["function"]["parameters"]
+        self.assertEqual(sorted(params["properties"]), ["season", "team", "week"])
+        self.assertEqual(params["properties"]["week"]["type"], "integer")
+        self.assertEqual(params["properties"]["season"]["type"], "integer")
+        # ``team`` alone is required, and the member's own question supplies it — a
+        # required argument the model cannot fill invites it to chain tools (measured 3/3).
+        self.assertEqual(params["required"], ["team"])
+
+    def test_shipped_game_description_instructs_before_it_constrains(self) -> None:
+        # D-4 and the measured suppression regression together: the starter disclaimer is
+        # the constraint most likely to suppress the call, so the instruction to CALL must
+        # come first and must survive any future edit.
+        description = self._game_leaders_description()
+        call = description.index("Call this tool every time")
+        self.assertLess(call, description.index("not necessarily that team's starting"))
+        self.assertLess(call, description.index("It carries neither team's score"))
+
+    def test_shipped_game_description_routes_a_starter_question_to_the_roster_tool(self) -> None:
+        # KC's measured week-18 passing leader was a backup, so the proxy is never
+        # offered and the question goes to the tool that was live-tuned to 5/5 on it.
+        description = self._game_leaders_description()
+        self.assertIn("never call any player this tool names a starter", description)
+        self.assertIn("lookup_team_roster is the tool for that question", description)
+
+    def test_shipped_game_description_reuses_the_stats_tool_season_wording(self) -> None:
+        # D-5: identical phrasing across the two tools on purpose, so the model learns
+        # ONE rule rather than two.
+        shared = (
+            "LEAVE THE SEASON ARGUMENT OUT for every other phrasing, including last "
+            "year, last season and this season"
+        )
+        self.assertIn(shared, self._game_leaders_description())
+        self.assertIn(shared, self._stats_description())
+
+    def test_shipped_game_description_tells_the_model_to_omit_the_week_argument(self) -> None:
+        # D-6: the model cannot know today's date, so "their last game" is the tool's to
+        # resolve, not the model's to guess a week number for.
+        description = self._game_leaders_description()
+        self.assertIn("Pass the week argument ONLY when the member named a week", description)
+        self.assertIn("finds the most recent finished game by itself", description)
+
     def test_each_shipped_description_says_what_it_is_for_without_overlapping(self) -> None:
         # Four tools is a NEW selection surface; each opener must name a different
         # question, and the two older tools must route a current-team question away.
@@ -1632,6 +1679,173 @@ class GameLeadersToolTests(unittest.TestCase):
         self.assertIn("Kansas City Chiefs at Las Vegas Raiders", statement)
         self.assertIn("week 18", statement)
         self.assertIn("2025", statement)
+
+    def _adapter(
+        self,
+        schedule: object,
+        summary: object = None,
+        *,
+        fallback: object = None,
+        **kwargs,
+    ) -> tuple[object, list[dict]]:
+        """Drive the adapter with both hops stubbed, recording every schedule request.
+
+        ``fallback`` is the payload the SECOND schedule fetch returns, so D-7's one-season
+        step-back is asserted by request count and season argument, not merely by outcome.
+        Passing no ``summary`` arms a stub that FAILS the test if the summary is fetched.
+        """
+        requests: list[dict] = []
+
+        async def _fake_schedule(team_abbr, *, season=None):
+            requests.append({"team": team_abbr, "season": season})
+            if len(requests) > 1 and fallback is not None:
+                return fallback
+            return schedule
+
+        async def _fake_summary(event_id):
+            if summary is None:
+                raise AssertionError("the summary must not be fetched on this branch")
+            return summary
+
+        with (
+            mock.patch.object(espn_extra, "fetch_team_schedule", _fake_schedule),
+            mock.patch.object(espn_extra, "fetch_game_summary", _fake_summary),
+        ):
+            return _run(qa_open._lookup_game_leaders(**kwargs)), requests
+
+    def _offseason(self) -> dict:
+        """The schedule fixture as an UNSTARTED season: one year later, nothing finished.
+
+        Built here rather than captured, so the two-fetch assertion is exact.
+        """
+        schedule = self._schedule()
+        schedule["requestedSeason"]["year"] += 1
+        for event in schedule["events"]:
+            event["competitions"][0]["status"]["type"]["completed"] = False
+        return schedule
+
+    def test_the_real_bye_week_returns_the_bye_note_and_no_leaders(self) -> None:
+        out, _requests = self._adapter(self._schedule(), team="KC", week=10)
+        assert isinstance(out, dict)
+        self.assertEqual(sorted(out), ["note"])
+        self.assertIn("bye week", out["note"])
+        self.assertIn("week 10", out["note"])
+        self.assertIn("Kansas City Chiefs", out["note"])
+        self.assertIn("never give him a different week's game", out["note"])
+
+    def test_a_week_the_team_did_not_play_returns_its_own_note(self) -> None:
+        out, _requests = self._adapter(self._schedule(), team="KC", week=5)
+        assert isinstance(out, dict)
+        self.assertIn("no Kansas City Chiefs regular-season game in week 5", out["note"])
+        self.assertNotIn("bye", out["note"])
+
+    def test_an_unplayed_game_names_its_date_and_fetches_no_summary(self) -> None:
+        # The measured unplayed payload is 109 KB and carries no leaders at all, so the
+        # summary stub raises: if this branch ever fetches, this test fails loudly.
+        out, _requests = self._adapter(self._schedule(), team="KC", week=19)
+        assert isinstance(out, dict)
+        self.assertIn("has not been played yet", out["note"])
+        self.assertIn("2026-01-11T21:25Z", out["note"])
+        self.assertIn("Kansas City Chiefs at Las Vegas Raiders", out["note"])
+
+    def test_an_unstarted_season_falls_back_one_year_and_says_so(self) -> None:
+        out, requests = self._adapter(
+            self._offseason(), self._leaders(), fallback=self._schedule(), team="KC"
+        )
+        assert isinstance(out, dict)
+        self.assertEqual([r["season"] for r in requests], [None, 2025])
+        self.assertEqual(out["season"], 2025)
+        statement = out["game_statement"]
+        self.assertIn("The 2026 NFL season has not started yet", statement)
+        self.assertIn("never call it a game from this season", statement)
+
+    def test_an_explicit_season_never_falls_back(self) -> None:
+        # D-7's predicate is deliberately narrow: a member who NAMED a year gets that
+        # year's answer or a note about it, never a quietly substituted older season.
+        out, requests = self._adapter(
+            self._offseason(), fallback=self._schedule(), team="KC", season=2026
+        )
+        assert isinstance(out, dict)
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(requests[0]["season"], 2026)
+        self.assertIn("have not finished a single regular-season game", out["note"])
+
+    def test_a_summary_with_no_leaders_keeps_the_game_it_already_resolved(self) -> None:
+        # The predecessor's measured lesson: a bare miss AFTER a successful resolution
+        # made the model deny what it had just found.
+        summary = self._leaders()
+        del summary["leaders"]
+        out, _requests = self._adapter(self._schedule(), summary, team="KC")
+        assert isinstance(out, dict)
+        self.assertIn("Kansas City Chiefs at Las Vegas Raiders", out["note"])
+        self.assertIn("week 18", out["note"])
+        self.assertIn("never say that the game did not happen", out["note"])
+
+    def test_a_failed_schedule_fetch_degrades_to_none(self) -> None:
+        out, _requests = self._adapter(None, team="KC")
+        self.assertIsNone(out)
+
+    def test_a_forgotten_team_degrades_without_raising_and_without_fetching(self) -> None:
+        out, requests = self._adapter(self._schedule())
+        self.assertIsNone(out)
+        self.assertEqual(requests, [])
+
+    def test_no_branch_ever_carries_either_team_score(self) -> None:
+        # D-2, asserted on the RUNTIME values of every branch — never as a grep over the
+        # source or the statements, which legitimately contain the word score to forbid it.
+        summary_gone = self._leaders()
+        del summary_gone["leaders"]
+        branches = {
+            "happy": self._adapter(self._schedule(), self._leaders(), team="KC"),
+            "bye": self._adapter(self._schedule(), team="KC", week=10),
+            "no game": self._adapter(self._schedule(), team="KC", week=5),
+            "unplayed": self._adapter(self._schedule(), team="KC", week=19),
+            "fallback": self._adapter(
+                self._offseason(), self._leaders(), fallback=self._schedule(), team="KC"
+            ),
+            "no leaders": self._adapter(self._schedule(), summary_gone, team="KC"),
+            "unstarted": self._adapter(self._offseason(), team="KC", season=2026),
+        }
+        for label, (out, _requests) in branches.items():
+            with self.subTest(branch=label):
+                rendered = json.dumps(out)
+                self.assertNotIn("9991", rendered)
+                self.assertNotIn("9992", rendered)
+
+    def test_the_statement_bans_the_score_unconditionally_and_names_the_winner(self) -> None:
+        out, _requests = self._adapter(self._schedule(), self._leaders(), team="KC")
+        assert isinstance(out, dict)
+        statement = out["game_statement"]
+        self.assertEqual(out["winner"], "Las Vegas Raiders")
+        self.assertIn("The Las Vegas Raiders won that game", statement)
+        self.assertIn("Never state the score of that game", statement)
+        # Unconditional: the ban must not be something the model has to decide to apply.
+        ban = statement[statement.index("The final score") :]
+        self.assertNotRegex(ban, r"\bif\b")
+
+    def test_the_caveat_bans_a_starter_claim_unconditionally(self) -> None:
+        # D-4, on the runtime string the adapter produced. KC's measured week-18 passing
+        # leader was Shane Buechele, a backup, which is why this is never a hedge.
+        out, _requests = self._adapter(self._schedule(), self._leaders(), team="KC")
+        assert isinstance(out, dict)
+        caveat = out["caveat"]
+        self.assertEqual(caveat, espn_extra.GAME_LEADERS_CAVEAT)
+        self.assertIn("never call any player named here a starter", caveat)
+        self.assertNotRegex(caveat, r"\bif\b")
+        self.assertNotIn("when the member asks", caveat)
+
+    def test_the_leaders_are_keyed_by_full_club_name_never_an_abbreviation(self) -> None:
+        # D-3: every player sits under a spelled-out club, so he cannot be read off
+        # against the other one.
+        out, _requests = self._adapter(self._schedule(), self._leaders(), team="KC")
+        assert isinstance(out, dict)
+        self.assertEqual(sorted(out["leaders"]), ["Kansas City Chiefs", "Las Vegas Raiders"])
+
+    def test_the_payload_stays_inside_the_shipped_tools_budget(self) -> None:
+        # T-f0s-06: the shipped stats tool returns 2.2-3.4 KB against a 3-round /
+        # 20-second loop, and this must not be the entry that breaks it.
+        out, _requests = self._adapter(self._schedule(), self._leaders(), team="KC")
+        self.assertLess(len(json.dumps(out)), 3400)
 
 
 class ToolLoopTests(unittest.TestCase):
