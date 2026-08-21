@@ -99,21 +99,36 @@ def _unplayed_super_bowl(season: int = 2026) -> dict:
 
 
 def _conference_championships() -> dict:
-    """The REAL 2025 postseason week 3 — two games under two ESPN headlines, sentinel
-    scores. Two games is the case the single-game fixture cannot cover."""
+    """The REAL 2025 postseason week 3 — two games, two ESPN headlines, sentinel scores.
 
-    def _game(headline: str, winner: str, loser: str) -> dict:
+    Two games is the case the single-game Super Bowl fixture cannot cover: it is what a
+    round needing a team to pick one game out of it looks like. The event ids and the
+    abbreviations are the real ones (measured 2026-08-21), because both are what the
+    game-leaders tool resolves a postseason game through.
+    """
+
+    def _game(
+        event_id: str, headline: str, winner: tuple[str, str], loser: tuple[str, str]
+    ) -> dict:
         return {
-            "id": "401772980",
-            "shortName": f"{winner} @ {loser}",
+            "id": event_id,
+            "shortName": f"{winner[0]} @ {loser[0]}",
             "date": "2026-01-25T20:00Z",
             "competitions": [
                 {
                     "notes": [{"type": "event", "headline": headline}],
                     "status": {"type": {"name": "STATUS_FINAL", "completed": True}},
                     "competitors": [
-                        {"winner": False, "score": "9991", "team": {"displayName": loser}},
-                        {"winner": True, "score": "9992", "team": {"displayName": winner}},
+                        {
+                            "winner": False,
+                            "score": "9991",
+                            "team": {"abbreviation": loser[0], "displayName": loser[1]},
+                        },
+                        {
+                            "winner": True,
+                            "score": "9992",
+                            "team": {"abbreviation": winner[0], "displayName": winner[1]},
+                        },
                     ],
                 }
             ],
@@ -123,8 +138,18 @@ def _conference_championships() -> dict:
         "season": {"type": 3, "year": 2025},
         "week": {"number": 3},
         "events": [
-            _game("AFC Championship", "New England Patriots", "Denver Broncos"),
-            _game("NFC Championship", "Seattle Seahawks", "Los Angeles Rams"),
+            _game(
+                "401772986",
+                "AFC Championship",
+                ("NE", "New England Patriots"),
+                ("DEN", "Denver Broncos"),
+            ),
+            _game(
+                "401772987",
+                "NFC Championship",
+                ("SEA", "Seattle Seahawks"),
+                ("LAR", "Los Angeles Rams"),
+            ),
         ],
     }
 
@@ -753,15 +778,47 @@ class ShippedRegistryTests(_OpenPathTestCase):
         tool = next(t for t in qa_open.TOOLS if t.name == "lookup_game_leaders")
         return tool.spec["function"]["description"]
 
-    def test_registry_ships_the_game_tool_with_only_three_parameters(self) -> None:
+    def test_registry_ships_the_game_tool_with_only_four_parameters(self) -> None:
         tool = next(t for t in qa_open.TOOLS if t.name == "lookup_game_leaders")
         params = tool.spec["function"]["parameters"]
-        self.assertEqual(sorted(params["properties"]), ["season", "team", "week"])
+        self.assertEqual(sorted(params["properties"]), ["playoff_round", "season", "team", "week"])
         self.assertEqual(params["properties"]["week"]["type"], "integer")
         self.assertEqual(params["properties"]["season"]["type"], "integer")
-        # ``team`` alone is required, and the member's own question supplies it — a
-        # required argument the model cannot fill invites it to chain tools (measured 3/3).
-        self.assertEqual(params["required"], ["team"])
+        self.assertEqual(params["properties"]["playoff_round"]["type"], "string")
+        # NOTHING is required. ``team`` was required until 2026-08-21, and a Super Bowl
+        # question is exactly the case the member's own words cannot fill it from — a
+        # required argument the model cannot fill invites tool chaining (measured 3/3).
+        self.assertEqual(params["required"], [])
+
+    def test_both_round_taking_tools_share_one_round_vocabulary(self) -> None:
+        # The model learns ONE set of round names rather than two, and the sharing is a
+        # code fact rather than two lists that agree today.
+        specs = {
+            tool.name: tool.spec["function"]["parameters"]["properties"]["playoff_round"]["enum"]
+            for tool in qa_open.TOOLS
+            if "playoff_round" in tool.spec["function"]["parameters"]["properties"]
+        }
+        self.assertEqual(sorted(specs), ["lookup_game_leaders", "lookup_playoff_results"])
+        self.assertEqual(
+            specs["lookup_game_leaders"],
+            ["wild card", "divisional", "conference championships", "super bowl"],
+        )
+        self.assertEqual(specs["lookup_game_leaders"], specs["lookup_playoff_results"])
+
+    def test_shipped_game_description_tells_the_model_to_pass_the_playoff_round(self) -> None:
+        # THE live 2026-08-21 defect: asked who led the Super Bowl in rushing, the tool
+        # could reach only the regular-season schedule and answered about a week-18 game.
+        # Reaching the right game starts with the model naming the round.
+        description = self._game_leaders_description()
+        self.assertIn(
+            "Pass the playoff_round argument every time the member asks about a playoff "
+            "game, a conference championship game or a Super Bowl",
+            description,
+        )
+        self.assertIn(
+            "never report a different game's figures as though they were that game's",
+            description,
+        )
 
     def test_shipped_game_description_instructs_before_it_constrains(self) -> None:
         # D-4 and the measured suppression regression together: the starter disclaimer is
@@ -849,8 +906,10 @@ class ShippedRegistryTests(_OpenPathTestCase):
 
     def test_the_whole_registry_stays_inside_a_stated_prompt_budget(self) -> None:
         # Every spec costs tokens on EVERY open call and adds a way to mis-select, so the
-        # total is pinned rather than left to drift. Measured 2026-08-21: 11,272 bytes
-        # across five tools (8,804 across the four before this one).
+        # total is pinned rather than left to drift. Measured 2026-08-21: 12,447 bytes
+        # across five tools, up from 11,272 when lookup_game_leaders gained its postseason
+        # branch. The pin was NOT raised for that growth, which leaves 53 bytes — the next
+        # edit that adds a sentence must weigh it against the pin rather than slip past it.
         total = sum(len(json.dumps(tool.spec)) for tool in qa_open.TOOLS)
         self.assertLess(total, 12500, f"the shipped tool specs now total {total} bytes")
 
@@ -874,10 +933,13 @@ class ShippedRegistryTests(_OpenPathTestCase):
             openers["lookup_player_current_team"],
             "Look up which NFL team one player is on RIGHT NOW",
         )
+        # The two game/playoff openers name DIFFERENT questions on purpose: one is which
+        # players LED one game, the other is which teams WON a whole round.
         self.assertEqual(
             openers["lookup_game_leaders"],
-            "Look up how one NFL team's game went and which players led that single game "
-            "in passing, rushing, receiving, sacks and tackles",
+            "Look up which players led ONE single NFL game in passing, rushing, "
+            "receiving, sacks and tackles, and which team won that one game, in the "
+            "regular season or in the playoffs",
         )
         self.assertEqual(
             openers["lookup_playoff_results"],
@@ -1804,6 +1866,11 @@ class CurrentTeamToolTests(_OpenPathTestCase):
 
 _SCHEDULE_FIXTURE = Path(__file__).parent / "fixtures" / "espn_team_schedule.json"
 _GAME_LEADERS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_game_leaders.json"
+# The REAL Super Bowl LX summary (event 401772988), trimmed to the two blocks the parser
+# reads and given the sentinel scores. It is the payload the reported defect got wrong.
+_SUPER_BOWL_SUMMARY_FIXTURE = (
+    Path(__file__).parent / "fixtures" / "espn_postseason_super_bowl_summary.json"
+)
 
 
 class GameLeadersToolTests(_OpenPathTestCase):
@@ -1960,8 +2027,14 @@ class GameLeadersToolTests(_OpenPathTestCase):
         self.assertIsNone(out)
 
     def test_a_forgotten_team_degrades_without_raising_and_without_fetching(self) -> None:
+        # A NOTE and not bare ``None`` since 2026-08-21: ``None`` becomes
+        # _NO_DATA_PAYLOAD, which tells the model to answer from the stale memory this
+        # tool exists to replace — the "fills any gap" failure, in its quietest form.
         out, requests = self._adapter(self._schedule())
-        self.assertIsNone(out)
+        assert isinstance(out, dict)
+        self.assertEqual(sorted(out), ["note"])
+        self.assertIn("named no NFL team and no playoff round", out["note"])
+        self.assertIn("never describe a game from your own memory", out["note"])
         self.assertEqual(requests, [])
 
     def test_no_branch_ever_carries_either_team_score(self) -> None:
@@ -2020,6 +2093,393 @@ class GameLeadersToolTests(_OpenPathTestCase):
         # 20-second loop, and this must not be the entry that breaks it.
         out, _requests = self._adapter(self._schedule(), self._leaders(), team="KC")
         self.assertLess(len(json.dumps(out)), 3400)
+
+    def test_a_regular_season_answer_says_it_is_not_a_playoff_game(self) -> None:
+        # The second barrier behind the postseason branch: on the round where the model
+        # asks about a Super Bowl WITHOUT a playoff_round and lands here instead, it is
+        # still told outright that these are not that game's figures. Unconditional, as
+        # a caveat the model has to decide whether to apply is one it drops (3/3).
+        out, _requests = self._adapter(self._schedule(), self._leaders(), team="KC")
+        assert isinstance(out, dict)
+        statement = out["game_statement"]
+        self.assertIn("it is not a playoff game", statement)
+        self.assertIn("not the Super Bowl", statement)
+        self.assertIn(
+            "Never report any figure below as a figure from a playoff game or from the Super Bowl",
+            statement,
+        )
+        clause = statement[statement.index("The game described here") :]
+        self.assertNotRegex(clause, r"\bif\b")
+
+
+class PlayoffGameLeadersToolTests(_OpenPathTestCase):
+    """The POSTSEASON branch of the game tool — the 2026-08-21 live defect's fix.
+
+    Reported transcript: "who won the superbowl last year?" answered correctly, then "who
+    led that game in rushing?" came back as Kenneth Walker III with 97 yards against San
+    Francisco — a REGULAR-SEASON week 18 game, because the tool could reach nothing else.
+    The right answer is 27 carries for 135 yards against New England, and these tests pin
+    both halves: that the Super Bowl is now reachable, and that a game which is NOT
+    reachable comes back as a note naming no other game's figures.
+    """
+
+    def _scoreboard(self) -> dict:
+        return _super_bowl()
+
+    def _summary(self) -> dict:
+        return json.loads(_SUPER_BOWL_SUMMARY_FIXTURE.read_text())
+
+    def _adapter(
+        self,
+        *,
+        league: object = _LEAGUE_ROOT_2026,
+        rounds: dict | None = None,
+        summary: object = None,
+        **kwargs,
+    ) -> tuple[object, list[tuple[object, object]], list[object]]:
+        """Drive the adapter with all three seams stubbed, recording every request.
+
+        Passing no ``summary`` arms a stub that FAILS the test if the summary is fetched —
+        the miss branches must cost nothing, and must never reach a game's figures.
+        """
+        scoreboards: list[tuple[object, object]] = []
+        summaries: list[object] = []
+
+        async def _fake_league():
+            return league
+
+        async def _fake_postseason(season, week):
+            scoreboards.append((season, week))
+            return (rounds or {}).get((season, week))
+
+        async def _fake_summary(event_id):
+            summaries.append(event_id)
+            if summary is None:
+                raise AssertionError("the summary must not be fetched on this branch")
+            return summary
+
+        with (
+            mock.patch.object(espn_extra, "fetch_league", _fake_league),
+            mock.patch.object(espn_extra, "fetch_postseason_scoreboard", _fake_postseason),
+            mock.patch.object(espn_extra, "fetch_game_summary", _fake_summary),
+        ):
+            out = _run(qa_open._lookup_game_leaders(**kwargs))
+        return out, scoreboards, summaries
+
+    def test_the_reported_question_now_reaches_the_super_bowl(self) -> None:
+        # THE defect, end to end. Measured live 2026-08-21 against ESPN: Kenneth Walker
+        # III, 27 CAR, 135 YDS — never the 97 yards the week-18 game produced.
+        out, scoreboards, summaries = self._adapter(
+            rounds={(2025, 5): self._scoreboard()},
+            summary=self._summary(),
+            team="SEA",
+            playoff_round="super bowl",
+            season=2025,
+        )
+        assert isinstance(out, dict)
+        self.assertEqual(scoreboards, [(2025, 5)])
+        self.assertEqual(summaries, ["401772988"])
+        seahawks = out["leaders"]["Seattle Seahawks"]
+        rushing = next(row for row in seahawks if row["category"] == "Rushing Yards")
+        self.assertEqual(rushing["player"], "Kenneth Walker III")
+        self.assertEqual(rushing["stat_line"], "27 CAR, 135 YDS")
+        self.assertEqual(out["winner"], "Seattle Seahawks")
+        self.assertEqual(out["round"], "Super Bowl")
+        self.assertEqual(out["season"], 2025)
+
+    def test_the_facts_state_which_game_they_describe(self) -> None:
+        # Requirement 4 of the defect report: round, season and BOTH clubs, so the model
+        # cannot narrate a different game. ESPN's own name for this one is "Super Bowl
+        # LX", which names no team at all, so the statement names them itself.
+        out, _scoreboards, _summaries = self._adapter(
+            rounds={(2025, 5): self._scoreboard()},
+            summary=self._summary(),
+            team="SEA",
+            playoff_round="super bowl",
+            season=2025,
+        )
+        assert isinstance(out, dict)
+        statement = out["game_statement"]
+        self.assertIn("Super Bowl LX", statement)
+        self.assertIn("the New England Patriots and the Seattle Seahawks", statement)
+        self.assertIn("in the Super Bowl of the 2025 NFL season", statement)
+        self.assertIn("The Seattle Seahawks won that game", statement)
+        # No week number anywhere: a bare "week 5" would be read as a regular-season week.
+        self.assertNotIn("week", statement.lower())
+        self.assertNotIn("week", out)
+
+    def test_a_conference_championship_resolves_the_teams_own_game(self) -> None:
+        out, scoreboards, summaries = self._adapter(
+            rounds={(2025, 3): _conference_championships()},
+            summary=self._summary(),
+            team="NE",
+            playoff_round="conference championships",
+            season=2025,
+        )
+        assert isinstance(out, dict)
+        self.assertEqual(scoreboards, [(2025, 3)])
+        # The AFC game's id, never the NFC game's — the round holds two games.
+        self.assertEqual(summaries, ["401772986"])
+        self.assertEqual(out["round"], "conference championship games")
+        self.assertIn("the AFC Championship", out["game_statement"])
+        self.assertIn("the Denver Broncos and the New England Patriots", out["game_statement"])
+
+    def test_a_team_that_did_not_play_the_round_is_never_given_another_game(self) -> None:
+        # THE defect's shape: an unreachable game must not become a reachable one. The
+        # note names the matchups so the model can say what it does have, and carries no
+        # figure from any of them — the summary stub raises if one is fetched.
+        out, _scoreboards, summaries = self._adapter(
+            rounds={(2025, 5): self._scoreboard()},
+            team="KC",
+            playoff_round="super bowl",
+            season=2025,
+        )
+        assert isinstance(out, dict)
+        self.assertEqual(sorted(out), ["note"])
+        self.assertEqual(summaries, [])
+        self.assertIn("did not play in the Super Bowl of the 2025 NFL season", out["note"])
+        self.assertIn("the New England Patriots and the Seattle Seahawks", out["note"])
+        self.assertIn("never report any figure from one of those other games", out["note"])
+        self.assertNotIn("Kenneth Walker", out["note"])
+        self.assertNotIn("YDS", out["note"])
+
+    def test_a_multi_game_round_with_no_team_asks_which_game_instead_of_picking_one(
+        self,
+    ) -> None:
+        out, _scoreboards, summaries = self._adapter(
+            rounds={(2025, 3): _conference_championships()},
+            playoff_round="conference championships",
+            season=2025,
+        )
+        assert isinstance(out, dict)
+        self.assertEqual(sorted(out), ["note"])
+        self.assertEqual(summaries, [])
+        self.assertIn("was more than one game", out["note"])
+        self.assertIn("Ask the member which of those games he means", out["note"])
+        self.assertIn("never pick one of those games yourself", out["note"])
+
+    def test_a_single_game_round_needs_no_team_at_all(self) -> None:
+        # The reason ``team`` stopped being required: a Super Bowl question is exactly the
+        # one the member's own words cannot fill it from.
+        out, _scoreboards, summaries = self._adapter(
+            rounds={(2025, 5): self._scoreboard()},
+            summary=self._summary(),
+            playoff_round="super bowl",
+            season=2025,
+        )
+        assert isinstance(out, dict)
+        self.assertEqual(summaries, ["401772988"])
+        self.assertEqual(out["winner"], "Seattle Seahawks")
+
+    def test_the_pro_bowl_declines_explicitly_and_fetches_nothing(self) -> None:
+        # Measured live: a member asked who played QB in the last Pro Bowl and the bot
+        # declined by accident, having no route to it. It now declines on purpose, and
+        # week 4 is still never requested.
+        for spelling in ("pro bowl", "Pro Bowl", "the Pro-Bowl Games"):
+            with self.subTest(round=spelling):
+                out, scoreboards, summaries = self._adapter(
+                    rounds={(2025, 5): self._scoreboard()},
+                    team="SEA",
+                    playoff_round=spelling,
+                    season=2025,
+                )
+                assert isinstance(out, dict)
+                self.assertEqual(sorted(out), ["note"])
+                self.assertEqual(scoreboards, [])
+                self.assertEqual(summaries, [])
+                self.assertIn("exhibition game rather than a playoff round", out["note"])
+                self.assertIn("no Pro Bowl data", out["note"])
+
+    def test_only_a_playoff_week_ever_reaches_the_seam(self) -> None:
+        # Whatever the model writes for the round, the week that leaves this adapter is
+        # one of four literals out of espn_extra's own table — never the Pro Bowl's 4.
+        for spelling in (
+            "super bowl",
+            "wild card",
+            "divisional round",
+            "AFC Championship",
+            "pro bowl",
+            "the quarterfinals",
+            "week 4",
+        ):
+            with self.subTest(round=spelling):
+                _out, scoreboards, _summaries = self._adapter(
+                    team="SEA", playoff_round=spelling, season=2025
+                )
+                for _season, week in scoreboards:
+                    self.assertIn(week, espn_extra.POSTSEASON_WEEKS)
+                    self.assertNotEqual(week, espn_extra.PRO_BOWL_WEEK)
+
+    def test_an_unknown_round_asks_which_one_instead_of_substituting_one(self) -> None:
+        out, scoreboards, _summaries = self._adapter(
+            team="SEA", playoff_round="the quarterfinals", season=2025
+        )
+        assert isinstance(out, dict)
+        self.assertIn("no playoff round by that name", out["note"])
+        self.assertEqual(scoreboards, [])
+
+    def test_a_round_nobody_has_played_says_so_about_that_season_only(self) -> None:
+        out, _scoreboards, summaries = self._adapter(
+            rounds={(2026, 5): _unplayed_super_bowl(2026)},
+            team="SEA",
+            playoff_round="super bowl",
+            season=2026,
+        )
+        assert isinstance(out, dict)
+        self.assertEqual(summaries, [])
+        self.assertIn("The 2026 NFL season's postseason has not been played yet", out["note"])
+
+    def test_a_season_outside_espns_record_never_says_the_games_were_not_played(self) -> None:
+        out, scoreboards, _summaries = self._adapter(
+            team="SEA", playoff_round="super bowl", season=1966
+        )
+        assert isinstance(out, dict)
+        self.assertEqual(scoreboards, [(1966, 5)])
+        self.assertIn("no results at all for the Super Bowl of the 1966 NFL season", out["note"])
+        self.assertIn("never tell him that those games have not been played", out["note"])
+
+    def test_the_default_season_is_the_most_recent_finished_one_never_the_models_own(
+        self,
+    ) -> None:
+        # Same resolution lookup_playoff_results makes, on the same cached entry, so the
+        # two tools can never name different years for "the last Super Bowl".
+        out, scoreboards, _summaries = self._adapter(
+            rounds={(2025, 5): self._scoreboard(), (2026, 5): _unplayed_super_bowl(2026)},
+            summary=self._summary(),
+            team="SEA",
+            playoff_round="super bowl",
+        )
+        assert isinstance(out, dict)
+        self.assertEqual(out["season"], 2025)
+        self.assertEqual(scoreboards, [(2026, 5), (2025, 5)])
+
+    def test_an_unreadable_league_root_asks_for_a_season_instead_of_guessing_one(self) -> None:
+        out, scoreboards, _summaries = self._adapter(
+            league=None, team="SEA", playoff_round="super bowl"
+        )
+        assert isinstance(out, dict)
+        self.assertIn("never work a year out for yourself", out["note"])
+        self.assertEqual(scoreboards, [])
+
+    def test_a_summary_with_no_leaders_keeps_the_game_it_already_resolved(self) -> None:
+        summary = self._summary()
+        del summary["leaders"]
+        out, _scoreboards, _summaries = self._adapter(
+            rounds={(2025, 5): self._scoreboard()},
+            summary=summary,
+            team="SEA",
+            playoff_round="super bowl",
+            season=2025,
+        )
+        assert isinstance(out, dict)
+        self.assertIn("Super Bowl LX", out["note"])
+        self.assertIn("never say that the game did not happen", out["note"])
+        self.assertIn(
+            "never give a figure from your own memory or from a different game", out["note"]
+        )
+
+    def test_a_game_carrying_no_usable_event_id_never_fetches_and_never_substitutes(
+        self,
+    ) -> None:
+        # The event id is read out of a scoreboard payload and still digit-guarded before
+        # it could reach a URL (T-f0s-03); an unusable one is a miss, not another game.
+        scoreboard = self._scoreboard()
+        scoreboard["events"][0]["id"] = "not-an-id"
+        out, _scoreboards, summaries = self._adapter(
+            rounds={(2025, 5): scoreboard},
+            team="SEA",
+            playoff_round="super bowl",
+            season=2025,
+        )
+        assert isinstance(out, dict)
+        self.assertEqual(summaries, [])
+        self.assertIn("Super Bowl LX", out["note"])
+
+    def test_every_outcome_is_a_dict_never_the_bare_none_that_reads_as_silence(self) -> None:
+        rounds = {
+            (2025, 5): self._scoreboard(),
+            (2025, 3): _conference_championships(),
+            (2026, 5): _unplayed_super_bowl(2026),
+        }
+        branches = {
+            "played": {"team": "SEA", "playoff_round": "super bowl", "season": 2025},
+            "wrong team": {"team": "KC", "playoff_round": "super bowl", "season": 2025},
+            "multi game": {"playoff_round": "conference championships", "season": 2025},
+            "unplayed": {"team": "SEA", "playoff_round": "super bowl", "season": 2026},
+            "no record": {"team": "SEA", "playoff_round": "super bowl", "season": 1966},
+            "pro bowl": {"team": "SEA", "playoff_round": "pro bowl", "season": 2025},
+            "unknown round": {"team": "SEA", "playoff_round": "nonsense", "season": 2025},
+            "nothing at all": {},
+        }
+        for label, kwargs in branches.items():
+            with self.subTest(branch=label):
+                out, _scoreboards, _summaries = self._adapter(
+                    rounds=rounds, summary=self._summary(), **kwargs
+                )
+                self.assertIsInstance(out, dict)
+
+    def test_no_branch_ever_carries_either_team_score(self) -> None:
+        # D-2, on the RUNTIME values: both fixtures' scores are the sentinels 9991 and
+        # 9992, so "never read" is an assertion and not a comment.
+        rounds = {
+            (2025, 5): self._scoreboard(),
+            (2025, 3): _conference_championships(),
+            (2026, 5): _unplayed_super_bowl(2026),
+        }
+        for label, kwargs in {
+            "super bowl": {"team": "SEA", "playoff_round": "super bowl", "season": 2025},
+            "conference": {
+                "team": "NE",
+                "playoff_round": "conference championships",
+                "season": 2025,
+            },
+            "wrong team": {"team": "KC", "playoff_round": "super bowl", "season": 2025},
+            "multi game": {"playoff_round": "conference championships", "season": 2025},
+            "unplayed": {"team": "SEA", "playoff_round": "super bowl", "season": 2026},
+        }.items():
+            with self.subTest(branch=label):
+                out, _scoreboards, _summaries = self._adapter(
+                    rounds=rounds, summary=self._summary(), **kwargs
+                )
+                rendered = json.dumps(out)
+                self.assertNotIn("9991", rendered)
+                self.assertNotIn("9992", rendered)
+
+    def test_no_payload_ever_carries_an_event_id(self) -> None:
+        # D-4's discipline: an id the model can SEE is an id it may learn to send back.
+        out, _scoreboards, _summaries = self._adapter(
+            rounds={(2025, 5): self._scoreboard()},
+            summary=self._summary(),
+            team="SEA",
+            playoff_round="super bowl",
+            season=2025,
+        )
+        self.assertNotIn("401772988", json.dumps(out))
+
+    def test_the_payload_stays_inside_the_shipped_tools_budget(self) -> None:
+        out, _scoreboards, _summaries = self._adapter(
+            rounds={(2025, 5): self._scoreboard()},
+            summary=self._summary(),
+            team="SEA",
+            playoff_round="super bowl",
+            season=2025,
+        )
+        self.assertLess(len(json.dumps(out)), 3400)
+
+    def test_the_caveat_is_the_same_one_the_regular_season_branch_carries(self) -> None:
+        out, _scoreboards, _summaries = self._adapter(
+            rounds={(2025, 5): self._scoreboard()},
+            summary=self._summary(),
+            team="SEA",
+            playoff_round="super bowl",
+            season=2025,
+        )
+        assert isinstance(out, dict)
+        self.assertEqual(out["caveat"], espn_extra.GAME_LEADERS_CAVEAT)
+        statement = out["game_statement"]
+        self.assertIn("Never state the score of that game", statement)
+        ban = statement[statement.index("The final score") :]
+        self.assertNotRegex(ban, r"\bif\b")
 
 
 class _FrozenClock:

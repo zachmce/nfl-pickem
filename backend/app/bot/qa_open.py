@@ -901,36 +901,51 @@ _CURRENT_TEAM_TOOL_DESCRIPTION = (
 
 
 async def _lookup_game_leaders(
-    team: str = "", week: int | None = None, season: int | None = None
+    team: str = "", week: int | None = None, season: int | None = None, playoff_round: str = ""
 ) -> object | None:
-    """Look up who led ONE of ``team``'s regular-season games, and who won it.
+    """Look up who led ONE NFL game, regular season or postseason, and who won it.
 
-    Two cached hops on the happy path: the schedule resolves which game is meant, then the
-    game summary yields the leaders. The summary is NOT fetched on any miss branch — the
-    measured unplayed payload is 109 KB and carries no ``leaders`` key at all, so fetching
-    it would cost that much to learn nothing.
+    Two cached hops on either happy path: one hop resolves WHICH game is meant, then the
+    game summary yields the leaders. ``playoff_round`` picks the resolver — with it the
+    postseason scoreboard resolves the game (:func:`_playoff_game_leaders`), without it the
+    team's regular-season schedule does. The summary is NOT fetched on any miss branch —
+    the measured unplayed payload is 109 KB and carries no ``leaders`` key at all, so
+    fetching it would cost that much to learn nothing.
+
+    The postseason branch is the fix for the live 2026-08-21 defect: asked who led the
+    Super Bowl in rushing, this tool could reach only the regular-season schedule, so it
+    answered about a week-18 game against a different opponent with a different rushing
+    total and never said it had changed games. ``playoff_round`` reuses
+    ``lookup_playoff_results``' round vocabulary EXACTLY, so the model learns one set of
+    round names rather than two, and an unreachable game now returns a note that says which
+    game could not be found instead of a reachable game's figures.
 
     ``week`` and ``season`` never reach a URL as the model wrote them: ``week`` is a parser
-    argument only, and ``season`` passes an integer range check inside the seam before the
-    format string runs. With no ``week`` the most recent COMPLETED game is selected and the
-    payload says which week that was (D-6); with no ``season`` ESPN's own
+    argument only (and is ignored entirely on the postseason branch, where the round
+    already fixes the week), and ``season`` passes an integer range check inside the seam
+    before the format string runs. With no ``week`` the most recent COMPLETED game is
+    selected and the payload says which week that was (D-6); with no ``season`` ESPN's own
     ``requestedSeason`` echo names the year, so the model never works one out from "last
     year" (D-5).
 
     Every argument defaults so a model that forgets one degrades rather than raising a
-    TypeError into the loop, and an empty ``team`` returns before the first hop — there is
-    nothing to resolve, so no live GET is worth making. Past that point every outcome is a
-    NOTE, never bare ``None``, which becomes :data:`_NO_DATA_PAYLOAD` and sends the model
-    back to the stale memory this tool exists to replace (D-5 of the predecessor task).
+    TypeError into the loop, and a question naming neither a team nor a round returns
+    before the first hop — there is nothing to resolve, so no live GET is worth making.
+    EVERY outcome is a NOTE, never bare ``None``, which becomes :data:`_NO_DATA_PAYLOAD`
+    and sends the model back to the stale memory this tool exists to replace (D-5 of the
+    predecessor task).
     """
     from app.services import espn_extra
 
     team_abbr = team.strip().upper() if isinstance(team, str) else ""
-    if not team_abbr:
-        return None
-
+    asked_round = playoff_round.strip() if isinstance(playoff_round, str) else ""
     asked_week = week if isinstance(week, int) and not isinstance(week, bool) else None
     asked_season = season if isinstance(season, int) and not isinstance(season, bool) else None
+
+    if asked_round:
+        return await _playoff_game_leaders(team_abbr, asked_round, asked_season)
+    if not team_abbr:
+        return {"note": _NO_GAME_TO_LOOK_UP_NOTE}
 
     payload = await espn_extra.fetch_team_schedule(team_abbr, season=asked_season)
     if payload is None:
@@ -989,7 +1004,7 @@ async def _lookup_game_leaders(
     winner = facts["winner"]
     if isinstance(winner, str):
         statement += _GAME_WINNER_CLAUSE.format(winner=winner)
-    statement += _NO_SCORE_CLAUSE
+    statement += _NO_SCORE_CLAUSE + _REGULAR_SEASON_ONLY_CLAUSE
     if unstarted_season is not None:
         statement = (
             _UNSTARTED_SEASON_STATEMENT.format(team=club, current=unstarted_season, season=year)
@@ -1006,6 +1021,107 @@ async def _lookup_game_leaders(
         "game_statement": statement,
         "caveat": espn_extra.GAME_LEADERS_CAVEAT,
     }
+
+
+async def _playoff_game_leaders(team: str, asked_round: str, season: int | None) -> dict:
+    """Look up who led ONE POSTSEASON game of ``asked_round``, and who won it.
+
+    The 2026-08-21 defect's fix. The round resolves to a LITERAL week through
+    :func:`~app.services.espn_extra.postseason_round_week` exactly as
+    ``lookup_playoff_results`` does, so the Pro Bowl's week 4 stays unreachable and no
+    model-written number ever reaches a URL. ``team`` selects WHICH game of a multi-game
+    round is meant and never reaches a URL at all on this path — the scoreboard URL carries
+    only the season and the week — so it needs no abbreviation allowlist here.
+
+    Never substitutes a game it could not reach: a team that did not play in the round, a
+    round with several games and no team to pick one, and a game whose summary carries no
+    leaders each return a note naming what is missing, and no note ever carries another
+    game's figures. Always returns a dict, never bare ``None`` (D-5).
+    """
+    from app.services import espn_extra
+
+    if espn_extra.asked_for_the_pro_bowl(asked_round):
+        return {"note": _PRO_BOWL_LEADERS_NOTE}
+    week = espn_extra.postseason_round_week(asked_round)
+    if week is None:
+        return {"note": _UNKNOWN_ROUND_NOTE}
+
+    if season is None:
+        current = espn_extra.league_season_year(await espn_extra.fetch_league())
+        if current is None:
+            return {"note": _NO_SEASON_TO_ASK_ABOUT_NOTE}
+        season, _checked = await _most_recently_finished_season(current)
+
+    label = espn_extra.POSTSEASON_ROUND_LABELS[week]
+    payload = await espn_extra.fetch_postseason_scoreboard(season, week)
+    games = espn_extra.find_postseason_games(payload, week=week) if payload is not None else None
+    if not games:
+        return {"note": _NO_POSTSEASON_RESULTS_NOTE.format(season=season, round=label)}
+    if not any(game["completed"] for game in games):
+        return {"note": _POSTSEASON_NOT_PLAYED_NOTE.format(season=season, round=label)}
+
+    matches = espn_extra.postseason_games_for_team(games, team) if team else games
+    if not matches:
+        return {
+            "note": _TEAM_NOT_IN_ROUND_NOTE.format(
+                round=label, season=season, matchups=_matchups(games)
+            )
+        }
+    if len(matches) > 1:
+        return {
+            "note": _WHICH_PLAYOFF_GAME_NOTE.format(
+                round=label, season=season, matchups=_matchups(matches)
+            )
+        }
+
+    game = matches[0]
+    fixture = _game_phrase(game["game"]) if isinstance(game["game"], str) else "that game"
+    if not game["completed"]:
+        return {
+            "note": _PLAYOFF_GAME_NOT_PLAYED_NOTE.format(game=fixture, round=label, season=season)
+        }
+
+    event_id = game["event_id"]
+    summary = await espn_extra.fetch_game_summary(event_id) if event_id is not None else None
+    facts = espn_extra.parse_game_leaders(summary) if summary is not None else None
+    if facts is None:
+        # The game identity was already PROVED, so the miss keeps it: a bare miss after a
+        # successful resolution made the model deny what it had just found (260820-s5y).
+        return {"note": _NO_PLAYOFF_LEADERS_NOTE.format(game=fixture, round=label, season=season)}
+
+    statement = _PLAYOFF_GAME_STATEMENT.format(
+        game=fixture,
+        teams=_join_teams([str(club) for club in game["teams"]]),
+        round=label,
+        season=season,
+    )
+    winner = facts["winner"]
+    if isinstance(winner, str):
+        statement += _GAME_WINNER_CLAUSE.format(winner=winner)
+    statement += _NO_SCORE_CLAUSE
+
+    return {
+        "leaders": facts["leaders"],
+        "winner": winner,
+        "season": season,
+        "round": label,
+        "game": fixture,
+        "game_statement": statement,
+        "caveat": espn_extra.GAME_LEADERS_CAVEAT,
+    }
+
+
+def _matchups(games: list[dict]) -> str:
+    """The clubs of each of a round's games, as a phrase a person would say. Pure.
+
+    Names WHICH games a round holds without carrying a single figure out of any of them —
+    the distinction requirement 3 of the defect report turns on.
+    """
+    return "; ".join(
+        _join_teams([str(club) for club in game["teams"]])
+        for game in games
+        if isinstance(game.get("teams"), list) and game["teams"]
+    )
 
 
 # D-3: the game is STATED, never implied. One concrete full sentence naming both clubs,
@@ -1071,30 +1187,116 @@ _NO_LEADERS_NOTE = (
     "figures from it. Say that you found the game but have no figures from it, never say "
     "that the game did not happen, and never give a figure from your own memory instead."
 )
+# THE second barrier behind the postseason branch, for the round where the model asks about
+# a Super Bowl without passing playoff_round and this path answers instead. Unconditional
+# in every sentence: the live defect narrated a week-18 game as the Super Bowl, and a
+# caveat the model has to decide whether to apply is a caveat it drops (measured 3/3).
+_REGULAR_SEASON_ONLY_CLAUSE = (
+    " The game described here is a regular-season game, and it is not a playoff game, not "
+    "a conference championship game and not the Super Bowl. Never report any figure below "
+    "as a figure from a playoff game or from the Super Bowl. Say that this was a "
+    "regular-season game when you report any figure from it, so the member can tell it "
+    "apart from a playoff game."
+)
+
+
+# --------------------------------------------------------------------------- #
+# The POSTSEASON half of the game tool, added 2026-08-21 after a live member asked who led
+# the Super Bowl in rushing and got a week-18 game against a different opponent. The
+# statements below carry the round rather than a week number: a bare "week 5" is voiceable
+# and would be read as a regular-season week.
+# --------------------------------------------------------------------------- #
+
+# The postseason twin of _GAME_STATEMENT, and it names BOTH CLUBS itself rather than
+# leaning on the game's name: ESPN's own name for a playoff game is a headline like "Super
+# Bowl LX" or "NFC Wild Card Playoffs", which names no team at all.
+_PLAYOFF_GAME_STATEMENT = (
+    "Every figure below comes from ONE single NFL game: {game}, in which {teams} played "
+    "each other. That game was played in the {round} of the {season} NFL season, which "
+    "means it belongs to the {season} season even though it was played in the year after "
+    "{season}. Name both of those teams and say the {season} season whenever you report "
+    "any figure from this answer, so the member knows exactly which game you are talking "
+    "about."
+)
+
+# THE anti-substitution notes. Each says plainly WHICH game could not be found, names no
+# figure from any other game, and tells the model what to say — a miss that returns silence
+# or a reachable game's figures is the defect these exist to close.
+_TEAM_NOT_IN_ROUND_NOTE = (
+    "The NFL team you asked about did not play in the {round} of the {season} NFL season, "
+    "so this tool has no figures at all for that team in that round. The clubs that did "
+    "play in that round were: {matchups}. Tell the member plainly that the team he asked "
+    "about was not in that round, never report any figure from one of those other games as "
+    "though it were his team's, and never give a figure from your own memory instead."
+)
+_WHICH_PLAYOFF_GAME_NOTE = (
+    "The {round} of the {season} NFL season was more than one game, so this tool cannot "
+    "tell which of them the member means. The clubs that played in that round were: "
+    "{matchups}. Ask the member which of those games he means, report no figure at all "
+    "until he answers, and never pick one of those games yourself."
+)
+_PLAYOFF_GAME_NOT_PLAYED_NOTE = (
+    "{game}, in the {round} of the {season} NFL season, has not been played yet, so there "
+    "are no figures from it at all. Tell the member plainly that the game has not been "
+    "played yet, never describe how it went or who led it, and never give him a different "
+    "game's figures instead."
+)
+_NO_PLAYOFF_LEADERS_NOTE = (
+    "This tool did find the game the member asked about — {game}, in the {round} of the "
+    "{season} NFL season — but ESPN publishes no game leaders for it, so this tool has no "
+    "figures from it. Say that you found the game but have no figures from it, never say "
+    "that the game did not happen, and never give a figure from your own memory or from a "
+    "different game instead."
+)
+_PRO_BOWL_LEADERS_NOTE = (
+    "The Pro Bowl is an exhibition game rather than a playoff round, and this tool has no "
+    "figures from a Pro Bowl at all — it cannot tell you who played in one, who led one, "
+    "or how one went. Tell the member plainly that you have no Pro Bowl data, never name a "
+    "player from your own memory as having played in one, and never give him figures from "
+    "a playoff game as though they were a Pro Bowl's. The games this tool does cover in "
+    "the postseason are the wild card round, the divisional round, the conference "
+    "championship games and the Super Bowl."
+)
+_NO_GAME_TO_LOOK_UP_NOTE = (
+    "The member's question named no NFL team and no playoff round, so this tool has no "
+    "game at all to look up. Ask the member which team's game he means, and never describe "
+    "a game from your own memory instead."
+)
 
 # INSTRUCT first, CONSTRAIN second — measured twice on this branch, not stylistic: a
 # disclaimer-only description suppressed the call 5/5. The starter constraint is why the
 # ordering matters most here (D-4): it is a disclaimer about a DIFFERENT question from the
 # one the opener instructs on, so it constrains the answer without suppressing the call.
 # The season wording is copied from _STATS_TOOL_DESCRIPTION on purpose, so the model learns
-# ONE rule rather than two (D-5).
+# ONE rule rather than two (D-5), and the round vocabulary is _PLAYOFF_ROUND_ENUM, shared
+# byte-for-byte with lookup_playoff_results for the same reason.
 _GAME_LEADERS_TOOL_DESCRIPTION = (
-    "Look up how one NFL team's game went and which players led that single game in "
-    "passing, rushing, receiving, sacks and tackles. Call this tool every time the member "
-    "asks how a team did in a game, how their last game went, who led a game in yards, "
-    "catches, sacks or tackles, or how a named team did in a given week, because your own "
-    "memory of any individual game is often a year or more out of date. The team argument "
-    "is that team's standard abbreviation, for example KC for the Kansas City Chiefs, LV "
-    "for the Las Vegas Raiders, or CHI for the Chicago Bears. Pass the week argument ONLY "
+    "Look up which players led ONE single NFL game in passing, rushing, receiving, sacks "
+    "and tackles, and which team won that one game, in the regular season or in the "
+    "playoffs. Call this tool every time the member asks how a team did in a game, how "
+    "their last game went, who led a game in yards, catches, sacks or tackles, how a named "
+    "team did in a given week, or who led a playoff game or a Super Bowl, because your own "
+    "memory of any individual game is often a year or more out of date. Pass the "
+    "playoff_round argument every time the member asks about a playoff game, a conference "
+    "championship game or a Super Bowl, and it is one of wild card, divisional, conference "
+    "championships or super bowl; leave the playoff_round argument out for a regular-season "
+    "game. The team argument is that team's standard abbreviation, for example KC for the "
+    "Kansas City Chiefs, LV for the Las Vegas Raiders, or CHI for the Chicago Bears. Pass "
+    "the team argument whenever the member's question names a team, and leave it out only "
+    "when he asks about a Super Bowl and names no team, because a season has just one "
+    "Super Bowl and this tool finds it without a team. Pass the week argument ONLY "
     "when the member named a week number, and leave the week argument out when he says "
     "their last game or their most recent game, because this tool finds the most recent "
     "finished game by itself and tells you which week it was. Pass the season argument "
     "ONLY when the member named a specific year such as 2024. LEAVE THE SEASON ARGUMENT "
     "OUT for every other phrasing, including last year, last season and this season, "
     "because this tool already knows which season is the most recent one ESPN has and you "
-    "do not. Never work out a year number for yourself from a phrase like last year. This "
-    "tool covers regular-season games only, so when the member asks about a playoff "
-    "game, a conference championship or a Super Bowl, lookup_playoff_results is the "
+    "do not. Never work out a year number for yourself from a phrase like last year. An "
+    "NFL season is named for the year it STARTED in, so the Super Bowl played in February "
+    "2026 belongs to the 2025 season. When this tool tells you it could not find the game "
+    "the member asked about, say that plainly and never report a different game's figures "
+    "as though they were that game's. When the member asks only which teams WON a whole "
+    "round of the playoffs rather than who led one game, lookup_playoff_results is the "
     "tool for that question and this one is not. It carries neither team's score, so never "
     "state the score of the game and never say how many points either team scored. The "
     "player who led a game in passing is not necessarily that team's starting quarterback, "
@@ -1290,9 +1492,11 @@ _PLAYOFF_TOOL_DESCRIPTION = (
     "work out which season that is. The playoff_round argument is one of wild card, "
     "divisional, conference championships or super bowl; leave it out and this tool "
     "answers about the Super Bowl, which is the round members ask about most. This tool "
-    "covers the playoffs only, so when the member asks about a regular-season game, about "
-    "how a team did in a given week, or about who led a game in yards, catches, sacks or "
-    "tackles, lookup_game_leaders is the tool for that question and this one is not. It "
+    "reports which TEAMS WON a whole round and it carries no player figures at all, so "
+    "when the member asks about a regular-season game, about how a team did in a given "
+    "week, or about who LED any one game in yards, catches, sacks or tackles, a playoff "
+    "game and a Super Bowl included, lookup_game_leaders is the tool for that question "
+    "and this one is not. It "
     "carries neither team's score, so never state the score of any game it reports and "
     "never say how many points either team scored. The Pro Bowl is an exhibition game "
     "rather than a playoff round and this tool never reports it, so never call a Pro Bowl "
@@ -1300,6 +1504,12 @@ _PLAYOFF_TOOL_DESCRIPTION = (
     "tell the member that plainly about that one season, and never say that about a season "
     "it did give you results for."
 )
+
+
+# ONE round vocabulary across both tools that take a round, so the model learns one set of
+# names rather than two. The enum is a second bound on a model-written value; either
+# adapter still resolves anything else through espn_extra's own keyword table.
+_PLAYOFF_ROUND_ENUM = ["wild card", "divisional", "conference championships", "super bowl"]
 
 
 TOOLS: tuple[_Tool, ...] = (
@@ -1419,8 +1629,20 @@ TOOLS: tuple[_Tool, ...] = (
                                 "season."
                             ),
                         },
+                        "playoff_round": {
+                            "type": "string",
+                            "enum": _PLAYOFF_ROUND_ENUM,
+                            "description": (
+                                "Which playoff round the game was in, and ONLY for a "
+                                "playoff game. Leave it out for a regular-season game."
+                            ),
+                        },
                     },
-                    "required": ["team"],
+                    # NOTHING is required. ``team`` was required until 2026-08-21, and a
+                    # Super Bowl question is exactly the case the member's own words cannot
+                    # fill it from — a required argument the model cannot fill invites it
+                    # to chain tools or invent a value (measured 3/3).
+                    "required": [],
                 },
             },
         },
@@ -1446,12 +1668,7 @@ TOOLS: tuple[_Tool, ...] = (
                         },
                         "playoff_round": {
                             "type": "string",
-                            "enum": [
-                                "wild card",
-                                "divisional",
-                                "conference championships",
-                                "super bowl",
-                            ],
+                            "enum": _PLAYOFF_ROUND_ENUM,
                             "description": (
                                 "Which playoff round. Leave it out for the Super Bowl."
                             ),
