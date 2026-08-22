@@ -363,6 +363,50 @@ class IntentRoutingTests(unittest.TestCase):
         self.assertIn("bug the developer", out)
 
 
+class QaGuardClauseTests(unittest.TestCase):
+    """Pins the TEXT of the measured QA_GUARD derived-number ban (260822-itv).
+
+    THIS TEST PROVES NOTHING ABOUT THE MODEL'S COMPLIANCE. It asserts only that the
+    clause is still in the string composed into the prompt; whether the model obeys it
+    is measurable ONLY by the live multi-sample probe recorded in the task SUMMARY,
+    because this suite stubs ``qa.llm_client.phrase`` and never sends the guard
+    anywhere. What it buys: the clause cannot be silently reworded away by a later edit.
+
+    The ban exists because the guard reached the model without it and the model answered
+    "Bo has 34" in 2/6 live samples on a fact stating only a 40 and a 6.
+
+    There is deliberately NO pin for an asker-standing ban, because there is deliberately
+    no such ban — two drafts of one were probed live and both were worse than the defect.
+    See the QA_GUARD comment before adding one.
+    """
+
+    def test_guard_bans_numbers_derived_from_the_supplied_numbers(self) -> None:
+        self.assertIn("worked out from the supplied ones", qa.QA_GUARD)
+        self.assertIn("is not a supplied number", qa.QA_GUARD)
+
+    def test_guard_still_ends_with_the_one_line_format_instruction(self) -> None:
+        # The format instruction is last on purpose; an inserted clause must not
+        # displace it.
+        self.assertTrue(qa.QA_GUARD.endswith("Reply with ONE short line and at most one emoji."))
+
+    def test_the_ban_reaches_a_non_analyst_prompt(self) -> None:
+        # QA_GUARD is shared by every non-analyst intent; standings is one of them.
+        seam_patch, _ = _seam(
+            "get_leaders_context_async",
+            {"leader": "Ada", "leader_total": 40, "runner_up": "Bo", "gap": 6},
+        )
+        phrase_patch, calls = _phrase_returns("Ada leads with 40, Bo is 6 back 📉")
+        with (
+            _classify_returns({"intent": "standings"}),
+            _tokens("KC"),
+            seam_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            _run(qa.answer_question("who's winning?", discord_id=7))
+        self.assertIn("is not a supplied number", calls[0]["system_prompt"])
+
+
 class BestEffortTests(unittest.TestCase):
     def test_falls_back_to_fact_when_phrase_returns_none(self) -> None:
         seam_patch, _ = _seam(

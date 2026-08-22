@@ -581,14 +581,31 @@ QA_ROLE = (
     "ONLY the facts supplied to you below. The facts were read from the app's own data."
 )
 
+# The derived-number ban is a MEASURED addition (260822-itv). Handed `Ada leads the season
+# with 40. Bo is 6 back in second.` the model answered "Bo has 34" in 2/6 live samples — a
+# figure it computed rather than read. Stated as a flat ban on the observed wording, never
+# as a condition to evaluate: a conditional caveat in this prompt family was ignored 3/3.
+#
+# What is DELIBERATELY absent, so it is not re-attempted blind: a ban on the model claiming
+# the ASKER'S own league position. The same run measured that too ("you're so far behind" on
+# a fact naming no asker, 1/6). Two drafts of such a ban were probed live across all 14
+# branches and BOTH were worse than the defect. Banning it alone made the model stop
+# addressing the asker at all — pick-status second person fell 24/30 to 1/30 and "Your card
+# is not complete" became narration about the asker to a room that is not there. Adding a
+# "speak TO the asker as you" permission alongside it then leaked into standings: "Ada leads
+# the season with 40" became "You lead the season with 40" in 12/12 samples, which tells
+# whoever asked that THEY lead — a worse error than the snark it replaced — and weather
+# refusals rose 2/24 to 6/24 in the same run. The 1/6 tone defect is accepted instead.
 QA_GUARD = (
     "State the supplied facts plainly and FIRST, then add a little personality — "
     "flavor must NEVER replace the answer. Invent NOTHING beyond the facts you are "
     "given: no stat, spread, total, score, standing, close time, or pick that is not "
-    "written in the facts. NEVER reveal, guess, or hint at another player's hidden "
-    "pick — you are only ever given the asker's own status. If the facts are a decline "
-    "or a 'not yet supported' note, deliver that in character without inventing an "
-    "answer. Reply with ONE short line and at most one emoji."
+    "written in the facts, and a number you worked out from the supplied ones — a total "
+    "figured from a leader's score and a gap — is not a supplied number, so never write "
+    "it. NEVER reveal, guess, or hint at another player's hidden pick — you are only "
+    "ever given the asker's own status. If the facts are a decline or a 'not yet "
+    "supported' note, deliver that in character without inventing an answer. Reply with "
+    "ONE short line and at most one emoji."
 )
 
 # Prediction leads phrase through a DIFFERENT prompt: the game-prediction intent has no
