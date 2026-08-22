@@ -364,36 +364,32 @@ class IntentRoutingTests(unittest.TestCase):
 
 
 class QaGuardClauseTests(unittest.TestCase):
-    """Pins the TEXT of the two measured QA_GUARD bans (260822-itv).
+    """Pins the TEXT of the measured QA_GUARD derived-number ban (260822-itv).
 
     THIS TEST PROVES NOTHING ABOUT THE MODEL'S COMPLIANCE. It asserts only that the
-    clauses are still in the string that gets composed into the prompt; whether the
-    model obeys them is measurable ONLY by the live multi-sample probe recorded in the
-    task SUMMARY, because this suite stubs ``qa.llm_client.phrase`` and so never sends
-    the guard anywhere. What it does buy: the clauses cannot be silently dropped or
-    reworded away by a later edit, which is how an unmeasured regression would ship.
+    clause is still in the string composed into the prompt; whether the model obeys it
+    is measurable ONLY by the live multi-sample probe recorded in the task SUMMARY,
+    because this suite stubs ``qa.llm_client.phrase`` and never sends the guard
+    anywhere. What it buys: the clause cannot be silently reworded away by a later edit.
 
-    Both bans exist because the guard reached the model WITHOUT them and the model
-    invented anyway — an asker standing ("you're so far behind") on a fact that names
-    no asker, and a total ("Bo has 34") computed from a leader score and a gap.
+    The ban exists because the guard reached the model without it and the model answered
+    "Bo has 34" in 2/6 live samples on a fact stating only a 40 and a 6.
+
+    There is deliberately NO pin for an asker-standing ban, because there is deliberately
+    no such ban — two drafts of one were probed live and both were worse than the defect.
+    See the QA_GUARD comment before adding one.
     """
 
-    def test_guard_bans_claims_about_the_askers_own_standing(self) -> None:
-        self.assertIn("Never tell the person asking where they stand", qa.QA_GUARD)
-        # The observed wrong lines are banned by name, not described abstractly.
-        self.assertIn("you're so far behind", qa.QA_GUARD)
-        self.assertIn("enjoy the view from the basement", qa.QA_GUARD)
-
     def test_guard_bans_numbers_derived_from_the_supplied_numbers(self) -> None:
-        self.assertIn("worked out from the supplied numbers", qa.QA_GUARD)
-        self.assertIn("NOT a supplied number", qa.QA_GUARD)
+        self.assertIn("worked out from the supplied ones", qa.QA_GUARD)
+        self.assertIn("is not a supplied number", qa.QA_GUARD)
 
     def test_guard_still_ends_with_the_one_line_format_instruction(self) -> None:
         # The format instruction is last on purpose; an inserted clause must not
         # displace it.
         self.assertTrue(qa.QA_GUARD.endswith("Reply with ONE short line and at most one emoji."))
 
-    def test_the_bans_reach_a_non_analyst_prompt(self) -> None:
+    def test_the_ban_reaches_a_non_analyst_prompt(self) -> None:
         # QA_GUARD is shared by every non-analyst intent; standings is one of them.
         seam_patch, _ = _seam(
             "get_leaders_context_async",
@@ -408,9 +404,7 @@ class QaGuardClauseTests(unittest.TestCase):
             phrase_patch,
         ):
             _run(qa.answer_question("who's winning?", discord_id=7))
-        prompt = calls[0]["system_prompt"]
-        self.assertIn("Never tell the person asking where they stand", prompt)
-        self.assertIn("NOT a supplied number", prompt)
+        self.assertIn("is not a supplied number", calls[0]["system_prompt"])
 
 
 class BestEffortTests(unittest.TestCase):
