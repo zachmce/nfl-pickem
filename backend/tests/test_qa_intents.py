@@ -606,31 +606,256 @@ class LinesTeamPerspectiveTests(unittest.TestCase):
     def test_asked_underdog_is_framed_as_underdog_vs_opponent(self) -> None:
         # "what's the line for the boys?" -> anchored to Dallas, the underdog.
         out = qa._slate_fact(self._slate("DAL"))
-        assert isinstance(out, str)
-        self.assertIn("DAL are 7.5-point underdogs vs. PHI.", out)
-        self.assertNotIn("PHI favored by 7.5.", out)  # never the favorite's framing
-        self.assertIn("Total is 47.5.", out)
+        assert isinstance(out, qa._ListAnswer)
+        self.assertIn("DAL are 7.5-point underdogs vs. PHI", out.body)
+        self.assertNotIn("PHI -7.5", out.body)  # never the favorite's framing
+        self.assertIn("(O/U 47.5)", out.body)
 
     def test_asked_favorite_is_framed_as_favorite_vs_opponent(self) -> None:
         out = qa._slate_fact(self._slate("PHI"))
-        assert isinstance(out, str)
-        self.assertIn("PHI favored by 7.5 vs. DAL.", out)
+        assert isinstance(out, qa._ListAnswer)
+        self.assertIn("PHI favored by 7.5 vs. DAL", out.body)
 
     def test_no_asked_team_keeps_neutral_favorite_framing(self) -> None:
-        # Teamless single-game path (asked_team None) -> unchanged neutral phrasing.
+        # Teamless single-game path (asked_team None) -> the neutral multi-game form.
         out = qa._slate_fact(self._slate(None))
-        assert isinstance(out, str)
-        self.assertIn("PHI favored by 7.5.", out)
-        self.assertNotIn("vs.", out)
+        assert isinstance(out, qa._ListAnswer)
+        self.assertIn("PHI -7.5", out.body)
+        self.assertNotIn("vs.", out.body)
 
     def test_missing_underdog_abbr_degrades_to_neutral(self) -> None:
         # No opponent abbr to name -> fall back to neutral rather than invent one.
         slate = self._slate("PHI")
         slate["games"][0]["underdog"] = None
         out = qa._slate_fact(slate)
-        assert isinstance(out, str)
-        self.assertIn("PHI favored by 7.5.", out)
-        self.assertNotIn("vs.", out)
+        assert isinstance(out, qa._ListAnswer)
+        self.assertIn("PHI -7.5", out.body)
+        self.assertNotIn("vs.", out.body)
+
+
+class SingleGameAnswerIsProtectedTests(unittest.TestCase):
+    """Issue #188: a SINGLE-game scores/lines answer keeps its anchors.
+
+    Both single-game facts used to be a bare ``str``, so whatever the model returned
+    WAS the answer. The week, the ``@`` home/away relationship and the status tag now
+    ride in the :class:`qa._ListAnswer` body, which ``answer_question`` appends verbatim
+    and never sends to the LLM.
+
+    THESE TESTS CANNOT CATCH THE DEFECT IN #188. They stub ``qa.llm_client.phrase``, so
+    they prove the FACT's shape and nothing whatsoever about what the live model does to
+    it. The loss reported in #188 happened INSIDE that stubbed call — it is structurally
+    invisible to this suite, and was invisible to it on the day it shipped. The type
+    assertions below are the real protection (an ``_ListAnswer`` body is never sent to
+    the model at all); the only evidence that the anchors survive real phrasing is the
+    live multi-sample probe recorded in the 260821-pav task SUMMARY.
+    """
+
+    @staticmethod
+    def _scores(status: str = "FINAL") -> dict:
+        return {
+            "week": 8,
+            "games": [
+                {
+                    "away": "MIN",
+                    "home": "LAC",
+                    "away_score": 10,
+                    "home_score": 37,
+                    "status": status,
+                }
+            ],
+        }
+
+    @staticmethod
+    def _slate(asked_team: str | None = "DAL") -> dict:
+        return {
+            "week": 5,
+            "close_at": datetime(2026, 7, 6, 12, 22, tzinfo=timezone.utc),
+            "pick_open": True,
+            "asked_team": asked_team,
+            "games": [
+                {
+                    "away": "DAL",
+                    "home": "PHI",
+                    "favorite": "PHI",
+                    "underdog": "DAL",
+                    "spread": "7.5",
+                    "total": "47.5",
+                }
+            ],
+        }
+
+    def _answer_scores(self, phrased, status="FINAL"):
+        seam_patch, _ = _seam("get_week_scores_async", self._scores(status))
+        phrase_patch, calls = _phrase_returns(phrased)
+        with (
+            _classify_returns({"intent": "scores"}),
+            _tokens("KC"),
+            seam_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            return _run(qa.answer_question("what's the score?", discord_id=7)), calls
+
+    def _answer_slate(self, phrased, asked_team="DAL"):
+        seam_patch, _ = _seam("get_lines_slate_async", self._slate(asked_team))
+        phrase_patch, calls = _phrase_returns(phrased)
+        with (
+            _classify_returns({"intent": "lines_slate", "team": "Cowboys"}),
+            _tokens("DAL", "COWBOYS"),
+            seam_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            return _run(qa.answer_question("what's the dallas line?", discord_id=7)), calls
+
+    def test_single_game_score_body_survives_a_mangling_phrasing(self) -> None:
+        # The EXACT text the live model posted on 2026-08-21 (issue #188): it dropped the
+        # week, turned "at" into a comma and dropped "(final)". The body must land anyway.
+        out, _ = self._answer_scores("Minnesota 10, Los Angeles Chargers 37.")
+        self.assertEqual(
+            out, "Minnesota 10, Los Angeles Chargers 37.\nWeek 8 — MIN 10 @ LAC 37 (final)"
+        )
+
+    def test_single_game_slate_body_carries_spread_and_close_clause(self) -> None:
+        out, _ = self._answer_slate("Dallas is cooked 🙄")
+        lines = out.splitlines()
+        self.assertEqual(lines[0], "Dallas is cooked 🙄")
+        self.assertEqual(
+            lines[1], "Week 5 — DAL @ PHI — DAL are 7.5-point underdogs vs. PHI (O/U 47.5)"
+        )
+        self.assertEqual(lines[2], "Picks close Mon Jul 6, 12:22 PM UTC.")
+
+    def test_the_phrased_header_leaves_the_model_no_number_to_invent(self) -> None:
+        # Measured, not assumed: a header naming only the teams made the live model
+        # invent a score in 5/6 samples ("MIN 27, LAC 10" for a 10-37 game, wrong
+        # winner) and a spread in 5/6, and invert twice into "not available". Handed
+        # the real numbers it restated them 6/6. So the header STATES the fact; the
+        # body is what guarantees the fact survives.
+        _, score_calls = self._answer_scores("whatever")
+        header = score_calls[0]["fact"]
+        self.assertIn("MIN 10 at LAC 37", header)
+        self.assertIn("final", header)
+        _, slate_calls = self._answer_slate("whatever")
+        header = slate_calls[0]["fact"]
+        self.assertIn("DAL at PHI", header)
+        self.assertIn("7.5", header)
+        self.assertIn("47.5", header)
+
+    def test_single_game_scores_fact_is_a_list_answer_not_a_bare_str(self) -> None:
+        # The type IS the protection: a bare str is replaced by the model's own text,
+        # a _ListAnswer body is appended verbatim and never reaches the model.
+        fact = qa._scores_fact(self._scores())
+        self.assertIsInstance(fact, qa._ListAnswer)
+
+    def test_scores_body_carries_the_week_the_at_relationship_and_both_scores(self) -> None:
+        fact = qa._scores_fact(self._scores())
+        assert isinstance(fact, qa._ListAnswer)
+        self.assertIn("Week 8", fact.body)
+        self.assertIn("MIN 10 @ LAC 37", fact.body)
+
+    def test_scores_body_distinguishes_final_from_in_progress(self) -> None:
+        # The anchor that can be wrong with no classifier bug involved: the SAME game
+        # with only `status` changed must not read identically. Live on 2026-08-21 both
+        # posted as "Minnesota 10, Los Angeles Chargers 37." — a game still being played
+        # read as settled.
+        final = qa._scores_fact(self._scores("FINAL"))
+        live = qa._scores_fact(self._scores("IN_PROGRESS"))
+        assert isinstance(final, qa._ListAnswer)
+        assert isinstance(live, qa._ListAnswer)
+        self.assertIn("(final)", final.body)
+        self.assertNotIn("(in progress)", final.body)
+        self.assertIn("(in progress)", live.body)
+        self.assertNotEqual(final.body, live.body)
+
+    def test_single_game_slate_fact_is_a_list_answer_not_a_bare_str(self) -> None:
+        fact = qa._slate_fact(self._slate())
+        self.assertIsInstance(fact, qa._ListAnswer)
+
+    def test_slate_body_carries_week_matchup_spread_and_the_close_line(self) -> None:
+        fact = qa._slate_fact(self._slate())
+        assert isinstance(fact, qa._ListAnswer)
+        self.assertIn("Week 5", fact.body)
+        self.assertIn("DAL @ PHI", fact.body)
+        self.assertIn("7.5", fact.body)
+        self.assertIn("Picks close Mon Jul 6, 12:22 PM UTC.", fact.body)
+
+    def test_asked_team_framing_still_fires_inside_the_protected_body(self) -> None:
+        # Issue #115's framing must not be the price of #188's protection.
+        asked_dog = qa._slate_fact(self._slate("DAL"))
+        asked_fav = qa._slate_fact(self._slate("PHI"))
+        teamless = qa._slate_fact(self._slate(None))
+        assert isinstance(asked_dog, qa._ListAnswer)
+        assert isinstance(asked_fav, qa._ListAnswer)
+        assert isinstance(teamless, qa._ListAnswer)
+        self.assertIn("DAL are 7.5-point underdogs vs. PHI", asked_dog.body)
+        self.assertIn("PHI favored by 7.5 vs. DAL", asked_fav.body)
+        self.assertIn("PHI -7.5", teamless.body)
+        self.assertNotIn("vs.", teamless.body)
+
+    def test_both_headers_state_the_whole_fact(self) -> None:
+        scores = qa._scores_fact(self._scores())
+        slate = qa._slate_fact(self._slate())
+        assert isinstance(scores, qa._ListAnswer)
+        assert isinstance(slate, qa._ListAnswer)
+        self.assertEqual(scores.header_fact, "Week 8 scoreboard — MIN 10 at LAC 37, final.")
+        self.assertEqual(
+            slate.header_fact,
+            "Week 5 line — DAL at PHI. DAL are 7.5-point underdogs vs. PHI. Total is 47.5.",
+        )
+
+    def test_multi_game_body_lines_are_unchanged_by_the_refactor(self) -> None:
+        # The single-game fix reuses the multi-game line builders; their output must stay
+        # byte-identical (the two multi-game pins above are the end-to-end guarantee).
+        scores = qa._scores_fact(
+            {
+                "week": 1,
+                "games": [
+                    {
+                        "away": "DAL",
+                        "home": "PHI",
+                        "away_score": 20,
+                        "home_score": 24,
+                        "status": "FINAL",
+                    },
+                    {
+                        "away": "BAL",
+                        "home": "BUF",
+                        "away_score": 40,
+                        "home_score": 41,
+                        "status": "IN_PROGRESS",
+                    },
+                ],
+            }
+        )
+        assert isinstance(scores, qa._ListAnswer)
+        self.assertEqual(scores.body, "DAL 20 @ PHI 24 (final)\nBAL 40 @ BUF 41 (in progress)")
+        slate = qa._slate_fact(
+            {
+                "week": 1,
+                "close_at": None,
+                "pick_open": False,
+                "games": [
+                    {
+                        "away": "DAL",
+                        "home": "PHI",
+                        "favorite": "PHI",
+                        "spread": "7.5",
+                        "total": "47.5",
+                    },
+                    {
+                        "away": "KC",
+                        "home": "LAC",
+                        "favorite": "KC",
+                        "spread": "3.5",
+                        "total": "47.5",
+                    },
+                ],
+            }
+        )
+        assert isinstance(slate, qa._ListAnswer)
+        self.assertEqual(
+            slate.body, "DAL @ PHI — PHI -7.5 (O/U 47.5)\nKC @ LAC — KC -3.5 (O/U 47.5)"
+        )
 
 
 class InjuriesIntentTests(unittest.TestCase):
