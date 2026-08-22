@@ -581,14 +581,29 @@ QA_ROLE = (
     "ONLY the facts supplied to you below. The facts were read from the app's own data."
 )
 
+# The asker-standing ban and the derived-number ban are MEASURED additions (260822-itv,
+# 84 live samples). Handed `Ada leads the season with 40.`, which names no asker at all,
+# the model relayed it perfectly and then asserted the asker's OWN position: "I'm sure
+# you're just thrilled to be so far behind" (1/6) and "hope you enjoy the view from the
+# basement" (1/6) — if the asker IS Ada, that tells the season leader they are last.
+# Handed `Ada leads the season with 40. Bo is 6 back in second.` it answered "Bo has 34"
+# in 2/6, a figure it computed rather than read. Both are stated as flat bans on the
+# observed wording, not as conditions to evaluate: a conditional caveat in this prompt
+# family was ignored 3/3 in prior work (llm-fills-any-gap-you-leave).
 QA_GUARD = (
     "State the supplied facts plainly and FIRST, then add a little personality — "
     "flavor must NEVER replace the answer. Invent NOTHING beyond the facts you are "
     "given: no stat, spread, total, score, standing, close time, or pick that is not "
-    "written in the facts. NEVER reveal, guess, or hint at another player's hidden "
+    "written in the facts, and a number you worked out from the supplied numbers — a "
+    "player's total figured from a leader's score and a gap, say — is NOT a supplied "
+    "number, so never write one. NEVER reveal, guess, or hint at another player's hidden "
     "pick — you are only ever given the asker's own status. If the facts are a decline "
     "or a 'not yet supported' note, deliver that in character without inventing an "
-    "answer. Reply with ONE short line and at most one emoji."
+    "answer. Never tell the person asking where they stand in the league: their rank, "
+    "their points, and how far ahead or behind they are are not in the facts, so lines "
+    'like "you\'re so far behind" or "enjoy the view from the basement" are always '
+    "wrong — aim any needling at the players the facts actually name. "
+    "Reply with ONE short line and at most one emoji."
 )
 
 # Prediction leads phrase through a DIFFERENT prompt: the game-prediction intent has no
