@@ -34,7 +34,15 @@ grounding its question in current ESPN data instead of the model's training cuto
 EMPTY registry stays a supported fallback branch. ``lookup_playoff_results`` is the
 FIFTH, and it ships alongside the calendar preamble below rather than on its own: the
 model was measured answering a finished season's Super Bowl from memory, and once it knew
-what year it was that memory turned an honest hedge into a confident falsehood.
+what year it was that memory turned an honest hedge into a confident falsehood. Routes C,
+E, F and G of issue #183 added ``lookup_team_schedule``, ``lookup_team_record``,
+``lookup_player_game_log`` and ``lookup_league_leaders``. Task 260914-dpc added four
+more: ``lookup_depth_chart`` (ESPN's core host DOES publish one — the "does not" the
+roster tool shipped with was measured against the wrong host), ``lookup_points_scored``
+(season points for and against, summed here for a conference or division so the model
+never adds), ``lookup_team_season_stats`` (the team-level twin of the player stats table)
+and ``search_nfl_news`` (ESPN's article search, filtered to the NFL section — the nearest
+thing to a web search this path gets).
 """
 
 from __future__ import annotations
@@ -352,17 +360,17 @@ _ROSTER_TOOL_DESCRIPTION = (
     "names of the players at that position; if you leave the position argument out you "
     "get only a count of how many players the team carries at each position, so ask "
     "again with a position when you need names. Call this tool for a question about who "
-    "STARTS at a position as well, because the players it lists are the only players who "
-    "could be starting, and your own memory of a team's quarterback is often a year or "
-    "more out of date. This tool does not know who starts at any position, and it does "
-    "not know any depth-chart order, because ESPN does not publish one. So when you are "
-    "asked who starts, name the players this tool lists at that position and say plainly "
-    "that the roster does not show which of them starts. Never call any player a starter "
-    "on the strength of this tool. It reports each player's roster status, such as Active "
-    "or Day-To-Day, but it carries no injury detail at all — no body part and no return "
-    "date. This tool answers a question about a team the member has named. When the "
-    "member names a player instead and asks which team that player is on now, "
-    "lookup_player_current_team is the tool for that question and this one is not."
+    "is on the roster, how deep a team is at a position, or whether a named player is on "
+    "the team, because your own memory of a team's roster is often a year or more out of "
+    "date. This tool does not know who starts at any position and it does not know any "
+    "depth-chart order. When the member asks who STARTS at a position or who the starter "
+    "is, lookup_depth_chart is the tool for that question and this one is not, so call "
+    "that tool and never call any player a starter on the strength of this one. It "
+    "reports each player's roster status, such as Active or Day-To-Day, but it carries "
+    "no injury detail at all — no body part and no return date. This tool answers a "
+    "question about a team the member has named. When the member names a player instead "
+    "and asks which team that player is on now, lookup_player_current_team is the tool "
+    "for that question and this one is not."
 )
 
 
@@ -1334,7 +1342,7 @@ _GAME_LEADERS_TOOL_DESCRIPTION = (
     "player who led a game in passing is not necessarily that team's starting quarterback, "
     "because teams rest their starters and give backups snaps, so never call any player "
     "this tool names a starter. When the member asks who STARTS at a position, "
-    "lookup_team_roster is the tool for that question and this one is not. When he asks "
+    "lookup_depth_chart is the tool for that question and this one is not. When he asks "
     "what a player did across a whole season rather than in one game, "
     "lookup_player_season_stats is the tool for that question and this one is not."
 )
@@ -2053,10 +2061,597 @@ _LEAGUE_LEADERS_TOOL_DESCRIPTION = (
 )
 
 
+# --------------------------------------------------------------------------- #
+# The DEPTH CHART tool (260914-dpc). The roster tool shipped saying "ESPN does not publish
+# a depth chart", which was measured against the SITE host; the CORE host publishes one,
+# so a starter question now has a grounded answer instead of a hedge.
+# --------------------------------------------------------------------------- #
+
+
+async def _lookup_depth_chart(team: str = "", position: str | None = None) -> object | None:
+    """Look up ESPN's CURRENT depth chart for ``team``, narrowed to ``position`` when given.
+
+    TWO cached hops past the season: the depth chart names athletes only by ``$ref``, so
+    the names come from the roster payload the roster tool already caches, and no athlete
+    costs a request of his own (T-jbh-05). The season comes from the league root the
+    calendar preamble already warmed (D-2). EVERY outcome is a dict carrying a note.
+    """
+    from app.services import espn_extra
+
+    team_abbr = team.strip().upper() if isinstance(team, str) else ""
+    if not team_abbr:
+        return {"note": _NO_TEAM_TO_CHART_NOTE}
+
+    season = espn_extra.league_season_year(await espn_extra.fetch_league())
+    if season is None:
+        return {"note": _NO_SEASON_TO_CHART_NOTE.format(team=team_abbr)}
+
+    payload = await espn_extra.fetch_depth_chart(team_abbr, season)
+    if payload is None:
+        return {"note": _NO_DEPTH_CHART_NOTE.format(team=team_abbr, season=season)}
+    roster = await espn_extra.fetch_team_roster(team_abbr)
+    roster_facts = espn_extra.parse_team_roster(roster) if roster is not None else None
+    club = (roster_facts or {}).get("team") or team_abbr
+    names = espn_extra.roster_names_by_id(roster)
+
+    facts = espn_extra.parse_depth_chart(payload, names, position=position)
+    if facts is None or (not facts["slots"] and position is None):
+        return {"note": _NO_DEPTH_CHART_NOTE.format(team=club, season=season)}
+    if not facts["slots"]:
+        return {"note": _NO_SUCH_SLOT_NOTE.format(team=club, position=str(position)[:12])}
+
+    year = facts["season"] if isinstance(facts["season"], int) else season
+    if facts["starters_only"]:
+        statement = _STARTERS_STATEMENT.format(team=club, season=year)
+        for formation, slots in _slots_by_formation(facts["slots"]).items():
+            listed = ", ".join(
+                f"{slot['slot_name'] or slot['slot']} {slot['players'][0]}"
+                for slot in slots
+                if slot["players"]
+            )
+            if listed:
+                statement += _FORMATION_CLAUSE.format(formation=formation, listed=listed)
+        statement += _ASK_FOR_BACKUPS_CLAUSE
+    else:
+        statement = ""
+        for slot in facts["slots"]:
+            statement += _slot_statement(club, year, slot)
+        statement = statement.strip()
+
+    return {
+        "season": year,
+        "team": club,
+        "slots": facts["slots"],
+        "depth_chart_statement": statement,
+        "caveat": espn_extra.DEPTH_CHART_CAVEAT,
+    }
+
+
+def _slots_by_formation(slots: list[dict]) -> dict[str, list[dict]]:
+    """Group depth-chart slots under the formation ESPN files them in, in order. Pure."""
+    grouped: dict[str, list[dict]] = {}
+    for slot in slots:
+        grouped.setdefault(slot["formation"] or "the lineup", []).append(slot)
+    return grouped
+
+
+def _slot_statement(club: str, season: int, slot: dict) -> str:
+    """One slot's order as full sentences the model can voice. Pure."""
+    spot = slot["slot_name"] or slot["slot"]
+    players = slot["players"]
+    if not players:
+        return _UNNAMED_SLOT_CLAUSE.format(team=club, spot=spot)
+    text = _SLOT_STARTER_STATEMENT.format(team=club, season=season, starter=players[0], spot=spot)
+    if len(players) > 1:
+        text += _SLOT_BACKUPS_CLAUSE.format(backups=_join_names(players[1:]))
+    else:
+        text += "."
+    if slot["unnamed"]:
+        text += _SLOT_UNNAMED_CLAUSE.format(count=slot["unnamed"])
+    return text + " "
+
+
+def _join_names(names: list[str]) -> str:
+    """``["A", "B", "C"]`` as "A, then B, then C". Pure."""
+    return ", then ".join(names)
+
+
+# The club, the season and the order are STATED, never implied: a dict field is readable
+# but not voiceable, and the starter is the one fact the question is asked for.
+_STARTERS_STATEMENT = (
+    "ESPN's depth chart lists these first-string players for the {team} in the {season} NFL season."
+)
+_FORMATION_CLAUSE = " In the {formation} group: {listed}."
+_ASK_FOR_BACKUPS_CLAUSE = (
+    " Each of those is the player ESPN lists first at that spot. Call this tool again "
+    "with a position to see who is listed behind the starter there."
+)
+_SLOT_STARTER_STATEMENT = (
+    "ESPN's depth chart for the {team} in the {season} NFL season lists {starter} as the "
+    "starting {spot}"
+)
+_SLOT_BACKUPS_CLAUSE = ", with {backups} listed behind him at that spot."
+_SLOT_UNNAMED_CLAUSE = (
+    " {count} more player listed at that spot is not named on ESPN's roster page, so he "
+    "is left out here."
+)
+_UNNAMED_SLOT_CLAUSE = (
+    "ESPN's depth chart has a {spot} spot for the {team}, but no player listed there is "
+    "named on ESPN's roster page, so this tool cannot say who plays it. "
+)
+
+# Every miss is a concrete full sentence telling the model what to do next, returned in a
+# dict body because a bare string fact gets voiced or swallowed (memory:
+# qa-phrasing-inversion) and a bare ``None`` sends it back to its own stale memory.
+_NO_TEAM_TO_CHART_NOTE = (
+    "The member's question named no NFL team, so this tool has no depth chart to look up. "
+    "Ask the member which team he means, and never name a starter from your own memory "
+    "instead."
+)
+_NO_SEASON_TO_CHART_NOTE = (
+    "The lookup that would have told you which NFL season is being played failed just "
+    "now, so this tool has no depth chart for {team} this time. Tell the member plainly "
+    "that you could not look the depth chart up, and never name a starter from your own "
+    "memory instead."
+)
+_NO_DEPTH_CHART_NOTE = (
+    "This tool has no depth chart at all for {team} in the {season} NFL season, because "
+    "the lookup of it failed just now. Tell the member plainly that you could not look "
+    "the depth chart up, and never name a starter from your own memory instead."
+)
+_NO_SUCH_SLOT_NOTE = (
+    "ESPN's depth chart for the {team} has no spot matching the position {position}. Ask "
+    "the member which position he means, using a standard abbreviation such as QB, RB, "
+    "WR, TE, LT, DE, LB, CB or S, and never name a starter from your own memory instead."
+)
+
+# INSTRUCT first, CONSTRAIN second — measured, not stylistic: a disclaimer-only
+# description suppressed the call 5/5 on the roster branch.
+_DEPTH_CHART_TOOL_DESCRIPTION = (
+    "Look up ESPN's depth chart for one NFL team this season, which says who STARTS at "
+    "every position and who is listed behind him. Call this tool every time the member "
+    "asks who starts or who the starter is at a position, who is first string or second "
+    "string, who backs up a player, or who a team's number one receiver, running back or "
+    "cornerback is, because your own memory of a team's starters is often a year or more "
+    "out of date. The team argument is that team's standard abbreviation, for example "
+    "CHI for the Chicago Bears. Pass a position abbreviation such as QB, RB, WR, TE, LT, "
+    "DE, LB, CB or S in the position argument to get the full order at that spot, and "
+    "leave the position argument out to get only the first-string player at every spot. "
+    "The first player listed at a spot is the one ESPN lists as the starter, so say so "
+    "plainly and say that it is ESPN's listing. It covers this season only, and it "
+    "carries no statistics and no injury detail. When the member asks who is ON the "
+    "roster or how many players a team carries at a position rather than who starts, "
+    "lookup_team_roster is the tool for that question and this one is not."
+)
+
+
+# --------------------------------------------------------------------------- #
+# The POINTS SCORED tool (260914-dpc). Asked live for the AFC's total points in a season,
+# the bot declined because "that comes from the app's own game data" — it does not; ESPN's
+# standings carry every club's points for and against, and the SUM is done here so the
+# model is never asked to add sixteen numbers.
+# --------------------------------------------------------------------------- #
+
+
+async def _lookup_points_scored(
+    team: str = "", group: str = "", season: int | None = None
+) -> object | None:
+    """Look up season points for and against, for ONE club or for ONE league group.
+
+    ONE cached hop past the season: a group's standings page carries every club in it
+    with its points, and a club question reads the whole-league page the record tool
+    shares (D-7). The season comes from the league root when none is given (D-2). EVERY
+    outcome is a dict carrying a note.
+    """
+    from app.services import espn_extra
+
+    team_abbr = team.strip().upper() if isinstance(team, str) else ""
+    key = "NFL" if team_abbr else espn_extra.standings_group(group)
+    if key is None:
+        return {"note": _NO_GROUP_TO_TOTAL_NOTE.format(groups=_group_names())}
+
+    asked_season = season if isinstance(season, int) and not isinstance(season, bool) else None
+    if asked_season is None:
+        asked_season = espn_extra.league_season_year(await espn_extra.fetch_league())
+        if asked_season is None:
+            return {"note": _NO_SEASON_TO_TOTAL_NOTE}
+
+    payload = await espn_extra.fetch_group_standings(asked_season, key)
+    facts = espn_extra.parse_points_scored(payload) if payload is not None else None
+    scope = team_abbr or _group_label(key)
+    if facts is None or not facts["teams"]:
+        return {"note": _NO_POINTS_NOTE.format(scope=scope, season=asked_season)}
+    year = facts["season"] if isinstance(facts["season"], int) else asked_season
+    teams = facts["teams"]
+    most_games = max((_games_count(row["games_played"]) for row in teams), default=0)
+    if most_games == 0:
+        return {"note": _NO_POINTS_YET_NOTE.format(scope=scope, season=year)}
+    so_far = _SO_FAR_CLAUSE.format(games=most_games) if most_games < 17 else ""
+
+    if team_abbr:
+        row = next((row for row in teams if row["abbreviation"] == team_abbr), None)
+        if row is None:
+            return {"note": _TEAM_NOT_IN_POINTS_NOTE.format(team=team_abbr, season=year)}
+        statement = _TEAM_POINTS_STATEMENT.format(
+            team=row["team"],
+            season=year,
+            points_for=f"{row['points_for']:,}",
+            points_against=f"{row['points_against']:,}",
+            differential=f"{row['differential']:+,}",
+            games=row["games_played"] or "its",
+            so_far=so_far,
+        )
+        if row["record"]:
+            statement += _TEAM_POINTS_RECORD_CLAUSE.format(team=row["team"], record=row["record"])
+        statement += _TEAM_POINTS_RANK_CLAUSE.format(
+            rank=_ordinal(teams.index(row) + 1), count=len(teams), season=year
+        )
+        statement += _POINTS_RECONCILIATION_CLAUSE
+        return {
+            "season": year,
+            "team": row["team"],
+            "points_for": row["points_for"],
+            "points_against": row["points_against"],
+            "differential": row["differential"],
+            "record": row["record"],
+            "games_played": row["games_played"],
+            "points_statement": statement,
+            "caveat": espn_extra.POINTS_SCORED_CAVEAT,
+        }
+
+    best = max(teams, key=lambda row: row["differential"])
+    worst = min(teams, key=lambda row: row["differential"])
+    statement = _GROUP_POINTS_STATEMENT.format(
+        count=len(teams),
+        group=_group_label(key),
+        season=year,
+        total_for=f"{facts['total_points_for']:,}",
+        total_against=f"{facts['total_points_against']:,}",
+        so_far=so_far,
+        top=teams[0]["team"],
+        top_points=f"{teams[0]['points_for']:,}",
+        bottom=teams[-1]["team"],
+        bottom_points=f"{teams[-1]['points_for']:,}",
+        best=best["team"],
+        best_differential=f"{best['differential']:+,}",
+        worst=worst["team"],
+        worst_differential=f"{worst['differential']:+,}",
+    )
+    statement += _POINTS_RECONCILIATION_CLAUSE
+    return {
+        "season": year,
+        "group": key,
+        "team_count": len(teams),
+        "total_points_for": facts["total_points_for"],
+        "total_points_against": facts["total_points_against"],
+        "teams": [
+            {
+                "team": row["team"],
+                "points_for": row["points_for"],
+                "points_against": row["points_against"],
+                "record": row["record"],
+            }
+            for row in teams
+        ],
+        "points_statement": statement,
+        "caveat": espn_extra.POINTS_SCORED_CAVEAT,
+    }
+
+
+def _games_count(value: object) -> int:
+    """A relayed games-played string as a count, or 0 when it is not one. Pure."""
+    try:
+        return int(str(value).strip())
+    except TypeError, ValueError:
+        return 0
+
+
+def _ordinal(number: int) -> str:
+    """``1`` -> "1st", ``22`` -> "22nd". Pure."""
+    if 10 <= number % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(number % 10, "th")
+    return f"{number}{suffix}"
+
+
+def _group_label(key: str) -> str:
+    """The words a person says for one standings group key. Pure."""
+    return "whole NFL" if key == "NFL" else key
+
+
+def _group_names() -> str:
+    """The group names this tool covers, as a phrase a person would say. Pure."""
+    from app.services import espn_extra
+
+    names = list(espn_extra.STANDINGS_GROUPS)
+    return f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+# The club or group, the season and the totals are STATED, never implied.
+_TEAM_POINTS_STATEMENT = (
+    "The {team} scored {points_for} points and allowed {points_against} in the {season} "
+    "NFL regular season{so_far}, a point differential of {differential} over {games} games."
+)
+_TEAM_POINTS_RECORD_CLAUSE = " The {team} record in those games was {record}."
+_TEAM_POINTS_RANK_CLAUSE = (
+    " That was the {rank} most points scored of the {count} teams in the league in the "
+    "{season} season."
+)
+_GROUP_POINTS_STATEMENT = (
+    "The {count} teams of the {group} scored a combined {total_for} points in the {season} "
+    "NFL regular season{so_far}, and allowed a combined {total_against}. The {top} scored "
+    "the most of them with {top_points}, and the {bottom} scored the fewest with "
+    "{bottom_points}. The {best} had the best point differential of the group at "
+    "{best_differential}, and the {worst} had the worst at {worst_differential}."
+)
+_SO_FAR_CLAUSE = " so far, with {games} games played"
+# THE guard collision, answered in the payload rather than by editing a byte-pinned guard
+# clause. Unconditional, because a caveat the model has to decide whether to apply is a
+# caveat it drops (measured 3/3 on the record branch).
+_POINTS_RECONCILIATION_CLAUSE = (
+    " A season points total is not a game score and it is not a standings position, so "
+    "you are allowed to report every figure here and you must say it plainly. This is "
+    "not this pick'em league's own standings and it is not any member's standing, so "
+    "never decline to give these totals and never say that you cannot give them."
+)
+
+_NO_GROUP_TO_TOTAL_NOTE = (
+    "The member's question named neither an NFL team nor a group this tool knows. The "
+    "only groups it covers are {groups}. Ask the member which team or group he means, "
+    "and never give a points total from your own memory instead."
+)
+_NO_SEASON_TO_TOTAL_NOTE = (
+    "The member named no season, and the lookup that would have told you which NFL "
+    "season is being played failed just now, so this tool has no points total this "
+    "time. Ask the member which season he means, and never work a year out for yourself."
+)
+_NO_POINTS_NOTE = (
+    "This tool has no points totals at all for {scope} in the {season} NFL season, either "
+    "because ESPN's record does not carry that season or because the lookup of it "
+    "failed just now. Tell the member plainly that you could not look those totals up, "
+    "and never give him a total from your own memory instead."
+)
+_NO_POINTS_YET_NOTE = (
+    "No team in {scope} has played a game in the {season} NFL season yet, so there are "
+    "no points totals for it at all. Tell the member plainly that the {season} season "
+    "has not begun, never report a total of zero as a result, and never give him a total "
+    "from your own memory instead."
+)
+_TEAM_NOT_IN_POINTS_NOTE = (
+    "ESPN's {season} standings carry no club under the abbreviation {team}, so this tool "
+    "has no points total for it. Ask the member which team he means, and never give "
+    "another club's total as though it were his team's."
+)
+
+_POINTS_TOOL_DESCRIPTION = (
+    "Look up how many points NFL teams scored and allowed in one regular season: one "
+    "team's points for and against, or the combined total for the whole league, a "
+    "conference or a division. Call this tool every time the "
+    "member asks how many points a team scored or allowed in a season, which team scored "
+    "the most or the fewest, who had the best point differential, or what a conference or "
+    "a division scored in total, because your own memory of these totals is often wrong "
+    "and this tool adds them up for you, so never add team totals together yourself. Pass "
+    "the team argument, as the standard abbreviation such as CHI, when the member names "
+    "one team; otherwise pass the group argument. Pass the season argument as the year "
+    "the member named; for last season pass the most recently finished season's year that "
+    "the calendar facts state, and leave it out only for the season being played right "
+    "now. A season points total is not a game score and not a standings position, so "
+    "report it plainly and never decline to give it."
+)
+
+
+# --------------------------------------------------------------------------- #
+# The TEAM SEASON STATS tool (260914-dpc). The player stats table had no team-level twin,
+# so "how many rushing yards did the Bears have last year" had nowhere grounded to go.
+# --------------------------------------------------------------------------- #
+
+
+async def _lookup_team_season_stats(
+    team: str = "", category: str = "", season: int | None = None
+) -> object | None:
+    """Look up ONE club's season totals in ONE allowlisted category of the game.
+
+    ONE cached hop past the season. The category resolves to a code-owned literal inside
+    the seam before anything is read, so the model's own string selects only a LITERAL
+    (T-jbh-01). EVERY outcome is a dict carrying a note.
+    """
+    from app.services import espn_extra
+
+    team_abbr = team.strip().upper() if isinstance(team, str) else ""
+    if not team_abbr:
+        return {"note": _NO_TEAM_TO_STAT_NOTE}
+    key = espn_extra.team_stat_category(category)
+    if key is None:
+        return {"note": _UNKNOWN_TEAM_STAT_CATEGORY_NOTE.format(categories=_team_stat_categories())}
+
+    asked_season = season if isinstance(season, int) and not isinstance(season, bool) else None
+    if asked_season is None:
+        asked_season = espn_extra.league_season_year(await espn_extra.fetch_league())
+        if asked_season is None:
+            return {"note": _NO_SEASON_TO_STAT_NOTE.format(team=team_abbr)}
+
+    payload = await espn_extra.fetch_team_statistics(team_abbr, asked_season)
+    facts = espn_extra.parse_team_statistics(payload, key) if payload is not None else None
+    if facts is None or not facts["facts"]:
+        return {"note": _NO_TEAM_STATS_NOTE.format(team=team_abbr, season=asked_season)}
+    club = facts["team"] or team_abbr
+    year = facts["season"] if isinstance(facts["season"], int) else asked_season
+    if _games_count(facts["games_played"]) == 0:
+        return {"note": _NO_TEAM_STATS_YET_NOTE.format(team=club, season=year)}
+
+    listed = ", ".join(f"{label} {value}" for label, value in facts["facts"].items())
+    statement = _TEAM_STATS_STATEMENT.format(
+        team=club, season=year, category=key, games=facts["games_played"], listed=listed
+    )
+    return {
+        "season": year,
+        "team": club,
+        "category": key,
+        "games_played": facts["games_played"],
+        "facts": facts["facts"],
+        "stats_statement": statement,
+        "caveat": espn_extra.TEAM_STATISTICS_CAVEAT,
+    }
+
+
+def _team_stat_categories() -> str:
+    """The categories this tool covers, as a phrase a person would say. Pure."""
+    from app.services import espn_extra
+
+    names = list(espn_extra.TEAM_STAT_CATEGORIES)
+    return f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+_TEAM_STATS_STATEMENT = (
+    "Over {games} games of the {season} NFL regular season the {team} as a whole team had "
+    "these {category} totals: {listed}. Every one of those is the team's own total for "
+    "the {season} season, so say the year when you report it."
+)
+
+_NO_TEAM_TO_STAT_NOTE = (
+    "The member's question named no NFL team, so this tool has no totals to look up. Ask "
+    "the member which team he means, and never give a team total from your own memory "
+    "instead."
+)
+_UNKNOWN_TEAM_STAT_CATEGORY_NOTE = (
+    "This tool has no team totals for the area the member asked about. The only areas it "
+    "covers are {categories}. Ask the member which of those he means, and never give a "
+    "team total from your own memory instead."
+)
+_NO_SEASON_TO_STAT_NOTE = (
+    "The member named no season, and the lookup that would have told you which NFL "
+    "season is being played failed just now, so this tool has no totals for {team} this "
+    "time. Ask the member which season he means, and never work a year out for yourself."
+)
+_NO_TEAM_STATS_NOTE = (
+    "This tool has no season totals at all for {team} in the {season} NFL season, either "
+    "because ESPN's record does not carry that season or because the lookup of it "
+    "failed just now. Tell the member plainly that you could not look those totals up, "
+    "and never give him a total from your own memory instead."
+)
+_NO_TEAM_STATS_YET_NOTE = (
+    "The {team} have not played a game in the {season} NFL season yet, so they have no "
+    "season totals for it at all. Tell the member plainly that the {season} season has "
+    "not begun for them, never report a total of zero as a result, and never give him a "
+    "total from your own memory instead."
+)
+
+_TEAM_STATS_TOOL_DESCRIPTION = (
+    "Look up one NFL team's own season totals in one area of the game for one regular "
+    "season: passing, rushing, receiving, offense, defense, turnovers, scoring or kicking. "
+    "Call this tool every time the member asks how many yards, touchdowns, sacks, "
+    "turnovers, first downs or penalties a TEAM had in a season, or how a team's offense "
+    "or defense did statistically, because your own memory of a team's totals is often "
+    "wrong. The team argument is that team's standard abbreviation such as CHI, and the "
+    "category argument is one of the listed areas. Pass the season argument as the "
+    "four-digit year the member named; for last season or last year pass the most "
+    "recently finished season's year that the calendar facts state, and leave it out "
+    "only for the season being played right now. It sums the whole team, so when the "
+    "member asks what one named player did, lookup_player_season_stats is the tool for "
+    "that question and this one is not. When he asks how many points a team scored or "
+    "allowed, lookup_points_scored is the tool for that question and this one is not."
+)
+
+
+# --------------------------------------------------------------------------- #
+# The NEWS SEARCH tool (260914-dpc). The closest thing to a web search this bot gets: the
+# same ESPN search endpoint the athlete lookup uses, asked for articles, filtered to the
+# NFL section. Headlines are third-party text and the caveat says so.
+# --------------------------------------------------------------------------- #
+
+
+async def _search_nfl_news(phrase: str = "") -> object | None:
+    """Search ESPN's recent NFL stories for ``phrase``. ONE cached hop, notes on every miss."""
+    from app.services import espn_extra
+
+    words = " ".join(phrase.split()) if isinstance(phrase, str) else ""
+    if not words:
+        return {"note": _NO_PHRASE_TO_SEARCH_NOTE}
+    if len(words) > espn_extra.ARTICLE_QUERY_MAX_CHARS:
+        return {"note": _PHRASE_TOO_LONG_NOTE}
+
+    payload = await espn_extra.fetch_article_search(words)
+    stories = espn_extra.parse_article_search(payload) if payload is not None else None
+    if stories is None:
+        return {"note": _NEWS_SEARCH_FAILED_NOTE.format(phrase=words)}
+    if not stories:
+        return {"note": _NO_NEWS_MATCHED_NOTE.format(phrase=words)}
+
+    newest = stories[0]
+    statement = _NEWS_SEARCH_STATEMENT.format(
+        count=len(stories),
+        phrase=words,
+        date=newest["date"] or "an unstated date",
+        headline=newest["headline"],
+    )
+    return {
+        "phrase": words,
+        "stories": stories,
+        "news_statement": statement,
+        "caveat": espn_extra.ARTICLE_SEARCH_CAVEAT,
+    }
+
+
+_NEWS_SEARCH_STATEMENT = (
+    "ESPN has {count} recent NFL stories matching the phrase {phrase}, listed newest "
+    "first. The newest, dated {date}, is headlined: {headline}."
+)
+
+_NO_PHRASE_TO_SEARCH_NOTE = (
+    "No search phrase was given, so this tool searched nothing. Call it again with a short "
+    "phrase of a few words naming the player, team or topic the member asked about."
+)
+_PHRASE_TOO_LONG_NOTE = (
+    "That search phrase was too long, so this tool searched nothing. Call it again with a "
+    "short phrase of two to six words, never the member's whole question."
+)
+_NEWS_SEARCH_FAILED_NOTE = (
+    "The search for {phrase} failed just now, so this tool has no headlines this time. "
+    "Tell the member plainly that you could not search the news, and never invent a "
+    "headline or a story from your own memory instead."
+)
+_NO_NEWS_MATCHED_NOTE = (
+    "ESPN has no recent NFL story matching the phrase {phrase}. Tell the member plainly "
+    "that you found no recent story about it, and never invent a headline or a story from "
+    "your own memory instead. A shorter phrase, such as just the team or the player's "
+    "name, may match where a longer one did not."
+)
+
+_NEWS_SEARCH_TOOL_DESCRIPTION = (
+    "Search ESPN's recent NFL news stories for a short phrase, such as a player's name, a "
+    "team and a topic, or a trade or an injury the member heard about. Call this tool "
+    "when the member asks what happened with a player or a team, why someone is out, "
+    "whether a trade or a signing is real, or what the latest news on a team is, and "
+    "whenever a question is about the last few days and no other tool covers it, because "
+    "your own knowledge stops well before today and this tool reads what ESPN published "
+    "this week. The phrase argument is a short search phrase of two to six words, never "
+    "the member's whole question. It returns headlines with their dates and their links "
+    "and it does not read the stories behind them, so report what a headline says and "
+    "never add detail a headline does not state. When the member asks for a player's "
+    "statistics, a team's record or who starts, the other tools are for those questions "
+    "and this one is not."
+)
+
+
 # ONE round vocabulary across both tools that take a round, so the model learns one set of
 # names rather than two. The enum is a second bound on a model-written value; either
 # adapter still resolves anything else through espn_extra's own keyword table.
 _PLAYOFF_ROUND_ENUM = ["wild card", "divisional", "conference championships", "super bowl"]
+
+
+def _standings_group_enum() -> list[str]:
+    """The group names the seam accepts, DERIVED so the two cannot drift apart."""
+    from app.services import espn_extra
+
+    return list(espn_extra.STANDINGS_GROUPS)
+
+
+def _team_stat_category_enum() -> list[str]:
+    """The category names the seam accepts, DERIVED so the two cannot drift apart."""
+    from app.services import espn_extra
+
+    return list(espn_extra.TEAM_STAT_CATEGORIES)
 
 
 def _leader_category_enum() -> list[str]:
@@ -2364,6 +2959,132 @@ TOOLS: tuple[_Tool, ...] = (
             },
         },
         run=_lookup_league_leaders,
+    ),
+    _Tool(
+        name="lookup_depth_chart",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_depth_chart",
+                "description": _DEPTH_CHART_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {
+                            "type": "string",
+                            "description": "The team's standard abbreviation, such as CHI.",
+                        },
+                        "position": {
+                            "type": "string",
+                            "description": (
+                                "Optional position abbreviation, such as QB. Leave it out "
+                                "to get the first-string player at every spot."
+                            ),
+                        },
+                    },
+                    "required": ["team"],
+                },
+            },
+        },
+        run=_lookup_depth_chart,
+    ),
+    _Tool(
+        name="lookup_points_scored",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_points_scored",
+                "description": _POINTS_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {
+                            "type": "string",
+                            "description": (
+                                "One team's standard abbreviation, such as CHI, and ONLY "
+                                "when the member named one team."
+                            ),
+                        },
+                        "group": {
+                            "type": "string",
+                            # DERIVED from the seam's own allowlist, so the enum the model
+                            # reads and the ids the code will accept cannot drift apart.
+                            "enum": _standings_group_enum(),
+                            "description": (
+                                "The league, a conference or a division, when no single "
+                                "team is named."
+                            ),
+                        },
+                        "season": {
+                            "type": "integer",
+                            "description": (
+                                "The four-digit season year. Leave it out only for the "
+                                "season being played right now."
+                            ),
+                        },
+                    },
+                    "required": [],
+                },
+            },
+        },
+        run=_lookup_points_scored,
+    ),
+    _Tool(
+        name="lookup_team_season_stats",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_team_season_stats",
+                "description": _TEAM_STATS_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {
+                            "type": "string",
+                            "description": "The team's standard abbreviation, such as CHI.",
+                        },
+                        "category": {
+                            "type": "string",
+                            "enum": _team_stat_category_enum(),
+                            "description": "Which area of the game to total.",
+                        },
+                        "season": {
+                            "type": "integer",
+                            "description": (
+                                "The four-digit season year. Leave it out only for the "
+                                "season being played right now."
+                            ),
+                        },
+                    },
+                    "required": ["team", "category"],
+                },
+            },
+        },
+        run=_lookup_team_season_stats,
+    ),
+    _Tool(
+        name="search_nfl_news",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "search_nfl_news",
+                "description": _NEWS_SEARCH_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "phrase": {
+                            "type": "string",
+                            "description": (
+                                "A short search phrase of two to six words, such as a "
+                                "player's name or a team and a topic."
+                            ),
+                        },
+                    },
+                    "required": ["phrase"],
+                },
+            },
+        },
+        run=_search_nfl_news,
     ),
 )
 
