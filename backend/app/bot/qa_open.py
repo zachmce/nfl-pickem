@@ -71,10 +71,28 @@ logger = structlog.get_logger(__name__)
 # (memory: qa-phrasing-inversion).
 # --------------------------------------------------------------------------- #
 
+# MEASURED 2026-09-14 (260914-dpc): with thirteen tools shipped, the model declined a
+# team's season rushing total 4/6 as "one of those stats the app's own database holds",
+# and twice invented a number instead — the ownership clause's "comes from the app's own
+# data" applied to ESPN tool data it was never written for (memory:
+# guard-rules-overgeneralize). This clause names what the app's data IS and says what a
+# tool result is NOT, so the ban has an edge the model can see. It lives in the ROLE half
+# so the byte-pinned guard constants stay untouched.
+OPEN_TOOLS_CLAUSE = (
+    "The app's own database holds only this week's spreads and totals, the scores of this "
+    "week's games, this pick'em league's standings, the pick deadlines and the members' "
+    "picks. Every other football figure — a team's or a player's season totals, who "
+    "starts, a past season's results, the news — is yours to look up with the tools you "
+    "are given, which read ESPN's live data. Nothing a tool returns is a figure from the "
+    "app's database, so when a tool covers a question you call it and report what it "
+    "returns, and you never decline such a question as one the app answers."
+)
+
 OPEN_ROLE = (
     "You are answering a league member's open question about the NFL — a question the "
     "app's own data does not cover — using your own football knowledge rather than any "
-    "figure read from the app's database."
+    "figure read from the app's database. "
+    f"{OPEN_TOOLS_CLAUSE}"
 )
 
 # (a) FORMAT. The 2026-08-20 probe measured the model answering open questions with
@@ -2272,6 +2290,12 @@ async def _lookup_points_scored(
         row = next((row for row in teams if row["abbreviation"] == team_abbr), None)
         if row is None:
             return {"note": _TEAM_NOT_IN_POINTS_NOTE.format(team=team_abbr, season=year)}
+        games = _games_count(row["games_played"])
+        if games == 0:
+            # A 0-and-0 relayed as a result is the class of defect issue #183 was opened
+            # for; measured live 2026-09-14 as "the Chiefs have scored 0 points".
+            return {"note": _TEAM_NO_POINTS_YET_NOTE.format(team=row["team"], season=year)}
+        so_far = _SO_FAR_CLAUSE.format(games=games) if games < 17 else ""
         statement = _TEAM_POINTS_STATEMENT.format(
             team=row["team"],
             season=year,
@@ -2385,7 +2409,7 @@ _GROUP_POINTS_STATEMENT = (
     "{bottom_points}. The {best} had the best point differential of the group at "
     "{best_differential}, and the {worst} had the worst at {worst_differential}."
 )
-_SO_FAR_CLAUSE = " so far, with {games} games played"
+_SO_FAR_CLAUSE = " so far, with {games} of 17 games played"
 # THE guard collision, answered in the payload rather than by editing a byte-pinned guard
 # clause. Unconditional, because a caveat the model has to decide whether to apply is a
 # caveat it drops (measured 3/3 on the record branch).
@@ -2417,6 +2441,15 @@ _NO_POINTS_YET_NOTE = (
     "no points totals for it at all. Tell the member plainly that the {season} season "
     "has not begun, never report a total of zero as a result, and never give him a total "
     "from your own memory instead."
+)
+# Measured live 2026-09-14 on the group-shaped note: told one club had not played, the model
+# said "the 2026 season hasn't kicked off yet" on a day another club had already won.
+_TEAM_NO_POINTS_YET_NOTE = (
+    "The {team} have not played a game in the {season} NFL season yet, so they have no "
+    "points total for it at all. Tell the member plainly that the {team} have not played "
+    "yet this season, and never say that the season has not begun, because other teams "
+    "may already have played. Never report a total of zero as a result, and never give "
+    "him a total from your own memory instead."
 )
 _TEAM_NOT_IN_POINTS_NOTE = (
     "ESPN's {season} standings carry no club under the abbreviation {team}, so this tool "
@@ -2541,9 +2574,10 @@ _TEAM_STATS_TOOL_DESCRIPTION = (
     "Look up one NFL team's own season totals in one area of the game for one regular "
     "season: passing, rushing, receiving, offense, defense, turnovers, scoring or kicking. "
     "Call this tool every time the member asks how many yards, touchdowns, sacks, "
-    "turnovers, first downs or penalties a TEAM had in a season, or how a team's offense "
-    "or defense did statistically, because your own memory of a team's totals is often "
-    "wrong. The team argument is that team's standard abbreviation such as CHI, and the "
+    "turnovers, first downs or penalties a TEAM had in a season, because your own memory "
+    "of a team's totals is often wrong. A team's season total is not a figure the app's "
+    "own data holds, so never decline it as one the app answers. The team argument is "
+    "that team's standard abbreviation such as CHI, and the "
     "category argument is one of the listed areas. Pass the season argument as the "
     "four-digit year the member named; for last season or last year pass the most "
     "recently finished season's year that the calendar facts state, and leave it out "

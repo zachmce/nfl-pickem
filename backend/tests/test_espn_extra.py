@@ -3459,6 +3459,38 @@ class ParseArticleSearchTests(unittest.TestCase):
         # The planted NBA story is filtered by its section, not by its words.
         self.assertFalse(any("NBA" in (story["headline"] or "") for story in stories))
 
+    def test_a_score_inside_a_headline_is_cut_before_the_model_sees_it(self) -> None:
+        # The open path never states a game score (OPEN_OWNERSHIP_CLAUSE); a caveat alone
+        # left it voiced 2/3 live, so the parser removes it.
+        payload = {
+            "results": [
+                {
+                    "contents": [
+                        {
+                            "displayName": "Caleb Williams and Bears trounce Panthers 59-37 in "
+                            "highest-scoring opener",
+                            "link": {"web": "https://www.espn.com/nfl/story/_/id/1/x"},
+                        },
+                        {
+                            "displayName": "Week 1 recap: Lions 31, Packers 24 — and 2026-27 looks",
+                            "link": {"web": "https://www.espn.com/nfl/story/_/id/2/y"},
+                        },
+                    ]
+                }
+            ]
+        }
+        stories = espn_extra.parse_article_search(payload)
+        assert stories is not None
+        self.assertEqual(
+            stories[0]["headline"],
+            "Caleb Williams and Bears trounce Panthers in highest-scoring opener",
+        )
+        # Two plain numbers separated by words are not a score and survive; a year range is
+        # four digits and survives too.
+        self.assertEqual(
+            stories[1]["headline"], "Week 1 recap: Lions 31, Packers 24 — and 2026-27 looks"
+        )
+
     def test_the_relay_is_capped(self) -> None:
         payload = _load_article_search_fixture()
         contents = payload["results"][0]["contents"]
