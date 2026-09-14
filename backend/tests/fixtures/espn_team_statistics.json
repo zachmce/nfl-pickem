@@ -1,0 +1,480 @@
+{
+ "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/types/2/teams/3/statistics/0?lang=en&region=us",
+ "season": {
+  "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025?lang=en&region=us"
+ },
+ "team": {
+  "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/teams/3?lang=en&region=us"
+ },
+ "splits": {
+  "id": "0",
+  "name": "All Splits",
+  "categories": [
+   {
+    "name": "general",
+    "displayName": "General",
+    "stats": [
+     {
+      "name": "fumblesLost",
+      "displayName": "Fumbles Lost",
+      "value": 4.0,
+      "displayValue": "4"
+     },
+     {
+      "name": "fumblesForced",
+      "displayName": "Forced Fumbles",
+      "value": 12.0,
+      "displayValue": "12"
+     },
+     {
+      "name": "fumblesRecovered",
+      "displayName": "Fumbles Recovered",
+      "value": 10.0,
+      "displayValue": "10"
+     }
+    ]
+   },
+   {
+    "name": "passing",
+    "displayName": "Passing",
+    "stats": [
+     {
+      "name": "completionPct",
+      "displayName": "Completion Percentage",
+      "value": 58.188,
+      "displayValue": "58.2"
+     },
+     {
+      "name": "completions",
+      "displayName": "Completions",
+      "value": 334.0,
+      "displayValue": "334"
+     },
+     {
+      "name": "interceptions",
+      "displayName": "Interceptions",
+      "value": 7.0,
+      "displayValue": "7"
+     },
+     {
+      "name": "netPassingYards",
+      "displayName": "Net Passing Yards",
+      "value": 3826.0,
+      "displayValue": "3,826"
+     },
+     {
+      "name": "passingAttempts",
+      "displayName": "Passing Attempts",
+      "value": 574.0,
+      "displayValue": "574"
+     },
+     {
+      "name": "passingTouchdowns",
+      "displayName": "Passing Touchdowns",
+      "value": 28.0,
+      "displayValue": "28"
+     },
+     {
+      "name": "passingYards",
+      "displayName": "Passing Yards",
+      "value": 3991.0,
+      "displayValue": "3,991"
+     },
+     {
+      "name": "passingYardsPerGame",
+      "displayName": "Passing Yards Per Game",
+      "value": 234.765,
+      "displayValue": "234.8"
+     },
+     {
+      "name": "QBRating",
+      "displayName": "Passer Rating",
+      "value": 90.721,
+      "displayValue": "90.7"
+     },
+     {
+      "name": "sacks",
+      "displayName": "Total Sacks",
+      "value": 24.0,
+      "displayValue": "24"
+     },
+     {
+      "name": "teamGamesPlayed",
+      "displayName": "Team Games Played",
+      "value": 17.0,
+      "displayValue": "17"
+     },
+     {
+      "name": "totalOffensivePlays",
+      "displayName": "Total Offensive Plays",
+      "value": 1103.0,
+      "displayValue": "1103"
+     },
+     {
+      "name": "totalYards",
+      "displayName": "Total Yards",
+      "value": 6442.0,
+      "displayValue": "6,442"
+     },
+     {
+      "name": "yardsPerGame",
+      "displayName": "Yards Per Game",
+      "value": 379.235,
+      "displayValue": "379.2"
+     }
+    ]
+   },
+   {
+    "name": "rushing",
+    "displayName": "Rushing",
+    "stats": [
+     {
+      "name": "longRushing",
+      "displayName": "Long Rushing",
+      "value": 39.0,
+      "displayValue": "39"
+     },
+     {
+      "name": "rushingAttempts",
+      "displayName": "Rushing Attempts",
+      "value": 505.0,
+      "displayValue": "505"
+     },
+     {
+      "name": "rushingFirstDowns",
+      "displayName": "Rushing 1st downs",
+      "value": 142.0,
+      "displayValue": "142"
+     },
+     {
+      "name": "rushingTouchdowns",
+      "displayName": "Rushing Touchdowns",
+      "value": 19.0,
+      "displayValue": "19"
+     },
+     {
+      "name": "rushingYards",
+      "displayName": "Rushing Yards",
+      "value": 2456.0,
+      "displayValue": "2,456"
+     },
+     {
+      "name": "rushingYardsPerGame",
+      "displayName": "Rushing Yards Per Game",
+      "value": 144.471,
+      "displayValue": "144.5"
+     },
+     {
+      "name": "yardsPerRushAttempt",
+      "displayName": "Yards Per Rush Attempt",
+      "value": 4.863,
+      "displayValue": "4.9"
+     }
+    ]
+   },
+   {
+    "name": "receiving",
+    "displayName": "Receiving",
+    "stats": [
+     {
+      "name": "longReception",
+      "displayName": "Long Reception",
+      "value": 65.0,
+      "displayValue": "65"
+     },
+     {
+      "name": "receivingTargets",
+      "displayName": "Receiving Targets",
+      "value": 532.0,
+      "displayValue": "532"
+     },
+     {
+      "name": "receivingTouchdowns",
+      "displayName": "Receiving Touchdowns",
+      "value": 28.0,
+      "displayValue": "28"
+     },
+     {
+      "name": "receivingYards",
+      "displayName": "Receiving Yards",
+      "value": 3991.0,
+      "displayValue": "3,991"
+     },
+     {
+      "name": "receptions",
+      "displayName": "Receptions",
+      "value": 334.0,
+      "displayValue": "334"
+     },
+     {
+      "name": "yardsPerReception",
+      "displayName": "Yards Per Reception",
+      "value": 11.949,
+      "displayValue": "11.9"
+     }
+    ]
+   },
+   {
+    "name": "defensive",
+    "displayName": "Defense",
+    "stats": [
+     {
+      "name": "defensiveTouchdowns",
+      "displayName": "Defensive Touchdown",
+      "value": 2.0,
+      "displayValue": "2"
+     },
+     {
+      "name": "passesDefended",
+      "displayName": "Passes Defended",
+      "value": 75.0,
+      "displayValue": "75"
+     },
+     {
+      "name": "sacks",
+      "displayName": "Sacks",
+      "value": 35.0,
+      "displayValue": "35"
+     },
+     {
+      "name": "soloTackles",
+      "displayName": "Solo Tackles",
+      "value": 702.0,
+      "displayValue": "702"
+     },
+     {
+      "name": "tacklesForLoss",
+      "displayName": "Tackles For Loss",
+      "value": 66.0,
+      "displayValue": "66"
+     },
+     {
+      "name": "totalTackles",
+      "displayName": "Total Tackles",
+      "value": 1275.0,
+      "displayValue": "1275"
+     }
+    ]
+   },
+   {
+    "name": "defensiveInterceptions",
+    "displayName": "Defensive Interceptions",
+    "stats": [
+     {
+      "name": "interceptions",
+      "displayName": "Interceptions",
+      "value": 23.0,
+      "displayValue": "23"
+     }
+    ]
+   },
+   {
+    "name": "kicking",
+    "displayName": "Kicking",
+    "stats": [
+     {
+      "name": "extraPointAttempts",
+      "displayName": "Extra Point Attempts",
+      "value": 42.0,
+      "displayValue": "42"
+     },
+     {
+      "name": "extraPointPct",
+      "displayName": "Extra Point Percentage",
+      "value": 100.0,
+      "displayValue": "100.0"
+     },
+     {
+      "name": "extraPointsMade",
+      "displayName": "Extra Points Made",
+      "value": 42.0,
+      "displayValue": "42"
+     },
+     {
+      "name": "fieldGoalAttempts",
+      "displayName": "Field Goal Attempts",
+      "value": 39.0,
+      "displayValue": "39"
+     }
+    ]
+   },
+   {
+    "name": "returning",
+    "displayName": "Returning",
+    "stats": [
+     {
+      "name": "kickReturnYards",
+      "displayName": "Kick Return Yards",
+      "value": 1792.0,
+      "displayValue": "1,792"
+     }
+    ]
+   },
+   {
+    "name": "punting",
+    "displayName": "Punting",
+    "stats": [
+     {
+      "name": "grossAvgPuntYards",
+      "displayName": "Gross Average Punt Yards",
+      "value": 47.833,
+      "displayValue": "47.8"
+     },
+     {
+      "name": "netAvgPuntYards",
+      "displayName": "Net Average Punt Yards",
+      "value": 42.717,
+      "displayValue": "42.7"
+     },
+     {
+      "name": "puntReturnYards",
+      "displayName": "Punt Return Yards",
+      "value": 307.0,
+      "displayValue": "307"
+     },
+     {
+      "name": "punts",
+      "displayName": "Punts",
+      "value": 60.0,
+      "displayValue": "60"
+     },
+     {
+      "name": "puntsInside20",
+      "displayName": "Punts Inside 20",
+      "value": 21.0,
+      "displayValue": "21"
+     }
+    ]
+   },
+   {
+    "name": "scoring",
+    "displayName": "Scoring",
+    "stats": [
+     {
+      "name": "defensivePoints",
+      "displayName": "Defensive Points",
+      "value": 12.0,
+      "displayValue": "12"
+     },
+     {
+      "name": "fieldGoals",
+      "displayName": "Field Goals",
+      "value": 33.0,
+      "displayValue": "33"
+     },
+     {
+      "name": "kickExtraPointsMade",
+      "displayName": "Kick Extra Points Made",
+      "value": 42.0,
+      "displayValue": "42"
+     },
+     {
+      "name": "passingTouchdowns",
+      "displayName": "Passing Touchdowns",
+      "value": 28.0,
+      "displayValue": "28"
+     },
+     {
+      "name": "returnTouchdowns",
+      "displayName": "Return Touchdowns",
+      "value": 2.0,
+      "displayValue": "2"
+     },
+     {
+      "name": "rushingTouchdowns",
+      "displayName": "Rushing Touchdowns",
+      "value": 19.0,
+      "displayValue": "19"
+     },
+     {
+      "name": "totalPoints",
+      "displayName": "Total Points",
+      "value": 441.0,
+      "displayValue": "441"
+     },
+     {
+      "name": "totalPointsPerGame",
+      "displayName": "Total Points Per Game",
+      "value": 25.941,
+      "displayValue": "25.9"
+     },
+     {
+      "name": "totalTouchdowns",
+      "displayName": "Total Touchdowns",
+      "value": 47.0,
+      "displayValue": "47"
+     },
+     {
+      "name": "totalTwoPointConvs",
+      "displayName": "Total Two Point Conversions",
+      "value": 3.0,
+      "displayValue": "3"
+     }
+    ]
+   },
+   {
+    "name": "miscellaneous",
+    "displayName": "Miscellaneous",
+    "stats": [
+     {
+      "name": "firstDowns",
+      "displayName": "Total 1st downs",
+      "value": 358.0,
+      "displayValue": "358"
+     },
+     {
+      "name": "fourthDownConvPct",
+      "displayName": "4th down %",
+      "value": 51.724,
+      "displayValue": "51.72"
+     },
+     {
+      "name": "redzoneScoringPct",
+      "displayName": "Red Zone Scoring Percentage",
+      "value": 80.0,
+      "displayValue": "80.00"
+     },
+     {
+      "name": "thirdDownConvPct",
+      "displayName": "3rd down %",
+      "value": 42.731,
+      "displayValue": "42.73"
+     },
+     {
+      "name": "totalGiveaways",
+      "displayName": "Total Giveaways",
+      "value": 11.0,
+      "displayValue": "11"
+     },
+     {
+      "name": "totalPenalties",
+      "displayName": "Total Penalties",
+      "value": 120.0,
+      "displayValue": "120"
+     },
+     {
+      "name": "totalPenaltyYards",
+      "displayName": "Total Penalty Yards",
+      "value": 970.0,
+      "displayValue": "970"
+     },
+     {
+      "name": "totalTakeaways",
+      "displayName": "Total Takeaways",
+      "value": 33.0,
+      "displayValue": "33"
+     },
+     {
+      "name": "turnOverDifferential",
+      "displayName": "Turnover Ratio",
+      "value": 22.0,
+      "displayValue": "22"
+     }
+    ]
+   }
+  ]
+ },
+ "seasonType": {
+  "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/types/2?lang=en&region=us"
+ }
+}

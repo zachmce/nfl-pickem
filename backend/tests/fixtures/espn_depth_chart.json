@@ -1,0 +1,250 @@
+{
+ "count": 3,
+ "pageIndex": 1,
+ "pageSize": 25,
+ "pageCount": 1,
+ "items": [
+  {
+   "id": "16",
+   "name": "Base 4-3 D",
+   "positions": {
+    "lde": {
+     "position": {
+      "id": "11",
+      "name": "Left Defensive End",
+      "displayName": "Left Defensive End",
+      "abbreviation": "LDE"
+     },
+     "athletes": [
+      {
+       "slot": 1,
+       "rank": 1,
+       "athlete": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/athletes/3134690?lang=en&region=us"
+       }
+      },
+      {
+       "slot": 1,
+       "rank": 2,
+       "athlete": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/athletes/4683553?lang=en&region=us"
+       }
+      },
+      {
+       "slot": 1,
+       "rank": 3,
+       "athlete": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/athletes/4372463?lang=en&region=us"
+       }
+      }
+     ]
+    },
+    "mlb": {
+     "position": {
+      "id": "27",
+      "name": "Middle Linebacker",
+      "displayName": "Middle Linebacker",
+      "abbreviation": "MLB"
+     },
+     "athletes": [
+      {
+       "slot": 6,
+       "rank": 1,
+       "athlete": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/athletes/3121544?lang=en&region=us"
+       }
+      },
+      {
+       "slot": 6,
+       "rank": 2,
+       "athlete": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/athletes/4911952?lang=en&region=us"
+       }
+      },
+      {
+       "slot": 6,
+       "rank": 3,
+       "athlete": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/athletes/4430822?lang=en&region=us"
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "18",
+   "name": "Special Teams",
+   "positions": {
+    "pk": {
+     "position": {
+      "id": "22",
+      "name": "Place kicker",
+      "displayName": "Place Kicker",
+      "abbreviation": "PK"
+     },
+     "athletes": [
+      {
+       "slot": 1,
+       "rank": 1,
+       "athlete": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/athletes/17427?lang=en&region=us"
+       }
+      }
+     ]
+    },
+    "kr": {
+     "position": {
+      "id": "77",
+      "name": "Kick Returner",
+      "displayName": "Kick Returner",
+      "abbreviation": "KR"
+     },
+     "athletes": [
+      {
+       "slot": 5,
+       "rank": 1,
+       "athlete": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/athletes/2973405?lang=en&region=us"
+       }
+      },
+      {
+       "slot": 5,
+       "rank": 2,
+       "athlete": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/athletes/4869748?lang=en&region=us"
+       }
+      },
+      {
+       "slot": 5,
+       "rank": 3,
+       "athlete": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/athletes/4240459?lang=en&region=us"
+       }
+      },
+      {
+       "slot": 5,
+       "rank": 4,
+       "athlete": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/athletes/5065495?lang=en&region=us"
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "21",
+   "name": "3WR 1TE",
+   "positions": {
+    "qb": {
+     "position": {
+      "id": "8",
+      "name": "Quarterback",
+      "displayName": "Quarterback",
+      "abbreviation": "QB"
+     },
+     "athletes": [
+      {
+       "slot": 9,
+       "rank": 1,
+       "athlete": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/athletes/4431611?lang=en&region=us"
+       }
+      },
+      {
+       "slot": 9,
+       "rank": 2,
+       "athlete": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/athletes/4434153?lang=en&region=us"
+       }
+      },
+      {
+       "slot": 9,
+       "rank": 3,
+       "athlete": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/athletes/15168?lang=en&region=us"
+       }
+      },
+      {
+       "slot": 9,
+       "rank": 4,
+       "athlete": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/athletes/4431580?lang=en&region=us"
+       }
+      }
+     ]
+    },
+    "wr": {
+     "position": {
+      "id": "1",
+      "name": "Wide Receiver",
+      "displayName": "Wide Receiver",
+      "abbreviation": "WR"
+     },
+     "athletes": [
+      {
+       "slot": 1,
+       "rank": 1,
+       "athlete": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/athletes/4431299?lang=en&region=us"
+       }
+      },
+      {
+       "slot": 1,
+       "rank": 4,
+       "athlete": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/athletes/4869748?lang=en&region=us"
+       }
+      },
+      {
+       "slot": 2,
+       "rank": 2,
+       "athlete": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/athletes/4685278?lang=en&region=us"
+       }
+      },
+      {
+       "slot": 2,
+       "rank": 5,
+       "athlete": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/athletes/5160110?lang=en&region=us"
+       }
+      }
+     ]
+    },
+    "lt": {
+     "position": {
+      "id": "2",
+      "name": "Left Tackle  ",
+      "displayName": "Left Tackle",
+      "abbreviation": "LT"
+     },
+     "athletes": [
+      {
+       "slot": 3,
+       "rank": 1,
+       "athlete": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/athletes/4251007?lang=en&region=us"
+       }
+      },
+      {
+       "slot": 3,
+       "rank": 2,
+       "athlete": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/athletes/4432595?lang=en&region=us"
+       }
+      },
+      {
+       "slot": 3,
+       "rank": 3,
+       "athlete": {
+        "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2026/athletes/5125873?lang=en&region=us"
+       }
+      }
+     ]
+    }
+   }
+  }
+ ]
+}
