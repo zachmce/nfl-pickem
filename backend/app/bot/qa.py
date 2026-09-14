@@ -76,7 +76,8 @@ class QaIntent(str, Enum):
 # Which validated intents carry which optional params. A field irrelevant to the
 # resolved intent is DROPPED (set to None), not treated as an error. ``injuries``,
 # ``weather``, ``lines_slate`` and ``prediction`` are team-BEARING and team-REQUIRED (a
-# teamless question soft-declines; a present-but-NON-REAL team coerces to ``unknown``).
+# teamless question soft-declines; a present-but-NON-REAL team coerces to ``unknown``,
+# or to ``open_nfl`` when the topic guard passed — issue #211).
 # ``news`` is team-BEARING but team-OPTIONAL (see ``_TEAM_OPTIONAL_INTENTS``): a REAL
 # team still resolves + carries through, but a NON-REAL team falls through to team=None
 # (the LEAGUE answer) instead of coercing to unknown, and a null team is likewise valid.
@@ -151,8 +152,9 @@ CLASSIFIER_SYSTEM_PROMPT = (
     'when the question calls the game "that game"; a question about a game in an '
     "EARLIER season is open_nfl, not scores), "
     "injuries (a team's injury report — who is hurt, out, doubtful, or "
-    "questionable), weather (the game-time forecast or conditions for a team's "
-    "game), news (recent ESPN headlines about a specific team or the league), "
+    "questionable across the WHOLE team), weather (the game-time forecast or "
+    "conditions for a team's game), news (recent ESPN headlines about a specific "
+    "team or the league), "
     "prediction (who will win a specific team's game — the pick, the cover or "
     "margin read, who covers the spread), "
     "slate_predictions (your OWN opinion across the whole week's slate — your "
@@ -166,7 +168,10 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "open_nfl (an open football question that NONE of the fixed intents above "
     "covers: who plays or starts at a position, who is on a team's roster, team or "
     "league history, records and milestones, the rules of the game, and opinion or "
-    "debate questions about football), "
+    "debate questions about football; a question about ONE NAMED PLAYER or ONE "
+    "POSITION on a team — why he is out, whether he plays this week, his status, or "
+    "the latest on him — is open_nfl, NOT injuries and NOT news, because injuries "
+    'and news cover a whole team; a player\'s name is NEVER the "team"), '
     "coming_soon (a recognized but unsupported topic: line movement), "
     "unknown (anything you are "
     'not sure about). "team" is a team name or abbreviation the question is about, '
@@ -506,7 +511,9 @@ def validate_classification(raw: object, *, known_team_tokens: set[str]) -> QaRe
     * ``intent`` is not one of the :class:`QaIntent` values (off-enum);
     * a non-null ``team`` on a team-REQUIRED intent (injuries / weather / lines_slate /
       prediction) does not normalize to a member of ``known_team_tokens`` (a non-real
-      team). A non-real team on a team-OPTIONAL intent (``_TEAM_OPTIONAL_INTENTS`` —
+      team) AND the raw ``nfl`` key is not the boolean True. When it IS True the same
+      case routes to ``open_nfl`` instead (issue #211: the slot held a player's name).
+      A non-real team on a team-OPTIONAL intent (``_TEAM_OPTIONAL_INTENTS`` —
       currently ``news``) is NOT a coercion trigger: it falls through to team=None (the
       LEAGUE answer), with its ``subject`` preserved to narrow the feed downstream.
 
@@ -554,6 +561,11 @@ def validate_classification(raw: object, *, known_team_tokens: set[str]) -> QaRe
         if raw_team is not None:
             team = _normalize_team(raw_team, known_team_tokens)
             if team is None and intent not in _TEAM_OPTIONAL_INTENTS:
+                # Issue #211: the "team" slot held a non-team (a player's name, live
+                # 3/3 on "any news on Caleb Williams"). With the topic guard passed the
+                # open path has a tool for that question; the decline menu never does.
+                if raw.get("nfl") is True:
+                    return QaResult(intent=QaIntent.open_nfl)
                 return QaResult(intent=QaIntent.unknown)
 
     week = _coerce_week(raw.get("week")) if intent in _WEEK_INTENTS else None
