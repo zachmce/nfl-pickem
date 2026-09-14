@@ -1,0 +1,50 @@
+{
+ "results": [
+  {
+   "type": "article",
+   "totalFound": 4,
+   "contents": [
+    {
+     "id": "49917622",
+     "type": "headlinenews",
+     "displayName": "Chiefs set to use undrafted rookie with LT Josh Simmons out",
+     "link": {
+      "web": "https://www.espn.com/nfl/story/_/id/49917622/chiefs-set-use-undrafted-rookie-lt-josh-simmons-out"
+     },
+     "byline": "Nate Taylor",
+     "date": "2026-09-12T20:17:49.000+00:00"
+    },
+    {
+     "id": "49897090",
+     "type": "preview",
+     "displayName": "A primetime AFC West grudge match as the Broncos visit the Chiefs in Week 1 on Monday night",
+     "link": {
+      "web": "http://www.espn.com/nfl/preview?gameId=401872931"
+     },
+     "byline": "AP",
+     "date": "2026-09-10T22:23:42.000+00:00"
+    },
+    {
+     "id": "49895082",
+     "type": "headlinenews",
+     "displayName": "Chiefs' Mahomes expects to play with no limitations in opener",
+     "link": {
+      "web": "https://www.espn.com/nfl/story/_/id/49895082/chiefs-mahomes-expects-play-no-limitations-opener"
+     },
+     "byline": "Nate Taylor",
+     "date": "2026-09-10T20:26:20.000+00:00"
+    },
+    {
+     "id": "1",
+     "type": "headlinenews",
+     "displayName": "Chiefs of the NBA offseason: a trade grades column",
+     "link": {
+      "web": "https://www.espn.com/nba/story/_/id/1/example"
+     },
+     "byline": "Someone",
+     "date": "2026-09-01T00:00:00.000+00:00"
+    }
+   ]
+  }
+ ]
+}
