@@ -1,0 +1,71 @@
+name: Dependabot auto-merge (docker)
+
+# Merges Dependabot base-image PRs (branch `dependabot/docker/**`) as soon as every
+# required check is green, then dispatches CI on main so the images publish.
+#
+# Why this shape (issue #189):
+#   - workflow_run, not pull_request: a Dependabot pull_request run gets a read-only
+#     GITHUB_TOKEN; workflow_run executes on the default branch with normal rights.
+#   - Both CI and CodeQL trigger it. Whichever finishes last finds the PR CLEAN;
+#     the earlier one exits without merging.
+#   - The merge is made with GITHUB_TOKEN, and an event caused by that token never
+#     starts a `push` workflow — the publish jobs would not run. workflow_dispatch is
+#     the documented exception, so CI is dispatched on main after the merge.
+#   - Only docker PRs. pip/npm/actions bumps stay manual.
+#
+# zizmor dangerous-triggers is suppressed with rationale: this workflow never checks
+# out or executes PR content. Every event value it reads is passed through `env`
+# (no inline expansion into the shell) and used only as a gh lookup key.
+
+on:  # zizmor: ignore[dangerous-triggers]
+  workflow_run:
+    workflows: [CI, CodeQL]
+    types: [completed]
+    branches: ['dependabot/docker/**']
+
+permissions: {}
+
+# One merge at a time; a second completion for the same PR must wait, not race.
+concurrency:
+  group: dependabot-automerge-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    name: Merge a green Dependabot docker PR
+    if: >-
+      github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'pull_request'
+      && github.event.workflow_run.actor.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write  # gh workflow run ci.yml
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Merge when every required check is green
+        run: |
+          set -euo pipefail
+          pr=$(gh pr list --head "$HEAD_BRANCH" --state open --author app/dependabot \
+                 --json number,headRefOid,mergeStateStatus \
+                 --jq '.[] | select(.headRefOid == env.HEAD_SHA) | "\(.number) \(.mergeStateStatus)"')
+          if [ -z "$pr" ]; then
+            echo "No open Dependabot PR at $HEAD_BRANCH@$HEAD_SHA; nothing to do."
+            exit 0
+          fi
+          number=${pr%% *}; state=${pr##* }
+          if [ "$state" != "CLEAN" ]; then
+            echo "PR #$number is $state, not CLEAN; another workflow is still running or it needs a rebase."
+            exit 0
+          fi
+          gh pr merge "$number" --merge
+          echo "merged=$number" >> "$GITHUB_OUTPUT"
+        id: merge
+      - name: Dispatch CI on main so the images publish
+        if: steps.merge.outputs.merged != ''
+        run: gh workflow run ci.yml --ref main

@@ -48,19 +48,26 @@ updates:
   # did until the Trivy gate caught it. No update-types filter so pure digest
   # refreshes (same tag, new build) are grouped too, not just semver bumps.
   #
-  # NOTE (backend cgr.dev base): /backend now pins two `cgr.dev/chainguard/python`
-  # FROM lines as `:latest@sha256:...` and `:latest-dev@sha256:...`. This ecosystem
-  # already covers them (no per-image config needed), BUT Dependabot reliably
-  # bumping a `cgr.dev` `:latest@sha256` DIGEST is less battle-tested than semver
-  # tags on Docker Hub / GHCR — `:latest`-only digest bumping on a third-party
-  # registry has historically been rougher. If the first weekly docker PR no-ops
-  # the cgr.dev digest, the fallback is Renovate (handles cgr.dev `:latest` digest
-  # pinning well) or a manual weekly digest bump. Confirm empirically on the first
-  # PR; do not over-engineer before then.
+  # Two settings on every docker block below, both forced by issue #189:
+  #
+  #   cooldown.exclude ["*"] — Dependabot applies a 3-DAY DEFAULT cooldown even when
+  #   no `cooldown:` block exists (dependabot-core #15711, 2026-07-29). Only the
+  #   newest digest of a rolling `:latest` tag is ever compared, so an image that
+  #   rebuilds more often than the cooldown length is blocked FOREVER — that is
+  #   what silently stopped every /backend cgr.dev bump in Aug 2026 (#148 closed
+  #   "no longer updatable", then "No update needed" for four weeks). Upstream
+  #   #16075 (2026-08-28) happens to fail open for cgr.dev because the registry
+  #   sends no Last-Modified; this opt-out does not depend on that.
+  #
+  #   interval: daily — a weekly cadence lagged a fresh base-OS advisory by up to
+  #   seven days (CVE-2026-14456 needed a hand bump one day after a weekly PR).
+  #   Docker PRs are merged by dependabot-automerge.yml once CI is green.
   - package-ecosystem: docker
     directory: "/backend"
     schedule:
-      interval: weekly
+      interval: daily
+    cooldown:
+      exclude: ["*"]
     groups:
       docker-images:
         patterns: ["*"]
@@ -68,7 +75,9 @@ updates:
   - package-ecosystem: docker
     directory: "/frontend"
     schedule:
-      interval: weekly
+      interval: daily
+    cooldown:
+      exclude: ["*"]
     groups:
       docker-images:
         patterns: ["*"]
@@ -79,6 +88,8 @@ updates:
     directory: "/.clusterfuzzlite"
     schedule:
       interval: weekly
+    cooldown:
+      exclude: ["*"]
     groups:
       docker-images:
         patterns: ["*"]
