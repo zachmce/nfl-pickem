@@ -283,6 +283,68 @@ class CollapseRepeatedParagraphsTests(unittest.TestCase):
         self.assertEqual(out, self._ANSWER)
 
 
+class CarriesAToolCallTests(unittest.TestCase):
+    # Issue #220 (reopened): the served model wrote a <tool_call> block in the tools-free
+    # close (6/42), vLLM stripped it, and the reply was empty or a one-line stub. The
+    # measured shapes below are the real ones from 2026-09-15.
+    def test_a_stripped_block_behind_no_text_is_a_tool_call(self) -> None:
+        message = {"role": "assistant", "content": None, "_completion_tokens": 30}
+        self.assertTrue(qa_open._carries_a_tool_call(message))
+
+    def test_a_stripped_block_behind_a_stub_is_a_tool_call(self) -> None:
+        stub = "Let me check that player page for his current status."
+        message = {"role": "assistant", "content": stub, "_completion_tokens": 46}
+        self.assertTrue(qa_open._carries_a_tool_call(message))
+
+    def test_a_genuine_answer_is_not(self) -> None:
+        prose = "I don't have a tool that can read player profile pages. " * 7
+        message = {"role": "assistant", "content": prose[:413], "_completion_tokens": 94}
+        self.assertFalse(qa_open._carries_a_tool_call(message))
+
+    def test_a_short_stat_heavy_answer_is_not(self) -> None:
+        message = {
+            "role": "assistant",
+            "content": "KC 27, DEN 20. 1 INT each.",
+            "_completion_tokens": 20,
+        }
+        self.assertFalse(qa_open._carries_a_tool_call(message))
+
+    def test_no_token_count_is_never_a_tool_call(self) -> None:
+        self.assertFalse(qa_open._carries_a_tool_call({"role": "assistant", "content": None}))
+        self.assertFalse(qa_open._carries_a_tool_call({"role": "assistant", "content": "Let me."}))
+
+    def test_a_literal_marker_is_a_tool_call_on_any_server(self) -> None:
+        leaked = "Let me look.\n\n<tool_call>\n<function=lookup_player>\n</function>\n</tool_call>"
+        self.assertTrue(qa_open._carries_a_tool_call({"role": "assistant", "content": leaked}))
+
+    def test_fold_rewrites_tool_turns_as_text_and_keeps_the_rest(self) -> None:
+        messages = [
+            {"role": "user", "content": "q"},
+            {"role": "assistant", "content": None, "tool_calls": [{"id": "c1"}]},
+            {"role": "tool", "tool_call_id": "c1", "name": "lookup_starter", "content": "{...}"},
+            {"role": "assistant", "content": "Let me look.", "tool_calls": [{"id": "c2"}]},
+            {"role": "tool", "tool_call_id": "c2", "content": "none"},
+            {"role": "assistant", "content": "answer"},
+        ]
+        self.assertEqual(
+            qa_open._fold_tool_turns(messages),
+            [
+                {"role": "user", "content": "q"},
+                {"role": "user", "content": "Result of your lookup_starter lookup:\n{...}"},
+                {"role": "assistant", "content": "Let me look."},
+                {"role": "user", "content": "Result of your tool lookup:\nnone"},
+                {"role": "assistant", "content": "answer"},
+            ],
+        )
+        self.assertEqual(qa_open._fold_tool_turns([]), [])
+
+    def test_replayable_drops_only_the_private_keys(self) -> None:
+        message = {"role": "assistant", "content": None, "tool_calls": [], "_completion_tokens": 9}
+        self.assertEqual(
+            qa_open._replayable(message), {"role": "assistant", "content": None, "tool_calls": []}
+        )
+
+
 class OpenPromptTests(unittest.TestCase):
     """Every voice gets the format clause and the NFL-scope clause (the two guards
     the live probe proved the persona prompt alone does NOT supply)."""
@@ -497,6 +559,21 @@ class OpenChatWireFormatTests(unittest.TestCase):
         assert body is not None
         self.assertEqual(body["tools"], [spec])
         self.assertEqual(body["tool_choice"], "auto")
+
+    def test_open_chat_carries_the_completion_token_count(self) -> None:
+        # Issue #220 (reopened): the count is the only trace of a tool call the server
+        # stripped out of the close. Private key, stripped before replay.
+        _CapturingAsyncClient._response = _FakeResponse(
+            200,
+            {
+                "choices": [{"message": {"role": "assistant", "content": "hi"}}],
+                "usage": {"prompt_tokens": 3910, "completion_tokens": 30},
+            },
+        )
+        with _configured(), mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient):
+            out = _run(llm_client.open_chat([], system_prompt="p"))
+        self.assertEqual(out, {"role": "assistant", "content": "hi", "_completion_tokens": 30})
+        self.assertEqual(llm_client.COMPLETION_TOKENS_KEY, "_completion_tokens")
 
     def test_open_chat_returns_message_with_tool_calls_verbatim(self) -> None:
         message = {
@@ -3640,6 +3717,90 @@ class ToolLoopTests(_OpenPathTestCase):
         with mock.patch.object(qa_open, "TOOLS", (tool,)), _open_chat_raises():
             out = _run(qa_open.answer_open("q", voice=_VOICE))
         self.assertIsNone(out)
+
+    def test_an_empty_close_is_retried_once_and_the_retry_answers(self) -> None:
+        # Issue #220 (reopened): the close wrote a stripped tool call -> content null.
+        tool, _ = _fake_tool()
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_starter", '{"team": "CHI"}'),
+            _text("discarded tools-attached text"),
+            {"role": "assistant", "content": None, "_completion_tokens": 30},
+            _text("Caleb Williams starts at QB for the Bears."),
+        )
+        with mock.patch.object(qa_open, "TOOLS", (tool,)), patcher:
+            out = _run(qa_open.answer_open("who starts at QB for the Bears?", voice=_VOICE))
+        self.assertEqual(out, "Caleb Williams starts at QB for the Bears.")
+        self.assertEqual(len(calls), 4)
+        self.assertIsNone(calls[2]["tools"])
+        self.assertIsNone(calls[3]["tools"])
+        # The retry runs over the folded conversation: no tool turn, no tool call, the
+        # result kept as plain text.
+        retry = calls[3]["messages"]
+        self.assertFalse(any(m["role"] == "tool" or m.get("tool_calls") for m in retry))
+        self.assertTrue(any("Caleb Williams" in (m.get("content") or "") for m in retry))
+        self.assertEqual(calls[3]["system_prompt"], calls[2]["system_prompt"])
+
+    def test_a_stub_over_a_stripped_tool_call_never_reaches_the_member(self) -> None:
+        # The Discord line "I'll pull up Mansoor Delane's page to check his status."
+        tool, _ = _fake_tool()
+        stub = {"role": "assistant", "content": "Let me check his page.", "_completion_tokens": 46}
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_starter", '{"team": "CHI"}'),
+            _text("discarded tools-attached text"),
+            stub,
+            _text("Caleb Williams starts at QB for the Bears."),
+        )
+        with mock.patch.object(qa_open, "TOOLS", (tool,)), patcher:
+            out = _run(qa_open.answer_open("who starts at QB for the Bears?", voice=_VOICE))
+        self.assertEqual(out, "Caleb Williams starts at QB for the Bears.")
+        self.assertEqual(len(calls), 4)
+
+    def test_two_bad_closes_degrade_to_none_not_the_stub(self) -> None:
+        tool, _ = _fake_tool()
+        stub = {"role": "assistant", "content": "Let me check his page.", "_completion_tokens": 46}
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_starter", '{"team": "CHI"}'),
+            _text("discarded tools-attached text"),
+            stub,
+            stub,
+        )
+        with mock.patch.object(qa_open, "TOOLS", (tool,)), patcher:
+            out = _run(qa_open.answer_open("who starts at QB for the Bears?", voice=_VOICE))
+        self.assertIsNone(out)
+        self.assertEqual(len(calls), 4)
+
+    def test_a_first_round_stub_goes_to_the_close_instead_of_answering(self) -> None:
+        # Round 0, no tool turn yet: the model announced a lookup the registry lacks and
+        # the server stripped the call. The close answers; the stub is not replayed.
+        tool, tool_calls = _fake_tool()
+        stub = {"role": "assistant", "content": "I'll pull up his page.", "_completion_tokens": 40}
+        patcher, calls = _open_chat_returns(stub, _text("No idea, and I'd rather not guess."))
+        with mock.patch.object(qa_open, "TOOLS", (tool,)), patcher:
+            out = _run(qa_open.answer_open("how long is Delane out?", voice=_VOICE))
+        self.assertEqual(out, "No idea, and I'd rather not guess.")
+        self.assertEqual(len(calls), 2)
+        self.assertIsNone(calls[1]["tools"])
+        self.assertFalse(
+            any(m.get("content") == "I'll pull up his page." for m in calls[1]["messages"])
+        )
+        self.assertEqual(tool_calls, [])
+
+    def test_the_private_token_count_is_stripped_before_a_turn_is_replayed(self) -> None:
+        tool, _ = _fake_tool()
+        first = {
+            **_tool_call_message("lookup_starter", '{"team": "CHI"}'),
+            "_completion_tokens": 29,
+        }
+        patcher, calls = _open_chat_returns(first, _text("Caleb Williams starts."))
+        with mock.patch.object(qa_open, "TOOLS", (tool,)), patcher:
+            out = _run(qa_open.answer_open("q", voice=_VOICE, conversation_key="c"))
+        self.assertEqual(out, "Caleb Williams starts.")
+        replayed = calls[1]["messages"]
+        self.assertFalse(any("_completion_tokens" in m for m in replayed))
+        self.assertTrue(any(m.get("tool_calls") for m in replayed))
+        self.assertFalse(
+            any("_completion_tokens" in m for m in qa_open._grounding_for("c", out or ""))
+        )
 
 
 class GroundingReplayTests(_OpenPathTestCase):

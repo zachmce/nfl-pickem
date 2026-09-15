@@ -362,6 +362,70 @@ def _message_content(message: dict) -> str | None:
     return stripped or None
 
 
+# A stripped ``<tool_call>`` block is ~30 tokens; English prose runs ~4.4 chars per
+# token on the served Qwen, so ``len / 3`` OVER-estimates the visible tokens and a
+# genuine answer can never read as hidden.
+_HIDDEN_TOKENS_MIN = 20
+_CHARS_PER_TOKEN_FLOOR = 3.0
+_TOOL_CALL_MARKER = "<tool_call>"
+
+
+def _carries_a_tool_call(message: dict) -> bool:
+    """Whether a text-only ``message`` is really a tool call the server took out. Pure.
+
+    Issue #220 (reopened), measured 2026-09-15 on the served Qwen: in the tools-free
+    close the model wrote a ``<tool_call>`` block anyway (6/42), sometimes behind a
+    one-line "Let me check that page" stub. vLLM stripped the block, so the message came
+    back with ``content`` null or the bare stub — and the stub reached Discord as the
+    answer. The generation is longer than the text it returned: that gap, or a literal
+    marker on a server that does not strip, is the tell.
+    """
+    text = _message_content(message) or ""
+    if _TOOL_CALL_MARKER in text:
+        return True
+    generated = message.get(llm_client.COMPLETION_TOKENS_KEY)
+    if not isinstance(generated, int):
+        return False
+    return generated - len(text) / _CHARS_PER_TOKEN_FLOOR >= _HIDDEN_TOKENS_MIN
+
+
+def _replayable(message: dict) -> dict:
+    """``message`` without the client's private (underscore) keys, fit for the wire."""
+    return {key: value for key, value in message.items() if not key.startswith("_")}
+
+
+_FOLDED_RESULT_STATEMENT = "Result of your {name} lookup:\n{content}"
+
+
+def _fold_tool_turns(messages: list[dict]) -> list[dict]:
+    """The conversation with every tool turn rewritten as plain text. Pure.
+
+    The retry shape for a close that wrote a tool call (issue #220, reopened). The
+    model copies the tool-call turns it sees replayed: on one captured close it wrote a
+    ``<tool_call>`` 11/14 as-is and 0/14 with the turns folded — the results survive as
+    user text, and the assistant turns that only carried calls are dropped.
+    """
+    folded: list[dict] = []
+    for message in messages:
+        if message.get("role") == "assistant" and message.get("tool_calls"):
+            text = _message_content(message)
+            if text is not None:
+                folded.append({"role": "assistant", "content": text})
+            continue
+        if message.get("role") == "tool":
+            statement = _FOLDED_RESULT_STATEMENT.format(
+                name=message.get("name") or "tool", content=message.get("content") or ""
+            )
+            folded.append({"role": "user", "content": statement})
+            continue
+        folded.append(message)
+    return folded
+
+
+def _not_an_answer(message: dict) -> bool:
+    return _message_content(message) is None or _carries_a_tool_call(message)
+
+
 # --------------------------------------------------------------------------- #
 # The TOOL WHITELIST. The model selects from this fixed registry BY NAME and NEVER
 # builds a URL — no spec may declare a ``url`` / ``endpoint`` / ``path`` / ``host``
@@ -3402,7 +3466,10 @@ async def _run_tool_loop(
     with the thirteen shipped specs attached: every such reply was the whole answer
     written twice, separated by blank lines, 6/6 at the shipped sampling knobs; with the
     specs withheld the same conversation answered once, 5/5, in one to two seconds.
-    Returns ``(None, [])`` if any round's call returns ``None``.
+    A text-only message that :func:`_carries_a_tool_call` is never the answer: in a
+    tool round it sends the loop to the close, and in the close it earns exactly one
+    retry over :func:`_fold_tool_turns`. Returns ``(None, [])`` if any round's call
+    returns ``None`` or the retried close still carries a tool call.
     """
     deadline = time.monotonic() + _TOOL_BUDGET_SECONDS
 
@@ -3423,10 +3490,10 @@ async def _run_tool_loop(
             return None, []
         tool_calls = message.get("tool_calls")
         if not isinstance(tool_calls, list) or not tool_calls:
-            if not _has_tool_turn(working):
+            if not _has_tool_turn(working) and not _carries_a_tool_call(message):
                 return _message_content(message), []  # answered from memory — done
             break  # the model is done with tools; the tools-free close answers
-        working.append(message)
+        working.append(_replayable(message))
         for call in tool_calls:
             working.append(await _resolve_tool_call(call, round_index=round_index))
     else:
@@ -3436,7 +3503,15 @@ async def _run_tool_loop(
     # the text ONCE (issue #220, see the docstring).
     new_turns = working[len(messages) :]
     final = await llm_client.open_chat(working, system_prompt=system_prompt, tools=None)
-    if final is None:
+    if final is not None and _not_an_answer(final):
+        # The close wrote a tool call instead of prose (issue #220, reopened): retry
+        # once over the folded conversation, else the caller's degrade line — never
+        # the stub.
+        logger.info("qa_open_close_retried")
+        final = await llm_client.open_chat(
+            _fold_tool_turns(working), system_prompt=system_prompt, tools=None
+        )
+    if final is None or _not_an_answer(final):
         return None, []
     return _message_content(final), new_turns
 
