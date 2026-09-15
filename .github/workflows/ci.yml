@@ -5,6 +5,9 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+  # Dispatched on main by dependabot-automerge.yml: a merge made with GITHUB_TOKEN
+  # never fires `push`, so the publish jobs would not run for an auto-merged PR.
+  workflow_dispatch:
 
 # Least-privilege default; the publish job widens to packages:write job-scoped.
 permissions:
@@ -31,15 +34,16 @@ jobs:
       # `publish` (it `needs` them) — so a release tag would build no images and
       # release.yml then fails "not found". Force every path true on a tag so the
       # full pipeline runs and gates the release. PRs/branch pushes are unaffected.
-      backend: ${{ steps.f.outputs.backend == 'true' || startsWith(github.ref, 'refs/tags/v') }}
-      frontend: ${{ steps.f.outputs.frontend == 'true' || startsWith(github.ref, 'refs/tags/v') }}
-      docker: ${{ steps.f.outputs.docker == 'true' || startsWith(github.ref, 'refs/tags/v') }}
-      ci: ${{ steps.f.outputs.ci == 'true' || startsWith(github.ref, 'refs/tags/v') }}
+      # workflow_dispatch has no diff base either, so it is forced the same way.
+      backend: ${{ steps.f.outputs.backend == 'true' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
+      frontend: ${{ steps.f.outputs.frontend == 'true' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
+      docker: ${{ steps.f.outputs.docker == 'true' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
+      ci: ${{ steps.f.outputs.ci == 'true' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
       # Dedicated filter for the semgrep job. Kept SEPARATE from `ci` on purpose:
       # `ci` forces every gated job to rerun on any workflow edit, but a change to a
       # semgrep RULE (.semgrep/**) must rerun semgrep WITHOUT rerunning lint/test/
       # frontend/iac. Same tag-forcing as the others so a release runs semgrep too.
-      semgrep: ${{ steps.f.outputs.semgrep == 'true' || startsWith(github.ref, 'refs/tags/v') }}
+      semgrep: ${{ steps.f.outputs.semgrep == 'true' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -581,9 +585,10 @@ jobs:
     #      fails on findings (GitHub Advanced Security expects blocking via code-scanning merge
     #      protection, which is a branch-protection ruleset this task must not touch).
     #   2. advanced-security: false -> no SARIF upload, but FAILS the job on any finding — the gate.
-    # The audited workflow set (ci.yml, codeql.yml, scorecard.yml) is currently zizmor-clean; the
-    # only accepted findings are the rationale-suppressed `# zizmor: ignore[cache-poisoning]`
-    # inlines, so the blocking step is green today and will fail on any NEW workflow-security finding.
+    # The audited workflow set is currently zizmor-clean; the only accepted findings are the
+    # rationale-suppressed `# zizmor: ignore[cache-poisoning]` inlines below and the
+    # `# zizmor: ignore[dangerous-triggers]` on dependabot-automerge.yml's workflow_run trigger,
+    # so the blocking step is green today and will fail on any NEW workflow-security finding.
     needs: [changes]
     if: needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
@@ -685,13 +690,14 @@ jobs:
   # (PR-only) are NOT gates here.
   publish-backend:
     needs: [lint, typecheck, deps-audit, test, semgrep, osv-scan, secrets]
-    # Never on pull_request: only push to main or a v* tag, and only if no backend quality gate
+    # Never on pull_request: only push to main, a v* tag, or a dispatch on main (see the
+    # workflow_dispatch trigger), and only if no backend quality gate
     # actually failed. always() is required so a path-skipped sibling job cannot cascade-skip this
     # one. This job now self-scans the exact artifact it ships (the two-pass Trivy gate below), so
     # it no longer depends on the external image-scan job.
     if: >-
       ${{ always()
-      && github.event_name == 'push'
+      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
       && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
       && needs.lint.result != 'failure' && needs.lint.result != 'cancelled'
       && needs.typecheck.result != 'failure' && needs.typecheck.result != 'cancelled'
@@ -830,7 +836,7 @@ jobs:
     # skipped-needs cascade so a backend-only push does not cascade-skip this job.
     if: >-
       ${{ always()
-      && github.event_name == 'push'
+      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
       && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
       && needs.frontend.result != 'failure' && needs.frontend.result != 'cancelled'
       && needs.semgrep.result != 'failure' && needs.semgrep.result != 'cancelled'
