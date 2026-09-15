@@ -204,5 +204,155 @@
         }
       ]
     }
-  ]
+  ],
+  "boxscore": {
+    "teams": [
+      {
+        "team": {
+          "displayName": "Las Vegas Raiders",
+          "abbreviation": "LV"
+        },
+        "statistics": [
+          {
+            "name": "firstDowns",
+            "displayValue": "17",
+            "label": "firstDowns"
+          },
+          {
+            "name": "thirdDownEff",
+            "displayValue": "5-13",
+            "label": "thirdDownEff"
+          },
+          {
+            "name": "totalOffensivePlays",
+            "displayValue": "58",
+            "label": "totalOffensivePlays"
+          },
+          {
+            "name": "totalYards",
+            "displayValue": "301",
+            "label": "totalYards"
+          },
+          {
+            "name": "yardsPerPlay",
+            "displayValue": "5.2",
+            "label": "yardsPerPlay"
+          },
+          {
+            "name": "netPassingYards",
+            "displayValue": "203",
+            "label": "netPassingYards"
+          },
+          {
+            "name": "completionAttempts",
+            "displayValue": "19/31",
+            "label": "completionAttempts"
+          },
+          {
+            "name": "rushingYards",
+            "displayValue": "98",
+            "label": "rushingYards"
+          },
+          {
+            "name": "rushingAttempts",
+            "displayValue": "24",
+            "label": "rushingAttempts"
+          },
+          {
+            "name": "sacksYardsLost",
+            "displayValue": "2-11",
+            "label": "sacksYardsLost"
+          },
+          {
+            "name": "turnovers",
+            "displayValue": "1",
+            "label": "turnovers"
+          },
+          {
+            "name": "totalPenaltiesYards",
+            "displayValue": "6-45",
+            "label": "totalPenaltiesYards"
+          },
+          {
+            "name": "possessionTime",
+            "displayValue": "29:10",
+            "label": "possessionTime"
+          }
+        ]
+      },
+      {
+        "team": {
+          "displayName": "Kansas City Chiefs",
+          "abbreviation": "KC"
+        },
+        "statistics": [
+          {
+            "name": "firstDowns",
+            "displayValue": "14",
+            "label": "firstDowns"
+          },
+          {
+            "name": "thirdDownEff",
+            "displayValue": "4-12",
+            "label": "thirdDownEff"
+          },
+          {
+            "name": "totalOffensivePlays",
+            "displayValue": "55",
+            "label": "totalOffensivePlays"
+          },
+          {
+            "name": "totalYards",
+            "displayValue": "245",
+            "label": "totalYards"
+          },
+          {
+            "name": "yardsPerPlay",
+            "displayValue": "4.5",
+            "label": "yardsPerPlay"
+          },
+          {
+            "name": "netPassingYards",
+            "displayValue": "133",
+            "label": "netPassingYards"
+          },
+          {
+            "name": "completionAttempts",
+            "displayValue": "12/24",
+            "label": "completionAttempts"
+          },
+          {
+            "name": "rushingYards",
+            "displayValue": "112",
+            "label": "rushingYards"
+          },
+          {
+            "name": "rushingAttempts",
+            "displayValue": "28",
+            "label": "rushingAttempts"
+          },
+          {
+            "name": "sacksYardsLost",
+            "displayValue": "1-7",
+            "label": "sacksYardsLost"
+          },
+          {
+            "name": "turnovers",
+            "displayValue": "2",
+            "label": "turnovers"
+          },
+          {
+            "name": "totalPenaltiesYards",
+            "displayValue": "4-30",
+            "label": "totalPenaltiesYards"
+          },
+          {
+            "name": "possessionTime",
+            "displayValue": "30:50",
+            "label": "possessionTime"
+          }
+        ]
+      }
+    ]
+  }
 }

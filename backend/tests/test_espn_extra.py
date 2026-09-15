@@ -2526,6 +2526,33 @@ class FetchLeagueLeadersTests(unittest.TestCase):
 
 
 class ParseGameLeadersTests(unittest.TestCase):
+    def test_each_clubs_box_score_totals_come_back_under_its_full_name(self) -> None:
+        # Issue #220: the team rows of the same summary payload, allowlisted by stat name
+        # and relayed as ESPN's own display strings under the spoken labels.
+        out = espn_extra.parse_game_leaders(_load_game_leaders_fixture())
+        assert out is not None
+        totals = out["team_totals"]
+        self.assertEqual(sorted(totals), ["Kansas City Chiefs", "Las Vegas Raiders"])
+        self.assertEqual(totals["Kansas City Chiefs"]["rushing yards"], "112")
+        self.assertEqual(totals["Las Vegas Raiders"]["total yards"], "301")
+        self.assertEqual(totals["Las Vegas Raiders"]["third downs made and attempted"], "5-13")
+        # A row outside the allowlist (yards per play) never travels.
+        self.assertNotIn("yardsPerPlay", json.dumps(totals))
+        self.assertNotIn("yards per play", json.dumps(totals))
+
+    def test_a_summary_without_a_box_score_yields_empty_totals(self) -> None:
+        fixture = _load_game_leaders_fixture()
+        del fixture["boxscore"]
+        out = espn_extra.parse_game_leaders(fixture)
+        assert out is not None
+        self.assertEqual(out["team_totals"], {})
+        for bogus in ({"teams": "nope"}, {"teams": [{"team": {}, "statistics": []}]}, 7):
+            with self.subTest(boxscore=bogus):
+                fixture["boxscore"] = bogus
+                out = espn_extra.parse_game_leaders(fixture)
+                assert out is not None
+                self.assertEqual(out["team_totals"], {})
+
     def test_both_clubs_come_back_keyed_by_full_display_name(self) -> None:
         out = espn_extra.parse_game_leaders(_load_game_leaders_fixture())
         assert out is not None

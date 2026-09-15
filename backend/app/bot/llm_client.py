@@ -46,6 +46,11 @@ _TEMPERATURE = 1.0
 # be reverted alone if a live capture ever shows fact drift.
 _TOP_P = 0.95
 _TIMEOUT_SECONDS = 10.0
+# The open path prompts at ~7k tokens with thirteen tool specs and may answer at length;
+# measured 2026-09-15 on the served Qwen: ~1 s of prefill plus ~60 tokens/s, so a full
+# 600-token answer would trip the 10 s chat timeout. The tool loop's own wall clock
+# (``qa_open._TOOL_BUDGET_SECONDS``) still bounds the whole answer.
+_OPEN_TIMEOUT_SECONDS = 30.0
 
 # --------------------------------------------------------------------------- #
 # Deterministic JSON EXTRACTION seam (260709-k5w). The @mention Q&A classifier
@@ -73,11 +78,12 @@ _CLASSIFY_MAX_TOKENS = 256
 # different shape of output (a few sentences of Discord prose, not one quip), so it
 # gets its own three constants and reads NOTHING from the chat trio.
 # --------------------------------------------------------------------------- #
-# A few sentences of chat prose, not an essay (Zach's 2026-08-20 call). NOTE: the
-# cap is NOT the fix — the 2026-08-20 probe ran at 300 tokens and STILL truncated
-# mid-sentence. The plain-Discord-prose FORMAT instruction in ``qa_open.OPEN_GUARD``
-# is what stops the essay; 200 is only sufficient alongside it.
-_OPEN_MAX_TOKENS = 200
+# A few sentences of chat prose, not an essay (Zach's 2026-08-20 call). The
+# plain-Discord-prose FORMAT instruction in ``qa_open.OPEN_GUARD`` is what stops the
+# essay; the cap is the backstop. Raised 200 -> 600 for issue #220: a 200-token cap cut a
+# tool-grounded answer mid-sentence, and one Discord message holds ~500 tokens anyway
+# (the cog splits longer ones). ``open_chat`` logs a ``length`` finish so a cut is visible.
+_OPEN_MAX_TOKENS = 600
 # Below the 1.0 chat-quip temperature because the open path STATES things rather
 # than quipping (a wrong-but-lively invention is the failure mode here), but still
 # well above greedy so the swapped voice survives into the answer.
@@ -135,7 +141,9 @@ REPEATED_PICK_SYSTEM_PROMPT = compose_prompt(
 )
 
 
-async def _post_chat(body: dict, *, log_prefix: str) -> dict | None:
+async def _post_chat(
+    body: dict, *, log_prefix: str, timeout: float = _TIMEOUT_SECONDS
+) -> dict | None:
     """POST ``body`` to the chat-completions endpoint; return the decoded payload.
 
     The shared transport seam (260820-lw6): it owns the config check, the URL, the
@@ -162,7 +170,7 @@ async def _post_chat(body: dict, *, log_prefix: str) -> dict | None:
     wire_body = {"model": model, **body}
 
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(url, json=wire_body, headers=headers)
         if response.status_code != 200:
             logger.warning(f"{log_prefix}_non_200", status_code=response.status_code)
@@ -269,7 +277,7 @@ async def open_chat(
         body["tool_choice"] = "auto"
 
     try:
-        payload = await _post_chat(body, log_prefix="llm_open")
+        payload = await _post_chat(body, log_prefix="llm_open", timeout=_OPEN_TIMEOUT_SECONDS)
         if payload is None:
             return None
         # Narrow every step defensively — the decoded payload is untyped ``Any`` and a
@@ -286,6 +294,10 @@ async def open_chat(
         if not isinstance(message, dict):
             logger.warning("llm_open_malformed_payload")
             return None
+        if first.get("finish_reason") == "length":
+            # The cap cut the answer (issue #220); the text is still returned, but the
+            # cut is logged so it never passes for a finished answer.
+            logger.warning("llm_open_truncated", max_tokens=_OPEN_MAX_TOKENS)
         return message
     except Exception:
         logger.warning("llm_open_failed", exc_info=True)

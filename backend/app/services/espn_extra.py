@@ -298,6 +298,34 @@ GAME_LEADERS_CAVEAT = (
     "any player named here a starter."
 )
 
+# The whole-team box-score figures relayed next to the leaders (issue #220). The member
+# asked for a club's rushing yards in one game and the model, holding only the top
+# rusher's line, said it could not give a team total and would not add. These are
+# ESPN's own team rows from the same summary payload, keyed by the stat ``name`` the
+# box score uses, so the model reports a total instead of declining one.
+GAME_TEAM_TOTALS: tuple[tuple[str, str], ...] = (
+    ("totalYards", "total yards"),
+    ("netPassingYards", "net passing yards"),
+    ("rushingYards", "rushing yards"),
+    ("rushingAttempts", "rushing attempts"),
+    ("completionAttempts", "completions and attempts"),
+    ("firstDowns", "first downs"),
+    ("thirdDownEff", "third downs made and attempted"),
+    ("totalOffensivePlays", "offensive plays"),
+    ("turnovers", "turnovers"),
+    ("sacksYardsLost", "times sacked and yards lost"),
+    ("totalPenaltiesYards", "penalties and penalty yards"),
+    ("possessionTime", "time of possession"),
+)
+
+GAME_TEAM_TOTALS_STATEMENT = (
+    "The team totals below are each club's whole-team figures for that one game. A club's "
+    "rushing yards figure there is already the sum for every runner on that club, and its "
+    "total yards figure is already its passing and rushing yards added together, so report "
+    "a club's whole-team figure straight from its team totals. Never say that you cannot "
+    "give a team total for that game, and never say that you only have the leaders."
+)
+
 
 # The sentences the model is most likely to voice, so each is concrete and complete rather
 # than a terse fragment (memory: qa-phrasing-inversion). The last one is unconditional
@@ -2205,8 +2233,10 @@ def parse_game_leaders(payload: Any) -> dict | None:
 
     Each club's leaders are keyed on its FULL display name rather than its abbreviation, so
     every player sits under a spelled-out club and cannot be read off against the other one
-    (D-3). ``score`` is never read on ANY path: ``OPEN_OWNERSHIP_CLAUSE`` forbids the model
-    stating a game score, and a field the model can see is a field it may voice (D-2).
+    (D-3). ``team_totals`` carries each club's whole-game box-score figures under the same
+    full name (issue #220). ``score`` is never read on ANY path: ``OPEN_OWNERSHIP_CLAUSE``
+    forbids the model stating a game score, and a field the model can see is a field it may
+    voice (D-2).
     """
     if not isinstance(payload, dict):
         return None
@@ -2229,7 +2259,48 @@ def parse_game_leaders(payload: Any) -> dict | None:
         rows = [row for row in map(_parse_one_game_leader, categories) if row is not None]
         leaders[club] = rows
 
-    return {"leaders": leaders, "winner": _winning_team(payload)}
+    return {
+        "leaders": leaders,
+        "winner": _winning_team(payload),
+        "team_totals": _game_team_totals(payload),
+    }
+
+
+def _game_team_totals(payload: dict) -> dict[str, dict[str, str]]:
+    """Each club's allowlisted box-score totals, keyed by full club name. Never raises.
+
+    Reads ``boxscore.teams[].statistics[]`` by stat ``name`` through
+    :data:`GAME_TEAM_TOTALS`; every value is ESPN's own ``displayValue`` string. A payload
+    with no box score yields ``{}`` so the leaders still stand on their own.
+    """
+    boxscore = payload.get("boxscore")
+    boxscore = boxscore if isinstance(boxscore, dict) else {}
+    teams = boxscore.get("teams")
+    if not isinstance(teams, list):
+        return {}
+
+    totals: dict[str, dict[str, str]] = {}
+    for block in teams:
+        if not isinstance(block, dict):
+            continue
+        team = block.get("team")
+        team = team if isinstance(team, dict) else {}
+        club = _first_str(team.get("displayName"))
+        rows = block.get("statistics")
+        if club is None or not isinstance(rows, list):
+            continue
+        shown: dict[str, str] = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            name = _first_str(row.get("name"))
+            value = _stat_value(row.get("displayValue"))
+            if name is not None and value is not None and name not in shown:
+                shown[name] = value
+        facts = {label: shown[name] for name, label in GAME_TEAM_TOTALS if name in shown}
+        if facts:
+            totals[club] = facts
+    return totals
 
 
 def league_season_phase(payload: Any) -> str | None:

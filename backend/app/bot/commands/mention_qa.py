@@ -49,7 +49,9 @@ _COOLDOWN_SECONDS = 10.0
 # (the cog outlives every conversation in it), so neither the channel count nor the
 # per-channel turn count may grow without limit (T-lw6-05).
 _MEMORY_MAX_CHANNELS = 64
-_MEMORY_MAX_TURNS = 8
+# 8 -> 12 for issue #220: the served model has a 131k context, and a follow-up such as
+# "in that game" needs the bot's own earlier answer to still be in the transcript.
+_MEMORY_MAX_TURNS = 12
 # The cheap DETERMINISTIC pre-filter in front of the model gate. The gate runs on
 # messages nobody sent to the bot, so at ~200ms and ~120 prompt tokens per call it is
 # affordable at league volume and NOT affordable at arbitrary volume. Requiring that
@@ -277,7 +279,10 @@ class MentionQaCog(commands.Cog):
             # fetches a prediction makes (#117 / the prediction-intent design).
             async with message.channel.typing():
                 line = await qa.answer_question(
-                    question, discord_id=message.author.id, history=history
+                    question,
+                    discord_id=message.author.id,
+                    history=history,
+                    conversation_key=str(channel_id),
                 )
                 decorated = decorate_team_logos(line)
                 # suppress_embeds: a news reply carries source links (masked links) —
