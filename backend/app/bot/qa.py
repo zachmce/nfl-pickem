@@ -1966,6 +1966,7 @@ async def answer_question(
     *,
     discord_id: int,
     history: Sequence[tuple[str, str]] = (),
+    conversation_key: str | None = None,
 ) -> str:
     """Answer a league member's @mention ``question`` as one public in-voice line.
 
@@ -1978,6 +1979,9 @@ async def answer_question(
     the listener's per-channel memory) reaches TWO places: the classifier, so a bare
     pronoun follow-up can be resolved before the ``nfl`` guard judges it, and the
     ``open_nfl`` branch, so the answer itself can resolve the same referent.
+    ``conversation_key`` (the channel id) reaches ONLY the open branch, which keeps the
+    tool turns behind its answers per conversation and replays them on a follow-up
+    (issue #220).
     On the pick_status unregistered path returns a deterministic /register line with
     no LLM call. When ``llm_client.phrase`` returns ``None`` returns the
     deterministic FACT string itself so exactly one line always lands. On ANY seam
@@ -1998,7 +2002,9 @@ async def answer_question(
         # silently destroy it. It reads the RAW question, not the classifier subject.
         if result.intent is QaIntent.open_nfl:
             voice = await db_bridge.resolve_active_voice_async()
-            open_answer = await qa_open.answer_open(question, voice=voice, history=history)
+            open_answer = await qa_open.answer_open(
+                question, voice=voice, history=history, conversation_key=conversation_key
+            )
             return open_answer if open_answer is not None else _OPEN_DEGRADE_FACT
 
         # The pick-type facet is a DETERMINISTIC code scan of the RAW question, computed ONLY

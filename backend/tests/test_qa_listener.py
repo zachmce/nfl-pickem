@@ -158,15 +158,22 @@ def _answer_returns(value):
     """Patch qa.answer_question with an async fake, recording its calls."""
     calls: list[dict] = []
 
-    async def _fake(question, *, discord_id, history=()):
-        calls.append({"question": question, "discord_id": discord_id, "history": list(history)})
+    async def _fake(question, *, discord_id, history=(), conversation_key=None):
+        calls.append(
+            {
+                "question": question,
+                "discord_id": discord_id,
+                "history": list(history),
+                "conversation_key": conversation_key,
+            }
+        )
         return value
 
     return mock.patch.object(qa, "answer_question", _fake), calls
 
 
 def _answer_raises():
-    async def _fake(question, *, discord_id, history=()):
+    async def _fake(question, *, discord_id, history=(), conversation_key=None):
         raise RuntimeError("boom")
 
     return mock.patch.object(qa, "answer_question", _fake)
@@ -487,6 +494,10 @@ class ChannelHistoryTests(unittest.TestCase):
         self.assertEqual(history[0][1], "who starts at QB?")
         self.assertEqual(history[1][1], "Caleb Williams.")
         self.assertNotIn("how long?", [text for _, text in history])
+        # The channel id names the conversation the open path keeps its grounding under.
+        self.assertEqual(calls[0]["conversation_key"], calls[1]["conversation_key"])
+        self.assertIsInstance(calls[0]["conversation_key"], str)
+        self.assertTrue(calls[0]["conversation_key"])
 
     def test_the_bots_own_reply_is_recorded_into_the_channel_transcript(self) -> None:
         cog = _cog()

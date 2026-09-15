@@ -50,6 +50,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from collections import OrderedDict, deque
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -88,11 +89,24 @@ OPEN_TOOLS_CLAUSE = (
     "returns, and you never decline such a question as one the app answers."
 )
 
+# MEASURED 2026-09-15 (issue #220): asked a follow-up about "that game" with only the
+# bot's earlier TEXT in the history, the model called no tool 0/7 and invented figures
+# 5/7 (a score, "486 total yards", "627 yards"); a clause telling it to re-call the tool
+# made no difference. With the earlier answer's tool turns replayed into the history it
+# answered the true figure 3/3 without a new call. The replay (``_GROUNDING``) is the
+# fix; this clause only names what the replayed turns are for.
+OPEN_FOLLOW_UP_CLAUSE = (
+    "A tool result that is already in this conversation is yours to answer from. When a "
+    "follow-up question asks about a game, a player, a team or a season that no tool "
+    "result in this conversation covers, call the tool for it and answer from what it "
+    "returns."
+)
+
 OPEN_ROLE = (
     "You are answering a league member's open question about the NFL — a question the "
     "app's own data does not cover — using your own football knowledge rather than any "
     "figure read from the app's database. "
-    f"{OPEN_TOOLS_CLAUSE}"
+    f"{OPEN_TOOLS_CLAUSE} {OPEN_FOLLOW_UP_CLAUSE}"
 )
 
 # (a) FORMAT. The 2026-08-20 probe measured the model answering open questions with
@@ -305,6 +319,34 @@ def _strip_markdown_structure(text: str) -> str:
             continue  # drop leading blanks and collapse blank runs to one
         collapsed.append(line)
     return "\n".join(collapsed).strip()
+
+
+def _collapse_repeated_paragraphs(text: str) -> str:
+    """Drop a paragraph that repeats an earlier one, or is a cut-off copy of one. Pure.
+
+    The deterministic backstop under the tools-free close (issue #220): the doubled
+    answer was the same paragraph twice, and when the token cap fell inside the copy the
+    copy was a bare prefix of the original. Paragraphs are runs split by blank lines;
+    a distinct paragraph is never touched, and the order of the survivors is kept.
+    """
+    kept: list[str] = []
+    for paragraph in re.split(r"\n\s*\n", text):
+        candidate = paragraph.strip()
+        if not candidate:
+            continue
+        if any(
+            candidate == earlier
+            or (len(candidate) >= _REPEAT_PREFIX_MIN_CHARS and earlier.startswith(candidate))
+            for earlier in kept
+        ):
+            continue
+        kept.append(candidate)
+    return "\n\n".join(kept)
+
+
+# A cut-off copy shorter than this is not treated as a repeat: a short paragraph that
+# opens with the same words as an earlier one may be a legitimate second point.
+_REPEAT_PREFIX_MIN_CHARS = 40
 
 
 def _message_content(message: dict) -> str | None:
@@ -1070,15 +1112,34 @@ async def _lookup_game_leaders(
             + statement
         )
 
-    return {
-        "leaders": facts["leaders"],
-        "winner": winner,
-        "season": year,
-        "week": game["week"],
-        "game": fixture,
-        "game_statement": statement,
-        "caveat": espn_extra.GAME_LEADERS_CAVEAT,
-    }
+    return _with_team_totals(
+        {
+            "leaders": facts["leaders"],
+            "winner": winner,
+            "season": year,
+            "week": game["week"],
+            "game": fixture,
+            "game_statement": statement,
+            "caveat": espn_extra.GAME_LEADERS_CAVEAT,
+        },
+        facts["team_totals"],
+    )
+
+
+def _with_team_totals(answer: dict, team_totals: object) -> dict:
+    """Attach each club's whole-game box-score totals and the sentence that voices them.
+
+    Issue #220: with only the leaders in hand the model told a member it could not give a
+    team's rushing yards for a game. A game whose summary carries no box score keeps the
+    leaders-only shape, so the totals sentence is never sent without the figures.
+    """
+    from app.services import espn_extra
+
+    if not isinstance(team_totals, dict) or not team_totals:
+        return answer
+    answer["team_totals"] = team_totals
+    answer["game_statement"] = f"{answer['game_statement']} {espn_extra.GAME_TEAM_TOTALS_STATEMENT}"
+    return answer
 
 
 async def _playoff_game_leaders(team: str, asked_round: str, season: int | None) -> dict:
@@ -1158,15 +1219,18 @@ async def _playoff_game_leaders(team: str, asked_round: str, season: int | None)
         statement += _GAME_WINNER_CLAUSE.format(winner=winner)
     statement += _NO_SCORE_CLAUSE
 
-    return {
-        "leaders": facts["leaders"],
-        "winner": winner,
-        "season": season,
-        "round": label,
-        "game": fixture,
-        "game_statement": statement,
-        "caveat": espn_extra.GAME_LEADERS_CAVEAT,
-    }
+    return _with_team_totals(
+        {
+            "leaders": facts["leaders"],
+            "winner": winner,
+            "season": season,
+            "round": label,
+            "game": fixture,
+            "game_statement": statement,
+            "caveat": espn_extra.GAME_LEADERS_CAVEAT,
+        },
+        facts["team_totals"],
+    )
 
 
 def _matchups(games: list[dict]) -> str:
@@ -1330,11 +1394,15 @@ _NO_GAME_TO_LOOK_UP_NOTE = (
 # byte-for-byte with lookup_playoff_results for the same reason.
 _GAME_LEADERS_TOOL_DESCRIPTION = (
     "Look up which players led ONE single NFL game in passing, rushing, receiving, sacks "
-    "and tackles, and which team won that one game, in the regular season or in the "
-    "playoffs. Call this tool every time the member asks how a team did in a game, how "
-    "their last game went, who led a game in yards, catches, sacks or tackles, how a named "
-    "team did in a given week, or who led a playoff game or a Super Bowl, because your own "
-    "memory of any individual game is often a year or more out of date. Pass the "
+    "and tackles, each team's whole-team totals for that one game (total yards, passing "
+    "yards, rushing yards, first downs, turnovers, plays and time of possession), and "
+    "which team won that one game, in the regular season or in the playoffs. Call this "
+    "tool every time the member asks how a team did in a game, how their last game went, "
+    "how a game last night or yesterday went, how many yards a team gained or gave up in "
+    "a game, who led a game in yards, catches, "
+    "sacks or tackles, how a named team did in a given week, or who led a playoff game or "
+    "a Super Bowl, because your own memory of any individual game is often a year or more "
+    "out of date. Pass the "
     "playoff_round argument every time the member asks about a playoff game, a conference "
     "championship game or a Super Bowl, and it is one of wild card, divisional, conference "
     "championships or super bowl; leave the playoff_round argument out for a regular-season "
@@ -3128,6 +3196,20 @@ TOOLS: tuple[_Tool, ...] = (
 _MAX_TOOL_ROUNDS = 3
 _TOOL_BUDGET_SECONDS = 20.0
 
+# GROUNDING memory (issue #220): the tool turns behind each answer, kept per conversation
+# so a follow-up replays them ahead of the answer they produced. Bounded like the cog's
+# channel memory: keys evict least-recently-used, exchanges evict oldest.
+_GROUNDING_MAX_KEYS = 64
+_GROUNDING_MAX_EXCHANGES = 4
+_GROUNDING: OrderedDict[str, deque[tuple[str, list[dict]]]] = OrderedDict()
+
+# Fence caps for the open path (issue #220). The fence's 280-char default was sized for
+# a one-line prediction, and it cut the bot's own previous answer in half in the history,
+# so a follow-up such as "in that game" lost the game it referred to. The served model
+# has a 131k context; twelve turns at these caps stay under ~4k tokens.
+_HISTORY_TURN_CHARS = 1200
+_QUESTION_CHARS = 600
+
 # Each failure mode gets its OWN fixed payload so the model is TOLD what happened
 # instead of being handed silence (silence reads as "the data says nothing", which is
 # how an invented answer gets written). Concrete full sentences, never fragments.
@@ -3290,8 +3372,17 @@ async def _resolve_tool_call(call: object, *, round_index: int) -> dict:
     return _tool_message(call_id, name, result)
 
 
-async def _run_tool_loop(messages: list[dict], *, system_prompt: str) -> str | None:
+def _has_tool_turn(messages: list[dict]) -> bool:
+    return any(message.get("role") == "tool" for message in messages)
+
+
+async def _run_tool_loop(
+    messages: list[dict], *, system_prompt: str
+) -> tuple[str | None, list[dict]]:
     """Drive the open-path model round(s) and return the final text, or ``None``.
+
+    Returns ``(text, new_turns)``: ``new_turns`` is every assistant tool-call turn and
+    tool-result turn THIS call appended, so the caller can keep them for a follow-up.
 
     With an EMPTY :data:`TOOLS` registry (the fallback branch) this is exactly ONE
     :func:`app.bot.llm_client.open_chat` call with ``tools=None`` — byte-identical to
@@ -3299,19 +3390,27 @@ async def _run_tool_loop(messages: list[dict], *, system_prompt: str) -> str | N
 
     With the shipped non-empty registry it loops at most :data:`_MAX_TOOL_ROUNDS` times against a
     :data:`_TOOL_BUDGET_SECONDS` wall clock (checked BEFORE each new round). A round
-    whose message carries no tool calls returns its text immediately. A round WITH tool
-    calls replays the model's own turn verbatim and appends one resolved tool-role turn
-    per call. When the loop ends for ANY reason — round cap or budget — exactly ONE
-    final ``open_chat`` call is made with ``tools=None``, which is what stops a capped
-    loop from returning nothing. Returns ``None`` if any round's call returns ``None``.
+    whose message carries no tool calls returns its text immediately when NO tool turn
+    is in the conversation (the model answered from memory), and otherwise ends the
+    loop. A round WITH tool calls replays the model's own turn verbatim
+    and appends one resolved tool-role turn per call. When the loop ends for ANY reason
+    — the model stops calling tools, the round cap, or the budget — exactly ONE final
+    ``open_chat`` call is made with ``tools=None``, and THAT text is the answer.
+
+    The text a tools-attached round writes over a tool result — a new one or a replayed
+    one — is discarded on purpose (issue #220). Measured 2026-09-15 on the served Qwen
+    with the thirteen shipped specs attached: every such reply was the whole answer
+    written twice, separated by blank lines, 6/6 at the shipped sampling knobs; with the
+    specs withheld the same conversation answered once, 5/5, in one to two seconds.
+    Returns ``(None, [])`` if any round's call returns ``None``.
     """
     deadline = time.monotonic() + _TOOL_BUDGET_SECONDS
 
     if not TOOLS:
         message = await llm_client.open_chat(messages, system_prompt=system_prompt, tools=None)
         if message is None:
-            return None
-        return _message_content(message)
+            return None, []
+        return _message_content(message), []
 
     specs = [tool.spec for tool in TOOLS]
     working = list(messages)
@@ -3321,21 +3420,48 @@ async def _run_tool_loop(messages: list[dict], *, system_prompt: str) -> str | N
             break
         message = await llm_client.open_chat(working, system_prompt=system_prompt, tools=specs)
         if message is None:
-            return None
+            return None, []
         tool_calls = message.get("tool_calls")
         if not isinstance(tool_calls, list) or not tool_calls:
-            return _message_content(message)  # the model answered in text — done
+            if not _has_tool_turn(working):
+                return _message_content(message), []  # answered from memory — done
+            break  # the model is done with tools; the tools-free close answers
         working.append(message)
         for call in tool_calls:
             working.append(await _resolve_tool_call(call, round_index=round_index))
     else:
         logger.info("qa_open_tool_round_cap_reached", rounds=_MAX_TOOL_ROUNDS)
 
-    # The forced close: tools are withheld so the model MUST produce text.
+    # The close: tools are withheld so the model MUST produce text, and so it produces
+    # the text ONCE (issue #220, see the docstring).
+    new_turns = working[len(messages) :]
     final = await llm_client.open_chat(working, system_prompt=system_prompt, tools=None)
     if final is None:
-        return None
-    return _message_content(final)
+        return None, []
+    return _message_content(final), new_turns
+
+
+def _grounding_for(key: str | None, answer: str) -> list[dict]:
+    """The tool turns stored under ``key`` for the answer text ``answer``, else ``[]``."""
+    exchanges = _GROUNDING.get(key) if key is not None else None
+    if exchanges is None:
+        return []
+    for stored_answer, turns in exchanges:
+        if stored_answer == answer:
+            return list(turns)
+    return []
+
+
+def _remember_grounding(key: str, answer: str, turns: list[dict]) -> None:
+    """Keep ``turns`` as the grounding behind ``answer`` in conversation ``key``. Bounded."""
+    exchanges = _GROUNDING.get(key)
+    if exchanges is None:
+        exchanges = deque(maxlen=_GROUNDING_MAX_EXCHANGES)
+        _GROUNDING[key] = exchanges
+    _GROUNDING.move_to_end(key)
+    exchanges.append((answer, list(turns)))
+    while len(_GROUNDING) > _GROUNDING_MAX_KEYS:
+        _GROUNDING.popitem(last=False)
 
 
 async def answer_open(
@@ -3343,6 +3469,7 @@ async def answer_open(
     *,
     voice: str,
     history: Sequence[tuple[str, str]] = (),
+    conversation_key: str | None = None,
 ) -> str | None:
     """Answer an off-menu NFL ``question`` in ``voice`` as plain prose, or ``None``.
 
@@ -3356,25 +3483,45 @@ async def answer_open(
 
     ``history`` is a sequence of ``(role, text)`` turns oldest-first; any role that is
     not exactly ``assistant`` is coerced to ``user``, so a smuggled ``system`` turn can
-    never become an instruction. Returns ``None`` on any failure or an empty scrub —
-    the caller falls back to its deterministic degrade line. NEVER raises.
+    never become an instruction. Each history turn is capped at
+    :data:`_HISTORY_TURN_CHARS` and the question at :data:`_QUESTION_CHARS`.
+
+    ``conversation_key`` (issue #220) names the conversation the history belongs to —
+    the cog passes the channel id. With it, the tool turns behind each answer this
+    function produced are kept in :data:`_GROUNDING`, and an ``assistant`` history turn
+    whose text is one of those answers is replayed with its tool turns AHEAD of it, so a
+    follow-up such as "how many yards did Denver have in that game" reads the figure out
+    of the same tool result instead of guessing. Measured 2026-09-15: 3/3 true figures
+    with the replay, 0/7 tool calls and 5/7 invented figures without it. Returns
+    ``None`` on any failure or an empty scrub — the caller falls back to its
+    deterministic degrade line. NEVER raises.
     """
     try:
         messages: list[dict] = []
         for role, text in history:
-            fenced_turn = chat_personality._fence_untrusted(text)
+            fenced_turn = chat_personality._fence_untrusted(text, limit=_HISTORY_TURN_CHARS)
             if not fenced_turn:
                 continue
             safe_role = "assistant" if role == "assistant" else "user"
+            if safe_role == "assistant":
+                messages.extend(_grounding_for(conversation_key, str(text)))
             messages.append({"role": safe_role, "content": fenced_turn})
-        messages.append({"role": "user", "content": chat_personality._fence_untrusted(question)})
+        messages.append(
+            {
+                "role": "user",
+                "content": chat_personality._fence_untrusted(question, limit=_QUESTION_CHARS),
+            }
+        )
 
         role = f"{OPEN_ROLE} {await _calendar_facts()}"
         system_prompt = compose_prompt(voice, role, OPEN_GUARD)
-        content = await _run_tool_loop(messages, system_prompt=system_prompt)
+        content, new_turns = await _run_tool_loop(messages, system_prompt=system_prompt)
         if content is None:
             return None
-        return _strip_markdown_structure(content) or None
+        answer = _collapse_repeated_paragraphs(_strip_markdown_structure(content)) or None
+        if answer is not None and new_turns and conversation_key is not None:
+            _remember_grounding(conversation_key, answer, new_turns)
+        return answer
     except Exception:
         # Best-effort by contract — a surprise raise degrades to the caller's
         # deterministic line and never escapes into the gateway loop.

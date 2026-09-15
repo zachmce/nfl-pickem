@@ -250,6 +250,39 @@ class StripMarkdownStructureTests(unittest.TestCase):
         self.assertEqual(qa_open._strip_markdown_structure(prose), prose)
 
 
+class CollapseRepeatedParagraphsTests(unittest.TestCase):
+    """The deterministic backstop behind the tools-free close (issue #220)."""
+
+    _ANSWER = (
+        "Kenneth Walker III led the Chiefs with 173 rushing yards in that week 1 game "
+        "against the Broncos. The Chiefs won that game."
+    )
+
+    def test_a_verbatim_repeat_is_dropped(self) -> None:
+        doubled = f"{self._ANSWER}\n\n\n{self._ANSWER}"
+        self.assertEqual(qa_open._collapse_repeated_paragraphs(doubled), self._ANSWER)
+
+    def test_a_cut_off_copy_is_dropped(self) -> None:
+        # The live shape: the cap fell inside the second copy, so it is a bare prefix.
+        cut = f"{self._ANSWER}\n\n{self._ANSWER[:60]}"
+        self.assertEqual(qa_open._collapse_repeated_paragraphs(cut), self._ANSWER)
+
+    def test_distinct_paragraphs_are_kept_in_order(self) -> None:
+        text = f"{self._ANSWER}\n\nDenver had 61 rushing yards in the same game."
+        self.assertEqual(qa_open._collapse_repeated_paragraphs(text), text)
+
+    def test_a_short_paragraph_sharing_an_opening_is_not_a_repeat(self) -> None:
+        text = "The Chiefs won that game by a lot, honestly.\n\nThe Chiefs won."
+        self.assertEqual(qa_open._collapse_repeated_paragraphs(text), text)
+
+    def test_the_answer_path_collapses_the_doubled_reply(self) -> None:
+        doubled = f"{self._ANSWER}\n\n\n{self._ANSWER[:80]}"
+        patcher, _calls = _open_chat_returns(_text(doubled))
+        with patcher:
+            out = _run(qa_open.answer_open("how many rushing yards did KC get?", voice=_VOICE))
+        self.assertEqual(out, self._ANSWER)
+
+
 class OpenPromptTests(unittest.TestCase):
     """Every voice gets the format clause and the NFL-scope clause (the two guards
     the live probe proved the persona prompt alone does NOT supply)."""
@@ -350,6 +383,25 @@ class AnswerOpenTests(_OpenPathTestCase):
             _run(qa_open.answer_open("q", voice=_VOICE))
         self.assertEqual(len(calls[0]["messages"]), 1)
 
+    def test_a_long_history_turn_reaches_the_model_uncut(self) -> None:
+        # Issue #220: the fence's 280-char default halved the bot's own previous answer,
+        # so a follow-up about "that game" lost the game it referred to.
+        earlier = "Kenneth Walker III led the Chiefs in that week 1 game. " * 16
+        self.assertGreater(len(earlier), 280)
+        self.assertLessEqual(len(earlier.strip()), qa_open._HISTORY_TURN_CHARS)
+        patcher, calls = _open_chat_returns(_text("ok"))
+        with patcher:
+            _run(qa_open.answer_open("q", voice=_VOICE, history=[("assistant", earlier)]))
+        self.assertEqual(calls[0]["messages"][0]["content"], earlier.strip())
+
+    def test_history_turns_and_the_question_are_still_capped(self) -> None:
+        patcher, calls = _open_chat_returns(_text("ok"))
+        with patcher:
+            _run(qa_open.answer_open("q" * 5000, voice=_VOICE, history=[("user", "h" * 5000)]))
+        msgs = calls[0]["messages"]
+        self.assertEqual(len(msgs[0]["content"]), qa_open._HISTORY_TURN_CHARS)
+        self.assertEqual(len(msgs[1]["content"]), qa_open._QUESTION_CHARS)
+
 
 # --------------------------------------------------------------------------- #
 # WIRE FORMAT: the open path must use its OWN knobs, must NOT be fed the
@@ -370,8 +422,10 @@ class _CapturingAsyncClient:
     last_json: dict | None = None
     _response: object = None
 
+    last_timeout: object = None
+
     def __init__(self, *args, **kwargs) -> None:
-        pass
+        type(self).last_timeout = kwargs.get("timeout")
 
     async def __aenter__(self):
         return self
@@ -417,8 +471,13 @@ class OpenChatWireFormatTests(unittest.TestCase):
         self.assertNotIn("Vary your closing line", body["messages"][0]["content"])
         # Its OWN knobs — and the 80-token chat cap is untouched (invariant 4).
         self.assertEqual(body["max_tokens"], llm_client._OPEN_MAX_TOKENS)
-        self.assertEqual(llm_client._OPEN_MAX_TOKENS, 200)
+        self.assertEqual(llm_client._OPEN_MAX_TOKENS, 600)
         self.assertEqual(llm_client._MAX_TOKENS, 80)
+        # Its OWN transport timeout (issue #220): a 600-token answer outlasts the 10 s
+        # chat timeout on the served model, and the chat trio keep theirs.
+        self.assertEqual(_CapturingAsyncClient.last_timeout, llm_client._OPEN_TIMEOUT_SECONDS)
+        self.assertEqual(llm_client._OPEN_TIMEOUT_SECONDS, 30.0)
+        self.assertEqual(llm_client._TIMEOUT_SECONDS, 10.0)
         self.assertEqual(body["temperature"], llm_client._OPEN_TEMPERATURE)
         self.assertEqual(body["top_p"], llm_client._OPEN_TOP_P)
         # HARD wire rule — without this the served gemma returns EMPTY content.
@@ -500,7 +559,7 @@ class OpenRoutingTests(unittest.TestCase):
         phrase_calls: list[dict] = []
         fact_calls: list[dict] = []
 
-        async def _fake_open(question, *, voice, history=()):
+        async def _fake_open(question, *, voice, history=(), conversation_key=None):
             open_calls.append({"question": question, "voice": voice, "history": list(history)})
             return answer
 
@@ -540,7 +599,7 @@ class OpenRoutingTests(unittest.TestCase):
         self.assertEqual(open_calls[0]["voice"], _VOICE)
 
     def test_open_nfl_degrades_to_a_concrete_line_when_answer_open_returns_none(self) -> None:
-        async def _fake_open(question, *, voice, history=()):
+        async def _fake_open(question, *, voice, history=(), conversation_key=None):
             return None
 
         async def _fake_classify(question, *, history=()):
@@ -563,9 +622,11 @@ class OpenRoutingTests(unittest.TestCase):
 
     def test_answer_question_forwards_history_to_answer_open(self) -> None:
         seen: list[list] = []
+        keys: list[object] = []
 
-        async def _fake_open(question, *, voice, history=()):
+        async def _fake_open(question, *, voice, history=(), conversation_key=None):
             seen.append(list(history))
+            keys.append(conversation_key)
             return "sure"
 
         async def _fake_classify(question, *, history=()):
@@ -584,8 +645,13 @@ class OpenRoutingTests(unittest.TestCase):
             mock.patch.object(db_bridge, "resolve_active_voice_async", _fake_voice),
             mock.patch.object(qa.qa_open, "answer_open", _fake_open),
         ):
-            _run(qa.answer_question("how long?", discord_id=7, history=history))
+            _run(
+                qa.answer_question(
+                    "how long?", discord_id=7, history=history, conversation_key="chan-1"
+                )
+            )
         self.assertEqual(seen, [history])
+        self.assertEqual(keys, ["chan-1"])
 
 
 # --------------------------------------------------------------------------- #
@@ -641,6 +707,19 @@ def _tool_call_message(name: str, arguments: str, *, call_id: str = "c1") -> dic
 
 def _tool_messages(sent: list[dict]) -> list[dict]:
     return [m for m in sent if m.get("role") == "tool"]
+
+
+def _all_keys(value: object) -> set[str]:
+    """Every dict key at any depth of ``value``, lower-cased."""
+    keys: set[str] = set()
+    if isinstance(value, dict):
+        for key, inner in value.items():
+            keys.add(str(key).lower())
+            keys |= _all_keys(inner)
+    elif isinstance(value, list):
+        for inner in value:
+            keys |= _all_keys(inner)
+    return keys
 
 
 class ShippedRegistryTests(_OpenPathTestCase):
@@ -923,12 +1002,13 @@ class ShippedRegistryTests(_OpenPathTestCase):
     def test_the_whole_registry_stays_inside_a_stated_prompt_budget(self) -> None:
         # Every spec costs tokens on EVERY open call and adds a way to mis-select, so the
         # total is pinned rather than left to drift. Measured 2026-09-14: 25,107 bytes
-        # across thirteen tools, up from 19,031 across nine and 12,447 across five. The
-        # pin is raised ONCE per new tool, to the measured total rounded up to the next
-        # hundred, so raising it stays a decision rather than a rubber stamp, and no one
-        # new spec may exceed 1,700 bytes on its own.
+        # across thirteen tools, up from 19,031 across nine and 12,447 across five;
+        # 25,346 on 2026-09-15 when the game tool's description gained the team totals
+        # (issue #220). The pin is raised ONCE per change, to the measured total rounded
+        # up to the next hundred, so raising it stays a decision rather than a rubber
+        # stamp, and no one new spec may exceed 1,700 bytes on its own.
         total = sum(len(json.dumps(tool.spec)) for tool in qa_open.TOOLS)
-        self.assertLess(total, 25200, f"the shipped tool specs now total {total} bytes")
+        self.assertLess(total, 25400, f"the shipped tool specs now total {total} bytes")
         for tool in qa_open.TOOLS[5:]:
             with self.subTest(tool=tool.name):
                 self.assertLess(len(json.dumps(tool.spec)), 1700)
@@ -958,7 +1038,9 @@ class ShippedRegistryTests(_OpenPathTestCase):
         self.assertEqual(
             openers["lookup_game_leaders"],
             "Look up which players led ONE single NFL game in passing, rushing, "
-            "receiving, sacks and tackles, and which team won that one game, in the "
+            "receiving, sacks and tackles, each team's whole-team totals for that one "
+            "game (total yards, passing yards, rushing yards, first downs, turnovers, "
+            "plays and time of possession), and which team won that one game, in the "
             "regular season or in the playoffs",
         )
         self.assertEqual(
@@ -2148,9 +2230,46 @@ class GameLeadersToolTests(_OpenPathTestCase):
 
     def test_the_payload_stays_inside_the_shipped_tools_budget(self) -> None:
         # T-f0s-06: the shipped stats tool returns 2.2-3.4 KB against a 3-round /
-        # 20-second loop, and this must not be the entry that breaks it.
+        # 20-second loop, and this must not be the entry that breaks it. Measured
+        # 2026-09-15 with both clubs' team totals attached (issue #220): 3,794 bytes.
         out, _requests = self._adapter(self._schedule(), self._leaders(), team="KC")
-        self.assertLess(len(json.dumps(out)), 3400)
+        self.assertLess(len(json.dumps(out)), 3900)
+
+    def test_a_game_round_feeds_back_each_clubs_whole_game_totals(self) -> None:
+        # Issue #220: asked for a club's rushing yards in one game, the model held only
+        # the top rusher's line and said it could not give a team total. The box score's
+        # own team rows now travel with the leaders, under the same full club names.
+        out, _requests = self._adapter(self._schedule(), self._leaders(), team="KC")
+        assert isinstance(out, dict)
+        totals = out["team_totals"]
+        self.assertEqual(sorted(totals), ["Kansas City Chiefs", "Las Vegas Raiders"])
+        self.assertEqual(totals["Kansas City Chiefs"]["rushing yards"], "112")
+        self.assertEqual(totals["Kansas City Chiefs"]["total yards"], "245")
+        self.assertEqual(totals["Las Vegas Raiders"]["net passing yards"], "203")
+        self.assertEqual(totals["Las Vegas Raiders"]["time of possession"], "29:10")
+        # Only allowlisted rows, spoken labels, ESPN's own strings — never a score.
+        for club_totals in totals.values():
+            self.assertEqual(
+                set(club_totals), {label for _name, label in espn_extra.GAME_TEAM_TOTALS}
+            )
+        self.assertNotIn("score", _all_keys(out))
+        statement = out["game_statement"]
+        self.assertIn(espn_extra.GAME_TEAM_TOTALS_STATEMENT, statement)
+        self.assertIn("Never say that you cannot give a team total", statement)
+        # The ban on stating the score still stands, ahead of the totals sentence.
+        self.assertLess(
+            statement.index("Never state the score"),
+            statement.index(espn_extra.GAME_TEAM_TOTALS_STATEMENT),
+        )
+
+    def test_a_summary_without_a_box_score_keeps_the_leaders_only_shape(self) -> None:
+        summary = self._leaders()
+        del summary["boxscore"]
+        out, _requests = self._adapter(self._schedule(), summary, team="KC")
+        assert isinstance(out, dict)
+        self.assertNotIn("team_totals", out)
+        self.assertNotIn(espn_extra.GAME_TEAM_TOTALS_STATEMENT, out["game_statement"])
+        self.assertIn("Shane Buechele", json.dumps(out))
 
     def test_a_regular_season_answer_says_it_is_not_a_playoff_game(self) -> None:
         # The second barrier behind the postseason branch: on the round where the model
@@ -3330,10 +3449,11 @@ class ToolLoopTests(_OpenPathTestCase):
         self.assertEqual(out, "Caleb Williams starts at QB for the Bears.")
         # The tool ran EXACTLY once with the declared parameter.
         self.assertEqual(tool_calls, [{"team": "CHI"}])
-        # Two rounds, both offering the whitelist specs.
-        self.assertEqual(len(calls), 2)
+        # Two rounds offering the whitelist specs, then the tools-free close (issue #220).
+        self.assertEqual(len(calls), 3)
         self.assertEqual(calls[0]["tools"], [tool.spec])
         self.assertEqual(calls[1]["tools"], [tool.spec])
+        self.assertIsNone(calls[2]["tools"])
         # The model's own tool-call turn was replayed verbatim, then the tool result.
         second = calls[1]["messages"]
         self.assertTrue(any(m.get("tool_calls") for m in second))
@@ -3342,6 +3462,41 @@ class ToolLoopTests(_OpenPathTestCase):
         self.assertEqual(results[0]["tool_call_id"], "c1")
         self.assertEqual(results[0]["name"], "lookup_starter")
         self.assertIn("Caleb Williams", results[0]["content"])
+
+    def test_text_after_a_tool_result_is_discarded_and_the_close_answers_without_tools(
+        self,
+    ) -> None:
+        # Issue #220, the measured mechanism: with the shipped specs attached, the round
+        # after a tool result wrote the whole answer twice (6/6). The close withholds the
+        # specs and answers once (5/5), so the doubled text never reaches the member.
+        tool, _ = _fake_tool()
+        doubled = "Caleb Williams starts.\n\n\nCaleb Williams starts."
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_starter", '{"team": "CHI"}'),
+            _text(doubled),
+            _text("Caleb Williams starts at QB for the Bears."),
+        )
+        with mock.patch.object(qa_open, "TOOLS", (tool,)), patcher:
+            out = _run(qa_open.answer_open("who starts at QB for the Bears?", voice=_VOICE))
+
+        self.assertEqual(out, "Caleb Williams starts at QB for the Bears.")
+        self.assertEqual(len(calls), 3)
+        self.assertIsNone(calls[2]["tools"])
+        # The discarded text is NOT replayed into the close: the close sees the tool
+        # result as the last turn and writes the answer from it.
+        close = calls[2]["messages"]
+        self.assertEqual(close[-1]["role"], "tool")
+        self.assertFalse(any(m.get("content") == doubled for m in close))
+
+    def test_a_first_round_text_answer_still_returns_at_once(self) -> None:
+        # No tool result in the conversation, no doubling measured: one call, no close.
+        tool, tool_calls = _fake_tool()
+        patcher, calls = _open_chat_returns(_text("Brady, and it is not close."))
+        with mock.patch.object(qa_open, "TOOLS", (tool,)), patcher:
+            out = _run(qa_open.answer_open("greatest QB ever?", voice=_VOICE))
+        self.assertEqual(out, "Brady, and it is not close.")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(tool_calls, [])
 
     def test_undeclared_parameters_are_dropped_before_the_tool_runs(self) -> None:
         tool, tool_calls = _fake_tool()
@@ -3485,6 +3640,126 @@ class ToolLoopTests(_OpenPathTestCase):
         with mock.patch.object(qa_open, "TOOLS", (tool,)), _open_chat_raises():
             out = _run(qa_open.answer_open("q", voice=_VOICE))
         self.assertIsNone(out)
+
+
+class GroundingReplayTests(_OpenPathTestCase):
+    """Issue #220: the tool turns behind an answer are replayed on a follow-up.
+
+    Measured 2026-09-15: with only the bot's earlier TEXT in the history the model called
+    no tool 0/7 and invented figures 5/7; with the earlier tool turns replayed it read
+    the true figure out of them 3/3.
+    """
+
+    _Q1 = "how many rushing yards did KC get last night?"
+    _A1 = "The Chiefs rushed for 220 yards in that week 1 game against Denver."
+    _Q2 = "how many total yards did denver have in that game?"
+
+    def setUp(self) -> None:
+        super().setUp()
+        qa_open._GROUNDING.clear()
+        self.addCleanup(qa_open._GROUNDING.clear)
+
+    def _first_answer(self, key: str | None = "chan-1") -> list[dict]:
+        """Drive the FIRST answer (one tool round) and return every open_chat call."""
+        tool, _ = _fake_tool(name="lookup_game_leaders", result={"team_totals": {"DEN": 176}})
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_game_leaders", '{"team": "KC"}', call_id="call-a"),
+            _text("discarded"),
+            _text(self._A1),
+        )
+        with mock.patch.object(qa_open, "TOOLS", (tool,)), patcher:
+            out = _run(qa_open.answer_open(self._Q1, voice=_VOICE, conversation_key=key))
+        self.assertEqual(out, self._A1)
+        return calls
+
+    def test_the_tool_turns_are_replayed_ahead_of_the_answer_they_produced(self) -> None:
+        self._first_answer()
+        tool, _ = _fake_tool(name="lookup_game_leaders")
+        patcher, calls = _open_chat_returns(_text("ignored"), _text("Denver had 176 yards."))
+        history = [("user", self._Q1), ("assistant", self._A1)]
+        with mock.patch.object(qa_open, "TOOLS", (tool,)), patcher:
+            out = _run(
+                qa_open.answer_open(
+                    self._Q2, voice=_VOICE, history=history, conversation_key="chan-1"
+                )
+            )
+        self.assertEqual(out, "Denver had 176 yards.")
+        sent = calls[0]["messages"]
+        self.assertEqual(
+            [m["role"] for m in sent], ["user", "assistant", "tool", "assistant", "user"]
+        )
+        # The model's own tool-call turn, then its result, then the text it produced.
+        self.assertEqual(sent[1]["tool_calls"][0]["id"], "call-a")
+        self.assertEqual(sent[2]["tool_call_id"], "call-a")
+        self.assertIn("176", sent[2]["content"])
+        self.assertEqual(sent[3]["content"], self._A1)
+        self.assertEqual(sent[4]["content"], self._Q2)
+
+    def test_text_over_a_replayed_tool_turn_still_comes_from_the_tools_free_close(
+        self,
+    ) -> None:
+        # The doubling was measured whenever a tool result is in the conversation with
+        # the specs attached — a replayed one counts — so the close answers here too.
+        self._first_answer()
+        tool, tool_calls = _fake_tool(name="lookup_game_leaders")
+        patcher, calls = _open_chat_returns(_text("doubled"), _text("Denver had 176 yards."))
+        history = [("user", self._Q1), ("assistant", self._A1)]
+        with mock.patch.object(qa_open, "TOOLS", (tool,)), patcher:
+            out = _run(
+                qa_open.answer_open(
+                    self._Q2, voice=_VOICE, history=history, conversation_key="chan-1"
+                )
+            )
+        self.assertEqual(out, "Denver had 176 yards.")
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0]["tools"], [tool.spec])
+        self.assertIsNone(calls[1]["tools"])
+        self.assertEqual(tool_calls, [])  # no new call was needed
+        # Nothing new was stored: a follow-up answered off replayed turns adds no turns.
+        self.assertEqual(len(qa_open._GROUNDING["chan-1"]), 1)
+
+    def test_grounding_is_scoped_to_its_conversation_key(self) -> None:
+        self._first_answer()
+        tool, _ = _fake_tool(name="lookup_game_leaders")
+        patcher, calls = _open_chat_returns(_text("no idea"))
+        history = [("user", self._Q1), ("assistant", self._A1)]
+        with mock.patch.object(qa_open, "TOOLS", (tool,)), patcher:
+            _run(
+                qa_open.answer_open(
+                    self._Q2, voice=_VOICE, history=history, conversation_key="chan-2"
+                )
+            )
+        self.assertEqual([m["role"] for m in calls[0]["messages"]], ["user", "assistant", "user"])
+
+    def test_no_key_stores_nothing_and_replays_nothing(self) -> None:
+        self._first_answer(key=None)
+        self.assertEqual(qa_open._GROUNDING, {})
+        tool, _ = _fake_tool(name="lookup_game_leaders")
+        patcher, calls = _open_chat_returns(_text("no idea"))
+        history = [("user", self._Q1), ("assistant", self._A1)]
+        with mock.patch.object(qa_open, "TOOLS", (tool,)), patcher:
+            _run(qa_open.answer_open(self._Q2, voice=_VOICE, history=history))
+        self.assertEqual([m["role"] for m in calls[0]["messages"]], ["user", "assistant", "user"])
+
+    def test_an_answer_from_memory_stores_no_grounding(self) -> None:
+        tool, _ = _fake_tool(name="lookup_game_leaders")
+        patcher, _calls = _open_chat_returns(_text("Brady."))
+        with mock.patch.object(qa_open, "TOOLS", (tool,)), patcher:
+            _run(qa_open.answer_open("greatest QB?", voice=_VOICE, conversation_key="chan-1"))
+        self.assertEqual(qa_open._GROUNDING, {})
+
+    def test_the_memory_is_bounded_in_keys_and_in_exchanges(self) -> None:
+        for i in range(qa_open._GROUNDING_MAX_KEYS + 3):
+            qa_open._remember_grounding(f"chan-{i}", "a", [{"role": "tool"}])
+        self.assertEqual(len(qa_open._GROUNDING), qa_open._GROUNDING_MAX_KEYS)
+        self.assertNotIn("chan-0", qa_open._GROUNDING)  # least recently used went first
+        for i in range(qa_open._GROUNDING_MAX_EXCHANGES + 2):
+            qa_open._remember_grounding("chan-x", f"answer {i}", [{"role": "tool"}])
+        kept = [answer for answer, _turns in qa_open._GROUNDING["chan-x"]]
+        self.assertEqual(len(kept), qa_open._GROUNDING_MAX_EXCHANGES)
+        self.assertNotIn("answer 0", kept)  # oldest exchange went first
+        self.assertEqual(qa_open._grounding_for("chan-x", "answer 0"), [])
+        self.assertEqual(qa_open._grounding_for("chan-x", "answer 5"), [{"role": "tool"}])
 
 
 # --------------------------------------------------------------------------- #
@@ -3746,6 +4021,11 @@ class PointsScoredToolTests(_OpenPathTestCase):
         # database holds" it. The role now NAMES what the database holds and what a tool
         # result is not; the byte-pinned guard constants are untouched.
         self.assertIn(qa_open.OPEN_TOOLS_CLAUSE, qa_open.OPEN_ROLE)
+        # Issue #220: a follow-up about "that game" must re-call the tool, because the
+        # earlier tool results are not replayed (measured 0/2 tool calls without this).
+        self.assertIn(qa_open.OPEN_FOLLOW_UP_CLAUSE, qa_open.OPEN_ROLE)
+        self.assertIn("already in this conversation is yours to answer from", qa_open.OPEN_ROLE)
+        self.assertIn("call the tool for it and answer from what it returns", qa_open.OPEN_ROLE)
         self.assertIn(
             "Nothing a tool returns is a figure from the app's database", qa_open.OPEN_ROLE
         )
