@@ -91,6 +91,13 @@ _OPEN_TEMPERATURE = 0.7
 # Same nucleus as the chat path: keep the top 95% probability mass, cutting the long
 # tail where invented specifics live.
 _OPEN_TOP_P = 0.95
+# Set on the message ``open_chat`` returns: the server's ``usage.completion_tokens`` for
+# that round. A leading underscore marks it as NOT part of the wire message — the tool
+# loop strips it before a turn is replayed. Issue #220 (reopened): the served model
+# sometimes writes a ``<tool_call>`` block in the tools-free close, vLLM strips the block,
+# and the visible text is empty or a one-line "I'll pull up ..." stub; the token count is
+# the only trace of the stripped block.
+COMPLETION_TOKENS_KEY = "_completion_tokens"
 
 # Style-only anti-repetition directive appended to EVERY phrasing call, AFTER the
 # caller's facts-first guard (so facts-first still leads). It fights the stock-closer
@@ -261,6 +268,10 @@ async def open_chat(
     (with ``tool_choice`` auto) ONLY when it is a non-empty list, so the shipped
     empty-registry path emits a body with no tool keys at all.
 
+    The returned message also carries :data:`COMPLETION_TOKENS_KEY` (the server's
+    ``usage.completion_tokens``) when the payload reports it; the caller strips that key
+    before the message is replayed.
+
     Best-effort by contract: returns ``None`` on missing config, a non-200, a
     timeout, a malformed payload, or an unusable message shape. NEVER raises.
     """
@@ -298,6 +309,10 @@ async def open_chat(
             # The cap cut the answer (issue #220); the text is still returned, but the
             # cut is logged so it never passes for a finished answer.
             logger.warning("llm_open_truncated", max_tokens=_OPEN_MAX_TOKENS)
+        usage = payload.get("usage")
+        completion_tokens = usage.get("completion_tokens") if isinstance(usage, dict) else None
+        if isinstance(completion_tokens, int):
+            message = {**message, COMPLETION_TOKENS_KEY: completion_tokens}
         return message
     except Exception:
         logger.warning("llm_open_failed", exc_info=True)
