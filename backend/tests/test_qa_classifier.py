@@ -934,3 +934,76 @@ class StatsPhrasedScoresGuardTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PlayerNamedQuestionRoutingTests(unittest.TestCase):
+    """Issue #211: a player-named injury/news question must reach the open path.
+
+    Live baseline 2026-09-14 (qwen3.8:27b-nvfp4, 3/3 each): "why is Josh Simmons
+    out" classified ``injuries`` with a null team (the "name a team" soft-decline),
+    "any news on Caleb Williams" classified ``news`` with the PLAYER as the team (the
+    league feed), "what's the latest on the Chiefs left tackle" classified
+    ``injuries`` for the Chiefs (the whole-team report). None of the three answered
+    the player question. Two layers fix it: the classifier prompt names the case
+    (all five probe questions moved to ``open_nfl`` 3/3), and the validator sends a
+    team-REQUIRED intent whose "team" slot held a non-team to ``open_nfl`` when the
+    topic guard passed, instead of the decline menu.
+    """
+
+    def test_prompt_names_the_player_case_and_pins_it_to_open_nfl(self) -> None:
+        prompt = qa.CLASSIFIER_SYSTEM_PROMPT
+        self.assertIn("ONE NAMED PLAYER or ONE POSITION on a team", prompt)
+        self.assertIn("is open_nfl, NOT injuries and NOT news", prompt)
+        self.assertIn('a player\'s name is NEVER the "team"', prompt)
+
+    def test_prompt_still_offers_the_whole_team_report_intents(self) -> None:
+        # ADD-ONLY: the fixed intents keep their proven descriptions.
+        prompt = qa.CLASSIFIER_SYSTEM_PROMPT
+        self.assertIn("injuries (a team's injury report", prompt)
+        self.assertIn("news (recent ESPN headlines", prompt)
+
+    def test_non_real_team_on_team_required_intent_rewrites_to_open_nfl(self) -> None:
+        for intent in ("injuries", "weather", "lines_slate", "prediction"):
+            with self.subTest(intent=intent):
+                out = validate_classification(
+                    {"intent": intent, "team": "Caleb Williams", "week": 3, "nfl": True},
+                    known_team_tokens=_KNOWN_TEAMS,
+                )
+                # The open path reads the RAW question, so every param is scrubbed.
+                self.assertEqual(out, QaResult(intent=QaIntent.open_nfl))
+
+    def test_rewrite_needs_the_boolean_true_by_identity(self) -> None:
+        # The topic guard is the only thing between this rewrite and a lasagna recipe:
+        # a missing key, null, the string "true" or a 1 all keep the decline.
+        for nfl in (None, "true", 1, False):
+            with self.subTest(nfl=nfl):
+                raw: dict[str, object] = {"intent": "injuries", "team": "Narnia"}
+                if nfl is not None:
+                    raw["nfl"] = nfl
+                out = validate_classification(raw, known_team_tokens=_KNOWN_TEAMS)
+                self.assertEqual(out.intent, QaIntent.unknown)
+
+    def test_null_team_on_injuries_still_soft_declines_downstream(self) -> None:
+        # A genuinely teamless team question keeps its "name a team" answer; the
+        # rewrite fires only on a team slot that held something that is not a team.
+        out = validate_classification(
+            {"intent": "injuries", "team": None, "nfl": True}, known_team_tokens=_KNOWN_TEAMS
+        )
+        self.assertEqual(out.intent, QaIntent.injuries)
+        self.assertIsNone(out.team)
+
+    def test_news_non_real_team_keeps_the_league_answer(self) -> None:
+        # Team-OPTIONAL news is untouched (#114: "news about the AFC West?").
+        out = validate_classification(
+            {"intent": "news", "team": "AFC West", "subject": "AFC West", "nfl": True},
+            known_team_tokens=_KNOWN_TEAMS,
+        )
+        self.assertEqual(out.intent, QaIntent.news)
+        self.assertIsNone(out.team)
+        self.assertEqual(out.subject, "AFC West")
+
+    def test_real_team_on_team_required_intent_is_unchanged(self) -> None:
+        out = validate_classification(
+            {"intent": "injuries", "team": "Chiefs", "nfl": True}, known_team_tokens=_KNOWN_TEAMS
+        )
+        self.assertEqual(out, QaResult(intent=QaIntent.injuries, team="CHIEFS"))
