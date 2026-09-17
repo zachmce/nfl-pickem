@@ -148,6 +148,23 @@ REPEATED_PICK_SYSTEM_PROMPT = compose_prompt(
 )
 
 
+def _translate_for_openai(body: dict) -> dict:
+    """Rewrite a local-server body into one api.openai.com accepts (measured 2026-09-17).
+
+    Every rule below answers a 400 the GPT-5.6 models returned: ``chat_template_kwargs``
+    is unknown; ``max_tokens`` must be ``max_completion_tokens``; ``temperature`` and
+    ``top_p`` are rejected at any non-default value; function tools on chat-completions
+    require ``reasoning_effort`` = ``none``. The local body is never touched.
+    """
+    out = {
+        k: v for k, v in body.items() if k not in ("chat_template_kwargs", "temperature", "top_p")
+    }
+    if "max_tokens" in out:
+        out["max_completion_tokens"] = out.pop("max_tokens")
+    out["reasoning_effort"] = "none"
+    return out
+
+
 async def _post_chat(
     body: dict, *, log_prefix: str, timeout: float = _TIMEOUT_SECONDS
 ) -> dict | None:
@@ -175,6 +192,8 @@ async def _post_chat(
     # ``model`` leads so the emitted body keeps its historical key order (the wire-format
     # regression tests read keys, but keeping the order stable keeps captures diffable).
     wire_body = {"model": model, **body}
+    if settings.llm_api_vendor == "openai":
+        wire_body = _translate_for_openai(wire_body)
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:

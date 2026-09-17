@@ -82,6 +82,10 @@ class Settings(BaseSettings):
     llm_api_server: str | None = None
     llm_api_model: str | None = None
     llm_api_key: str | None = None
+    # "local" keeps the vLLM/llama.cpp wire body byte-identical. "openai" makes
+    # ``llm_client._post_chat`` translate the body for api.openai.com (spike, see
+    # branch spike/openai-vendor-probe).
+    llm_api_vendor: str = "local"
 
     log_level: str = "INFO"
 
