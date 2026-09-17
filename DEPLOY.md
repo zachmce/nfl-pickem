@@ -77,11 +77,22 @@ DISCORD_GUILD_ID=<guild id>
 # DEFAULT_ADMIN_USERNAME=...
 # DEFAULT_ADMIN_PASSWORD=...
 
-# Optional: local/self-hosted OpenAI-compatible LLM for the chat personality.
-# Leave unset to disable (the bot falls back to deterministic lines).
-# LLM_API_SERVER=...
-# LLM_API_MODEL=...
-# LLM_API_KEY=...
+# Optional: LLM for the chat personality. Leave unset to disable (the bot falls
+# back to deterministic lines). Two setups:
+#   local/self-hosted vLLM or llama.cpp (the default dialect):
+# LLM_API_SERVER=http://llm:8000/v1
+# LLM_API_MODEL=gemma4
+# LLM_API_KEY=anything-non-empty
+# LLM_API_VENDOR=local
+#   api.openai.com (translates the request body for the GPT-5.x models):
+# LLM_API_SERVER=https://api.openai.com/v1
+# LLM_API_MODEL=gpt-5.6-luna
+# LLM_API_KEY=sk-...
+# LLM_API_VENDOR=openai
+# Optional: a different model for the open NFL question path only (tool calling,
+# longer answers); unset = LLM_API_MODEL everywhere.
+# LLM_API_OPEN_MODEL=gpt-5.6-terra
+# Switching back to the local server = the first block again; no code change.
 ```
 
 > If any production value is left insecure (dev `SECRET_KEY`, `SESSION_COOKIE_SECURE`

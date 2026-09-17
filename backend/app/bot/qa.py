@@ -144,7 +144,8 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "fence, no explanation. The object has exactly these keys: "
     '"intent", "team", "week", "subject", "nfl". '
     '"intent" MUST be one of: pick_status (their own pick/lock status), standings '
-    "(the leaderboard or someone's rank), lines_slate (the spread, total, this "
+    "(the pick'em LEADERBOARD — league members' points and ranks; an NFL team's or "
+    "division's win-loss record is open_nfl, NOT standings), lines_slate (the spread, total, this "
     "week's games, or when the window closes), "
     "scores (the final or in-progress SCORE of a game in the CURRENT week — who won "
     "and by how much; a question about a player's or a team's STATISTICS in a game — "
@@ -166,7 +167,8 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "bare help request, what commands exist, how to register or sign up, or how to "
     "reset a password), "
     "open_nfl (an open football question that NONE of the fixed intents above "
-    "covers: who plays or starts at a position, who is on a team's roster, team or "
+    "covers: who plays or starts at a position, who is on a team's roster, a team's "
+    "or a division's win-loss record, team or "
     "league history, records and milestones, the rules of the game, and opinion or "
     "debate questions about football; a question about ONE NAMED PLAYER or ONE "
     "POSITION on a team — why he is out, whether he plays this week, his status, or "
@@ -887,18 +889,21 @@ def _pick_status_fact(status: dict) -> str:
     verdict (locked in full vs. locked but incomplete), kept short so the one-line
     phrasing guard can't trim away the meaning.
     """
+    # Second person on purpose: the asker IS the subject. The OpenAI models keep the
+    # fact's wording (0/12 second person with a named third-person fact, 2026-09-17),
+    # and the local Gemma rewrote it to "you" anyway, so this reads right on both.
     name = status.get("display_name")
     complete = bool(status.get("complete"))
     if not status.get("pick_open"):
         if complete:
-            return f"{name} was locked in for the week — a full card before the deadline."
-        return f"Picks are locked for the week and {name}'s card was incomplete."
+            return f"{name}, you were locked in for the week — a full card before the deadline."
+        return f"Picks are locked for the week, {name}, and your card was incomplete."
     if complete:
-        return f"{name}'s standard card is complete — every pick is in for the week."
+        return f"{name}, your standard card is complete — every pick is in for the week."
     remaining = status.get("remaining_labels") or []
     if remaining:
-        return f"{name} still needs to make these picks this week: {', '.join(remaining)}."
-    return f"{name}'s card is not complete yet."
+        return f"{name}, you still need to make these picks this week: {', '.join(remaining)}."
+    return f"{name}, your card is not complete yet."
 
 
 def _standings_fact(ctx: dict) -> str:
@@ -1724,10 +1729,13 @@ def _slate_predictions_fact(slate: dict, *, facet: str | None = None) -> str | _
         # the phrasing LLM, which live-DROPPED the honest sentence and voiced snark implying
         # a total WAS computed (the exact phrasing-inversion trap; found in Task 3 live-verify
         # against real Gemma). No _SLATE_NOT_A_BET disclaimer here — there is no lean, just
-        # the decline. The pick-free header is voiced; the concrete decline lands verbatim.
+        # the decline. phrase_header=False (2026-09-17): a VOICED header under the slate
+        # guard promised "how my model sees the totals" 4/6 on the OpenAI models, right
+        # above a body that says there is no totals model. Both lines are now fixed text.
         return _ListAnswer(
-            header_fact="Here's the straight talk on over/unders this week.",
+            header_fact="On this week's over/unders:",
             body=_SLATE_NO_TOTALS,
+            phrase_header=False,
         )
 
     games = slate.get("games") or []

@@ -82,10 +82,15 @@ class Settings(BaseSettings):
     llm_api_server: str | None = None
     llm_api_model: str | None = None
     llm_api_key: str | None = None
-    # "local" keeps the vLLM/llama.cpp wire body byte-identical. "openai" makes
-    # ``llm_client._post_chat`` translate the body for api.openai.com (spike, see
-    # branch spike/openai-vendor-probe).
+    # Which wire dialect ``llm_client._post_chat`` speaks. "local" (default) sends the
+    # vLLM/llama.cpp body unchanged; "openai" translates it for api.openai.com (the
+    # GPT-5.6 models reject chat_template_kwargs, max_tokens, temperature and top_p).
+    # Switching back to the local server is this one value plus the three above.
     llm_api_vendor: str = "local"
+    # Optional model for the OPEN NFL path only (tool calling, longer answers). Unset
+    # means every path uses LLM_API_MODEL. Lets a stronger model serve the open path
+    # while the classifier and the one-line phrasing stay on a cheaper one.
+    llm_api_open_model: str | None = None
 
     log_level: str = "INFO"
 
@@ -114,6 +119,7 @@ class Settings(BaseSettings):
         "llm_api_server",
         "llm_api_model",
         "llm_api_key",
+        "llm_api_open_model",
         mode="before",
     )
     @classmethod
@@ -126,6 +132,15 @@ class Settings(BaseSettings):
         if isinstance(v, str) and v.strip() == "":
             return None
         return v
+
+    @field_validator("llm_api_vendor", mode="before")
+    @classmethod
+    def _normalize_llm_vendor(cls, v: object) -> str:
+        """Accept ``local`` / ``openai`` in any case; anything else fails at startup."""
+        vendor = str(v or "local").strip().lower() or "local"
+        if vendor not in ("local", "openai"):
+            raise ValueError(f"LLM_API_VENDOR must be 'local' or 'openai', got {v!r}")
+        return vendor
 
     @model_validator(mode="after")
     def _prod_fail_closed(self) -> "Settings":

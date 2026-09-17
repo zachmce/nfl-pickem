@@ -166,7 +166,11 @@ def _translate_for_openai(body: dict) -> dict:
 
 
 async def _post_chat(
-    body: dict, *, log_prefix: str, timeout: float = _TIMEOUT_SECONDS
+    body: dict,
+    *,
+    log_prefix: str,
+    timeout: float = _TIMEOUT_SECONDS,
+    model: str | None = None,
 ) -> dict | None:
     """POST ``body`` to the chat-completions endpoint; return the decoded payload.
 
@@ -177,27 +181,37 @@ async def _post_chat(
     ``model`` key is injected here (and leads the emitted body, as it always has) so
     the config check and the body that depends on it cannot drift apart.
 
+    ``model`` overrides the configured ``llm_api_model`` for this call (the open path
+    passes ``llm_api_open_model``); the config check still requires the default.
+
+    A 5xx is retried ONCE: measured 2026-09-17, api.openai.com returned three 500s
+    inside three seconds and a rerun passed 6/6, so one immediate retry turns a
+    transient into an answer. A 4xx is a request defect and is never retried.
+
     Returns the decoded response dict, or ``None`` (logging a structlog warning under
     ``log_prefix``) on missing config, any exception/timeout, a non-200, or a payload
     that is not a JSON object. NEVER raises.
     """
     server = settings.llm_api_server
-    model = settings.llm_api_model
+    default_model = settings.llm_api_model
     key = settings.llm_api_key
-    if not server or not model or not key:
+    if not server or not default_model or not key:
         return None  # feature disabled / not configured
 
     url = f"{server}/chat/completions"
     headers = {"Authorization": f"Bearer {key}"}
     # ``model`` leads so the emitted body keeps its historical key order (the wire-format
     # regression tests read keys, but keeping the order stable keeps captures diffable).
-    wire_body = {"model": model, **body}
+    wire_body = {"model": model or default_model, **body}
     if settings.llm_api_vendor == "openai":
         wire_body = _translate_for_openai(wire_body)
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(url, json=wire_body, headers=headers)
+            if response.status_code >= 500:
+                logger.warning(f"{log_prefix}_retry", status_code=response.status_code)
+                response = await client.post(url, json=wire_body, headers=headers)
         if response.status_code != 200:
             logger.warning(f"{log_prefix}_non_200", status_code=response.status_code)
             return None
@@ -307,7 +321,12 @@ async def open_chat(
         body["tool_choice"] = "auto"
 
     try:
-        payload = await _post_chat(body, log_prefix="llm_open", timeout=_OPEN_TIMEOUT_SECONDS)
+        payload = await _post_chat(
+            body,
+            log_prefix="llm_open",
+            timeout=_OPEN_TIMEOUT_SECONDS,
+            model=settings.llm_api_open_model,
+        )
         if payload is None:
             return None
         # Narrow every step defensively — the decoded payload is untyped ``Any`` and a
