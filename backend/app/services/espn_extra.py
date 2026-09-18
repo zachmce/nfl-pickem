@@ -3482,9 +3482,11 @@ def parse_scoreboard(payload: Any) -> dict[str, Any] | None:
     week = week if isinstance(week, dict) else {}
     year = season.get("year")
     number = week.get("number")
+    season_type = season.get("type")
     return {
         "season": year if isinstance(year, int) and not isinstance(year, bool) else None,
         "week": number if isinstance(number, int) and not isinstance(number, bool) else None,
+        "regular_season": season_type == REGULAR_SEASON_TYPE,
         "games": [game for game in map(_parse_one_scoreboard_event, events) if game is not None],
     }
 

@@ -176,7 +176,9 @@ class HardLeakTests(unittest.TestCase):
         # a pry classified unknown can only ever come back as prose with no pick in it.
         open_calls: list[str] = []
 
-        async def _fake_open(question, *, voice, history=(), conversation_key=None):
+        async def _fake_open(
+            question, *, voice, history=(), conversation_key=None, discord_id=None
+        ):
             open_calls.append(question)
             return "Nice try. Picks stay hidden until the window closes."
 
@@ -362,7 +364,9 @@ class IntentRoutingTests(unittest.TestCase):
     def _open_returns(self, value):
         calls: list[str] = []
 
-        async def _fake_open(question, *, voice, history=(), conversation_key=None):
+        async def _fake_open(
+            question, *, voice, history=(), conversation_key=None, discord_id=None
+        ):
             calls.append(question)
             return value
 

@@ -3730,6 +3730,7 @@ class ParseScoreboardTests(unittest.TestCase):
         out = espn_extra.parse_scoreboard(self._payload())
         assert out is not None
         self.assertEqual((out["season"], out["week"]), (2026, 2))
+        self.assertTrue(out["regular_season"])
         self.assertEqual(
             [game["name"] for game in out["games"]][:2],
             ["Detroit Lions at Buffalo Bills", "Carolina Panthers at Atlanta Falcons"],
