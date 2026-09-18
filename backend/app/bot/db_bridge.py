@@ -26,7 +26,9 @@ from app.services.notifications_read import (
     get_game_final_context,
     get_history_pick_keys,
     get_leaders_context,
+    get_league_picks,
     get_lines_slate,
+    get_pick_completion,
     get_pick_status_for_user,
     get_prediction_inputs_for_team,
     get_real_team_tokens,
@@ -34,6 +36,7 @@ from app.services.notifications_read import (
     get_roster_complete_context,
     get_season_record_and_ats_for_team,
     get_slate_predictions_for_week,
+    get_standings_table,
     get_team_topic_for_token,
     get_week_pick_keys,
     get_week_recap_context,
@@ -519,10 +522,11 @@ async def get_slate_predictions_async() -> dict:
     return await asyncio.to_thread(_sync)
 
 
-async def get_week_scores_async() -> dict:
-    """Async wrapper: this week's final + in-progress scores.
+async def get_week_scores_async(week: int | None = None) -> dict:
+    """Async wrapper: a week's final + in-progress scores (the current week by default).
 
-    Resolves the season + current week internally then delegates to
+    Resolves the season internally, and the current week when ``week`` is ``None``
+    (issue #227: an earlier week is now reachable), then delegates to
     :func:`app.services.notifications_read.get_week_scores`. Returns the safe empty
     shape ``{week: None, games: []}`` on an ambiguous/empty season. Plain dict out
     only; Discord-free.
@@ -533,10 +537,10 @@ async def get_week_scores_async() -> dict:
             season = current_season(session)
             if season is None:
                 return {"week": None, "games": []}
-            week = resolve_current_week(session, season)
-            if week is None:
+            target = week if week is not None else resolve_current_week(session, season)
+            if target is None:
                 return {"week": None, "games": []}
-            return get_week_scores(session, season, week)
+            return get_week_scores(session, season, target)
 
     return await asyncio.to_thread(_sync)
 
@@ -644,5 +648,64 @@ async def get_prediction_inputs_async(team_abbr: str) -> dict | None:
                 return None
             record_ats = get_season_record_and_ats_for_team(session, season, team_abbr=team_abbr)
             return {**inputs, **record_ats}
+
+    return await asyncio.to_thread(_sync)
+
+
+# --------------------------------------------------------------------------- #
+# 2026-09-18 — the open path's app-data tools. Same posture as every wrapper above.
+# The pick gate lives in notifications_read.get_league_picks, not here.
+# --------------------------------------------------------------------------- #
+
+
+async def get_league_picks_async(week: int | None = None) -> dict:
+    """Async wrapper: every member's picks for a week, once that week's window closed."""
+
+    def _sync() -> dict:
+        with task_session() as session:
+            season = current_season(session)
+            if season is None:
+                return {"week": None, "picks_locked": False, "close_at": None, "members": []}
+            target = week if week is not None else resolve_current_week(session, season)
+            if target is None:
+                return {"week": None, "picks_locked": False, "close_at": None, "members": []}
+            return get_league_picks(session, season, target)
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_pick_completion_async() -> dict:
+    """Async wrapper: who has and has not finished this week's card, by name."""
+
+    def _sync() -> dict:
+        empty = {
+            "week": None,
+            "pick_open": False,
+            "close_at": None,
+            "complete": [],
+            "outstanding": [],
+            "total_players": 0,
+        }
+        with task_session() as session:
+            season = current_season(session)
+            if season is None:
+                return empty
+            week = resolve_current_week(session, season)
+            if week is None:
+                return empty
+            return get_pick_completion(session, season, week)
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_standings_table_async() -> dict:
+    """Async wrapper: the whole ranked season table."""
+
+    def _sync() -> dict:
+        with task_session() as session:
+            season = current_season(session)
+            if season is None:
+                return {"season": None, "entries": []}
+            return get_standings_table(session, season)
 
     return await asyncio.to_thread(_sync)

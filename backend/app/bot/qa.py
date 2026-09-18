@@ -147,7 +147,8 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "Reply with ONLY a compact JSON object and NOTHING else — no prose, no code "
     "fence, no explanation. The object has exactly these keys: "
     '"intent", "team", "week", "subject", "nfl". '
-    '"intent" MUST be one of: pick_status (their own pick/lock status), standings '
+    '"intent" MUST be one of: pick_status (whether the asker\'s OWN card is complete or '
+    "locked, and nothing about anyone else), standings "
     "(the pick'em LEADERBOARD — league members' points and ranks; an NFL team's or "
     "division's win-loss record is open_nfl, NOT standings), lines_slate (the spread, total, this "
     "week's games, or when the window closes), "
@@ -171,7 +172,9 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "bare help request, what commands exist, how to register or sign up, or how to "
     "reset a password), "
     "open_nfl (an open football question that NONE of the fixed intents above "
-    "covers: who plays or starts at a position, who is on a team's roster, a team's "
+    "covers: what other members picked, who picked a given team or game, who has or "
+    "has not made their picks yet, a question that mixes the league's data with "
+    "football, who plays or starts at a position, who is on a team's roster, a team's "
     "or a division's win-loss record, team or "
     "league history, records and milestones, the rules of the game, and opinion or "
     "debate questions about football; a question about ONE NAMED PLAYER or ONE "
@@ -1987,7 +1990,11 @@ async def answer_question(
         if result.intent in _OPEN_INTENTS:
             voice = await db_bridge.resolve_active_voice_async()
             open_answer = await qa_open.answer_open(
-                question, voice=voice, history=history, conversation_key=conversation_key
+                question,
+                voice=voice,
+                history=history,
+                conversation_key=conversation_key,
+                discord_id=discord_id,
             )
             return open_answer if open_answer is not None else _OPEN_DEGRADE_FACT
 
