@@ -211,11 +211,11 @@ class ValidateClassificationTests(unittest.TestCase):
         self.assertEqual(out.intent, QaIntent.lines_slate)
         self.assertEqual(out.team, "KC")
 
-    def test_non_real_team_coerces_to_unknown(self) -> None:
+    def test_non_real_team_routes_to_open_nfl(self) -> None:
         out = validate_classification(
             {"intent": "lines_slate", "team": "Narnia"}, known_team_tokens=_KNOWN_TEAMS
         )
-        self.assertEqual(out.intent, QaIntent.unknown)
+        self.assertEqual(out.intent, QaIntent.open_nfl)
 
     def test_off_enum_intent_coerces_to_unknown(self) -> None:
         out = validate_classification({"intent": "teleport"}, known_team_tokens=_KNOWN_TEAMS)
@@ -310,11 +310,11 @@ class InjuriesClassificationTests(unittest.TestCase):
         # A team-bearing intent: the real token is resolved + carried through.
         self.assertEqual(out.team, "CHIEFS")
 
-    def test_injuries_non_real_team_coerces_to_unknown(self) -> None:
+    def test_injuries_non_real_team_routes_to_open_nfl(self) -> None:
         out = validate_classification(
             {"intent": "injuries", "team": "Narnia"}, known_team_tokens=_KNOWN_TEAMS
         )
-        self.assertEqual(out.intent, QaIntent.unknown)
+        self.assertEqual(out.intent, QaIntent.open_nfl)
 
     def test_teamless_injuries_stays_injuries_with_no_team(self) -> None:
         # A teamless injuries question is a VALID injuries result (team None) — the
@@ -344,11 +344,11 @@ class WeatherClassificationTests(unittest.TestCase):
         # A team-bearing intent: the real token is resolved + carried through.
         self.assertEqual(out.team, "CHIEFS")
 
-    def test_weather_non_real_team_coerces_to_unknown(self) -> None:
+    def test_weather_non_real_team_routes_to_open_nfl(self) -> None:
         out = validate_classification(
             {"intent": "weather", "team": "Narnia"}, known_team_tokens=_KNOWN_TEAMS
         )
-        self.assertEqual(out.intent, QaIntent.unknown)
+        self.assertEqual(out.intent, QaIntent.open_nfl)
 
     def test_teamless_weather_stays_weather_with_no_team(self) -> None:
         # A teamless weather question is a VALID weather result (team None) — the
@@ -434,12 +434,12 @@ class PredictionClassificationTests(unittest.TestCase):
         # Team-bearing: the real token is resolved + carried through.
         self.assertEqual(out.team, "CHIEFS")
 
-    def test_prediction_non_real_team_coerces_to_unknown(self) -> None:
-        # Team-REQUIRED: a non-real team named on a prediction is untrustworthy -> unknown.
+    def test_prediction_non_real_team_routes_to_open_nfl(self) -> None:
+        # Team-REQUIRED: a non-real team named on a prediction is untrustworthy -> open.
         out = validate_classification(
             {"intent": "prediction", "team": "Narnia"}, known_team_tokens=_KNOWN_TEAMS
         )
-        self.assertEqual(out.intent, QaIntent.unknown)
+        self.assertEqual(out.intent, QaIntent.open_nfl)
 
     def test_teamless_prediction_stays_prediction_with_no_team(self) -> None:
         # A null team stays a VALID prediction (team None) — the downstream soft-decline
@@ -653,9 +653,9 @@ class OpenNflValidationTests(unittest.TestCase):
             out, QaResult(intent=QaIntent.open_nfl, team=None, week=None, subject=None)
         )
 
-    def test_topic_guard_fails_closed_on_every_non_boolean_true_nfl_value(self) -> None:
-        # Identity against True, NOT truthiness: a missing key, a string, a 1, and a
-        # literal false must ALL decline (the measured lasagna-recipe case).
+    def test_open_nfl_stays_open_whatever_the_nfl_key_says(self) -> None:
+        # 2026-09-18: the topic guard is gone. An off-topic question is answered by the
+        # open path in voice, so no value of ``nfl`` can send it to a decline.
         for raw in (
             {"intent": "open_nfl"},
             {"intent": "open_nfl", "nfl": False},
@@ -666,7 +666,7 @@ class OpenNflValidationTests(unittest.TestCase):
         ):
             with self.subTest(raw=raw):
                 out = validate_classification(raw, known_team_tokens=_KNOWN_TEAMS)
-                self.assertEqual(out, QaResult(intent=QaIntent.unknown))
+                self.assertEqual(out, QaResult(intent=QaIntent.open_nfl))
 
     def test_nfl_key_does_not_affect_the_ten_grounded_intents(self) -> None:
         # The topic guard is scoped to open_nfl ONLY — a grounded intent is unchanged
@@ -894,8 +894,8 @@ class StatsPhrasedScoresGuardTests(unittest.TestCase):
         )
         self.assertEqual(out, QaResult(intent=QaIntent.open_nfl))
 
-    def test_guard_fails_closed_on_every_non_boolean_true_nfl_value(self) -> None:
-        # Same identity-against-True rule as the topic guard above it.
+    def test_rewrite_ignores_the_nfl_key(self) -> None:
+        # 2026-09-18: the topic guard is gone, so the rewrite fires on every value.
         for raw in (
             {"intent": "scores", "subject": "passing yards in that game"},
             {"intent": "scores", "subject": "passing yards in that game", "nfl": False},
@@ -905,7 +905,7 @@ class StatsPhrasedScoresGuardTests(unittest.TestCase):
         ):
             with self.subTest(raw=raw):
                 out = validate_classification(raw, known_team_tokens=_KNOWN_TEAMS)
-                self.assertEqual(out, QaResult(intent=QaIntent.unknown))
+                self.assertEqual(out, QaResult(intent=QaIntent.open_nfl))
 
     def test_a_real_score_question_is_untouched(self) -> None:
         out = validate_classification(
@@ -972,16 +972,15 @@ class PlayerNamedQuestionRoutingTests(unittest.TestCase):
                 # The open path reads the RAW question, so every param is scrubbed.
                 self.assertEqual(out, QaResult(intent=QaIntent.open_nfl))
 
-    def test_rewrite_needs_the_boolean_true_by_identity(self) -> None:
-        # The topic guard is the only thing between this rewrite and a lasagna recipe:
-        # a missing key, null, the string "true" or a 1 all keep the decline.
+    def test_rewrite_ignores_the_nfl_key(self) -> None:
+        # 2026-09-18: the topic guard is gone, so the rewrite fires on every value.
         for nfl in (None, "true", 1, False):
             with self.subTest(nfl=nfl):
                 raw: dict[str, object] = {"intent": "injuries", "team": "Narnia"}
                 if nfl is not None:
                     raw["nfl"] = nfl
                 out = validate_classification(raw, known_team_tokens=_KNOWN_TEAMS)
-                self.assertEqual(out.intent, QaIntent.unknown)
+                self.assertEqual(out.intent, QaIntent.open_nfl)
 
     def test_null_team_on_injuries_still_soft_declines_downstream(self) -> None:
         # A genuinely teamless team question keeps its "name a team" answer; the

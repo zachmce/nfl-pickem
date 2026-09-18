@@ -171,13 +171,27 @@ class HardLeakTests(unittest.TestCase):
         self.assertIn("You", out)
         self.assertNotIn("Zach", out)
 
-    def test_unknown_pry_returns_no_pick_content(self) -> None:
-        # If the pry is classified unknown instead, the decline+menu carries no picks.
-        phrase_patch, _ = _phrase_returns(None)
-        with _classify_returns({"intent": "unknown"}), _tokens("KC"), _voice(), phrase_patch:
+    def test_unknown_pry_goes_to_the_open_path_and_carries_no_pick_content(self) -> None:
+        # 2026-09-18: unknown routes to the open path, which makes NO db_bridge call, so
+        # a pry classified unknown can only ever come back as prose with no pick in it.
+        open_calls: list[str] = []
+
+        async def _fake_open(question, *, voice, history=(), conversation_key=None):
+            open_calls.append(question)
+            return "Nice try. Picks stay hidden until the window closes."
+
+        seam_patch, seam_calls = _seam("get_pick_status_async", {"registered": True})
+        with (
+            _classify_returns({"intent": "unknown"}),
+            _tokens("KC"),
+            _voice(),
+            seam_patch,
+            mock.patch.object(qa.qa_open, "answer_open", _fake_open),
+        ):
             out = _run(qa.answer_question("what did Zach pick?", discord_id=111))
+        self.assertEqual(open_calls, ["what did Zach pick?"])
+        self.assertEqual(seam_calls, [])
         self.assertNotIn("Zach", out)
-        self.assertEqual(out, qa._UNKNOWN_FACT)
 
 
 class IntentRoutingTests(unittest.TestCase):
@@ -345,22 +359,60 @@ class IntentRoutingTests(unittest.TestCase):
             out = _run(qa.answer_question("what commands are there?", discord_id=7))
         self.assertNotIn("/admin", out)
 
-    def test_coming_soon_is_tier2_wink_no_db_read(self) -> None:
-        # A recognized-but-planned topic — no DB read, no capability menu.
+    def _open_returns(self, value):
+        calls: list[str] = []
+
+        async def _fake_open(question, *, voice, history=(), conversation_key=None):
+            calls.append(question)
+            return value
+
+        return mock.patch.object(qa.qa_open, "answer_open", _fake_open), calls
+
+    def test_coming_soon_routes_to_the_open_path(self) -> None:
+        # 2026-09-18: the once-planned topics are answered by the open path in voice.
+        open_patch, open_calls = self._open_returns("Line movement is not something I track.")
+        phrase_patch, phrase_calls = _phrase_returns(None)
+        with (
+            _classify_returns({"intent": "coming_soon"}),
+            _tokens("KC"),
+            _voice(),
+            open_patch,
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("has the line moved?", discord_id=7))
+        self.assertEqual(out, "Line movement is not something I track.")
+        self.assertEqual(open_calls, ["has the line moved?"])
+        self.assertEqual(phrase_calls, [])
+
+    def test_unknown_routes_to_the_open_path_with_no_capability_menu(self) -> None:
+        # 2026-09-18: there is no deterministic decline menu any more. An off-topic or
+        # unclassifiable question is answered by the open path, and a None from it
+        # degrades to the concrete open degrade line rather than a menu.
+        open_patch, open_calls = self._open_returns("Bananas, sure. Now, about the Bills.")
         phrase_patch, _ = _phrase_returns(None)
-        with _classify_returns({"intent": "coming_soon"}), _tokens("KC"), _voice(), phrase_patch:
-            out = _run(qa.answer_question("any injuries this week?", discord_id=7))
-        self.assertEqual(out, qa._COMING_SOON_FACT)
-        # The capability menu must NOT appear on coming_soon.
+        with (
+            _classify_returns({"intent": "unknown"}),
+            _tokens("KC"),
+            _voice(),
+            open_patch,
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("banana helicopter?", discord_id=7))
+        self.assertEqual(out, "Bananas, sure. Now, about the Bills.")
+        self.assertEqual(open_calls, ["banana helicopter?"])
         self.assertNotIn("bug the developer", out)
 
-    def test_unknown_is_tier3_decline_with_capability_menu(self) -> None:
-        phrase_patch, _ = _phrase_returns(None)
-        with _classify_returns({"intent": "unknown"}), _tokens("KC"), _voice(), phrase_patch:
+        open_patch, _ = self._open_returns(None)
+        with (
+            _classify_returns({"intent": "unknown"}),
+            _tokens("KC"),
+            _voice(),
+            open_patch,
+            phrase_patch,
+        ):
             out = _run(qa.answer_question("banana helicopter?", discord_id=7))
-        self.assertEqual(out, qa._UNKNOWN_FACT)
-        # The capability-menu + bug-the-dev nudge appears ONLY on unknown.
-        self.assertIn("bug the developer", out)
+        self.assertEqual(out, qa._OPEN_DEGRADE_FACT)
+        self.assertNotIn("bug the developer", out)
 
 
 class QaGuardClauseTests(unittest.TestCase):

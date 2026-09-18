@@ -60,6 +60,8 @@ def _run(coro):
 _LEAGUE_ROOT_2026 = {"season": {"year": 2026, "type": {"id": "1", "name": "Preseason"}}}
 
 _SUPER_BOWL_FIXTURE = Path(__file__).parent / "fixtures" / "espn_postseason_super_bowl.json"
+_SCOREBOARD_FIXTURE = Path(__file__).parent / "fixtures" / "espn_scoreboard.json"
+_LIVE_GAME_FIXTURE = Path(__file__).parent / "fixtures" / "espn_live_game.json"
 
 
 def _super_bowl(season: int = 2025) -> dict:
@@ -817,6 +819,8 @@ class ShippedRegistryTests(_OpenPathTestCase):
                 "lookup_points_scored",
                 "lookup_team_season_stats",
                 "search_nfl_news",
+                "lookup_live_game",
+                "lookup_week_scoreboard",
             ],
         )
         params = qa_open.TOOLS[0].spec["function"]["parameters"]
@@ -1083,9 +1087,10 @@ class ShippedRegistryTests(_OpenPathTestCase):
         # 25,346 on 2026-09-15 when the game tool's description gained the team totals
         # (issue #220). The pin is raised ONCE per change, to the measured total rounded
         # up to the next hundred, so raising it stays a decision rather than a rubber
-        # stamp, and no one new spec may exceed 1,700 bytes on its own.
+        # stamp, and no one new spec may exceed 1,700 bytes on its own. 27,726 on
+        # 2026-09-18 with the live game and the week scoreboard tools (fifteen tools).
         total = sum(len(json.dumps(tool.spec)) for tool in qa_open.TOOLS)
-        self.assertLess(total, 25400, f"the shipped tool specs now total {total} bytes")
+        self.assertLess(total, 27800, f"the shipped tool specs now total {total} bytes")
         for tool in qa_open.TOOLS[5:]:
             with self.subTest(tool=tool.name):
                 self.assertLess(len(json.dumps(tool.spec)), 1700)
@@ -1162,6 +1167,20 @@ class ShippedRegistryTests(_OpenPathTestCase):
             openers["search_nfl_news"],
             "Search ESPN's recent NFL news stories for a short phrase, such as a player's "
             "name, a team and a topic, or a trade or an injury the member heard about",
+        )
+        self.assertEqual(
+            openers["lookup_live_game"],
+            "Look up the game one NFL team is playing this week, live: whether it has not "
+            "started, is in progress or is final, the quarter and clock, the score right "
+            "now, each team's box-score totals so far such as total yards, each team's "
+            "leaders, each kicker's field goals and extra points made, attempted and "
+            "missed, every scoring play so far, and the TV or streaming network it is on",
+        )
+        self.assertEqual(
+            openers["lookup_week_scoreboard"],
+            "Look up every NFL game on this week's scoreboard: each matchup, its kick-off "
+            "date and time, the TV or streaming network it is on, its status, and its "
+            "score once it has started",
         )
         for name in ("lookup_team_roster", "lookup_player_season_stats"):
             with self.subTest(tool=name):
@@ -4348,6 +4367,267 @@ class NewsSearchToolTests(_OpenPathTestCase):
         self.assertEqual(list(params["properties"]), ["phrase"])
         self.assertEqual(params["required"], ["phrase"])
         self.assertIn("never the member's whole question", spec["function"]["description"])
+
+
+def _in_progress(summary: dict, *, clock: str = "4:32", period: int = 3) -> dict:
+    """The final DET at BUF summary relabelled as a game in its third quarter.
+
+    No in-progress payload was captured (there was no game on 2026-09-18), so this is the
+    final payload with the status block ESPN's scoreboard uses for a live game. The live
+    status shape is verified on the scoreboard fixture; the summary's is assumed to match.
+    """
+    live = json.loads(json.dumps(summary))
+    competition = live["header"]["competitions"][0]
+    competition["status"] = {
+        "displayClock": clock,
+        "period": period,
+        "type": {
+            "id": "2",
+            "name": "STATUS_IN_PROGRESS",
+            "state": "in",
+            "completed": False,
+            "description": "In Progress",
+            "detail": f"{clock} - 3rd Quarter",
+            "shortDetail": f"{clock} - 3rd",
+        },
+    }
+    for competitor in competition["competitors"]:
+        competitor.pop("winner", None)
+    competition["competitors"][0]["score"] = "27"
+    competition["competitors"][1]["score"] = "24"
+    return live
+
+
+class LiveGameToolTests(_OpenPathTestCase):
+    """The SHIPPED live game tool (2026-09-18): the game one team plays THIS week, in
+    any status, with the box score once it has started."""
+
+    def _scoreboard(self) -> dict:
+        return json.loads(_SCOREBOARD_FIXTURE.read_text())
+
+    def _summary(self) -> dict:
+        return json.loads(_LIVE_GAME_FIXTURE.read_text())
+
+    def _espn(self, scoreboard: object, summary: object, fetched: list | None = None):
+        async def _fake_scoreboard():
+            return scoreboard
+
+        async def _fake_summary(event_id):
+            if fetched is not None:
+                fetched.append(event_id)
+            return summary
+
+        return mock.patch.multiple(
+            espn_extra, fetch_scoreboard=_fake_scoreboard, fetch_live_game_summary=_fake_summary
+        )
+
+    def test_a_live_round_feeds_back_the_score_the_totals_the_kicks_and_the_plays(
+        self,
+    ) -> None:
+        fetched: list = []
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_live_game", '{"team": "buf"}'),
+            _text("Bills up 27-24 in the third. Bass has missed an extra point."),
+        )
+        with self._espn(self._scoreboard(), _in_progress(self._summary()), fetched), patcher:
+            out = _run(
+                qa_open.answer_open("how many yards do the bills have right now?", voice=_VOICE)
+            )
+
+        self.assertEqual(out, "Bills up 27-24 in the third. Bass has missed an extra point.")
+        # The event id comes from the scoreboard, never from the model.
+        self.assertEqual(fetched, ["401872932"])
+        body = json.loads(_tool_messages(calls[1]["messages"])[0]["content"])
+        self.assertEqual(body["status"], "in progress")
+        self.assertEqual(body["score"], "DET 24, BUF 27")
+        self.assertEqual(body["clock"], "4:32 - 3rd")
+        self.assertEqual(body["broadcasts"], ["Prime Video"])
+        self.assertEqual(body["team_totals"]["Buffalo Bills"]["total yards"], "446")
+        self.assertEqual(body["kicking"]["Buffalo Bills"][0]["player"], "Tyler Bass")
+        self.assertEqual(body["kicking"]["Buffalo Bills"][0]["missed extra points"], 1)
+        self.assertEqual(body["kicking"]["Buffalo Bills"][0]["missed field goals"], 0)
+        self.assertEqual(body["scoring_plays"][0]["score after"], "DET 0, BUF 7")
+        self.assertIn("is being played right now", body["game_statement"])
+        self.assertIn("score right now is DET 24, BUF 27", body["game_statement"])
+        self.assertIn(espn_extra.GAME_TEAM_TOTALS_STATEMENT, body["game_statement"])
+        self.assertEqual(body["caveat"], espn_extra.LIVE_GAME_CAVEAT)
+        # The tool is one of the specs sent on the first round, by its exact name.
+        self.assertIn("lookup_live_game", [t["function"]["name"] for t in calls[0]["tools"]])
+        # No event id reaches the model.
+        self.assertNotIn("event_id", _all_keys(body))
+
+    def test_a_final_game_states_the_final_score_and_the_winner(self) -> None:
+        with self._espn(self._scoreboard(), self._summary()):
+            body = _run(qa_open._lookup_live_game(team="DET"))
+        assert isinstance(body, dict)
+        self.assertEqual(body["status"], "final")
+        self.assertEqual(body["score"], "DET 31, BUF 41")
+        self.assertIn("is final. The final score was DET 31, BUF 41.", body["game_statement"])
+        self.assertIn("The Buffalo Bills won that game.", body["game_statement"])
+        self.assertEqual(len(body["scoring_plays"]), 11)
+
+    def test_a_pre_game_returns_the_kickoff_and_the_network_without_a_second_hop(self) -> None:
+        fetched: list = []
+        with self._espn(self._scoreboard(), self._summary(), fetched):
+            body = _run(qa_open._lookup_live_game(team="ATL"))
+        assert isinstance(body, dict)
+        self.assertEqual(fetched, [])
+        self.assertEqual(body["status"], "not started")
+        self.assertEqual(body["broadcasts"], ["FOX"])
+        self.assertEqual(body["kickoff"], "2026-09-20T17:00Z")
+        self.assertIn("has not kicked off yet", body["game_statement"])
+        self.assertIn("it is on FOX", body["game_statement"])
+        self.assertIn("never describe how it is going", body["game_statement"])
+        self.assertNotIn("score", body)
+
+    def test_every_miss_is_a_note_never_none(self) -> None:
+        self.assertEqual(
+            _run(qa_open._lookup_live_game()), {"note": qa_open._NO_TEAM_FOR_LIVE_GAME_NOTE}
+        )
+        with self._espn(None, None):
+            self.assertEqual(
+                _run(qa_open._lookup_live_game(team="BUF")),
+                {"note": qa_open._SCOREBOARD_FAILED_NOTE},
+            )
+        with self._espn(self._scoreboard(), None):
+            out = _run(qa_open._lookup_live_game(team="KC"))
+            self.assertEqual(
+                out, {"note": qa_open._NO_GAME_THIS_WEEK_NOTE.format(team="KC", week=2)}
+            )
+            # A started game whose summary fails keeps the scoreboard's score.
+            out = _run(qa_open._lookup_live_game(team="BUF"))
+        assert isinstance(out, dict)
+        self.assertEqual(out["score"], "DET 31, BUF 41")
+        self.assertIn("could not be read just now", out["note"])
+        self.assertIn("never invent a statistic", out["note"])
+
+    def test_the_spec_takes_only_a_team(self) -> None:
+        spec = next(t for t in qa_open.TOOLS if t.name == "lookup_live_game").spec
+        params = spec["function"]["parameters"]
+        self.assertEqual(list(params["properties"]), ["team"])
+        self.assertEqual(params["required"], ["team"])
+        description = spec["function"]["description"]
+        # Call-then-constrain: the instruction half names the live questions.
+        self.assertIn(
+            "Call this tool every time the member asks about a game being played", description
+        )
+        self.assertIn("what channel the game is on", description)
+        self.assertIn("lookup_game_leaders is the tool and this one is not", description)
+
+    def test_the_game_leaders_tool_hands_a_live_game_to_this_tool(self) -> None:
+        schedule = json.loads(_SCHEDULE_FIXTURE.read_text())
+        # The synthetic week-19 event becomes a game in progress.
+        for event in schedule["events"]:
+            if event["week"]["number"] == 19:
+                event["competitions"][0]["status"]["type"]["state"] = "in"
+
+        async def _fake_schedule(team_abbr, *, season=None):
+            return schedule
+
+        fetched: list = []
+
+        async def _fake_summary(event_id):
+            fetched.append(event_id)
+            return json.loads(_GAME_LEADERS_FIXTURE.read_text())
+
+        with (
+            mock.patch.object(espn_extra, "fetch_team_schedule", _fake_schedule),
+            mock.patch.object(espn_extra, "fetch_game_summary", _fake_summary),
+        ):
+            default = _run(qa_open._lookup_game_leaders(team="KC"))
+            asked = _run(qa_open._lookup_game_leaders(team="KC", week=19))
+            self.assertEqual(fetched, [])  # a live game never reaches the summary hop
+            earlier = _run(qa_open._lookup_game_leaders(team="KC", week=18))
+        assert isinstance(default, dict) and isinstance(asked, dict) and isinstance(earlier, dict)
+        for body in (default, asked):
+            self.assertIn("is being played right now", body["note"])
+            self.assertIn("Call lookup_live_game with the team argument KC", body["note"])
+        # An earlier, finished week is still answered by the schedule as before.
+        self.assertNotIn("note", earlier)
+        self.assertIn("game_statement", earlier)
+
+
+class WeekScoreboardToolTests(_OpenPathTestCase):
+    def _scoreboard_returns(self, payload: object):
+        async def _fake():
+            return payload
+
+        return mock.patch.object(espn_extra, "fetch_scoreboard", _fake)
+
+    def test_a_scoreboard_round_feeds_back_every_game_with_its_network(self) -> None:
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_week_scoreboard", "{}"),
+            _text("Panthers at Falcons is on FOX at 1 ET Sunday."),
+        )
+        with self._scoreboard_returns(json.loads(_SCOREBOARD_FIXTURE.read_text())), patcher:
+            out = _run(qa_open.answer_open("where can I watch the falcons?", voice=_VOICE))
+        self.assertEqual(out, "Panthers at Falcons is on FOX at 1 ET Sunday.")
+        body = json.loads(_tool_messages(calls[1]["messages"])[0]["content"])
+        self.assertEqual(body["week"], 2)
+        self.assertEqual(body["season"], 2026)
+        self.assertEqual(len(body["games"]), 4)
+        final, upcoming = body["games"][0], body["games"][1]
+        self.assertEqual(final["network"], "Prime Video")
+        self.assertEqual(final["score"], "DET 31, BUF 41")
+        self.assertEqual(final["state"], "post")
+        self.assertEqual(upcoming["network"], "FOX")
+        self.assertEqual(upcoming["state"], "pre")
+        self.assertNotIn("score", upcoming)
+        self.assertIn(
+            "lists 4 games in week 2 of the 2026 NFL season", body["scoreboard_statement"]
+        )
+        self.assertEqual(body["caveat"], espn_extra.SCOREBOARD_CAVEAT)
+        self.assertNotIn("event_id", _all_keys(body))
+
+    def test_every_miss_is_a_note_never_none(self) -> None:
+        with self._scoreboard_returns(None):
+            self.assertEqual(
+                _run(qa_open._lookup_week_scoreboard()), {"note": qa_open._SCOREBOARD_FAILED_NOTE}
+            )
+        with self._scoreboard_returns({"events": []}):
+            self.assertEqual(
+                _run(qa_open._lookup_week_scoreboard()), {"note": qa_open._EMPTY_SCOREBOARD_NOTE}
+            )
+
+    def test_the_spec_takes_no_arguments(self) -> None:
+        spec = next(t for t in qa_open.TOOLS if t.name == "lookup_week_scoreboard").spec
+        self.assertEqual(spec["function"]["parameters"]["properties"], {})
+        self.assertIn("where or on what channel to watch a game", spec["function"]["description"])
+
+
+class LoosenedScopeTests(unittest.TestCase):
+    """2026-09-18: the scope clause invites an off-topic answer instead of a refusal."""
+
+    def test_the_scope_clause_steers_back_instead_of_refusing(self) -> None:
+        self.assertIn("you are not limited to them", qa_open.OPEN_SCOPE_CLAUSE)
+        self.assertIn("answer it briefly and helpfully in your voice", qa_open.OPEN_SCOPE_CLAUSE)
+        # Unconditional: a tie-back the model may choose to skip is one it skips
+        # (measured 0/2 with "where it fits" on 2026-09-18).
+        self.assertIn(
+            "end with one short line that steers the chat back to football",
+            qa_open.OPEN_SCOPE_CLAUSE,
+        )
+        self.assertNotIn("where it fits", qa_open.OPEN_SCOPE_CLAUSE)
+        # No seeded phrase: a phrase in the prompt is parroted verbatim every time
+        # (memory: llm-prompt-dont-seed-catchphrases; measured 8/8 identical closers).
+        self.assertIn("in fresh wording each time", qa_open.OPEN_SCOPE_CLAUSE)
+        self.assertIn("Never refuse a question only because", qa_open.OPEN_SCOPE_CLAUSE)
+        self.assertNotIn("answer nothing else", qa_open.OPEN_SCOPE_CLAUSE)
+
+    def test_the_ownership_clause_allows_a_looked_up_score(self) -> None:
+        self.assertIn(
+            "state a score when a lookup you made gives it to you", qa_open.OPEN_OWNERSHIP_CLAUSE
+        )
+        self.assertIn("never state one from memory", qa_open.OPEN_OWNERSHIP_CLAUSE)
+        # The app-owned facts stay banned.
+        for owned in ("point spread", "over/under total", "standings position", "member's pick"):
+            self.assertIn(owned, qa_open.OPEN_OWNERSHIP_CLAUSE)
+        # The role names the live game as tool territory, not the app's.
+        self.assertIn(
+            "the score, the box score and the network of a game this week",
+            qa_open.OPEN_TOOLS_CLAUSE,
+        )
+        self.assertNotIn("the scores of this week's games", qa_open.OPEN_TOOLS_CLAUSE)
 
 
 if __name__ == "__main__":

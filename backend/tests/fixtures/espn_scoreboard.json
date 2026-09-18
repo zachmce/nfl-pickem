@@ -1,0 +1,239 @@
+{
+ "season": {
+  "type": 2,
+  "year": 2026
+ },
+ "week": {
+  "number": 2
+ },
+ "events": [
+  {
+   "id": "401872932",
+   "name": "Detroit Lions at Buffalo Bills",
+   "shortName": "DET @ BUF",
+   "date": "2026-09-18T00:15Z",
+   "competitions": [
+    {
+     "date": "2026-09-18T00:15Z",
+     "venue": {
+      "fullName": "Highmark Stadium"
+     },
+     "status": {
+      "clock": 0.0,
+      "displayClock": "0:00",
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true,
+       "description": "Final",
+       "detail": "Final",
+       "shortDetail": "Final"
+      },
+      "isTBDFlex": false
+     },
+     "broadcasts": [
+      {
+       "market": "national",
+       "names": [
+        "Prime Video"
+       ]
+      }
+     ],
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "41",
+       "winner": true,
+       "team": {
+        "abbreviation": "BUF",
+        "displayName": "Buffalo Bills"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "31",
+       "winner": false,
+       "team": {
+        "abbreviation": "DET",
+        "displayName": "Detroit Lions"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401872933",
+   "name": "Carolina Panthers at Atlanta Falcons",
+   "shortName": "CAR @ ATL",
+   "date": "2026-09-20T17:00Z",
+   "competitions": [
+    {
+     "date": "2026-09-20T17:00Z",
+     "venue": {
+      "fullName": "Mercedes-Benz Stadium"
+     },
+     "status": {
+      "clock": 0.0,
+      "displayClock": "0:00",
+      "period": 0,
+      "type": {
+       "id": "1",
+       "name": "STATUS_SCHEDULED",
+       "state": "pre",
+       "completed": false,
+       "description": "Scheduled",
+       "detail": "Sun, September 20th at 1:00 PM EDT",
+       "shortDetail": "9/20 - 1:00 PM EDT"
+      },
+      "isTBDFlex": false
+     },
+     "broadcasts": [
+      {
+       "market": "national",
+       "names": [
+        "FOX"
+       ]
+      }
+     ],
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "0",
+       "winner": null,
+       "team": {
+        "abbreviation": "ATL",
+        "displayName": "Atlanta Falcons"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "0",
+       "winner": null,
+       "team": {
+        "abbreviation": "CAR",
+        "displayName": "Carolina Panthers"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401872937",
+   "name": "Minnesota Vikings at Chicago Bears",
+   "shortName": "MIN @ CHI",
+   "date": "2026-09-20T17:00Z",
+   "competitions": [
+    {
+     "date": "2026-09-20T17:00Z",
+     "venue": {
+      "fullName": "Soldier Field"
+     },
+     "status": {
+      "clock": 0.0,
+      "displayClock": "0:00",
+      "period": 0,
+      "type": {
+       "id": "1",
+       "name": "STATUS_SCHEDULED",
+       "state": "pre",
+       "completed": false,
+       "description": "Scheduled",
+       "detail": "Sun, September 20th at 1:00 PM EDT",
+       "shortDetail": "9/20 - 1:00 PM EDT"
+      },
+      "isTBDFlex": false
+     },
+     "broadcasts": [
+      {
+       "market": "national",
+       "names": [
+        "FOX"
+       ]
+      }
+     ],
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "0",
+       "winner": null,
+       "team": {
+        "abbreviation": "CHI",
+        "displayName": "Chicago Bears"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "0",
+       "winner": null,
+       "team": {
+        "abbreviation": "MIN",
+        "displayName": "Minnesota Vikings"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401872939",
+   "name": "Philadelphia Eagles at Tennessee Titans",
+   "shortName": "PHI @ TEN",
+   "date": "2026-09-20T17:00Z",
+   "competitions": [
+    {
+     "date": "2026-09-20T17:00Z",
+     "venue": {
+      "fullName": "Nissan Stadium"
+     },
+     "status": {
+      "clock": 0.0,
+      "displayClock": "0:00",
+      "period": 0,
+      "type": {
+       "id": "1",
+       "name": "STATUS_SCHEDULED",
+       "state": "pre",
+       "completed": false,
+       "description": "Scheduled",
+       "detail": "Sun, September 20th at 1:00 PM EDT",
+       "shortDetail": "9/20 - 1:00 PM EDT"
+      },
+      "isTBDFlex": false
+     },
+     "broadcasts": [
+      {
+       "market": "national",
+       "names": [
+        "FOX"
+       ]
+      }
+     ],
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "0",
+       "winner": null,
+       "team": {
+        "abbreviation": "TEN",
+        "displayName": "Tennessee Titans"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "0",
+       "winner": null,
+       "team": {
+        "abbreviation": "PHI",
+        "displayName": "Philadelphia Eagles"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
