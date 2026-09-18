@@ -1,0 +1,1055 @@
+{
+ "header": {
+  "id": "401872932",
+  "season": {
+   "year": 2026,
+   "current": true,
+   "type": 2
+  },
+  "week": 2,
+  "competitions": [
+   {
+    "date": "2026-09-18T00:15Z",
+    "status": {
+     "type": {
+      "id": "3",
+      "name": "STATUS_FINAL",
+      "state": "post",
+      "completed": true,
+      "description": "Final",
+      "detail": "Final",
+      "shortDetail": "Final"
+     },
+     "isTBDFlex": false
+    },
+    "broadcasts": [
+     {
+      "type": {
+       "id": "4",
+       "shortName": "Streaming"
+      },
+      "market": {
+       "id": "1",
+       "type": "National"
+      },
+      "media": {
+       "shortName": "Prime Video"
+      },
+      "lang": "en",
+      "region": "us",
+      "isNational": true
+     }
+    ],
+    "competitors": [
+     {
+      "homeAway": "home",
+      "score": "41",
+      "winner": true,
+      "linescores": [
+       {
+        "displayValue": "14"
+       },
+       {
+        "displayValue": "13"
+       },
+       {
+        "displayValue": "7"
+       },
+       {
+        "displayValue": "7"
+       }
+      ],
+      "team": {
+       "abbreviation": "BUF",
+       "displayName": "Buffalo Bills"
+      }
+     },
+     {
+      "homeAway": "away",
+      "score": "31",
+      "winner": false,
+      "linescores": [
+       {
+        "displayValue": "0"
+       },
+       {
+        "displayValue": "10"
+       },
+       {
+        "displayValue": "7"
+       },
+       {
+        "displayValue": "14"
+       }
+      ],
+      "team": {
+       "abbreviation": "DET",
+       "displayName": "Detroit Lions"
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "gameInfo": {
+  "venue": {
+   "fullName": "Highmark Stadium"
+  }
+ },
+ "boxscore": {
+  "teams": [
+   {
+    "team": {
+     "abbreviation": "DET",
+     "displayName": "Detroit Lions"
+    },
+    "statistics": [
+     {
+      "name": "firstDowns",
+      "displayValue": "24",
+      "value": 24.0,
+      "label": "1st Downs"
+     },
+     {
+      "name": "firstDownsPassing",
+      "displayValue": "19",
+      "value": 19.0,
+      "label": "Passing 1st downs"
+     },
+     {
+      "name": "firstDownsRushing",
+      "displayValue": "2",
+      "value": 2.0,
+      "label": "Rushing 1st downs"
+     },
+     {
+      "name": "firstDownsPenalty",
+      "displayValue": "3",
+      "value": 3.0,
+      "label": "1st downs from penalties"
+     },
+     {
+      "name": "thirdDownEff",
+      "displayValue": "4-11",
+      "value": 0.3636363636,
+      "label": "3rd down efficiency"
+     },
+     {
+      "name": "fourthDownEff",
+      "displayValue": "2-2",
+      "value": 1,
+      "label": "4th down efficiency"
+     },
+     {
+      "name": "totalOffensivePlays",
+      "displayValue": "62",
+      "value": 62.0,
+      "label": "Total Plays"
+     },
+     {
+      "name": "totalYards",
+      "displayValue": "355",
+      "value": "-",
+      "label": "Total Yards"
+     },
+     {
+      "name": "yardsPerPlay",
+      "displayValue": "5.7",
+      "value": 5.7258064516,
+      "label": "Yards per Play"
+     },
+     {
+      "name": "totalDrives",
+      "displayValue": "9",
+      "value": 9.0,
+      "label": "Total Drives"
+     },
+     {
+      "name": "netPassingYards",
+      "displayValue": "289",
+      "value": 289.0,
+      "label": "Passing"
+     },
+     {
+      "name": "completionAttempts",
+      "displayValue": "26/38",
+      "value": "-",
+      "label": "Comp/Att"
+     },
+     {
+      "name": "yardsPerPass",
+      "displayValue": "6.9",
+      "value": 6.880952380952381,
+      "label": "Yards per pass"
+     },
+     {
+      "name": "interceptions",
+      "displayValue": "0",
+      "value": 0.0,
+      "label": "Interceptions thrown"
+     },
+     {
+      "name": "sacksYardsLost",
+      "displayValue": "4-38",
+      "value": "-",
+      "label": "Sacks-Yards Lost"
+     },
+     {
+      "name": "rushingYards",
+      "displayValue": "66",
+      "value": 66.0,
+      "label": "Rushing"
+     },
+     {
+      "name": "rushingAttempts",
+      "displayValue": "20",
+      "value": 20.0,
+      "label": "Rushing Attempts"
+     },
+     {
+      "name": "yardsPerRushAttempt",
+      "displayValue": "3.3",
+      "value": 3.3,
+      "label": "Yards per rush"
+     },
+     {
+      "name": "redZoneAttempts",
+      "displayValue": "3-4",
+      "value": 0.75,
+      "label": "Red Zone (Made-Att)"
+     },
+     {
+      "name": "totalPenaltiesYards",
+      "displayValue": "10-58",
+      "value": "-",
+      "label": "Penalties"
+     },
+     {
+      "name": "turnovers",
+      "displayValue": "0",
+      "value": "-",
+      "label": "Turnovers"
+     },
+     {
+      "name": "fumblesLost",
+      "displayValue": "0",
+      "value": 0.0,
+      "label": "Fumbles lost"
+     },
+     {
+      "name": "interceptions",
+      "displayValue": "0",
+      "value": 0.0,
+      "label": "Interceptions thrown"
+     },
+     {
+      "name": "defensiveTouchdowns",
+      "displayValue": "0",
+      "value": 0.0,
+      "label": "Defensive / Special Teams TDs"
+     },
+     {
+      "name": "possessionTime",
+      "displayValue": "26:15",
+      "value": 1575,
+      "label": "Possession"
+     }
+    ]
+   },
+   {
+    "team": {
+     "abbreviation": "BUF",
+     "displayName": "Buffalo Bills"
+    },
+    "statistics": [
+     {
+      "name": "firstDowns",
+      "displayValue": "34",
+      "value": 34.0,
+      "label": "1st Downs"
+     },
+     {
+      "name": "firstDownsPassing",
+      "displayValue": "14",
+      "value": 14.0,
+      "label": "Passing 1st downs"
+     },
+     {
+      "name": "firstDownsRushing",
+      "displayValue": "15",
+      "value": 15.0,
+      "label": "Rushing 1st downs"
+     },
+     {
+      "name": "firstDownsPenalty",
+      "displayValue": "5",
+      "value": 5.0,
+      "label": "1st downs from penalties"
+     },
+     {
+      "name": "thirdDownEff",
+      "displayValue": "9-12",
+      "value": 0.75,
+      "label": "3rd down efficiency"
+     },
+     {
+      "name": "fourthDownEff",
+      "displayValue": "0-0",
+      "value": "-",
+      "label": "4th down efficiency"
+     },
+     {
+      "name": "totalOffensivePlays",
+      "displayValue": "69",
+      "value": 69.0,
+      "label": "Total Plays"
+     },
+     {
+      "name": "totalYards",
+      "displayValue": "446",
+      "value": "-",
+      "label": "Total Yards"
+     },
+     {
+      "name": "yardsPerPlay",
+      "displayValue": "6.5",
+      "value": 6.4637681159,
+      "label": "Yards per Play"
+     },
+     {
+      "name": "totalDrives",
+      "displayValue": "9",
+      "value": 9.0,
+      "label": "Total Drives"
+     },
+     {
+      "name": "netPassingYards",
+      "displayValue": "243",
+      "value": 243.0,
+      "label": "Passing"
+     },
+     {
+      "name": "completionAttempts",
+      "displayValue": "20/31",
+      "value": "-",
+      "label": "Comp/Att"
+     },
+     {
+      "name": "yardsPerPass",
+      "displayValue": "7.4",
+      "value": 7.363636363636363,
+      "label": "Yards per pass"
+     },
+     {
+      "name": "interceptions",
+      "displayValue": "0",
+      "value": 0.0,
+      "label": "Interceptions thrown"
+     },
+     {
+      "name": "sacksYardsLost",
+      "displayValue": "2-5",
+      "value": "-",
+      "label": "Sacks-Yards Lost"
+     },
+     {
+      "name": "rushingYards",
+      "displayValue": "203",
+      "value": 203.0,
+      "label": "Rushing"
+     },
+     {
+      "name": "rushingAttempts",
+      "displayValue": "36",
+      "value": 36.0,
+      "label": "Rushing Attempts"
+     },
+     {
+      "name": "yardsPerRushAttempt",
+      "displayValue": "5.6",
+      "value": 5.639,
+      "label": "Yards per rush"
+     },
+     {
+      "name": "redZoneAttempts",
+      "displayValue": "5-5",
+      "value": 1.0,
+      "label": "Red Zone (Made-Att)"
+     },
+     {
+      "name": "totalPenaltiesYards",
+      "displayValue": "5-46",
+      "value": "-",
+      "label": "Penalties"
+     },
+     {
+      "name": "turnovers",
+      "displayValue": "0",
+      "value": "-",
+      "label": "Turnovers"
+     },
+     {
+      "name": "fumblesLost",
+      "displayValue": "0",
+      "value": 0.0,
+      "label": "Fumbles lost"
+     },
+     {
+      "name": "interceptions",
+      "displayValue": "0",
+      "value": 0.0,
+      "label": "Interceptions thrown"
+     },
+     {
+      "name": "defensiveTouchdowns",
+      "displayValue": "0",
+      "value": 0.0,
+      "label": "Defensive / Special Teams TDs"
+     },
+     {
+      "name": "possessionTime",
+      "displayValue": "33:45",
+      "value": 2025,
+      "label": "Possession"
+     }
+    ]
+   }
+  ],
+  "players": [
+   {
+    "team": {
+     "abbreviation": "DET",
+     "displayName": "Detroit Lions"
+    },
+    "statistics": [
+     {
+      "name": "passing",
+      "keys": [
+       "completions/passingAttempts",
+       "passingYards",
+       "yardsPerPassAttempt",
+       "passingTouchdowns",
+       "interceptions",
+       "sacks-sackYardsLost",
+       "adjQBR",
+       "QBRating"
+      ],
+      "labels": [
+       "C/ATT",
+       "YDS",
+       "AVG",
+       "TD",
+       "INT",
+       "SACKS",
+       "QBR",
+       "RTG"
+      ],
+      "athletes": [
+       {
+        "athlete": {
+         "displayName": "Jared Goff"
+        },
+        "stats": [
+         "26/38",
+         "327",
+         "8.6",
+         "4",
+         "0",
+         "4-38",
+         "71.3",
+         "130.0"
+        ]
+       }
+      ]
+     },
+     {
+      "name": "kicking",
+      "keys": [
+       "fieldGoalsMade/fieldGoalAttempts",
+       "fieldGoalPct",
+       "longFieldGoalMade",
+       "extraPointsMade/extraPointAttempts",
+       "totalKickingPoints"
+      ],
+      "labels": [
+       "FG",
+       "PCT",
+       "LONG",
+       "XP",
+       "PTS"
+      ],
+      "athletes": [
+       {
+        "athlete": {
+         "displayName": "Jake Bates"
+        },
+        "stats": [
+         "1/1",
+         "100.0",
+         "31",
+         "4/4",
+         "7"
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "team": {
+     "abbreviation": "BUF",
+     "displayName": "Buffalo Bills"
+    },
+    "statistics": [
+     {
+      "name": "passing",
+      "keys": [
+       "completions/passingAttempts",
+       "passingYards",
+       "yardsPerPassAttempt",
+       "passingTouchdowns",
+       "interceptions",
+       "sacks-sackYardsLost",
+       "adjQBR",
+       "QBRating"
+      ],
+      "labels": [
+       "C/ATT",
+       "YDS",
+       "AVG",
+       "TD",
+       "INT",
+       "SACKS",
+       "QBR",
+       "RTG"
+      ],
+      "athletes": [
+       {
+        "athlete": {
+         "displayName": "Josh Allen"
+        },
+        "stats": [
+         "20/31",
+         "248",
+         "8.0",
+         "3",
+         "0",
+         "2-5",
+         "91.2",
+         "121.4"
+        ]
+       }
+      ]
+     },
+     {
+      "name": "kicking",
+      "keys": [
+       "fieldGoalsMade/fieldGoalAttempts",
+       "fieldGoalPct",
+       "longFieldGoalMade",
+       "extraPointsMade/extraPointAttempts",
+       "totalKickingPoints"
+      ],
+      "labels": [
+       "FG",
+       "PCT",
+       "LONG",
+       "XP",
+       "PTS"
+      ],
+      "athletes": [
+       {
+        "athlete": {
+         "displayName": "Tyler Bass"
+        },
+        "stats": [
+         "0/0",
+         "0.0",
+         "0",
+         "5/6",
+         "5"
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "leaders": [
+  {
+   "team": {
+    "displayName": "Buffalo Bills",
+    "abbreviation": "BUF"
+   },
+   "leaders": [
+    {
+     "name": "passingYards",
+     "displayName": "Passing Yards",
+     "leaders": [
+      {
+       "displayValue": "20/31, 248 YDS, 3 TD",
+       "athlete": {
+        "displayName": "Josh Allen",
+        "position": {
+         "name": "Quarterback",
+         "displayName": "Quarterback",
+         "abbreviation": "QB"
+        }
+       }
+      }
+     ]
+    },
+    {
+     "name": "rushingYards",
+     "displayName": "Rushing Yards",
+     "leaders": [
+      {
+       "displayValue": "21 CAR, 135 YDS, 1 TD",
+       "athlete": {
+        "displayName": "James Cook III",
+        "position": {
+         "name": "Running Back",
+         "displayName": "Running Back",
+         "abbreviation": "RB"
+        }
+       }
+      }
+     ]
+    },
+    {
+     "name": "receivingYards",
+     "displayName": "Receiving Yards",
+     "leaders": [
+      {
+       "displayValue": "7 REC, 95 YDS, 1 TD",
+       "athlete": {
+        "displayName": "Dalton Kincaid",
+        "position": {
+         "name": "Tight End",
+         "displayName": "Tight End",
+         "abbreviation": "TE"
+        }
+       }
+      }
+     ]
+    },
+    {
+     "name": "sacks",
+     "displayName": "Sacks",
+     "leaders": [
+      {
+       "displayValue": "2",
+       "athlete": {
+        "displayName": "Greg Rousseau",
+        "position": {
+         "name": "Linebacker",
+         "displayName": "Linebacker",
+         "abbreviation": "LB"
+        }
+       }
+      }
+     ]
+    },
+    {
+     "name": "totalTackles",
+     "displayName": "Tackles",
+     "leaders": [
+      {
+       "displayValue": "8",
+       "athlete": {
+        "displayName": "Christian Benford",
+        "position": {
+         "name": "Cornerback",
+         "displayName": "Cornerback",
+         "abbreviation": "CB"
+        }
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "team": {
+    "displayName": "Detroit Lions",
+    "abbreviation": "DET"
+   },
+   "leaders": [
+    {
+     "name": "passingYards",
+     "displayName": "Passing Yards",
+     "leaders": [
+      {
+       "displayValue": "26/38, 327 YDS, 4 TD",
+       "athlete": {
+        "displayName": "Jared Goff",
+        "position": {
+         "name": "Quarterback",
+         "displayName": "Quarterback",
+         "abbreviation": "QB"
+        }
+       }
+      }
+     ]
+    },
+    {
+     "name": "rushingYards",
+     "displayName": "Rushing Yards",
+     "leaders": [
+      {
+       "displayValue": "16 CAR, 52 YDS",
+       "athlete": {
+        "displayName": "Jahmyr Gibbs",
+        "position": {
+         "name": "Running Back",
+         "displayName": "Running Back",
+         "abbreviation": "RB"
+        }
+       }
+      }
+     ]
+    },
+    {
+     "name": "receivingYards",
+     "displayName": "Receiving Yards",
+     "leaders": [
+      {
+       "displayValue": "9 REC, 142 YDS, 2 TD",
+       "athlete": {
+        "displayName": "Amon-Ra St. Brown",
+        "position": {
+         "name": "Wide Receiver",
+         "displayName": "Wide Receiver",
+         "abbreviation": "WR"
+        }
+       }
+      }
+     ]
+    },
+    {
+     "name": "sacks",
+     "displayName": "Sacks",
+     "leaders": [
+      {
+       "displayValue": "1",
+       "athlete": {
+        "displayName": "Derrick Barnes",
+        "position": {
+         "name": "Linebacker",
+         "displayName": "Linebacker",
+         "abbreviation": "LB"
+        }
+       }
+      }
+     ]
+    },
+    {
+     "name": "totalTackles",
+     "displayName": "Tackles",
+     "leaders": [
+      {
+       "displayValue": "11",
+       "athlete": {
+        "displayName": "Chuck Clark",
+        "position": {
+         "name": "Safety",
+         "displayName": "Safety",
+         "abbreviation": "S"
+        }
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "scoringPlays": [
+  {
+   "type": {
+    "id": "68",
+    "text": "Rushing Touchdown",
+    "abbreviation": "TD"
+   },
+   "text": "Josh Allen 1 Yd Rush (Tyler Bass Kick)",
+   "awayScore": 0,
+   "homeScore": 7,
+   "period": {
+    "number": 1
+   },
+   "clock": {
+    "value": 549.0,
+    "displayValue": "9:09"
+   },
+   "team": {
+    "abbreviation": "BUF",
+    "displayName": "Buffalo Bills"
+   },
+   "scoringType": {
+    "name": "touchdown",
+    "displayName": "Touchdown",
+    "abbreviation": "TD"
+   }
+  },
+  {
+   "type": {
+    "id": "67",
+    "text": "Passing Touchdown",
+    "abbreviation": "TD"
+   },
+   "text": "Joshua Palmer 43 Yd pass from Josh Allen (Tyler Bass Kick)",
+   "awayScore": 0,
+   "homeScore": 14,
+   "period": {
+    "number": 1
+   },
+   "clock": {
+    "value": 222.0,
+    "displayValue": "3:42"
+   },
+   "team": {
+    "abbreviation": "BUF",
+    "displayName": "Buffalo Bills"
+   },
+   "scoringType": {
+    "name": "touchdown",
+    "displayName": "Touchdown",
+    "abbreviation": "TD"
+   }
+  },
+  {
+   "type": {
+    "id": "67",
+    "text": "Passing Touchdown",
+    "abbreviation": "TD"
+   },
+   "text": "Dawson Knox 1 Yd pass from Josh Allen (Tyler Bass Kick)",
+   "awayScore": 0,
+   "homeScore": 21,
+   "period": {
+    "number": 2
+   },
+   "clock": {
+    "value": 708.0,
+    "displayValue": "11:48"
+   },
+   "team": {
+    "abbreviation": "BUF",
+    "displayName": "Buffalo Bills"
+   },
+   "scoringType": {
+    "name": "touchdown",
+    "displayName": "Touchdown",
+    "abbreviation": "TD"
+   }
+  },
+  {
+   "type": {
+    "id": "67",
+    "text": "Passing Touchdown",
+    "abbreviation": "TD"
+   },
+   "text": "Jahmyr Gibbs 11 Yd pass from Jared Goff (Jake Bates Kick)",
+   "awayScore": 7,
+   "homeScore": 21,
+   "period": {
+    "number": 2
+   },
+   "clock": {
+    "value": 303.0,
+    "displayValue": "5:03"
+   },
+   "team": {
+    "abbreviation": "DET",
+    "displayName": "Detroit Lions"
+   },
+   "scoringType": {
+    "name": "touchdown",
+    "displayName": "Touchdown",
+    "abbreviation": "TD"
+   }
+  },
+  {
+   "type": {
+    "id": "67",
+    "text": "Passing Touchdown",
+    "abbreviation": "TD"
+   },
+   "text": "Dalton Kincaid 16 Yd pass from Josh Allen (Tyler Bass PAT Failed)",
+   "awayScore": 7,
+   "homeScore": 27,
+   "period": {
+    "number": 2
+   },
+   "clock": {
+    "value": 172.0,
+    "displayValue": "2:52"
+   },
+   "team": {
+    "abbreviation": "BUF",
+    "displayName": "Buffalo Bills"
+   },
+   "scoringType": {
+    "name": "touchdown",
+    "displayName": "Touchdown",
+    "abbreviation": "TD"
+   }
+  },
+  {
+   "type": {
+    "id": "59",
+    "text": "Field Goal Good",
+    "abbreviation": "FG"
+   },
+   "text": "Jake Bates 31 Yd Field Goal",
+   "awayScore": 10,
+   "homeScore": 27,
+   "period": {
+    "number": 2
+   },
+   "clock": {
+    "value": 0.0,
+    "displayValue": "0:00"
+   },
+   "team": {
+    "abbreviation": "DET",
+    "displayName": "Detroit Lions"
+   },
+   "scoringType": {
+    "name": "field-goal",
+    "displayName": "Field Goal",
+    "abbreviation": "FG"
+   }
+  },
+  {
+   "type": {
+    "id": "67",
+    "text": "Passing Touchdown",
+    "abbreviation": "TD"
+   },
+   "text": "Amon-Ra St. Brown 2 Yd pass from Jared Goff (Jake Bates Kick)",
+   "awayScore": 17,
+   "homeScore": 27,
+   "period": {
+    "number": 3
+   },
+   "clock": {
+    "value": 569.0,
+    "displayValue": "9:29"
+   },
+   "team": {
+    "abbreviation": "DET",
+    "displayName": "Detroit Lions"
+   },
+   "scoringType": {
+    "name": "touchdown",
+    "displayName": "Touchdown",
+    "abbreviation": "TD"
+   }
+  },
+  {
+   "type": {
+    "id": "68",
+    "text": "Rushing Touchdown",
+    "abbreviation": "TD"
+   },
+   "text": "Josh Allen 2 Yd Rush (Tyler Bass Kick)",
+   "awayScore": 17,
+   "homeScore": 34,
+   "period": {
+    "number": 3
+   },
+   "clock": {
+    "value": 67.0,
+    "displayValue": "1:07"
+   },
+   "team": {
+    "abbreviation": "BUF",
+    "displayName": "Buffalo Bills"
+   },
+   "scoringType": {
+    "name": "touchdown",
+    "displayName": "Touchdown",
+    "abbreviation": "TD"
+   }
+  },
+  {
+   "type": {
+    "id": "67",
+    "text": "Passing Touchdown",
+    "abbreviation": "TD"
+   },
+   "text": "Sam LaPorta 1 Yd pass from Jared Goff (Jake Bates Kick)",
+   "awayScore": 24,
+   "homeScore": 34,
+   "period": {
+    "number": 4
+   },
+   "clock": {
+    "value": 653.0,
+    "displayValue": "10:53"
+   },
+   "team": {
+    "abbreviation": "DET",
+    "displayName": "Detroit Lions"
+   },
+   "scoringType": {
+    "name": "touchdown",
+    "displayName": "Touchdown",
+    "abbreviation": "TD"
+   }
+  },
+  {
+   "type": {
+    "id": "68",
+    "text": "Rushing Touchdown",
+    "abbreviation": "TD"
+   },
+   "text": "James Cook III 1 Yd Rush (Tyler Bass Kick)",
+   "awayScore": 24,
+   "homeScore": 41,
+   "period": {
+    "number": 4
+   },
+   "clock": {
+    "value": 170.0,
+    "displayValue": "2:50"
+   },
+   "team": {
+    "abbreviation": "BUF",
+    "displayName": "Buffalo Bills"
+   },
+   "scoringType": {
+    "name": "touchdown",
+    "displayName": "Touchdown",
+    "abbreviation": "TD"
+   }
+  },
+  {
+   "type": {
+    "id": "67",
+    "text": "Passing Touchdown",
+    "abbreviation": "TD"
+   },
+   "text": "Amon-Ra St. Brown 27 Yd pass from Jared Goff (Jake Bates Kick)",
+   "awayScore": 31,
+   "homeScore": 41,
+   "period": {
+    "number": 4
+   },
+   "clock": {
+    "value": 102.0,
+    "displayValue": "1:42"
+   },
+   "team": {
+    "abbreviation": "DET",
+    "displayName": "Detroit Lions"
+   },
+   "scoringType": {
+    "name": "touchdown",
+    "displayName": "Touchdown",
+    "abbreviation": "TD"
+   }
+  }
+ ]
+}

@@ -60,6 +60,8 @@ def _run(coro):
 _LEAGUE_ROOT_2026 = {"season": {"year": 2026, "type": {"id": "1", "name": "Preseason"}}}
 
 _SUPER_BOWL_FIXTURE = Path(__file__).parent / "fixtures" / "espn_postseason_super_bowl.json"
+_SCOREBOARD_FIXTURE = Path(__file__).parent / "fixtures" / "espn_scoreboard.json"
+_LIVE_GAME_FIXTURE = Path(__file__).parent / "fixtures" / "espn_live_game.json"
 
 
 def _super_bowl(season: int = 2025) -> dict:
@@ -154,8 +156,10 @@ def _conference_championships() -> dict:
     }
 
 
-def _calendar_patch(league: object = _LEAGUE_ROOT_2026, postseason: object = None):
-    """Patch the TWO ESPN hops :func:`qa_open._calendar_facts` makes.
+def _calendar_patch(
+    league: object = _LEAGUE_ROOT_2026, postseason: object = None, scoreboard: object = None
+):
+    """Patch the THREE ESPN hops :func:`qa_open._calendar_facts` makes.
 
     Every ``answer_open`` test needs this: the date preamble is built BEFORE the first
     model round, so an unstubbed test would open a live ESPN socket (and a real Redis one)
@@ -168,8 +172,14 @@ def _calendar_patch(league: object = _LEAGUE_ROOT_2026, postseason: object = Non
     async def _fake_postseason(season, week):
         return postseason(season, week) if callable(postseason) else postseason
 
+    async def _fake_scoreboard():
+        return scoreboard
+
     return mock.patch.multiple(
-        espn_extra, fetch_league=_fake_league, fetch_postseason_scoreboard=_fake_postseason
+        espn_extra,
+        fetch_league=_fake_league,
+        fetch_postseason_scoreboard=_fake_postseason,
+        fetch_scoreboard=_fake_scoreboard,
     )
 
 
@@ -636,7 +646,9 @@ class OpenRoutingTests(unittest.TestCase):
         phrase_calls: list[dict] = []
         fact_calls: list[dict] = []
 
-        async def _fake_open(question, *, voice, history=(), conversation_key=None):
+        async def _fake_open(
+            question, *, voice, history=(), conversation_key=None, discord_id=None
+        ):
             open_calls.append({"question": question, "voice": voice, "history": list(history)})
             return answer
 
@@ -676,7 +688,9 @@ class OpenRoutingTests(unittest.TestCase):
         self.assertEqual(open_calls[0]["voice"], _VOICE)
 
     def test_open_nfl_degrades_to_a_concrete_line_when_answer_open_returns_none(self) -> None:
-        async def _fake_open(question, *, voice, history=(), conversation_key=None):
+        async def _fake_open(
+            question, *, voice, history=(), conversation_key=None, discord_id=None
+        ):
             return None
 
         async def _fake_classify(question, *, history=()):
@@ -701,7 +715,9 @@ class OpenRoutingTests(unittest.TestCase):
         seen: list[list] = []
         keys: list[object] = []
 
-        async def _fake_open(question, *, voice, history=(), conversation_key=None):
+        async def _fake_open(
+            question, *, voice, history=(), conversation_key=None, discord_id=None
+        ):
             seen.append(list(history))
             keys.append(conversation_key)
             return "sure"
@@ -729,6 +745,33 @@ class OpenRoutingTests(unittest.TestCase):
             )
         self.assertEqual(seen, [history])
         self.assertEqual(keys, ["chan-1"])
+
+    def test_answer_question_forwards_the_asker_discord_id_to_answer_open(self) -> None:
+        seen: list = []
+
+        async def _fake_open(
+            question, *, voice, history=(), conversation_key=None, discord_id=None
+        ):
+            seen.append(discord_id)
+            return "ok"
+
+        async def _fake_classify(question, *, history=()):
+            return {"intent": "open_nfl", "nfl": True}
+
+        async def _fake_tokens():
+            return {"KC"}
+
+        async def _fake_voice():
+            return _VOICE
+
+        with (
+            mock.patch.object(qa, "classify_question", _fake_classify),
+            mock.patch.object(db_bridge, "get_real_team_tokens_async", _fake_tokens),
+            mock.patch.object(db_bridge, "resolve_active_voice_async", _fake_voice),
+            mock.patch.object(qa.qa_open, "answer_open", _fake_open),
+        ):
+            _run(qa.answer_question("are my picks in?", discord_id=4242))
+        self.assertEqual(seen, [4242])
 
 
 # --------------------------------------------------------------------------- #
@@ -817,6 +860,14 @@ class ShippedRegistryTests(_OpenPathTestCase):
                 "lookup_points_scored",
                 "lookup_team_season_stats",
                 "search_nfl_news",
+                "lookup_live_game",
+                "lookup_week_scoreboard",
+                "lookup_my_pick_status",
+                "lookup_league_picks",
+                "lookup_pick_completion",
+                "lookup_standings",
+                "lookup_lines",
+                "lookup_scores",
             ],
         )
         params = qa_open.TOOLS[0].spec["function"]["parameters"]
@@ -1083,9 +1134,11 @@ class ShippedRegistryTests(_OpenPathTestCase):
         # 25,346 on 2026-09-15 when the game tool's description gained the team totals
         # (issue #220). The pin is raised ONCE per change, to the measured total rounded
         # up to the next hundred, so raising it stays a decision rather than a rubber
-        # stamp, and no one new spec may exceed 1,700 bytes on its own.
+        # stamp, and no one new spec may exceed 1,700 bytes on its own. 27,726 on
+        # 2026-09-18 with the live game and the week scoreboard tools (fifteen tools);
+        # 32,251 the same day with the six app-data tools (twenty-one tools).
         total = sum(len(json.dumps(tool.spec)) for tool in qa_open.TOOLS)
-        self.assertLess(total, 25400, f"the shipped tool specs now total {total} bytes")
+        self.assertLess(total, 32300, f"the shipped tool specs now total {total} bytes")
         for tool in qa_open.TOOLS[5:]:
             with self.subTest(tool=tool.name):
                 self.assertLess(len(json.dumps(tool.spec)), 1700)
@@ -1163,6 +1216,20 @@ class ShippedRegistryTests(_OpenPathTestCase):
             "Search ESPN's recent NFL news stories for a short phrase, such as a player's "
             "name, a team and a topic, or a trade or an injury the member heard about",
         )
+        self.assertEqual(
+            openers["lookup_live_game"],
+            "Look up the game one NFL team is playing this week, live: whether it has not "
+            "started, is in progress or is final, the quarter and clock, the score right "
+            "now, each team's box-score totals so far such as total yards, each team's "
+            "leaders, each kicker's field goals and extra points made, attempted and "
+            "missed, every scoring play so far, and the TV or streaming network it is on",
+        )
+        self.assertEqual(
+            openers["lookup_week_scoreboard"],
+            "Look up every NFL game on this week's scoreboard: each matchup, its kick-off "
+            "date and time, the TV or streaming network it is on, its status, and its "
+            "score once it has started",
+        )
         for name in ("lookup_team_roster", "lookup_player_season_stats"):
             with self.subTest(tool=name):
                 description = next(t for t in qa_open.TOOLS if t.name == name).spec["function"][
@@ -1180,22 +1247,31 @@ class ShippedRegistryTests(_OpenPathTestCase):
             description,
         )
 
-    def test_the_open_path_still_makes_no_database_read(self) -> None:
-        # D-1 / T-s5y-04: no db_bridge at module level, and the new adapter introduces
-        # none at call level either — the reason the open path cannot read anyone's picks.
-        # Asserted over the AST, not a source grep: the module DOCSTRING says the words
-        # "db_bridge call" precisely to record this property, so a grep matches itself.
+    def test_the_open_path_reads_the_database_only_through_db_bridge(self) -> None:
+        # 2026-09-18: the app-data tools read the database, and the ONE way they may
+        # is a deferred ``from app.bot import db_bridge`` inside an adapter. No ORM,
+        # session or reader module is ever imported here, so the pick gate in
+        # notifications_read.get_league_picks cannot be bypassed from this module.
+        # Asserted over the AST, not a source grep, so a docstring cannot match itself.
         self.assertFalse(hasattr(qa_open, "db_bridge"))
         tree = ast.parse(inspect.getsource(qa_open))
         imported: set[str] = set()
-        for node in ast.walk(tree):  # ast.walk descends into function bodies too, so a
-            if isinstance(node, ast.Import):  # DEFERRED import is caught as well.
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
                 imported.update(alias.name for alias in node.names)
             elif isinstance(node, ast.ImportFrom):
                 imported.update(f"{node.module}.{alias.name}" for alias in node.names)
-        self.assertFalse([name for name in imported if name.endswith("db_bridge")])
-        used = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
-        self.assertNotIn("db_bridge", used)
+        for forbidden in (
+            "app.db",
+            "app.models",
+            "sqlmodel",
+            "sqlalchemy",
+            "notifications_read",
+            "standings",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertFalse([name for name in imported if forbidden in name])
+        self.assertIn("app.bot.db_bridge", imported)
 
     def test_no_shipped_spec_may_declare_a_request_target_parameter(self) -> None:
         # The model selects a tool BY NAME and NEVER builds a URL (T-lw6-02), and never
@@ -3193,6 +3269,27 @@ class _FrozenClock:
         return cls.frozen
 
 
+class CurrentWeekStatementTests(unittest.TestCase):
+    def test_the_preamble_names_the_current_week_and_last_week(self) -> None:
+        scoreboard = json.loads(_SCOREBOARD_FIXTURE.read_text())
+        with _calendar_patch(scoreboard=scoreboard):
+            facts = _run(qa_open._calendar_facts())
+        self.assertIn("The NFL is in week 2 of its regular season right now", facts)
+        self.assertIn("last week means week 1", facts)
+
+    def test_no_scoreboard_or_a_preseason_one_adds_nothing(self) -> None:
+        with _calendar_patch():
+            self.assertNotIn("The NFL is in week", _run(qa_open._calendar_facts()))
+        preseason = json.loads(_SCOREBOARD_FIXTURE.read_text())
+        preseason["season"]["type"] = 1
+        with _calendar_patch(scoreboard=preseason):
+            self.assertNotIn("The NFL is in week", _run(qa_open._calendar_facts()))
+        first = json.loads(_SCOREBOARD_FIXTURE.read_text())
+        first["week"]["number"] = 1
+        with _calendar_patch(scoreboard=first):
+            self.assertIn("there is no last week yet this season", _run(qa_open._calendar_facts()))
+
+
 class OpenCalendarTests(unittest.TestCase):
     """The date preamble — the fix for the live 2026-08-21 grounding defect.
 
@@ -4187,10 +4284,11 @@ class PointsScoredToolTests(_OpenPathTestCase):
         self.assertIn(qa_open.OPEN_FOLLOW_UP_CLAUSE, qa_open.OPEN_ROLE)
         self.assertIn("already in this conversation is yours to answer from", qa_open.OPEN_ROLE)
         self.assertIn("call the tool for it and answer from what it returns", qa_open.OPEN_ROLE)
+        self.assertIn("The ESPN tools read ESPN's live data", qa_open.OPEN_ROLE)
         self.assertIn(
-            "Nothing a tool returns is a figure from the app's database", qa_open.OPEN_ROLE
+            "never decline such a question as one some other part of the bot answers",
+            qa_open.OPEN_ROLE,
         )
-        self.assertIn("never decline such a question as one the app answers", qa_open.OPEN_ROLE)
         self.assertNotIn("tool", qa_open.OPEN_GUARD)
 
     def test_the_group_enum_is_derived_from_the_seam(self) -> None:
@@ -4348,6 +4446,644 @@ class NewsSearchToolTests(_OpenPathTestCase):
         self.assertEqual(list(params["properties"]), ["phrase"])
         self.assertEqual(params["required"], ["phrase"])
         self.assertIn("never the member's whole question", spec["function"]["description"])
+
+
+def _in_progress(summary: dict, *, clock: str = "4:32", period: int = 3) -> dict:
+    """The final DET at BUF summary relabelled as a game in its third quarter.
+
+    No in-progress payload was captured (there was no game on 2026-09-18), so this is the
+    final payload with the status block ESPN's scoreboard uses for a live game. The live
+    status shape is verified on the scoreboard fixture; the summary's is assumed to match.
+    """
+    live = json.loads(json.dumps(summary))
+    competition = live["header"]["competitions"][0]
+    competition["status"] = {
+        "displayClock": clock,
+        "period": period,
+        "type": {
+            "id": "2",
+            "name": "STATUS_IN_PROGRESS",
+            "state": "in",
+            "completed": False,
+            "description": "In Progress",
+            "detail": f"{clock} - 3rd Quarter",
+            "shortDetail": f"{clock} - 3rd",
+        },
+    }
+    for competitor in competition["competitors"]:
+        competitor.pop("winner", None)
+    competition["competitors"][0]["score"] = "27"
+    competition["competitors"][1]["score"] = "24"
+    return live
+
+
+class LiveGameToolTests(_OpenPathTestCase):
+    """The SHIPPED live game tool (2026-09-18): the game one team plays THIS week, in
+    any status, with the box score once it has started."""
+
+    def _scoreboard(self) -> dict:
+        return json.loads(_SCOREBOARD_FIXTURE.read_text())
+
+    def _summary(self) -> dict:
+        return json.loads(_LIVE_GAME_FIXTURE.read_text())
+
+    def _espn(self, scoreboard: object, summary: object, fetched: list | None = None):
+        async def _fake_scoreboard():
+            return scoreboard
+
+        async def _fake_summary(event_id):
+            if fetched is not None:
+                fetched.append(event_id)
+            return summary
+
+        return mock.patch.multiple(
+            espn_extra, fetch_scoreboard=_fake_scoreboard, fetch_live_game_summary=_fake_summary
+        )
+
+    def test_a_live_round_feeds_back_the_score_the_totals_the_kicks_and_the_plays(
+        self,
+    ) -> None:
+        fetched: list = []
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_live_game", '{"team": "buf"}'),
+            _text("Bills up 27-24 in the third. Bass has missed an extra point."),
+        )
+        with self._espn(self._scoreboard(), _in_progress(self._summary()), fetched), patcher:
+            out = _run(
+                qa_open.answer_open("how many yards do the bills have right now?", voice=_VOICE)
+            )
+
+        self.assertEqual(out, "Bills up 27-24 in the third. Bass has missed an extra point.")
+        # The event id comes from the scoreboard, never from the model.
+        self.assertEqual(fetched, ["401872932"])
+        body = json.loads(_tool_messages(calls[1]["messages"])[0]["content"])
+        self.assertEqual(body["status"], "in progress")
+        self.assertEqual(body["score"], "DET 24, BUF 27")
+        self.assertEqual(body["clock"], "4:32 - 3rd")
+        self.assertEqual(body["broadcasts"], ["Prime Video"])
+        self.assertEqual(body["team_totals"]["Buffalo Bills"]["total yards"], "446")
+        self.assertEqual(body["kicking"]["Buffalo Bills"][0]["player"], "Tyler Bass")
+        self.assertEqual(body["kicking"]["Buffalo Bills"][0]["missed extra points"], 1)
+        self.assertEqual(body["kicking"]["Buffalo Bills"][0]["missed field goals"], 0)
+        self.assertEqual(body["scoring_plays"][0]["score after"], "DET 0, BUF 7")
+        self.assertIn("is being played right now", body["game_statement"])
+        self.assertIn("score right now is DET 24, BUF 27", body["game_statement"])
+        self.assertIn(espn_extra.GAME_TEAM_TOTALS_STATEMENT, body["game_statement"])
+        self.assertEqual(body["caveat"], espn_extra.LIVE_GAME_CAVEAT)
+        # The tool is one of the specs sent on the first round, by its exact name.
+        self.assertIn("lookup_live_game", [t["function"]["name"] for t in calls[0]["tools"]])
+        # No event id reaches the model.
+        self.assertNotIn("event_id", _all_keys(body))
+
+    def test_a_final_game_states_the_final_score_and_the_winner(self) -> None:
+        with self._espn(self._scoreboard(), self._summary()):
+            body = _run(qa_open._lookup_live_game(team="DET"))
+        assert isinstance(body, dict)
+        self.assertEqual(body["status"], "final")
+        self.assertEqual(body["score"], "DET 31, BUF 41")
+        self.assertIn("is final. The final score was DET 31, BUF 41.", body["game_statement"])
+        self.assertIn("The Buffalo Bills won that game.", body["game_statement"])
+        self.assertEqual(len(body["scoring_plays"]), 11)
+
+    def test_a_pre_game_returns_the_kickoff_and_the_network_without_a_second_hop(self) -> None:
+        fetched: list = []
+        with self._espn(self._scoreboard(), self._summary(), fetched):
+            body = _run(qa_open._lookup_live_game(team="ATL"))
+        assert isinstance(body, dict)
+        self.assertEqual(fetched, [])
+        self.assertEqual(body["status"], "not started")
+        self.assertEqual(body["broadcasts"], ["FOX"])
+        self.assertEqual(body["kickoff"], "2026-09-20T17:00Z")
+        self.assertIn("has not kicked off yet", body["game_statement"])
+        self.assertIn("it is on FOX", body["game_statement"])
+        self.assertIn("never describe how it is going", body["game_statement"])
+        self.assertNotIn("score", body)
+
+    def test_every_miss_is_a_note_never_none(self) -> None:
+        self.assertEqual(
+            _run(qa_open._lookup_live_game()), {"note": qa_open._NO_TEAM_FOR_LIVE_GAME_NOTE}
+        )
+        with self._espn(None, None):
+            self.assertEqual(
+                _run(qa_open._lookup_live_game(team="BUF")),
+                {"note": qa_open._SCOREBOARD_FAILED_NOTE},
+            )
+        with self._espn(self._scoreboard(), None):
+            out = _run(qa_open._lookup_live_game(team="KC"))
+            self.assertEqual(
+                out, {"note": qa_open._NO_GAME_THIS_WEEK_NOTE.format(team="KC", week=2)}
+            )
+            # A started game whose summary fails keeps the scoreboard's score.
+            out = _run(qa_open._lookup_live_game(team="BUF"))
+        assert isinstance(out, dict)
+        self.assertEqual(out["score"], "DET 31, BUF 41")
+        self.assertIn("could not be read just now", out["note"])
+        self.assertIn("never invent a statistic", out["note"])
+
+    def test_the_spec_takes_only_a_team(self) -> None:
+        spec = next(t for t in qa_open.TOOLS if t.name == "lookup_live_game").spec
+        params = spec["function"]["parameters"]
+        self.assertEqual(list(params["properties"]), ["team"])
+        self.assertEqual(params["required"], ["team"])
+        description = spec["function"]["description"]
+        # Call-then-constrain: the instruction half names the live questions.
+        self.assertIn(
+            "Call this tool every time the member asks about a game being played", description
+        )
+        self.assertIn("what channel the game is on", description)
+        self.assertIn("lookup_game_leaders is the tool and this one is not", description)
+
+    def test_the_game_leaders_tool_hands_a_live_game_to_this_tool(self) -> None:
+        schedule = json.loads(_SCHEDULE_FIXTURE.read_text())
+        # The synthetic week-19 event becomes a game in progress.
+        for event in schedule["events"]:
+            if event["week"]["number"] == 19:
+                event["competitions"][0]["status"]["type"]["state"] = "in"
+
+        async def _fake_schedule(team_abbr, *, season=None):
+            return schedule
+
+        fetched: list = []
+
+        async def _fake_summary(event_id):
+            fetched.append(event_id)
+            return json.loads(_GAME_LEADERS_FIXTURE.read_text())
+
+        with (
+            mock.patch.object(espn_extra, "fetch_team_schedule", _fake_schedule),
+            mock.patch.object(espn_extra, "fetch_game_summary", _fake_summary),
+        ):
+            default = _run(qa_open._lookup_game_leaders(team="KC"))
+            asked = _run(qa_open._lookup_game_leaders(team="KC", week=19))
+            self.assertEqual(fetched, [])  # a live game never reaches the summary hop
+            earlier = _run(qa_open._lookup_game_leaders(team="KC", week=18))
+        assert isinstance(default, dict) and isinstance(asked, dict) and isinstance(earlier, dict)
+        for body in (default, asked):
+            self.assertIn("is being played right now", body["note"])
+            self.assertIn("Call lookup_live_game with the team argument KC", body["note"])
+        # An earlier, finished week is still answered by the schedule as before.
+        self.assertNotIn("note", earlier)
+        self.assertIn("game_statement", earlier)
+
+
+class WeekScoreboardToolTests(_OpenPathTestCase):
+    def _scoreboard_returns(self, payload: object):
+        async def _fake():
+            return payload
+
+        return mock.patch.object(espn_extra, "fetch_scoreboard", _fake)
+
+    def test_a_scoreboard_round_feeds_back_every_game_with_its_network(self) -> None:
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_week_scoreboard", "{}"),
+            _text("Panthers at Falcons is on FOX at 1 ET Sunday."),
+        )
+        with self._scoreboard_returns(json.loads(_SCOREBOARD_FIXTURE.read_text())), patcher:
+            out = _run(qa_open.answer_open("where can I watch the falcons?", voice=_VOICE))
+        self.assertEqual(out, "Panthers at Falcons is on FOX at 1 ET Sunday.")
+        body = json.loads(_tool_messages(calls[1]["messages"])[0]["content"])
+        self.assertEqual(body["week"], 2)
+        self.assertEqual(body["season"], 2026)
+        self.assertEqual(len(body["games"]), 4)
+        final, upcoming = body["games"][0], body["games"][1]
+        self.assertEqual(final["network"], "Prime Video")
+        self.assertEqual(final["score"], "DET 31, BUF 41")
+        self.assertEqual(final["state"], "post")
+        self.assertEqual(upcoming["network"], "FOX")
+        self.assertEqual(upcoming["state"], "pre")
+        self.assertNotIn("score", upcoming)
+        self.assertIn(
+            "lists 4 games in week 2 of the 2026 NFL season", body["scoreboard_statement"]
+        )
+        self.assertEqual(body["caveat"], espn_extra.SCOREBOARD_CAVEAT)
+        self.assertNotIn("event_id", _all_keys(body))
+
+    def test_every_miss_is_a_note_never_none(self) -> None:
+        with self._scoreboard_returns(None):
+            self.assertEqual(
+                _run(qa_open._lookup_week_scoreboard()), {"note": qa_open._SCOREBOARD_FAILED_NOTE}
+            )
+        with self._scoreboard_returns({"events": []}):
+            self.assertEqual(
+                _run(qa_open._lookup_week_scoreboard()), {"note": qa_open._EMPTY_SCOREBOARD_NOTE}
+            )
+
+    def test_the_spec_takes_no_arguments(self) -> None:
+        spec = next(t for t in qa_open.TOOLS if t.name == "lookup_week_scoreboard").spec
+        self.assertEqual(spec["function"]["parameters"]["properties"], {})
+        self.assertIn("where or on what channel to watch a game", spec["function"]["description"])
+
+
+class LoosenedScopeTests(unittest.TestCase):
+    """2026-09-18: the scope clause invites an off-topic answer instead of a refusal."""
+
+    def test_the_scope_clause_steers_back_instead_of_refusing(self) -> None:
+        self.assertIn("you are not limited to them", qa_open.OPEN_SCOPE_CLAUSE)
+        self.assertIn("answer it briefly and helpfully in your voice", qa_open.OPEN_SCOPE_CLAUSE)
+        # Unconditional: a tie-back the model may choose to skip is one it skips
+        # (measured 0/2 with "where it fits" on 2026-09-18).
+        self.assertIn(
+            "end with one short line that steers the chat back to football",
+            qa_open.OPEN_SCOPE_CLAUSE,
+        )
+        self.assertNotIn("where it fits", qa_open.OPEN_SCOPE_CLAUSE)
+        # No seeded phrase: a phrase in the prompt is parroted verbatim every time
+        # (memory: llm-prompt-dont-seed-catchphrases; measured 8/8 identical closers).
+        self.assertIn("in fresh wording each time", qa_open.OPEN_SCOPE_CLAUSE)
+        self.assertIn("Never refuse a question only because", qa_open.OPEN_SCOPE_CLAUSE)
+        self.assertNotIn("answer nothing else", qa_open.OPEN_SCOPE_CLAUSE)
+
+    def test_the_ownership_clause_bans_memory_not_lookups(self) -> None:
+        # 2026-09-18 PR 2: every app-owned fact is now reachable through a tool, so the
+        # ban is on stating one FROM MEMORY, never on stating one a lookup returned.
+        self.assertIn("from memory", qa_open.OPEN_OWNERSHIP_CLAUSE)
+        self.assertIn(
+            "a lookup you made is the only source you may state one from",
+            qa_open.OPEN_OWNERSHIP_CLAUSE,
+        )
+        for owned in (
+            "point spread",
+            "over/under total",
+            "game score",
+            "standings position",
+            "member's pick",
+        ):
+            self.assertIn(owned, qa_open.OPEN_OWNERSHIP_CLAUSE)
+        self.assertIn("The ESPN tools read ESPN's live data", qa_open.OPEN_TOOLS_CLAUSE)
+        self.assertIn("every member's picks once a week locks", qa_open.OPEN_TOOLS_CLAUSE)
+
+    def test_the_picks_clause_is_in_the_role_and_names_the_gate(self) -> None:
+        self.assertIn(qa_open.OPEN_PICKS_CLAUSE, qa_open.OPEN_ROLE)
+        self.assertIn(
+            "hidden from everyone, including the member who made them", qa_open.OPEN_PICKS_CLAUSE
+        )
+        self.assertIn(
+            "until that week's pick window closes at its first kickoff", qa_open.OPEN_PICKS_CLAUSE
+        )
+        self.assertIn("never guess, hint at or infer what anyone picked", qa_open.OPEN_PICKS_CLAUSE)
+        self.assertIn("you may name them", qa_open.OPEN_PICKS_CLAUSE)
+
+
+_CLOSE_AT = datetime(2026, 9, 20, 17, 0, tzinfo=UTC)
+
+
+def _db(name: str, value: object, calls: list | None = None):
+    """Patch one db_bridge async seam, recording the positional + keyword args."""
+
+    async def _fake(*args, **kwargs):
+        if calls is not None:
+            calls.append((args, kwargs))
+        return value
+
+    return mock.patch.object(db_bridge, name, _fake)
+
+
+class AskerBindingTests(_OpenPathTestCase):
+    """The one asker-bound tool gets the asker's id from the loop, never the model."""
+
+    def test_the_asker_id_is_bound_in_code_and_never_declared_in_the_spec(self) -> None:
+        tool = next(t for t in qa_open.TOOLS if t.name == "lookup_my_pick_status")
+        self.assertTrue(tool.asker_bound)
+        self.assertEqual(tool.spec["function"]["parameters"]["properties"], {})
+        # The standings tool is the only other asker-bound tool (it adds the asker's row).
+        self.assertEqual(
+            [t.name for t in qa_open.TOOLS if t.asker_bound],
+            ["lookup_my_pick_status", "lookup_standings"],
+        )
+        for name in ("lookup_my_pick_status", "lookup_standings"):
+            spec = next(t for t in qa_open.TOOLS if t.name == name).spec
+            self.assertEqual(spec["function"]["parameters"]["properties"], {})
+
+    def test_a_model_written_asker_id_is_dropped_and_the_real_one_is_used(self) -> None:
+        calls: list = []
+        status = {
+            "registered": True,
+            "display_name": "alice",
+            "complete": False,
+            "remaining_labels": ["over", "mortal lock"],
+            "pick_open": True,
+        }
+        patcher, chat = _open_chat_returns(
+            _tool_call_message("lookup_my_pick_status", '{"asker_discord_id": 999}'),
+            _text("You still owe an over and a mortal lock, alice."),
+        )
+        with _db("get_pick_status_async", status, calls), patcher:
+            out = _run(qa_open.answer_open("are my picks in?", voice=_VOICE, discord_id=4242))
+        self.assertEqual(out, "You still owe an over and a mortal lock, alice.")
+        self.assertEqual(calls, [((4242,), {})])
+        body = json.loads(_tool_messages(chat[1]["messages"])[0]["content"])
+        self.assertEqual(body["slots_still_open"], ["over", "mortal lock"])
+        self.assertIn("still has these picks to make this week", body["status_statement"])
+        self.assertIn("never name or guess any pick", body["caveat"])
+
+    def test_no_asker_identity_yields_a_note_and_no_read(self) -> None:
+        calls: list = []
+        patcher, chat = _open_chat_returns(
+            _tool_call_message("lookup_my_pick_status", "{}"), _text("Could not read it.")
+        )
+        with _db("get_pick_status_async", {"registered": True}, calls), patcher:
+            _run(qa_open.answer_open("are my picks in?", voice=_VOICE))
+        self.assertEqual(calls, [])
+        self.assertEqual(
+            json.loads(_tool_messages(chat[1]["messages"])[0]["content"]),
+            {"note": qa_open._NO_ASKER_NOTE},
+        )
+
+    def test_every_card_state_has_its_own_statement(self) -> None:
+        base = {"registered": True, "display_name": "bob", "remaining_labels": []}
+        cases = [
+            ({"complete": True, "pick_open": True}, "has a complete standard card"),
+            ({"complete": False, "pick_open": True}, "does not have a complete card this week yet"),
+            (
+                {"complete": False, "pick_open": False},
+                "did not complete their card before the deadline",
+            ),
+        ]
+        for extra, expected in cases:
+            with self.subTest(extra=extra), _db("get_pick_status_async", {**base, **extra}):
+                body = _run(qa_open._lookup_my_pick_status(asker_discord_id=1))
+                assert isinstance(body, dict)
+                self.assertIn(expected, body["status_statement"])
+        with _db("get_pick_status_async", {"registered": False}):
+            self.assertEqual(
+                _run(qa_open._lookup_my_pick_status(asker_discord_id=1)),
+                {"note": qa_open._NOT_REGISTERED_NOTE},
+            )
+
+
+class LeaguePicksToolTests(_OpenPathTestCase):
+    """The pick gate is relayed as a note while the window is open, and the picks
+    land under their members once it has closed."""
+
+    def test_hidden_picks_come_back_as_a_note_with_the_unlock_time(self) -> None:
+        calls: list = []
+        hidden = {
+            "week": 3,
+            "picks_locked": False,
+            "close_at": _CLOSE_AT,
+            "members": [{"display_name": "alice", "weekly_score": 0, "picks": []}],
+        }
+        patcher, chat = _open_chat_returns(
+            _tool_call_message("lookup_league_picks", "{}"),
+            _text("Picks are under wraps until Sunday at 1 ET."),
+        )
+        with _db("get_league_picks_async", hidden, calls), patcher:
+            out = _run(qa_open.answer_open("who has picks on the bills game?", voice=_VOICE))
+        self.assertEqual(out, "Picks are under wraps until Sunday at 1 ET.")
+        self.assertEqual(calls, [((None,), {})])
+        body = json.loads(_tool_messages(chat[1]["messages"])[0]["content"])
+        self.assertTrue(body["picks_hidden"])
+        self.assertEqual(body["unlock_at"], "Sun Sep 20, 5:00 PM UTC")
+        self.assertNotIn("members", body)
+        self.assertIn(
+            "hidden until the week's pick window closes at Sun Sep 20, 5:00 PM UTC", body["note"]
+        )
+        self.assertIn("never guess, hint at or infer what anyone picked", body["note"])
+        self.assertNotIn("alice", json.dumps(body))
+
+    def test_locked_picks_are_listed_under_their_members(self) -> None:
+        revealed = {
+            "week": 2,
+            "picks_locked": True,
+            "close_at": _CLOSE_AT,
+            "members": [
+                {
+                    "display_name": "alice",
+                    "weekly_score": 3,
+                    "picks": [
+                        {
+                            "game": "DET at BUF",
+                            "pick": "BUF to cover as the favorite (5.5)",
+                            "mortal_lock": True,
+                            "outcome": "WIN",
+                            "points": 2,
+                        }
+                    ],
+                },
+                {
+                    "display_name": "bob",
+                    "weekly_score": 0,
+                    "picks": [
+                        {
+                            "game": "DET at BUF",
+                            "pick": "the over on DET at BUF (51.5)",
+                            "mortal_lock": False,
+                            "outcome": "LOSS",
+                            "points": 0,
+                        }
+                    ],
+                },
+            ],
+        }
+        calls: list = []
+        with _db("get_league_picks_async", revealed, calls):
+            body = _run(qa_open._lookup_league_picks(week=2))
+        assert isinstance(body, dict)
+        self.assertEqual(calls, [((2,), {})])
+        self.assertFalse(body["picks_hidden"])
+        self.assertEqual(body["members"], revealed["members"])
+        self.assertIn("2 members have picks listed below", body["picks_statement"])
+        self.assertIn("never move a pick from one member to another", body["caveat"])
+
+    def test_every_miss_is_a_note(self) -> None:
+        with _db(
+            "get_league_picks_async",
+            {"week": None, "picks_locked": False, "close_at": None, "members": []},
+        ):
+            self.assertEqual(
+                _run(qa_open._lookup_league_picks()), {"note": qa_open._NO_SEASON_NOTE}
+            )
+        with _db(
+            "get_league_picks_async",
+            {"week": 2, "picks_locked": True, "close_at": _CLOSE_AT, "members": []},
+        ):
+            self.assertEqual(
+                _run(qa_open._lookup_league_picks()),
+                {"note": qa_open._NO_PICKS_THAT_WEEK_NOTE.format(week=2)},
+            )
+        calls: list = []
+        with _db("get_league_picks_async", {}, calls):
+            self.assertEqual(
+                _run(qa_open._lookup_league_picks(week=99)), {"note": qa_open._BAD_WEEK_NOTE}
+            )
+        self.assertEqual(calls, [])
+
+    def test_the_description_says_to_call_it_even_when_hidden(self) -> None:
+        spec = next(t for t in qa_open.TOOLS if t.name == "lookup_league_picks").spec
+        self.assertIn("call it anyway and relay that", spec["function"]["description"])
+        self.assertIn("who has money on tonight's game", spec["function"]["description"])
+
+
+class PickCompletionToolTests(_OpenPathTestCase):
+    def test_names_are_listed_while_the_window_is_open(self) -> None:
+        data = {
+            "week": 3,
+            "pick_open": True,
+            "close_at": _CLOSE_AT,
+            "complete": ["alice"],
+            "outstanding": ["bob", "carol"],
+            "total_players": 3,
+        }
+        patcher, chat = _open_chat_returns(
+            _tool_call_message("lookup_pick_completion", "{}"),
+            _text("bob and carol still owe picks."),
+        )
+        with _db("get_pick_completion_async", data), patcher:
+            out = _run(qa_open.answer_open("who hasn't picked yet?", voice=_VOICE))
+        self.assertEqual(out, "bob and carol still owe picks.")
+        body = json.loads(_tool_messages(chat[1]["messages"])[0]["content"])
+        self.assertEqual(body["outstanding"], ["bob", "carol"])
+        self.assertTrue(body["window_open"])
+        self.assertIn(
+            "open until Sun Sep 20, 5:00 PM UTC. 1 of 3 members", body["completion_statement"]
+        )
+        self.assertIn("never what anyone picked", body["caveat"])
+
+    def test_a_closed_window_states_who_missed_the_deadline(self) -> None:
+        data = {
+            "week": 3,
+            "pick_open": False,
+            "close_at": _CLOSE_AT,
+            "complete": ["alice", "bob"],
+            "outstanding": [],
+            "total_players": 2,
+        }
+        with _db("get_pick_completion_async", data):
+            body = _run(qa_open._lookup_pick_completion())
+        assert isinstance(body, dict)
+        self.assertIn("has closed. 2 of 2 members finished", body["completion_statement"])
+        with _db("get_pick_completion_async", {"week": None}):
+            self.assertEqual(
+                _run(qa_open._lookup_pick_completion()), {"note": qa_open._NO_SEASON_NOTE}
+            )
+
+
+class StandingsToolTests(_OpenPathTestCase):
+    def test_the_table_is_relayed_with_the_leader_named(self) -> None:
+        data = {
+            "season": 2026,
+            "entries": [
+                {
+                    "rank": 1,
+                    "display_name": "alice",
+                    "season_total": 40,
+                    "weeks_played": 2,
+                    "last_week": 2,
+                    "last_week_score": 22,
+                },
+                {
+                    "rank": 2,
+                    "display_name": "bob",
+                    "season_total": 34,
+                    "weeks_played": 2,
+                    "last_week": 2,
+                    "last_week_score": 12,
+                },
+            ],
+        }
+        with _db("get_standings_table_async", data):
+            body = _run(qa_open._lookup_standings())
+        assert isinstance(body, dict)
+        self.assertEqual(body["entries"], data["entries"])
+        self.assertIn("alice leads with 40 points", body["standings_statement"])
+        self.assertNotIn("asking_member", body)
+        self.assertIn("never work out a gap", body["caveat"])
+        # With an asker, their own row is named so "how far back am I" can be answered.
+        bob = {"registered": True, "display_name": "bob"}
+        with _db("get_standings_table_async", data), _db("get_pick_status_async", bob):
+            body = _run(qa_open._lookup_standings(asker_discord_id=2))
+        assert isinstance(body, dict)
+        self.assertEqual(body["asking_member"], "bob")
+        self.assertEqual(body["asking_member_row"], data["entries"][1])
+        self.assertIn(
+            "The member asking is bob, who is ranked 2 with 34 points, 6 points behind the leader",
+            body["standings_statement"],
+        )
+        carol = {"registered": True, "display_name": "carol"}
+        with _db("get_standings_table_async", data), _db("get_pick_status_async", carol):
+            body = _run(qa_open._lookup_standings(asker_discord_id=3))
+        assert isinstance(body, dict)
+        self.assertNotIn("asking_member_row", body)
+        self.assertIn("carol, who is not on the table", body["standings_statement"])
+        with _db("get_standings_table_async", {"season": 2026, "entries": []}):
+            self.assertEqual(
+                _run(qa_open._lookup_standings()), {"note": qa_open._NO_STANDINGS_YET_NOTE}
+            )
+        with _db("get_standings_table_async", {"season": None, "entries": []}):
+            self.assertEqual(_run(qa_open._lookup_standings()), {"note": qa_open._NO_SEASON_NOTE})
+
+
+class LinesToolTests(_OpenPathTestCase):
+    def test_the_slate_and_the_window_are_relayed(self) -> None:
+        games = [
+            {
+                "away": "DET",
+                "home": "BUF",
+                "favorite": "BUF",
+                "underdog": "DET",
+                "spread": "5.5",
+                "total": "51.5",
+            }
+        ]
+        data = {
+            "week": 2,
+            "close_at": _CLOSE_AT,
+            "pick_open": True,
+            "asked_team": None,
+            "games": games,
+        }
+        calls: list = []
+        with _db("get_lines_slate_async", data, calls):
+            body = _run(qa_open._lookup_lines())
+        assert isinstance(body, dict)
+        self.assertEqual(calls, [((None,), {})])
+        self.assertEqual(body["games"], games)
+        self.assertEqual(body["picks_window"], "open until Sun Sep 20, 5:00 PM UTC")
+        self.assertIn(
+            "not a live sportsbook",
+            next(t for t in qa_open.TOOLS if t.name == "lookup_lines").spec["function"][
+                "description"
+            ],
+        )
+        self.assertIn("never call these the live market", body["caveat"])
+
+    def test_a_team_is_upper_cased_and_a_miss_is_a_note(self) -> None:
+        calls: list = []
+        with _db(
+            "get_lines_slate_async",
+            {"week": 2, "close_at": _CLOSE_AT, "pick_open": False, "asked_team": None, "games": []},
+            calls,
+        ):
+            out = _run(qa_open._lookup_lines(team="kc"))
+        self.assertEqual(calls, [(("KC",), {})])
+        self.assertEqual(out, {"note": qa_open._NO_LINE_FOR_TEAM_NOTE.format(team="KC", week=2)})
+        with _db(
+            "get_lines_slate_async",
+            {"week": 2, "close_at": None, "pick_open": False, "asked_team": None, "games": []},
+        ):
+            self.assertEqual(
+                _run(qa_open._lookup_lines()),
+                {"note": qa_open._NO_LINES_POSTED_NOTE.format(week=2)},
+            )
+
+
+class ScoresToolTests(_OpenPathTestCase):
+    def test_an_earlier_week_is_reachable_by_number(self) -> None:
+        games = [
+            {"away": "DET", "home": "BUF", "away_score": 31, "home_score": 41, "status": "FINAL"}
+        ]
+        calls: list = []
+        with _db("get_week_scores_async", {"week": 1, "games": games}, calls):
+            body = _run(qa_open._lookup_scores(week=1))
+        assert isinstance(body, dict)
+        self.assertEqual(calls, [((1,), {})])
+        self.assertEqual(body["games"], games)
+        self.assertIn("scores for 1 games in week 1", body["scores_statement"])
+        with _db("get_week_scores_async", {"week": 3, "games": []}):
+            self.assertEqual(
+                _run(qa_open._lookup_scores()), {"note": qa_open._NO_SCORES_YET_NOTE.format(week=3)}
+            )
+        self.assertEqual(_run(qa_open._lookup_scores(week=0)), {"note": qa_open._BAD_WEEK_NOTE})
 
 
 if __name__ == "__main__":

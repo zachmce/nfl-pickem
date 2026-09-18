@@ -34,7 +34,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 import structlog
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.models import Game, GameStatus, Pick, PickType, Team, User, Week
 from app.services import ratings
@@ -1453,3 +1453,164 @@ def get_season_record_and_ats_for_team(session: Session, season: int, *, team_ab
             ats_losses += 1
 
     return {"record": f"{wins}-{losses}", "ats": f"{ats_wins}-{ats_losses}"}
+
+
+# --------------------------------------------------------------------------- #
+# 2026-09-18 — the app-data readers behind the open path's tools. Every one is a
+# pure, display-only read. The ONE hard rule of the bot, enforced HERE and not in
+# any prompt: nobody's picks for a week leave this module while that week's pick
+# window is open. ``week_results`` with no caller already omits every pick until
+# ``now >= compute_window(week_games).close_at``; ``get_league_picks`` relays that
+# gate and adds the close time so the bot can say when the picks unlock.
+# --------------------------------------------------------------------------- #
+
+
+def _pick_side_label(
+    pick_type: PickType, game: Game, abbr_by_team_id: dict[int, str], misc_text: str | None
+) -> str:
+    """The one-phrase public description of a pick, naming the team it rides on."""
+    away = abbr_by_team_id.get(game.away_team_id)
+    home = abbr_by_team_id.get(game.home_team_id)
+    favorite = abbr_by_team_id.get(game.favorite_team_id) if game.favorite_team_id else None
+    underdog = abbr_by_team_id.get(game.underdog_team_id) if game.underdog_team_id else None
+    spread = f" ({game.spread})" if game.spread is not None else ""
+    total = f" ({game.total})" if game.total is not None else ""
+    if pick_type is PickType.FAVORITE_COVER:
+        return f"{favorite or 'the favorite'} to cover as the favorite{spread}"
+    if pick_type is PickType.UNDERDOG_COVER:
+        return f"{underdog or 'the underdog'} to cover as the underdog{spread}"
+    if pick_type is PickType.OVER:
+        return f"the over on {away} at {home}{total}"
+    if pick_type is PickType.UNDER:
+        return f"the under on {away} at {home}{total}"
+    return f"misc call on {away} at {home}: {misc_text or 'no text'}"
+
+
+def get_league_picks(session: Session, season: int, week: int) -> dict:
+    """Every member's picks for ``{season, week}``, ONLY once the week's window has closed.
+
+    Reuses :func:`app.services.standings.week_results` with NO caller, so while the
+    window is open every member's pick list comes back empty and ``picks_locked`` is
+    ``False``. Returns ``{week, picks_locked, close_at, members: [{display_name,
+    weekly_score, picks: [{game, pick, mortal_lock, outcome, points}]}]}``. Members are
+    ordered by ``(-weekly_score, display_name)``. Display-only; no ``user_id``.
+    """
+    games = list(session.exec(select(Game).where(Game.season == season, Game.week == week)).all())
+    teams = list(session.exec(select(Team)).all())
+    abbr_by_team_id = {t.id: t.abbreviation for t in teams if t.id is not None}
+    games_by_id = {g.id: g for g in games if g.id is not None}
+
+    close_at = _slate_close_at(games)
+    picks_locked = close_at is not None and datetime.now(timezone.utc) >= close_at
+
+    members: list[dict] = []
+    for result in week_results(session, season=season, week=week, caller_user_id=None):
+        picks: list[dict] = []
+        for pick in result.picks:
+            game = games_by_id.get(pick.game_id)
+            if game is None:
+                continue
+            picks.append(
+                {
+                    "game": (
+                        f"{abbr_by_team_id.get(game.away_team_id)} at "
+                        f"{abbr_by_team_id.get(game.home_team_id)}"
+                    ),
+                    "pick": _pick_side_label(pick.pick_type, game, abbr_by_team_id, pick.misc_text),
+                    "mortal_lock": pick.is_mortal_lock,
+                    "outcome": pick.outcome,
+                    "points": pick.points,
+                }
+            )
+        members.append(
+            {
+                "display_name": result.display_name,
+                "weekly_score": result.weekly_score,
+                # Belt and braces over the gate inside week_results: nothing leaves
+                # here while the window is open, whatever the gate returned.
+                "picks": picks if picks_locked else [],
+            }
+        )
+
+    return {"week": week, "picks_locked": picks_locked, "close_at": close_at, "members": members}
+
+
+def get_pick_completion(session: Session, season: int, week: int) -> dict:
+    """Who holds a full standard card for ``{season, week}`` and who does not, BY NAME.
+
+    Same player pool as :func:`get_roster_complete_context` (active, non-protected
+    accounts) and the same completion rule (:func:`main_picks_complete`). Naming the
+    outstanding members reveals no pick content, and the league owner chose names over
+    the count on 2026-09-18. Returns ``{week, pick_open, close_at, complete: [names],
+    outstanding: [names], total_players}``; both lists are sorted. Display-only.
+    """
+    games = list(session.exec(select(Game).where(Game.season == season, Game.week == week)).all())
+    close_at = _slate_close_at(games)
+    pick_open = close_at is not None and datetime.now(timezone.utc) < close_at
+    week_row = session.exec(
+        select(Week).where(Week.season == season, Week.week == week)
+    ).one_or_none()
+    if week_row is None:
+        # main_picks_complete raises on a week the season does not have.
+        return {
+            "week": week,
+            "pick_open": False,
+            "close_at": None,
+            "complete": [],
+            "outstanding": [],
+            "total_players": 0,
+        }
+
+    pool = session.exec(
+        select(User.id, User.display_name).where(
+            col(User.is_active).is_(True), col(User.is_protected).is_(False)
+        )
+    ).all()
+    complete: list[str] = []
+    outstanding: list[str] = []
+    for user_id, display_name in pool:
+        if user_id is None:
+            continue
+        if main_picks_complete(session, user_id=user_id, season=season, week=week):
+            complete.append(display_name)
+        else:
+            outstanding.append(display_name)
+
+    return {
+        "week": week,
+        "pick_open": pick_open,
+        "close_at": close_at,
+        "complete": sorted(complete),
+        "outstanding": sorted(outstanding),
+        "total_players": len(complete) + len(outstanding),
+    }
+
+
+def get_standings_table(session: Session, season: int) -> dict:
+    """The whole season table from :func:`season_standings`, ranked. Display-only.
+
+    Returns ``{season, entries: [{rank, display_name, season_total, weeks_played,
+    last_week, last_week_score}]}``. Members on the same total share a rank.
+    """
+    standings, _identities = season_standings(session, season=season)
+    entries: list[dict] = []
+    rank = 0
+    previous_total: int | None = None
+    for index, result in enumerate(standings.results, start=1):
+        if result.season_total != previous_total:
+            rank = index
+            previous_total = result.season_total
+        last_week = max(result.weekly_scores) if result.weekly_scores else None
+        entries.append(
+            {
+                "rank": rank,
+                "display_name": result.display_name,
+                "season_total": result.season_total,
+                "weeks_played": len(result.weekly_scores),
+                "last_week": last_week,
+                "last_week_score": (
+                    result.weekly_scores[last_week] if last_week is not None else None
+                ),
+            }
+        )
+    return {"season": season, "entries": entries}

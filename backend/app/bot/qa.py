@@ -113,6 +113,10 @@ _SUBJECT_INTENTS = frozenset(
 # line) ahead of a deterministic _ListAnswer body carrying every number. Both use an
 # analyst prompt with no pick-status framing (single-game vs whole-slate).
 _ANALYST_INTENTS = frozenset({QaIntent.prediction, QaIntent.slate_predictions})
+# The intents the open path answers (2026-09-18): the off-menu football question, the
+# off-topic question the classifier marks unknown, and the once-"coming soon" topics.
+# There is no deterministic decline menu any more.
+_OPEN_INTENTS = frozenset({QaIntent.open_nfl, QaIntent.unknown, QaIntent.coming_soon})
 
 # Sane NFL week bounds for the coerced ``week`` param (regular season + playoffs);
 # anything outside becomes None.
@@ -143,7 +147,8 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "Reply with ONLY a compact JSON object and NOTHING else — no prose, no code "
     "fence, no explanation. The object has exactly these keys: "
     '"intent", "team", "week", "subject", "nfl". '
-    '"intent" MUST be one of: pick_status (their own pick/lock status), standings '
+    '"intent" MUST be one of: pick_status (whether the asker\'s OWN card is complete or '
+    "locked, and nothing about anyone else), standings "
     "(the pick'em LEADERBOARD — league members' points and ranks; an NFL team's or "
     "division's win-loss record is open_nfl, NOT standings), lines_slate (the spread, total, this "
     "week's games, or when the window closes), "
@@ -167,7 +172,9 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "bare help request, what commands exist, how to register or sign up, or how to "
     "reset a password), "
     "open_nfl (an open football question that NONE of the fixed intents above "
-    "covers: who plays or starts at a position, who is on a team's roster, a team's "
+    "covers: what other members picked, who picked a given team or game, who has or "
+    "has not made their picks yet, a question that mixes the league's data with "
+    "football, who plays or starts at a position, who is on a team's roster, a team's "
     "or a division's win-loss record, team or "
     "league history, records and milestones, the rules of the game, and opinion or "
     "debate questions about football; a question about ONE NAMED PLAYER or ONE "
@@ -182,7 +189,7 @@ CLASSIFIER_SYSTEM_PROMPT = (
     '"nfl" is a boolean: set it to true when the question is about the NFL, American '
     "football, or this pick'em league, and false otherwise. If the question is about "
     "anything else — cooking, recipes, homework, code, politics, or any other "
-    'subject — you MUST answer with the intent unknown and "nfl" set to false. '
+    'subject — answer with the intent unknown and "nfl" set to false. '
     "When earlier turns of the conversation are supplied, READ THEM FIRST and use "
     "them to resolve any pronoun or short follow-up in the current message before "
     'you classify it. A bare follow-up such as "is he any good?" inherits its subject '
@@ -511,13 +518,14 @@ def validate_classification(raw: object, *, known_team_tokens: set[str]) -> QaRe
     * ``raw`` is not a dict (absent / invalid JSON, non-dict input);
     * ``intent`` is missing / absent;
     * ``intent`` is not one of the :class:`QaIntent` values (off-enum);
-    * a non-null ``team`` on a team-REQUIRED intent (injuries / weather / lines_slate /
-      prediction) does not normalize to a member of ``known_team_tokens`` (a non-real
-      team) AND the raw ``nfl`` key is not the boolean True. When it IS True the same
-      case routes to ``open_nfl`` instead (issue #211: the slot held a player's name).
-      A non-real team on a team-OPTIONAL intent (``_TEAM_OPTIONAL_INTENTS`` —
-      currently ``news``) is NOT a coercion trigger: it falls through to team=None (the
-      LEAGUE answer), with its ``subject`` preserved to narrow the feed downstream.
+
+    A non-null ``team`` on a team-REQUIRED intent (injuries / weather / lines_slate /
+    prediction) that does not normalize to a member of ``known_team_tokens`` routes to
+    ``open_nfl`` (issue #211: the slot held a player's name). A non-real team on a
+    team-OPTIONAL intent (``_TEAM_OPTIONAL_INTENTS`` — currently ``news``) is NOT a
+    coercion trigger: it falls through to team=None (the LEAGUE answer), with its
+    ``subject`` preserved to narrow the feed downstream. The ``nfl`` key no longer
+    gates anything (2026-09-18): the open path answers off-topic questions in voice.
 
     ``coming_soon`` is a legal enum value (recognized-but-planned) and is NEVER
     coerced. Params are scrubbed to the resolved intent: ``team`` is dropped for an
@@ -533,24 +541,16 @@ def validate_classification(raw: object, *, known_team_tokens: set[str]) -> QaRe
     except ValueError:
         return QaResult(intent=QaIntent.unknown)
 
-    # The DETERMINISTIC NFL TOPIC GUARD (260820-lw6). ``open_nfl`` is the one intent
-    # whose answer is freelanced from model knowledge, so it is the one intent that
-    # can wander off football entirely — the 2026-08-20 probe measured the served
-    # model writing a full lasagna recipe under an "NFL expert" system prompt. The
-    # classifier's own ``nfl`` key must be the BOOLEAN True BY IDENTITY: a missing
-    # key, a null, the string "true", or a 1 all DECLINE (a loose truthiness check
-    # lets the measured lasagna case straight through). This fails CLOSED, and
-    # routing to ``unknown`` reuses the existing, already-proven deterministic
-    # decline (``_UNKNOWN_FACT``) rather than adding a new phrasing surface.
-    if intent is QaIntent.open_nfl and raw.get("nfl") is not True:
-        return QaResult(intent=QaIntent.unknown)
+    # The deterministic NFL topic guard that once sent ``open_nfl`` with a non-True
+    # ``nfl`` key to the decline menu is gone (2026-09-18): the open path answers an
+    # off-topic question in voice and steers back, so ``nfl`` is informational only.
 
     # Issue #187: a stats-phrased ``scores`` answered a Super Bowl question with the
     # CURRENT week's scoreboard ("MIN 10, LAC 37") — that handler ignores team and week.
     # The subject is read from the RAW dict because ``scores`` is absent from
     # ``_SUBJECT_INTENTS``. Rewriting (not declining) reaches ``lookup_game_leaders``.
     if intent is QaIntent.scores and _wants_game_statistics(_coerce_subject(raw.get("subject"))):
-        return QaResult(intent=QaIntent.open_nfl if raw.get("nfl") is True else QaIntent.unknown)
+        return QaResult(intent=QaIntent.open_nfl)
 
     # Resolve the team for team-bearing intents. On a team-REQUIRED intent a present-but-
     # non-real team is a coercion trigger: the model named a game we cannot trust, so fall
@@ -564,11 +564,8 @@ def validate_classification(raw: object, *, known_team_tokens: set[str]) -> QaRe
             team = _normalize_team(raw_team, known_team_tokens)
             if team is None and intent not in _TEAM_OPTIONAL_INTENTS:
                 # Issue #211: the "team" slot held a non-team (a player's name, live
-                # 3/3 on "any news on Caleb Williams"). With the topic guard passed the
-                # open path has a tool for that question; the decline menu never does.
-                if raw.get("nfl") is True:
-                    return QaResult(intent=QaIntent.open_nfl)
-                return QaResult(intent=QaIntent.unknown)
+                # 3/3 on "any news on Caleb Williams"). The open path has a tool for it.
+                return QaResult(intent=QaIntent.open_nfl)
 
     week = _coerce_week(raw.get("week")) if intent in _WEEK_INTENTS else None
     subject = _coerce_subject(raw.get("subject")) if intent in _SUBJECT_INTENTS else None
@@ -675,22 +672,6 @@ _REGISTER_LINE = "You need a pick'em account first — run /register to get set 
 # Deterministic error line — the best-effort fallback when a db seam raises. Never
 # leaks anything; just keeps the listener from ever raising into the gateway loop.
 _ERROR_LINE = "Something went sideways pulling that up — give it another shot in a bit."
-
-# Tier-2 (coming_soon) wink: recognized-but-planned, NO capability menu, NO DB read.
-# Injuries + weather + who-wins predictions are now LIVE intents, so they are dropped
-# from the wink text to keep it honest (only line movement remains unsupported).
-_COMING_SOON_FACT = (
-    "That's not something tracked yet — live line movement is on the roadmap, "
-    "not in the playbook today."
-)
-
-# Tier-3 (unknown) decline: the capability MENU (the four things it can answer) + a
-# bug-the-developer nudge. The menu appears ONLY on unknown.
-_UNKNOWN_FACT = (
-    "Not sure how to answer that one. What can be answered: the asker's own pick / "
-    "lock status, the season standings, this week's lines and slate (and when picks "
-    "close), and game scores. For anything else, bug the developer to build it."
-)
 
 # Stateless soft-decline for a single-game lines question with no team resolved —
 # no ask-and-wait, no pending-slot state.
@@ -852,8 +833,9 @@ _HELP_FACT = _ListAnswer(
         "\n"
         "You can also just @mention me with a question — your own pick and lock "
         "status, the standings, this week's lines and slate (and when picks close), "
-        "scores, a team's injury report, game-time weather, ESPN headlines, or who I "
-        "like in a given game."
+        "scores, a team's injury report, game-time weather, ESPN headlines, who I "
+        "like in a given game, a game in progress (score, yards, kicks, what channel "
+        "it's on), player and team stats, or pretty much anything else."
     ),
     phrase_header=False,
 )
@@ -1960,13 +1942,9 @@ async def _build_fact(
     if result.intent is QaIntent.bot_help:
         return _HELP_FACT  # Tier 1 — no DB read, and never phrased (see _HELP_FACT)
 
-    if result.intent is QaIntent.coming_soon:
-        return _COMING_SOON_FACT  # Tier 2 — no DB read
-
-    # Tier 3 — decline + capability menu. ``open_nfl`` is UNREACHABLE here by
-    # construction: ``answer_question`` returns on the open branch before _build_fact
-    # is ever called. This stays its safe degrade if that ordering is ever disturbed.
-    return _UNKNOWN_FACT
+    # ``open_nfl``, ``unknown`` and ``coming_soon`` are UNREACHABLE here by construction:
+    # ``answer_question`` returns on the open branch before _build_fact is ever called.
+    return _OPEN_DEGRADE_FACT
 
 
 async def answer_question(
@@ -2008,10 +1986,15 @@ async def answer_question(
         # (there is no DB fact to build) and must NOT reach ``llm_client.phrase``,
         # which would re-cap a 200-token prose answer at the 80-token chat cap and
         # silently destroy it. It reads the RAW question, not the classifier subject.
-        if result.intent is QaIntent.open_nfl:
+        # Since 2026-09-18 ``unknown`` and ``coming_soon`` land here too.
+        if result.intent in _OPEN_INTENTS:
             voice = await db_bridge.resolve_active_voice_async()
             open_answer = await qa_open.answer_open(
-                question, voice=voice, history=history, conversation_key=conversation_key
+                question,
+                voice=voice,
+                history=history,
+                conversation_key=conversation_key,
+                discord_id=discord_id,
             )
             return open_answer if open_answer is not None else _OPEN_DEGRADE_FACT
 

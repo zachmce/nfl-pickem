@@ -1800,6 +1800,7 @@ def parse_team_schedule(payload: Any, *, week: int | None = None) -> dict | None
         "bye_week": bye if isinstance(bye, int) and not isinstance(bye, bool) else None,
         "any_completed": any_completed,
         "game": game,
+        "in_progress": next((candidate for candidate in usable if candidate["in_progress"]), None),
     }
 
 
@@ -1836,6 +1837,7 @@ def _parse_one_scheduled_event(event: Any) -> dict[str, Any] | None:
         "date": _first_str(event.get("date")),
         # Identity, not truthiness: only ESPN's own boolean means the game is finished.
         "completed": status_type.get("completed") is True,
+        "in_progress": status_type.get("state") == "in",
     }
 
 
@@ -3313,4 +3315,341 @@ async def fetch_article_search(phrase: Any) -> dict | None:
         cache_key=_article_search_cache_key(encoded),
         ttl_seconds=ARTICLE_SEARCH_CACHE_TTL_SECONDS,
         label="article_search",
+    )
+
+
+# --------------------------------------------------------------------------- #
+# LIVE GAME + WEEK SCOREBOARD (2026-09-18). The first live-game test asked for a
+# game in progress three times; every tool above reads finished games only. The
+# scoreboard is the current week, any status; the summary is re-fetched on a short
+# TTL under its own key so the ten-minute injuries copy stays as it is.
+# --------------------------------------------------------------------------- #
+
+SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
+SCOREBOARD_CACHE_TTL_SECONDS = 60
+LIVE_SUMMARY_CACHE_TTL_SECONDS = 60
+_SCOREBOARD_CACHE_KEY = "qa:scoreboard:current"
+# The most recent scoring plays relayed for one game. A full game has 8 to 14.
+LIVE_SCORING_PLAYS_MAX = 20
+
+# Box-score kicking columns, keyed by ESPN's ``keys`` entry. Misses are computed here so
+# the model never subtracts (memory: llm-fills-any-gap-you-leave).
+_KICKING_FIELDS: tuple[tuple[str, str], ...] = (
+    ("fieldGoalsMade/fieldGoalAttempts", "field goals made and attempted"),
+    ("extraPointsMade/extraPointAttempts", "extra points made and attempted"),
+    ("longFieldGoalMade", "longest field goal made"),
+    ("totalKickingPoints", "kicking points"),
+)
+
+LIVE_GAME_CAVEAT = (
+    "Every figure here is from ESPN's live box score for this one game and none of them is "
+    "a season total. The team totals are each club's whole-team figures so far, so a club's "
+    "total yards figure is already its passing and rushing yards added together. Each "
+    "kicker's missed field goals and missed extra points are already counted for you, so "
+    "report them as given and never work them out again. The scoring plays are listed in "
+    "the order they happened, each with the score right after it. When the status says the "
+    "game is in progress, every figure will change as the game goes on, so say the figures "
+    "are as of right now. Every kick-off time here is given in UTC, so never state one of "
+    "them as a local time."
+)
+
+SCOREBOARD_CAVEAT = (
+    "This is the NFL scoreboard for the current week only. A game whose state is pre has "
+    "not kicked off yet and carries no score, a game whose state is in is being played "
+    "right now and its score will change, and a game whose state is post is final. The "
+    "network named for each game is where it is televised or streamed nationally in the "
+    "United States. Every kick-off time here is given in UTC, so never state one of them "
+    "as a local time. This scoreboard carries no point spread and no over/under total."
+)
+
+
+def _first_competition(source: Any) -> dict:
+    """``competitions[0]`` of an event or a summary header, else ``{}``. Never raises."""
+    if not isinstance(source, dict):
+        return {}
+    competitions = source.get("competitions")
+    first = competitions[0] if isinstance(competitions, list) and competitions else None
+    return first if isinstance(first, dict) else {}
+
+
+def _game_status(competition: dict) -> dict[str, Any]:
+    """``{state, detail, completed, clock, period}`` read from one competition's status."""
+    status = competition.get("status")
+    status = status if isinstance(status, dict) else {}
+    status_type = status.get("type")
+    status_type = status_type if isinstance(status_type, dict) else {}
+    state = _first_str(status_type.get("state"))
+    period = status.get("period")
+    return {
+        "state": state.lower() if state is not None else None,
+        "detail": _first_str(status_type.get("shortDetail"), status_type.get("detail")),
+        "completed": status_type.get("completed") is True,
+        "clock": _first_str(status.get("displayClock")),
+        "period": period if isinstance(period, int) and not isinstance(period, bool) else None,
+    }
+
+
+def _broadcast_names(competition: dict) -> list[str]:
+    """The national network names for one competition, de-duplicated, in payload order.
+
+    The scoreboard shape carries ``broadcasts[].names``; the summary header carries
+    ``broadcasts[].media.shortName``. Both are read.
+    """
+    names: list[str] = []
+    broadcasts = competition.get("broadcasts")
+    for broadcast in broadcasts if isinstance(broadcasts, list) else []:
+        if not isinstance(broadcast, dict):
+            continue
+        raw_names = broadcast.get("names")
+        candidates = list(raw_names) if isinstance(raw_names, list) else []
+        media = broadcast.get("media")
+        if isinstance(media, dict):
+            candidates.append(media.get("shortName"))
+        for candidate in candidates:
+            name = _first_str(candidate)
+            if name is not None and name not in names:
+                names.append(name)
+    return names
+
+
+def _game_sides(competition: dict, *, with_score: bool) -> dict[str, dict[str, Any]]:
+    """``{"home": {...}, "away": {...}}`` for the two competitors that name a club."""
+    sides: dict[str, dict[str, Any]] = {}
+    competitors = competition.get("competitors")
+    for competitor in competitors if isinstance(competitors, list) else []:
+        if not isinstance(competitor, dict):
+            continue
+        side = _first_str(competitor.get("homeAway"))
+        team = competitor.get("team")
+        team = team if isinstance(team, dict) else {}
+        abbreviation = _first_str(team.get("abbreviation"))
+        if side not in ("home", "away") or abbreviation is None:
+            continue
+        entry: dict[str, Any] = {
+            "abbreviation": abbreviation.upper(),
+            "name": _first_str(team.get("displayName"), abbreviation),
+        }
+        if with_score:
+            entry["score"] = _stat_value(competitor.get("score"))
+        if competitor.get("winner") is True:
+            entry["winner"] = True
+        sides[side] = entry
+    return sides
+
+
+def _parse_one_scoreboard_event(event: Any) -> dict[str, Any] | None:
+    """Normalize one scoreboard ``events[]`` entry, or ``None`` when it names no clubs."""
+    if not isinstance(event, dict):
+        return None
+    competition = _first_competition(event)
+    status = _game_status(competition)
+    sides = _game_sides(competition, with_score=status["state"] != "pre")
+    if "home" not in sides or "away" not in sides:
+        return None
+    event_id = _first_str(event.get("id"))
+    if event_id is not None and _EVENT_ID_RE.fullmatch(event_id) is None:
+        event_id = None
+    venue = competition.get("venue")
+    venue = venue if isinstance(venue, dict) else {}
+    return {
+        "event_id": event_id,
+        "name": _first_str(event.get("name"), event.get("shortName")),
+        "date": _first_str(event.get("date"), competition.get("date")),
+        "venue": _first_str(venue.get("fullName")),
+        "broadcasts": _broadcast_names(competition),
+        "home": sides["home"],
+        "away": sides["away"],
+        **status,
+    }
+
+
+def parse_scoreboard(payload: Any) -> dict[str, Any] | None:
+    """The current week's games from the league ``scoreboard`` payload. Pure, never raises.
+
+    Returns ``None`` only when the top-level shape is unusable. The season and week come
+    from the payload's own ``season.year`` and ``week.number``. Games keep payload order,
+    which ESPN sorts by kick-off. A pre-game carries no score field at all, because the
+    payload's ``"0"`` placeholder would read as a real score.
+    """
+    if not isinstance(payload, dict):
+        return None
+    events = payload.get("events")
+    if not isinstance(events, list):
+        return None
+    season = payload.get("season")
+    season = season if isinstance(season, dict) else {}
+    week = payload.get("week")
+    week = week if isinstance(week, dict) else {}
+    year = season.get("year")
+    number = week.get("number")
+    season_type = season.get("type")
+    return {
+        "season": year if isinstance(year, int) and not isinstance(year, bool) else None,
+        "week": number if isinstance(number, int) and not isinstance(number, bool) else None,
+        "regular_season": season_type == REGULAR_SEASON_TYPE,
+        "games": [game for game in map(_parse_one_scoreboard_event, events) if game is not None],
+    }
+
+
+def _made_and_attempted(value: str | None) -> tuple[int, int] | None:
+    """``"4/6"`` as ``(4, 6)``, else ``None``."""
+    if value is None or "/" not in value:
+        return None
+    made, _, attempted = value.partition("/")
+    try:
+        return int(made.strip()), int(attempted.strip())
+    except ValueError:
+        return None
+
+
+def _kicking_lines(payload: dict) -> dict[str, list[dict[str, Any]]]:
+    """Each club's kickers from ``boxscore.players[].statistics[name=kicking]``."""
+    boxscore = payload.get("boxscore")
+    boxscore = boxscore if isinstance(boxscore, dict) else {}
+    players = boxscore.get("players")
+    lines: dict[str, list[dict[str, Any]]] = {}
+    for block in players if isinstance(players, list) else []:
+        if not isinstance(block, dict):
+            continue
+        team = block.get("team")
+        team = team if isinstance(team, dict) else {}
+        club = _first_str(team.get("displayName"))
+        groups = block.get("statistics")
+        if club is None or not isinstance(groups, list):
+            continue
+        for group in groups:
+            if not isinstance(group, dict) or group.get("name") != "kicking":
+                continue
+            keys = group.get("keys")
+            keys = [str(key) for key in keys] if isinstance(keys, list) else []
+            athletes = group.get("athletes")
+            for athlete in athletes if isinstance(athletes, list) else []:
+                if not isinstance(athlete, dict):
+                    continue
+                person = athlete.get("athlete")
+                person = person if isinstance(person, dict) else {}
+                name = _first_str(person.get("displayName"))
+                stats = athlete.get("stats")
+                if name is None or not isinstance(stats, list):
+                    continue
+                by_key = {key: _stat_value(value) for key, value in zip(keys, stats, strict=False)}
+                line: dict[str, Any] = {"player": name}
+                for key, label in _KICKING_FIELDS:
+                    if by_key.get(key) is not None:
+                        line[label] = by_key[key]
+                field_goals = _made_and_attempted(by_key.get(_KICKING_FIELDS[0][0]))
+                if field_goals is not None:
+                    line["missed field goals"] = field_goals[1] - field_goals[0]
+                extra_points = _made_and_attempted(by_key.get(_KICKING_FIELDS[1][0]))
+                if extra_points is not None:
+                    line["missed extra points"] = extra_points[1] - extra_points[0]
+                lines.setdefault(club, []).append(line)
+    return lines
+
+
+def _scoring_plays(payload: dict, sides: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    """The last :data:`LIVE_SCORING_PLAYS_MAX` scoring plays, each with the score after it."""
+    plays = payload.get("scoringPlays")
+    if not isinstance(plays, list):
+        return []
+    home = sides.get("home", {}).get("abbreviation")
+    away = sides.get("away", {}).get("abbreviation")
+    parsed: list[dict[str, Any]] = []
+    for play in plays:
+        if not isinstance(play, dict):
+            continue
+        text = _first_str(play.get("text"))
+        if text is None:
+            continue
+        period = play.get("period")
+        period = period if isinstance(period, dict) else {}
+        clock = play.get("clock")
+        clock = clock if isinstance(clock, dict) else {}
+        team = play.get("team")
+        team = team if isinstance(team, dict) else {}
+        scoring_type = play.get("scoringType")
+        scoring_type = scoring_type if isinstance(scoring_type, dict) else {}
+        quarter = period.get("number")
+        entry: dict[str, Any] = {
+            "quarter": quarter
+            if isinstance(quarter, int) and not isinstance(quarter, bool)
+            else None,
+            "clock": _first_str(clock.get("displayValue")),
+            "team": _first_str(team.get("abbreviation")),
+            "type": _first_str(scoring_type.get("displayName")),
+            "play": text,
+        }
+        away_score = _stat_value(play.get("awayScore"))
+        home_score = _stat_value(play.get("homeScore"))
+        if away and home and away_score is not None and home_score is not None:
+            entry["score after"] = f"{away} {away_score}, {home} {home_score}"
+        parsed.append(entry)
+    return parsed[-LIVE_SCORING_PLAYS_MAX:]
+
+
+def parse_live_game(payload: Any) -> dict[str, Any] | None:
+    """One game's live facts from a ``summary`` payload, in ANY status. Pure, never raises.
+
+    Unlike :func:`parse_game_leaders` this parser READS the score: the live tool exists to
+    answer "what is the score right now", and the open path is allowed to state a score
+    it was handed by a tool (2026-09-18). Returns ``None`` when the header names no two
+    clubs, which is the one shape nothing below can be anchored to.
+    """
+    if not isinstance(payload, dict):
+        return None
+    competition = _first_competition(payload.get("header"))
+    status = _game_status(competition)
+    sides = _game_sides(competition, with_score=status["state"] != "pre")
+    if "home" not in sides or "away" not in sides:
+        return None
+    game_info = payload.get("gameInfo")
+    game_info = game_info if isinstance(game_info, dict) else {}
+    venue = game_info.get("venue")
+    venue = venue if isinstance(venue, dict) else {}
+    leaders = parse_game_leaders(payload)
+    return {
+        "game": f"{sides['away']['name']} at {sides['home']['name']}",
+        "date": _first_str(competition.get("date")),
+        "venue": _first_str(venue.get("fullName")),
+        "broadcasts": _broadcast_names(competition),
+        "home": sides["home"],
+        "away": sides["away"],
+        "team_totals": _game_team_totals(payload),
+        "leaders": leaders["leaders"] if leaders is not None else {},
+        "kicking": _kicking_lines(payload),
+        "scoring_plays": _scoring_plays(payload, sides),
+        **status,
+    }
+
+
+def _live_summary_cache_key(event_id: str) -> str:
+    return f"qa:live:summary:{event_id}"
+
+
+async def fetch_scoreboard() -> dict | None:
+    """Fetch the current-week league ``scoreboard`` payload — best-effort, 60s cache."""
+    return await _fetch_cached(
+        SCOREBOARD_URL,
+        cache_key=_SCOREBOARD_CACHE_KEY,
+        ttl_seconds=SCOREBOARD_CACHE_TTL_SECONDS,
+        label="scoreboard",
+    )
+
+
+async def fetch_live_game_summary(event_id: Any) -> dict | None:
+    """Fetch the ``summary`` payload for ``event_id`` on the SHORT live TTL — best-effort.
+
+    Same digit guard as :func:`fetch_game_summary`, but its own key and a 60-second TTL:
+    the injuries copy of the same payload is cached ten minutes, which is stale for a
+    score. The id comes from the scoreboard, never from the model.
+    """
+    candidate = "" if isinstance(event_id, bool) else str(event_id).strip()
+    if _EVENT_ID_RE.fullmatch(candidate) is None:
+        logger.warning("live_summary_event_id_rejected", event_id=str(event_id)[:12])
+        return None
+    return await _fetch_cached(
+        SUMMARY_URL.format(event_id=candidate),
+        cache_key=_live_summary_cache_key(candidate),
+        ttl_seconds=LIVE_SUMMARY_CACHE_TTL_SECONDS,
+        label="live_summary",
     )

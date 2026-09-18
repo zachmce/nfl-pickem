@@ -53,6 +53,8 @@ _SUPER_BOWL_FIXTURE = Path(__file__).parent / "fixtures" / "espn_postseason_supe
 _STANDINGS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_standings.json"
 _GAMELOG_FIXTURE = Path(__file__).parent / "fixtures" / "espn_athlete_gamelog.json"
 _LEADERS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_league_leaders.json"
+_SCOREBOARD_FIXTURE = Path(__file__).parent / "fixtures" / "espn_scoreboard.json"
+_LIVE_GAME_FIXTURE = Path(__file__).parent / "fixtures" / "espn_live_game.json"
 
 # The DISTINCTIVE KC headline the no-rephrasing regression asserts survives byte-for-byte.
 _KC_HEADLINE = "Patrick Mahomes throws for 5 touchdowns as Chiefs storm past Bills 38-20"
@@ -3715,6 +3717,205 @@ class FetchArticleSearchTests(unittest.TestCase):
         key, _value, ex = fake.sets[0]
         self.assertEqual(key, "qa:articles:chiefs%20lt%20%26type%3Dvideo%2F..%2Fx")
         self.assertEqual(ex, espn_extra.ARTICLE_SEARCH_CACHE_TTL_SECONDS)
+
+
+class ParseScoreboardTests(unittest.TestCase):
+    """The REAL week-2 2026 scoreboard, captured 2026-09-18 and trimmed to four events:
+    one final (DET at BUF, Prime Video) and three not yet kicked off (FOX)."""
+
+    def _payload(self) -> dict:
+        return json.loads(_SCOREBOARD_FIXTURE.read_text())
+
+    def test_reads_the_week_the_season_and_every_game_in_order(self) -> None:
+        out = espn_extra.parse_scoreboard(self._payload())
+        assert out is not None
+        self.assertEqual((out["season"], out["week"]), (2026, 2))
+        self.assertTrue(out["regular_season"])
+        self.assertEqual(
+            [game["name"] for game in out["games"]][:2],
+            ["Detroit Lions at Buffalo Bills", "Carolina Panthers at Atlanta Falcons"],
+        )
+
+    def test_a_final_game_carries_its_score_winner_network_and_venue(self) -> None:
+        out = espn_extra.parse_scoreboard(self._payload())
+        assert out is not None
+        game = out["games"][0]
+        self.assertEqual(game["event_id"], "401872932")
+        self.assertEqual(
+            (game["state"], game["completed"], game["detail"]), ("post", True, "Final")
+        )
+        self.assertEqual(
+            game["home"],
+            {"abbreviation": "BUF", "name": "Buffalo Bills", "score": "41", "winner": True},
+        )
+        self.assertEqual(
+            game["away"], {"abbreviation": "DET", "name": "Detroit Lions", "score": "31"}
+        )
+        self.assertEqual(game["broadcasts"], ["Prime Video"])
+        self.assertEqual(game["venue"], "Highmark Stadium")
+        self.assertEqual(game["date"], "2026-09-18T00:15Z")
+
+    def test_a_pre_game_carries_no_score_field_at_all(self) -> None:
+        # ESPN fills "0" into an unplayed game's score, which would read as a real score.
+        out = espn_extra.parse_scoreboard(self._payload())
+        assert out is not None
+        game = out["games"][1]
+        self.assertEqual(game["state"], "pre")
+        self.assertNotIn("score", game["home"])
+        self.assertNotIn("score", game["away"])
+        self.assertEqual(game["broadcasts"], ["FOX"])
+        self.assertEqual(game["detail"], "9/20 - 1:00 PM EDT")
+
+    def test_unusable_shapes_return_none_and_bad_events_are_dropped(self) -> None:
+        self.assertIsNone(espn_extra.parse_scoreboard(None))
+        self.assertIsNone(espn_extra.parse_scoreboard({"events": "no"}))
+        payload = self._payload()
+        payload["events"].append({"id": "x", "competitions": [{"competitors": []}]})
+        payload["events"].append("junk")
+        out = espn_extra.parse_scoreboard(payload)
+        assert out is not None
+        self.assertEqual(len(out["games"]), 4)
+
+    def test_a_non_digit_event_id_is_dropped_never_relayed(self) -> None:
+        payload = self._payload()
+        payload["events"][0]["id"] = "../etc"
+        out = espn_extra.parse_scoreboard(payload)
+        assert out is not None
+        self.assertIsNone(out["games"][0]["event_id"])
+
+
+class ParseLiveGameTests(unittest.TestCase):
+    """The REAL DET at BUF summary (2026 week 2, final), captured 2026-09-18 and cut to the
+    header, the box score team rows, the kicking and passing player groups, the leaders
+    and the eleven scoring plays."""
+
+    def _payload(self) -> dict:
+        return json.loads(_LIVE_GAME_FIXTURE.read_text())
+
+    def test_reads_the_status_the_score_and_the_broadcast_from_the_header(self) -> None:
+        out = espn_extra.parse_live_game(self._payload())
+        assert out is not None
+        self.assertEqual(out["game"], "Detroit Lions at Buffalo Bills")
+        self.assertEqual((out["state"], out["completed"], out["detail"]), ("post", True, "Final"))
+        self.assertEqual(out["home"]["score"], "41")
+        self.assertEqual(out["away"]["score"], "31")
+        self.assertTrue(out["home"].get("winner"))
+        self.assertEqual(out["broadcasts"], ["Prime Video"])
+        self.assertEqual(out["venue"], "Highmark Stadium")
+
+    def test_team_totals_and_leaders_reuse_the_game_leaders_parsers(self) -> None:
+        out = espn_extra.parse_live_game(self._payload())
+        assert out is not None
+        self.assertEqual(out["team_totals"]["Buffalo Bills"]["total yards"], "446")
+        self.assertEqual(out["team_totals"]["Detroit Lions"]["rushing yards"], "66")
+        self.assertEqual(out["team_totals"], espn_extra._game_team_totals(self._payload()))
+        leaders = espn_extra.parse_game_leaders(self._payload())
+        assert leaders is not None
+        self.assertEqual(out["leaders"], leaders["leaders"])
+
+    def test_kicking_lines_carry_makes_attempts_and_computed_misses(self) -> None:
+        out = espn_extra.parse_live_game(self._payload())
+        assert out is not None
+        bass = out["kicking"]["Buffalo Bills"][0]
+        self.assertEqual(bass["player"], "Tyler Bass")
+        self.assertEqual(bass["field goals made and attempted"], "0/0")
+        self.assertEqual(bass["extra points made and attempted"], "5/6")
+        self.assertEqual(bass["missed field goals"], 0)
+        self.assertEqual(bass["missed extra points"], 1)
+        bates = out["kicking"]["Detroit Lions"][0]
+        self.assertEqual(bates["longest field goal made"], "31")
+        self.assertEqual(bates["missed field goals"], 0)
+
+    def test_scoring_plays_are_in_order_with_the_score_after_each(self) -> None:
+        out = espn_extra.parse_live_game(self._payload())
+        assert out is not None
+        plays = out["scoring_plays"]
+        self.assertEqual(len(plays), 11)
+        self.assertEqual(
+            plays[0],
+            {
+                "quarter": 1,
+                "clock": "9:09",
+                "team": "BUF",
+                "type": "Touchdown",
+                "play": "Josh Allen 1 Yd Rush (Tyler Bass Kick)",
+                "score after": "DET 0, BUF 7",
+            },
+        )
+        self.assertEqual(plays[-1]["score after"], "DET 31, BUF 41")
+
+    def test_scoring_plays_are_capped_to_the_most_recent(self) -> None:
+        payload = self._payload()
+        payload["scoringPlays"] = payload["scoringPlays"] * 3
+        out = espn_extra.parse_live_game(payload)
+        assert out is not None
+        self.assertEqual(len(out["scoring_plays"]), espn_extra.LIVE_SCORING_PLAYS_MAX)
+        self.assertEqual(out["scoring_plays"][-1]["score after"], "DET 31, BUF 41")
+
+    def test_a_header_naming_no_two_clubs_is_none_and_missing_blocks_degrade(self) -> None:
+        self.assertIsNone(espn_extra.parse_live_game(None))
+        self.assertIsNone(espn_extra.parse_live_game({"header": {"competitions": [{}]}}))
+        payload = self._payload()
+        del payload["boxscore"]
+        del payload["scoringPlays"]
+        del payload["leaders"]
+        out = espn_extra.parse_live_game(payload)
+        assert out is not None
+        self.assertEqual(
+            (out["team_totals"], out["kicking"], out["scoring_plays"], out["leaders"]),
+            ({}, {}, [], {}),
+        )
+
+    def test_made_and_attempted_parses_only_a_slash_pair(self) -> None:
+        self.assertEqual(espn_extra._made_and_attempted("4/6"), (4, 6))
+        self.assertIsNone(espn_extra._made_and_attempted("4"))
+        self.assertIsNone(espn_extra._made_and_attempted("a/b"))
+        self.assertIsNone(espn_extra._made_and_attempted(None))
+
+
+class ParseTeamScheduleInProgressTests(unittest.TestCase):
+    def test_a_game_in_progress_is_reported_beside_the_selected_game(self) -> None:
+        payload = _load_schedule_fixture()
+        for event in payload["events"]:
+            if event["week"]["number"] == 19:
+                event["competitions"][0]["status"]["type"]["state"] = "in"
+        out = espn_extra.parse_team_schedule(payload)
+        assert out is not None
+        # The default selection is still the most recent COMPLETED game.
+        self.assertEqual(out["game"]["week"], 18)
+        self.assertEqual(out["in_progress"]["week"], 19)
+        self.assertTrue(out["in_progress"]["in_progress"])
+        untouched = espn_extra.parse_team_schedule(_load_schedule_fixture())
+        assert untouched is not None
+        self.assertIsNone(untouched["in_progress"])
+
+
+class LiveFetchGuardTests(unittest.TestCase):
+    def test_live_summary_rejects_a_non_digit_id_before_any_fetch(self) -> None:
+        async def _boom(*args, **kwargs):
+            raise AssertionError("must not fetch")
+
+        with mock.patch.object(espn_extra, "_fetch_cached", _boom):
+            for bad in ("", "abc", "1; drop", True, None, "1" * 13):
+                with self.subTest(bad=bad):
+                    self.assertIsNone(_run(espn_extra.fetch_live_game_summary(bad)))
+
+    def test_live_summary_uses_its_own_short_key_and_ttl(self) -> None:
+        seen: list[dict] = []
+
+        async def _fake(url, *, cache_key, ttl_seconds, label):
+            seen.append({"url": url, "key": cache_key, "ttl": ttl_seconds, "label": label})
+            return {}
+
+        with mock.patch.object(espn_extra, "_fetch_cached", _fake):
+            _run(espn_extra.fetch_live_game_summary("401872932"))
+            _run(espn_extra.fetch_scoreboard())
+        self.assertEqual(seen[0]["key"], "qa:live:summary:401872932")
+        self.assertEqual(seen[0]["ttl"], espn_extra.LIVE_SUMMARY_CACHE_TTL_SECONDS)
+        self.assertNotEqual(seen[0]["key"], espn_extra._cache_key("401872932"))
+        self.assertEqual(seen[0]["url"], espn_extra.SUMMARY_URL.format(event_id="401872932"))
+        self.assertEqual(seen[1]["url"], espn_extra.SCOREBOARD_URL)
+        self.assertEqual(seen[1]["ttl"], 60)
 
 
 if __name__ == "__main__":
