@@ -12,8 +12,9 @@ Posture, which is DELIBERATELY different from every other answer path:
 * **This is the ONE path allowed to be wrong.** A wrong open answer is colour; a
   wrong spread is a defect. The ten grounded intents keep their current strictness
   and their DB-owned facts are never guessed here — ``OPEN_GUARD`` forbids stating a
-  spread, total, score, standing, close time, or any member's pick, and this module
-  makes NO ``db_bridge`` call at all, so it cannot read anyone's picks.
+  spread, total, standing, close time, or any member's pick (a score is allowed once a
+  tool handed it over, 2026-09-18), and this module makes NO ``db_bridge`` call at all,
+  so it cannot read anyone's picks.
 * **Best-effort, ``None`` by contract.** :func:`answer_open` NEVER raises; the caller
   falls back to a deterministic degrade line.
 * **No ``discord`` import** — the cog :mod:`app.bot.commands.mention_qa` stays the
@@ -80,13 +81,14 @@ logger = structlog.get_logger(__name__)
 # tool result is NOT, so the ban has an edge the model can see. It lives in the ROLE half
 # so the byte-pinned guard constants stay untouched.
 OPEN_TOOLS_CLAUSE = (
-    "The app's own database holds only this week's spreads and totals, the scores of this "
-    "week's games, this pick'em league's standings, the pick deadlines and the members' "
-    "picks. Every other football figure — a team's or a player's season totals, who "
-    "starts, a past season's results, the news — is yours to look up with the tools you "
-    "are given, which read ESPN's live data. Nothing a tool returns is a figure from the "
-    "app's database, so when a tool covers a question you call it and report what it "
-    "returns, and you never decline such a question as one the app answers."
+    "The app's own database holds only this week's spreads and totals, this pick'em "
+    "league's standings, the pick deadlines and the members' picks. Every other football "
+    "figure — a team's or a player's season totals, who starts, a past season's results, "
+    "the news, and the score, the box score and the network of a game this week — is yours "
+    "to look up with the tools you are given, which read ESPN's live data. Nothing a tool "
+    "returns is a figure from the app's database, so when a tool covers a question you "
+    "call it and report what it returns, and you never decline such a question as one the "
+    "app answers."
 )
 
 # MEASURED 2026-09-15 (issue #220): asked a follow-up about "that game" with only the
@@ -122,24 +124,27 @@ OPEN_FORMAT_CLAUSE = (
     "off in the middle of a sentence."
 )
 
-# (b) SCOPE. Defense in depth OVER the validator's deterministic topic guard: the
-# same probe measured the model writing out a FULL LASAGNA RECIPE under an
-# "NFL expert" system prompt, so the persona alone provably does not scope it.
+# (b) SCOPE. Loosened 2026-09-18 after the first live-game test: the deterministic
+# decline menu is gone, so an off-topic question lands here on purpose. The bot answers
+# it in voice and steers back, and it never refuses a question for being off topic.
 OPEN_SCOPE_CLAUSE = (
-    "The only subject you talk about is the NFL, American football, or this pick'em "
-    "league. If the member asks you about anything else — cooking, recipes, homework, "
-    "code, politics, or any other topic — say plainly that football is the only thing "
-    "you talk about, and answer nothing else about that topic."
+    "You are the league's football bot, so the NFL and this pick'em league are your home "
+    "turf, but you are not limited to them. When a member asks you about something else — "
+    "cooking, homework, code, life, or any other topic — answer it briefly and helpfully in "
+    "your voice, in a few sentences at most, and then end with one short line that steers "
+    "the chat back to football or the league, in fresh wording each time and never the "
+    "same sentence twice. Never refuse a question only because it is not about football."
 )
 
 # (c) DB-OWNERSHIP and (d) HONESTY. The numbers the app owns are answered by the
 # grounded intents on their own untouched read paths; this path must never compete
 # with them, and must never invent a specific figure to fill a gap.
 OPEN_OWNERSHIP_CLAUSE = (
-    "Never state a point spread, an over/under total, a game score, a standings "
-    "position, a pick deadline or close time, or any league member's pick, because "
-    "every one of those comes from the app's own data and other parts of the bot "
-    "answer them."
+    "Never state a point spread, an over/under total, a standings position, a pick "
+    "deadline or close time, or any league member's pick, because every one of those "
+    "comes from the app's own data and other parts of the bot answer them. A game's score "
+    "is different: state a score when a lookup you made gives it to you, and never state "
+    "one from memory."
 )
 
 OPEN_HONESTY_CLAUSE = (
@@ -1139,6 +1144,11 @@ async def _lookup_game_leaders(
     year = schedule["season"]
     game = schedule["game"]
 
+    live = schedule.get("in_progress")
+    if live is not None and (asked_week is None or asked_week == live["week"]):
+        fixture = live["name"] if isinstance(live["name"], str) else f"the {club} game"
+        return {"note": _GAME_IN_PROGRESS_NOTE.format(game=fixture, team=team_abbr)}
+
     if game is None:
         if asked_week is not None and asked_week == schedule["bye_week"]:
             return {"note": _BYE_WEEK_NOTE.format(team=club, week=asked_week, season=year)}
@@ -1367,6 +1377,11 @@ _NOT_YET_PLAYED_NOTE = (
     "that the game has not been played yet and say when it is scheduled for, and never "
     "describe how it went or who led it."
 )
+_GAME_IN_PROGRESS_NOTE = (
+    "{game} is being played right now, and this tool reads only finished games. Call "
+    "lookup_live_game with the team argument {team} for that game's live score, box score "
+    "and scoring plays, and answer from what it returns."
+)
 _NO_LEADERS_NOTE = (
     "This tool did find the game the member asked about — {game}, in week {week} of the "
     "{season} NFL season — but ESPN publishes no game leaders for it, so this tool has no "
@@ -1494,7 +1509,9 @@ _GAME_LEADERS_TOOL_DESCRIPTION = (
     "this tool names a starter. When the member asks who STARTS at a position, "
     "lookup_depth_chart is the tool for that question and this one is not. When he asks "
     "what a player did across a whole season rather than in one game, "
-    "lookup_player_season_stats is the tool for that question and this one is not."
+    "lookup_player_season_stats is the tool for that question and this one is not. When "
+    "he asks about a game being played right now or tonight, lookup_live_game is the tool "
+    "and this one is not, because this one reads only finished games."
 )
 
 
@@ -2800,6 +2817,218 @@ _NEWS_SEARCH_TOOL_DESCRIPTION = (
 )
 
 
+# --------------------------------------------------------------------------- #
+# The LIVE GAME and WEEK SCOREBOARD tools (2026-09-18). The first live-game test asked
+# three times about the game being played and got a Week 1 answer, a decline and a
+# "not allowed" refusal: every game tool above selects a FINISHED game, and nothing
+# carried a broadcast. The scoreboard is the current week in every status.
+# --------------------------------------------------------------------------- #
+
+
+def _find_scoreboard_game(games: list[dict], team_abbr: str) -> dict | None:
+    for game in games:
+        if team_abbr in (game["home"]["abbreviation"], game["away"]["abbreviation"]):
+            return game
+    return None
+
+
+def _score_clause(game: dict) -> str:
+    """``"DET 31, BUF 41"`` from a parsed game's two sides, else ``""``."""
+    away = game.get("away") or {}
+    home = game.get("home") or {}
+    if away.get("score") is None or home.get("score") is None:
+        return ""
+    return f"{away['abbreviation']} {away['score']}, {home['abbreviation']} {home['score']}"
+
+
+def _network_clause(broadcasts: list[str]) -> str:
+    return " and ".join(broadcasts) if broadcasts else "a network ESPN does not name"
+
+
+async def _lookup_live_game(team: str = "") -> object | None:
+    """This week's game for ``team`` in ANY status, with live figures once it has started.
+
+    Two cached hops: the scoreboard resolves WHICH game is this week's, then the summary
+    (on the short live TTL) yields the box score. A pre-game returns before the second hop,
+    because its summary carries no figures. Every miss is a note, never bare ``None``.
+    """
+    from app.services import espn_extra
+
+    team_abbr = team.strip().upper() if isinstance(team, str) else ""
+    if not team_abbr:
+        return {"note": _NO_TEAM_FOR_LIVE_GAME_NOTE}
+
+    payload = await espn_extra.fetch_scoreboard()
+    scoreboard = espn_extra.parse_scoreboard(payload) if payload is not None else None
+    if scoreboard is None:
+        return {"note": _SCOREBOARD_FAILED_NOTE}
+    game = _find_scoreboard_game(scoreboard["games"], team_abbr)
+    if game is None:
+        return {
+            "note": _NO_GAME_THIS_WEEK_NOTE.format(
+                team=team_abbr, week=scoreboard["week"] or "this"
+            )
+        }
+
+    fixture = game["name"] or f"the {team_abbr} game"
+    if game["state"] == "pre" or game["event_id"] is None:
+        return {
+            "game": fixture,
+            "status": "not started",
+            "kickoff": game["date"],
+            "venue": game["venue"],
+            "broadcasts": game["broadcasts"],
+            "game_statement": _LIVE_PRE_STATEMENT.format(
+                game=fixture,
+                date=game["date"] or "a time ESPN does not give",
+                network=_network_clause(game["broadcasts"]),
+            ),
+            "caveat": espn_extra.SCOREBOARD_CAVEAT,
+        }
+
+    summary = await espn_extra.fetch_live_game_summary(game["event_id"])
+    live = espn_extra.parse_live_game(summary) if summary is not None else None
+    if live is None:
+        return {
+            "game": fixture,
+            "status": "in progress" if game["state"] == "in" else "final",
+            "score": _score_clause(game),
+            "broadcasts": game["broadcasts"],
+            "note": _LIVE_SUMMARY_FAILED_NOTE.format(game=fixture, score=_score_clause(game)),
+        }
+
+    score = _score_clause(live) or _score_clause(game)
+    if live["state"] == "in":
+        statement = _LIVE_IN_STATEMENT.format(
+            game=fixture, detail=live["detail"] or "in progress", score=score
+        )
+        status = "in progress"
+    else:
+        winner = live["home"] if live["home"].get("winner") else live["away"]
+        statement = _LIVE_POST_STATEMENT.format(game=fixture, score=score, winner=winner["name"])
+        status = "final"
+    return {
+        "game": fixture,
+        "status": status,
+        "clock": live["detail"],
+        "score": score,
+        "venue": live["venue"],
+        "broadcasts": live["broadcasts"] or game["broadcasts"],
+        "team_totals": live["team_totals"],
+        "leaders": live["leaders"],
+        "kicking": live["kicking"],
+        "scoring_plays": live["scoring_plays"],
+        "game_statement": f"{statement} {espn_extra.GAME_TEAM_TOTALS_STATEMENT}",
+        "caveat": espn_extra.LIVE_GAME_CAVEAT,
+    }
+
+
+_LIVE_PRE_STATEMENT = (
+    "{game} has not kicked off yet. It kicks off at {date} UTC and it is on {network}. "
+    "There are no statistics and no score for it yet, so never describe how it is going."
+)
+_LIVE_IN_STATEMENT = (
+    "{game} is being played right now. The status is {detail} and the score right now is "
+    "{score}. Every figure below is as of this moment and will change."
+)
+_LIVE_POST_STATEMENT = "{game} is final. The final score was {score}. The {winner} won that game."
+
+_NO_TEAM_FOR_LIVE_GAME_NOTE = (
+    "No team was given, so this tool looked nothing up. Call it again with the team "
+    "argument set to the standard abbreviation of a team in the game the member asked "
+    "about, or call lookup_week_scoreboard for every game this week."
+)
+_SCOREBOARD_FAILED_NOTE = (
+    "ESPN's scoreboard could not be read just now, so this tool has no live figures this "
+    "time. Tell the member plainly that you could not reach the live scoreboard, and never "
+    "invent a score, a statistic or a network instead."
+)
+_NO_GAME_THIS_WEEK_NOTE = (
+    "The {team} have no game on ESPN's scoreboard for week {week}, so there is no live game "
+    "of theirs to look up. They may be on their bye week. For one of their earlier games, "
+    "lookup_game_leaders is the tool."
+)
+_LIVE_SUMMARY_FAILED_NOTE = (
+    "The live box score for {game} could not be read just now. The scoreboard gives the "
+    "score as {score}, and that score is the only live figure this tool has this time. "
+    "Tell the member plainly that the box score was not available, and never invent a "
+    "statistic or a scoring play instead."
+)
+
+_LIVE_GAME_TOOL_DESCRIPTION = (
+    "Look up the game one NFL team is playing this week, live: whether it has not started, "
+    "is in progress or is final, the quarter and clock, the score right now, each team's "
+    "box-score totals so far such as total yards, each team's leaders, each kicker's field "
+    "goals and extra points made, attempted and missed, every scoring play so far, and the "
+    "TV or streaming network it is on. Call this tool every time the member asks about a "
+    "game being played right now, tonight, today or this week: the score right now, how "
+    "many yards a team has so far, who has scored, whether a kick was missed, who is "
+    "leading in a stat so far, or what channel the game is on, because your own knowledge "
+    "cannot see a game in progress. The team argument is the standard abbreviation of "
+    "either team in the game, for example BUF for the Buffalo Bills. Every figure it "
+    "returns is from this one game and this one week only. For a game from an earlier "
+    "week or an earlier season, lookup_game_leaders is the tool and this one is not. For "
+    "every game on this week's scoreboard at once, lookup_week_scoreboard is the tool."
+)
+
+
+async def _lookup_week_scoreboard() -> object | None:
+    """Every game on this week's scoreboard, with network, status and any score."""
+    from app.services import espn_extra
+
+    payload = await espn_extra.fetch_scoreboard()
+    scoreboard = espn_extra.parse_scoreboard(payload) if payload is not None else None
+    if scoreboard is None:
+        return {"note": _SCOREBOARD_FAILED_NOTE}
+    games = []
+    for game in scoreboard["games"]:
+        entry = {
+            "game": game["name"],
+            "kickoff": game["date"],
+            "state": game["state"],
+            "status": game["detail"],
+            "venue": game["venue"],
+            "network": _network_clause(game["broadcasts"]),
+        }
+        score = _score_clause(game)
+        if score:
+            entry["score"] = score
+        games.append(entry)
+    if not games:
+        return {"note": _EMPTY_SCOREBOARD_NOTE}
+    return {
+        "season": scoreboard["season"],
+        "week": scoreboard["week"],
+        "games": games,
+        "scoreboard_statement": _SCOREBOARD_STATEMENT.format(
+            count=len(games), week=scoreboard["week"], season=scoreboard["season"]
+        ),
+        "caveat": espn_extra.SCOREBOARD_CAVEAT,
+    }
+
+
+_SCOREBOARD_STATEMENT = (
+    "ESPN's scoreboard lists {count} games in week {week} of the {season} NFL season, in "
+    "kick-off order, each with the network it is on."
+)
+_EMPTY_SCOREBOARD_NOTE = (
+    "ESPN's scoreboard lists no games for the current week right now. Tell the member "
+    "plainly that no games are listed, and never invent a matchup or a kick-off time."
+)
+
+_WEEK_SCOREBOARD_TOOL_DESCRIPTION = (
+    "Look up every NFL game on this week's scoreboard: each matchup, its kick-off date and "
+    "time, the TV or streaming network it is on, its status, and its score once it has "
+    "started. Call this tool when the member asks what games are on this week, who plays "
+    "tonight, on Sunday night or on Monday night, when a game kicks off, where or on what "
+    "channel to watch a game, or what the scores around the league are right now, because "
+    "your own knowledge cannot see this week's schedule or its scores. It takes no "
+    "arguments and it covers the current week only. For one game's box score, leaders and "
+    "scoring plays, lookup_live_game is the tool. It carries no point spread and no "
+    "over/under total, because the app's own data answers those."
+)
+
+
 # ONE round vocabulary across both tools that take a round, so the model learns one set of
 # names rather than two. The enum is a second bound on a model-written value; either
 # adapter still resolves anything else through espn_extra's own keyword table.
@@ -3251,6 +3480,41 @@ TOOLS: tuple[_Tool, ...] = (
             },
         },
         run=_search_nfl_news,
+    ),
+    _Tool(
+        name="lookup_live_game",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_live_game",
+                "description": _LIVE_GAME_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {
+                            "type": "string",
+                            "description": (
+                                "The standard abbreviation of either team in the game, such as BUF."
+                            ),
+                        },
+                    },
+                    "required": ["team"],
+                },
+            },
+        },
+        run=_lookup_live_game,
+    ),
+    _Tool(
+        name="lookup_week_scoreboard",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_week_scoreboard",
+                "description": _WEEK_SCOREBOARD_TOOL_DESCRIPTION,
+                "parameters": {"type": "object", "properties": {}, "required": []},
+            },
+        },
+        run=_lookup_week_scoreboard,
     ),
 )
 
