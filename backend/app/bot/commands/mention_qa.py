@@ -178,10 +178,13 @@ class _ChannelMemory:
         """The ``(role, text)`` turns for ``qa.answer_question``, oldest-first.
 
         ``exclude`` drops one turn BY IDENTITY (the question being answered), so a
-        second message with the same text stays in the history.
+        second message with the same text stays in the history. A member's turn carries
+        the speaker's name, because every member shares the one ``user`` role and a
+        follow-up belongs to the member who wrote it. The bot's turn stays bare: the
+        open path matches it byte-for-byte to replay its tool turns.
         """
         return [
-            ("assistant" if turn[2] else "user", turn[1])
+            ("assistant", turn[1]) if turn[2] else ("user", f"{turn[0]}: {turn[1]}")
             for turn in self._turns.get(channel_id, ())
             if turn is not exclude
         ]
@@ -312,6 +315,7 @@ class MentionQaCog(commands.Cog):
                     discord_id=message.author.id,
                     history=history,
                     conversation_key=str(channel_id),
+                    asker_name=speaker,
                 )
                 decorated = decorate_team_logos(line)
                 # suppress_embeds: a news reply carries source links (masked links) —
