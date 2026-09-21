@@ -21,6 +21,8 @@ Locked posture:
     AFTER the room gate, because ``update_rate_limit`` mutates the bucket.
   - A bounded per-channel memory carries the recent transcript, both to feed the gate
     and to give ``qa.answer_question`` conversation history for the open path.
+  - Answers in one channel run ONE AT A TIME (a per-channel lock), so a question that
+    arrives while an answer is in flight sees that answer in its history.
   - The whole handler body is guarded (structlog + swallow): one bad message must
     never crash the gateway loop (``qa.answer_question`` and ``qa_room.is_addressed``
     are themselves best-effort, but the send / decorate path is guarded here too).
@@ -28,6 +30,7 @@ Locked posture:
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections import OrderedDict, deque
 
@@ -128,6 +131,7 @@ class _ChannelMemory:
     def __init__(self) -> None:
         self._turns: OrderedDict[int, deque[tuple[str, str, bool]]] = OrderedDict()
         self._last_bot_reply: dict[int, float] = {}
+        self._locks: dict[int, asyncio.Lock] = {}
 
     def _touch(self, channel_id: int) -> deque[tuple[str, str, bool]]:
         """Return ``channel_id``'s turn deque, creating + evicting as needed."""
@@ -139,11 +143,21 @@ class _ChannelMemory:
         while len(self._turns) > _MEMORY_MAX_CHANNELS:
             evicted, _ = self._turns.popitem(last=False)
             self._last_bot_reply.pop(evicted, None)
+            self._locks.pop(evicted, None)
         return existing
 
-    def record(self, channel_id: int, speaker: str, text: str, *, is_bot: bool = False) -> None:
-        """Append one turn to ``channel_id``'s transcript."""
-        self._touch(channel_id).append((speaker, text, is_bot))
+    def record(
+        self, channel_id: int, speaker: str, text: str, *, is_bot: bool = False
+    ) -> tuple[str, str, bool]:
+        """Append one turn to ``channel_id``'s transcript and return that turn."""
+        turn = (speaker, text, is_bot)
+        self._touch(channel_id).append(turn)
+        return turn
+
+    def answer_lock(self, channel_id: int) -> asyncio.Lock:
+        """The lock that makes answers in ``channel_id`` run one at a time."""
+        self._touch(channel_id)
+        return self._locks.setdefault(channel_id, asyncio.Lock())
 
     def record_bot_reply(self, channel_id: int, speaker: str, text: str, *, now: float) -> None:
         """Append the bot's OWN reply and stamp the last-reply time.
@@ -158,11 +172,18 @@ class _ChannelMemory:
         """The ``(speaker, text)`` turns for the room gate, oldest-first."""
         return [(speaker, text) for speaker, text, _ in self._turns.get(channel_id, ())]
 
-    def history(self, channel_id: int) -> list[tuple[str, str]]:
-        """The ``(role, text)`` turns for ``qa.answer_question``, oldest-first."""
+    def history(
+        self, channel_id: int, *, exclude: tuple[str, str, bool] | None = None
+    ) -> list[tuple[str, str]]:
+        """The ``(role, text)`` turns for ``qa.answer_question``, oldest-first.
+
+        ``exclude`` drops one turn BY IDENTITY (the question being answered), so a
+        second message with the same text stays in the history.
+        """
         return [
-            ("assistant" if is_bot else "user", text)
-            for _, text, is_bot in self._turns.get(channel_id, ())
+            ("assistant" if turn[2] else "user", turn[1])
+            for turn in self._turns.get(channel_id, ())
+            if turn is not exclude
         ]
 
     def spoke_recently(self, channel_id: int, *, now: float) -> bool:
@@ -221,17 +242,18 @@ class MentionQaCog(commands.Cog):
         The ORDER below is load-bearing:
           1-4. the four KEPT gates (bot author, guild-only, @everyone, empty text) —
                cheap, deterministic, and unchanged from the mention-only version.
-          5.   snapshot the history for the answer BEFORE recording, then record this
-               message (so the gate judges a transcript ENDING in this message while
-               ``answer_question`` gets the history EXCLUDING it).
+          5.   record this message, so the gate judges a transcript ENDING in it.
           6.   addressing: an explicit @mention or a reply to the bot passes with NO
-               gate call; anything else needs the recent-bot-reply pre-filter and then
-               the model gate.
+               gate call; a message that @mentions other members and not the bot is
+               dropped with NO gate call; anything else needs the recent-bot-reply
+               pre-filter and then the model gate.
           7.   the per-user cooldown — AFTER the gate on purpose. ``update_rate_limit``
                MUTATES the bucket, so running it first would burn the asker's bucket on
                ordinary channel chatter and drop their real question seconds later.
-          8.   typing indicator + answer + decorate + split + send.
-          9.   record the bot's own reply (what opens the pre-filter next time).
+          8.   the per-channel lock, then the history snapshot EXCLUDING this message,
+               then typing indicator + answer + decorate + split + send.
+          9.   record the bot's own reply (what opens the pre-filter next time) —
+               still inside the lock, so the next waiting answer reads it.
         """
         try:
             # (1) Ignore messages from bots / the bot itself.
@@ -251,25 +273,29 @@ class MentionQaCog(commands.Cog):
             if not question:
                 return
 
-            # (5) Snapshot BEFORE recording so the answer's history excludes this turn.
+            # (5) Record first so the gate's transcript ends in this message.
             channel_id = message.channel.id
-            history = self._memory.history(channel_id)
             speaker = getattr(message.author, "display_name", None) or "someone"
-            self._memory.record(channel_id, speaker, question)
+            turn = self._memory.record(channel_id, speaker, question)
 
             # (6) Is this addressed to the bot?
             mentioned = self.bot.user in message.mentions
             if not (mentioned or _is_reply_to_bot(message, self.bot.user.id)):
+                if message.mentions:
+                    return  # addressed to another member — the gate is never consulted
                 if not self._memory.spoke_recently(channel_id, now=time.time()):
                     return  # cold channel — the gate is never consulted
                 addressed = await qa_room.is_addressed(
                     self._memory.transcript(channel_id), bot_name=self._bot_name()
                 )
+                # Logged both ways: a silent drop was undiagnosable from a transcript.
+                logger.info("mention_qa_gate_decision", channel_id=channel_id, addressed=addressed)
                 if not addressed:
                     return
 
             # (7) Per-user cooldown — only ever spent on a message we would answer.
             if self._is_rate_limited(message):
+                logger.info("mention_qa_cooldown_dropped", channel_id=channel_id)
                 return
 
             # (8) Show the "Pick'em Bot is typing…" indicator for the whole answer + send.
@@ -277,7 +303,10 @@ class MentionQaCog(commands.Cog):
             # with NO 3s interaction ACK deadline; discord.py auto-refreshes the indicator
             # every ~10s until the block exits — covering the Gemma calls + any live
             # fetches a prediction makes (#117 / the prediction-intent design).
-            async with message.channel.typing():
+            # 2026-09-20: two questions in one minute got the FIRST one answered twice —
+            # the second answer's history held the first question with no reply to it.
+            async with self._memory.answer_lock(channel_id), message.channel.typing():
+                history = self._memory.history(channel_id, exclude=turn)
                 line = await qa.answer_question(
                     question,
                     discord_id=message.author.id,
@@ -297,9 +326,9 @@ class MentionQaCog(commands.Cog):
                         allowed_mentions=discord.AllowedMentions.none(),
                         suppress_embeds=True,
                     )
-            # (9) Stamp the bot's own reply — this is what opens the pre-filter so a
-            # bare follow-up in this channel can reach the gate at all.
-            self._memory.record_bot_reply(channel_id, self._bot_name(), line, now=time.time())
+                # (9) Stamp the bot's own reply — this is what opens the pre-filter so a
+                # bare follow-up in this channel can reach the gate at all.
+                self._memory.record_bot_reply(channel_id, self._bot_name(), line, now=time.time())
         except Exception:
             # One bad message must never crash the gateway loop (mirrors the notifier
             # per-message guard). answer_question and is_addressed are best-effort too,

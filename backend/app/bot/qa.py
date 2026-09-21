@@ -666,6 +666,11 @@ SLATE_PREDICTION_GUARD = (
     "Reply with ONE short line and at most one emoji."
 )
 
+# A phrased header never legitimately carries a bracketed span (team logos are added
+# later). Live 2026-09-20: "my model makes it [model number and lean from the following
+# lines]" — the model wrote the guard's own wording as a fill-in slot.
+_PLACEHOLDER_RE = re.compile(r"\[[^\]]*\]")
+
 # Deterministic short-circuit line for an unregistered asker (no LLM call needed).
 _REGISTER_LINE = "You need a pick'em account first — run /register to get set up."
 
@@ -2030,6 +2035,9 @@ async def answer_question(
                     fact.header_fact, system_prompt=system_prompt
                 )
                 header = phrased_header if phrased_header is not None else fact.header_fact
+                if _PLACEHOLDER_RE.search(header):
+                    logger.info("qa_header_placeholder_scrubbed", intent=result.intent.value)
+                    header = fact.header_fact
             else:
                 header = fact.header_fact
             if result.intent in _ANALYST_INTENTS:

@@ -1823,6 +1823,32 @@ class PredictionIntentRoutingTests(unittest.TestCase):
         self.assertNotIn("Chiefs -1.5", out)  # the junk second line is dropped
         self.assertIn("**My read: I lean LAC here", out)  # the deterministic body is intact
 
+    def test_prediction_lead_with_a_bracket_placeholder_falls_back_to_the_fact(self) -> None:
+        # Live 2026-09-20: the lead reached Discord as "my model makes it [model number
+        # and lean from the following lines]."
+        seam_patch, _ = _seam("get_prediction_inputs_async", _prediction_inputs())
+        odds_patch, _ = _fetch_live_odds_returns(None)
+        inj_patch, _ = _fetch_injuries_returns(None)
+        lookup_patch, _ = _lookup_returns(None)
+        phrase_patch, _ = _phrase_returns(
+            "The Chiefs get the house-bot treatment: my model makes it "
+            "[model number and lean from the following lines]."
+        )
+        with (
+            _classify_returns({"intent": "prediction", "team": "Chiefs"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            odds_patch,
+            inj_patch,
+            lookup_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("who wins the Chiefs game?", discord_id=7))
+        self.assertEqual(out.split("\n")[0], "Here's my read on the KC game.")
+        self.assertNotIn("[", out)
+        self.assertIn("**My read: I lean LAC here", out)
+
 
 def _home_fav_game(model_margin: float, *, spread: str = "3.0") -> dict:
     """A HOME-favorite game dict (KC home favored over LAC), model margin injected."""

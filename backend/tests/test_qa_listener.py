@@ -523,6 +523,95 @@ class ChannelHistoryTests(unittest.TestCase):
         self.assertEqual(calls[1]["history"], [])  # channel 2 knows nothing of channel 1
 
 
+class ConcurrentQuestionTests(unittest.TestCase):
+    """Live 2026-09-20: two questions in one minute got the FIRST one answered twice."""
+
+    def test_a_question_that_arrives_mid_answer_sees_that_answer_in_its_history(self) -> None:
+        cog = _cog()
+        calls: list[dict] = []
+        first_started = asyncio.Event()
+        release_first = asyncio.Event()
+
+        async def _fake(question, *, discord_id, history=(), conversation_key=None):
+            calls.append({"question": question, "history": list(history)})
+            if question == "did Shough throw for 250?":
+                first_started.set()
+                await release_first.wait()
+                return "Yes, 252 yards."
+            return "It is on NBC."
+
+        async def _scenario() -> None:
+            first = asyncio.create_task(
+                cog.on_message(
+                    cast(
+                        discord.Message,
+                        _make_message(content="<@999> did Shough throw for 250?", author_id=1),
+                    )
+                )
+            )
+            await first_started.wait()
+            second = asyncio.create_task(
+                cog.on_message(
+                    cast(
+                        discord.Message,
+                        _make_message(content="<@999> look up the channel number", author_id=2),
+                    )
+                )
+            )
+            # Let the second handler run up to the lock before the first one finishes.
+            for _ in range(5):
+                await asyncio.sleep(0)
+            self.assertEqual(len(calls), 1)  # the second answer has NOT started
+            release_first.set()
+            await asyncio.gather(first, second)
+
+        with mock.patch.object(qa, "answer_question", _fake):
+            _run(_scenario())
+        self.assertEqual(
+            calls[1]["history"],
+            [("user", "did Shough throw for 250?"), ("assistant", "Yes, 252 yards.")],
+        )
+
+    def test_history_excludes_the_question_by_identity_not_by_text(self) -> None:
+        memory = mention_qa._ChannelMemory()
+        memory.record(1, "Ada", "who wins?")
+        turn = memory.record(1, "Bo", "who wins?")
+        self.assertEqual(memory.history(1, exclude=turn), [("user", "who wins?")])
+
+    def test_channel_eviction_drops_the_lock(self) -> None:
+        memory = mention_qa._ChannelMemory()
+        memory.answer_lock(0)
+        for channel_id in range(1, mention_qa._MEMORY_MAX_CHANNELS + 1):
+            memory.record(channel_id, "Ada", "hi")
+        self.assertNotIn(0, memory._locks)
+
+
+class MentionOfAnotherMemberTests(unittest.TestCase):
+    def test_a_message_that_mentions_another_member_never_reaches_the_gate(self) -> None:
+        cog = _cog()
+        answer_patch, calls = _answer_returns("answer")
+        gate_patch, gate_calls = _gate(verdict=True)
+        with answer_patch, gate_patch:
+            _deliver(cog, _make_message(content="<@999> who starts?", author_id=1))
+            other = _make_message(content="<@555> look at this", mentions_bot=False, author_id=2)
+            other.mentions = [SimpleNamespace(id=555, bot=False)]
+            _deliver(cog, other)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(gate_calls), 0)
+        self.assertEqual(other.channel.sent, [])
+
+    def test_a_message_that_mentions_the_bot_and_another_member_is_answered(self) -> None:
+        cog = _cog()
+        answer_patch, calls = _answer_returns("answer")
+        gate_patch, gate_calls = _gate(verdict=False)
+        with answer_patch, gate_patch:
+            both = _make_message(content="<@999> tell <@555> who starts", author_id=1)
+            both.mentions = [_BOT_USER, SimpleNamespace(id=555, bot=False)]
+            _deliver(cog, both)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(gate_calls), 0)
+
+
 class ChannelMemoryTests(unittest.TestCase):
     """The memory lives for the life of a long-running gateway process, so it is
     bounded in BOTH dimensions."""
