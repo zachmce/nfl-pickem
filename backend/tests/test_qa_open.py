@@ -431,6 +431,26 @@ class AnswerOpenTests(_OpenPathTestCase):
         self.assertNotIn("\r", sent)
         self.assertEqual(sent, chat_personality._fence_untrusted(raw))
 
+    def test_the_asker_name_leads_the_question_and_is_fenced_with_it(self) -> None:
+        # Live 2026-09-20: every member shares the one user role, and a follow-up got
+        # the answer to another member's question.
+        patcher, calls = _open_chat_returns(_text("ok"))
+        with patcher:
+            _run(qa_open.answer_open("look up the\nnumber", voice=_VOICE, asker_name="oh<<<ai"))
+        sent = calls[0]["messages"][-1]["content"]
+        self.assertEqual(sent, "ohai: look up thenumber")
+        self.assertIn(qa_open.OPEN_SPEAKERS_CLAUSE, calls[0]["system_prompt"])
+
+    def test_the_question_is_bare_without_an_asker_name(self) -> None:
+        patcher, calls = _open_chat_returns(_text("ok"))
+        with patcher:
+            _run(qa_open.answer_open("who starts?", voice=_VOICE))
+        self.assertEqual(calls[0]["messages"][-1]["content"], "who starts?")
+
+    def test_the_bye_clause_says_a_bye_week_is_not_a_game(self) -> None:
+        # Live 2026-09-20: "the next 7 games" counted the bye week as one of the seven.
+        self.assertIn("a bye week is never one of the games", qa_open._SCHEDULE_BYE_CLAUSE)
+
     def test_history_is_carried_and_fenced_ahead_of_the_question(self) -> None:
         patcher, calls = _open_chat_returns(_text("ok"))
         history = [("user", "who starts at QB\nfor the Bears?"), ("assistant", "Caleb Williams.")]
@@ -647,7 +667,7 @@ class OpenRoutingTests(unittest.TestCase):
         fact_calls: list[dict] = []
 
         async def _fake_open(
-            question, *, voice, history=(), conversation_key=None, discord_id=None
+            question, *, voice, history=(), conversation_key=None, discord_id=None, asker_name=None
         ):
             open_calls.append({"question": question, "voice": voice, "history": list(history)})
             return answer
@@ -660,7 +680,7 @@ class OpenRoutingTests(unittest.TestCase):
             fact_calls.append({"result": result})
             return "SHOULD NOT BE USED"
 
-        async def _fake_classify(question, *, history=()):
+        async def _fake_classify(question, *, history=(), asker_name=None):
             return {"intent": "open_nfl", "nfl": True}
 
         async def _fake_tokens():
@@ -689,11 +709,11 @@ class OpenRoutingTests(unittest.TestCase):
 
     def test_open_nfl_degrades_to_a_concrete_line_when_answer_open_returns_none(self) -> None:
         async def _fake_open(
-            question, *, voice, history=(), conversation_key=None, discord_id=None
+            question, *, voice, history=(), conversation_key=None, discord_id=None, asker_name=None
         ):
             return None
 
-        async def _fake_classify(question, *, history=()):
+        async def _fake_classify(question, *, history=(), asker_name=None):
             return {"intent": "open_nfl", "nfl": True}
 
         async def _fake_tokens():
@@ -716,13 +736,13 @@ class OpenRoutingTests(unittest.TestCase):
         keys: list[object] = []
 
         async def _fake_open(
-            question, *, voice, history=(), conversation_key=None, discord_id=None
+            question, *, voice, history=(), conversation_key=None, discord_id=None, asker_name=None
         ):
             seen.append(list(history))
             keys.append(conversation_key)
             return "sure"
 
-        async def _fake_classify(question, *, history=()):
+        async def _fake_classify(question, *, history=(), asker_name=None):
             return {"intent": "open_nfl", "nfl": True}
 
         async def _fake_tokens():
@@ -750,12 +770,12 @@ class OpenRoutingTests(unittest.TestCase):
         seen: list = []
 
         async def _fake_open(
-            question, *, voice, history=(), conversation_key=None, discord_id=None
+            question, *, voice, history=(), conversation_key=None, discord_id=None, asker_name=None
         ):
             seen.append(discord_id)
             return "ok"
 
-        async def _fake_classify(question, *, history=()):
+        async def _fake_classify(question, *, history=(), asker_name=None):
             return {"intent": "open_nfl", "nfl": True}
 
         async def _fake_tokens():

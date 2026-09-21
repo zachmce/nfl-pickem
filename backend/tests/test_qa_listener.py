@@ -158,13 +158,14 @@ def _answer_returns(value):
     """Patch qa.answer_question with an async fake, recording its calls."""
     calls: list[dict] = []
 
-    async def _fake(question, *, discord_id, history=(), conversation_key=None):
+    async def _fake(question, *, discord_id, history=(), conversation_key=None, asker_name=None):
         calls.append(
             {
                 "question": question,
                 "discord_id": discord_id,
                 "history": list(history),
                 "conversation_key": conversation_key,
+                "asker_name": asker_name,
             }
         )
         return value
@@ -173,7 +174,7 @@ def _answer_returns(value):
 
 
 def _answer_raises():
-    async def _fake(question, *, discord_id, history=(), conversation_key=None):
+    async def _fake(question, *, discord_id, history=(), conversation_key=None, asker_name=None):
         raise RuntimeError("boom")
 
     return mock.patch.object(qa, "answer_question", _fake)
@@ -491,9 +492,11 @@ class ChannelHistoryTests(unittest.TestCase):
         # Second answer: the prior question + the bot's own reply, current one EXCLUDED.
         history = calls[1]["history"]
         self.assertEqual([role for role, _ in history], ["user", "assistant"])
-        self.assertEqual(history[0][1], "who starts at QB?")
+        self.assertEqual(history[0][1], "Ada: who starts at QB?")
         self.assertEqual(history[1][1], "Caleb Williams.")
         self.assertNotIn("how long?", [text for _, text in history])
+        # The asker is named, so a follow-up resolves against THEIR earlier turns.
+        self.assertEqual([call["asker_name"] for call in calls], ["Ada", "Ada"])
         # The channel id names the conversation the open path keeps its grounding under.
         self.assertEqual(calls[0]["conversation_key"], calls[1]["conversation_key"])
         self.assertIsInstance(calls[0]["conversation_key"], str)
@@ -532,7 +535,9 @@ class ConcurrentQuestionTests(unittest.TestCase):
         first_started = asyncio.Event()
         release_first = asyncio.Event()
 
-        async def _fake(question, *, discord_id, history=(), conversation_key=None):
+        async def _fake(
+            question, *, discord_id, history=(), conversation_key=None, asker_name=None
+        ):
             calls.append({"question": question, "history": list(history)})
             if question == "did Shough throw for 250?":
                 first_started.set()
@@ -569,14 +574,14 @@ class ConcurrentQuestionTests(unittest.TestCase):
             _run(_scenario())
         self.assertEqual(
             calls[1]["history"],
-            [("user", "did Shough throw for 250?"), ("assistant", "Yes, 252 yards.")],
+            [("user", "Ada: did Shough throw for 250?"), ("assistant", "Yes, 252 yards.")],
         )
 
     def test_history_excludes_the_question_by_identity_not_by_text(self) -> None:
         memory = mention_qa._ChannelMemory()
         memory.record(1, "Ada", "who wins?")
         turn = memory.record(1, "Bo", "who wins?")
-        self.assertEqual(memory.history(1, exclude=turn), [("user", "who wins?")])
+        self.assertEqual(memory.history(1, exclude=turn), [("user", "Ada: who wins?")])
 
     def test_channel_eviction_drops_the_lock(self) -> None:
         memory = mention_qa._ChannelMemory()
@@ -648,7 +653,7 @@ class ChannelMemoryTests(unittest.TestCase):
         memory.record(1, "Ada", "who starts?")
         memory.record_bot_reply(1, "Bot", "Caleb Williams.", now=0.0)
         self.assertEqual(
-            memory.history(1), [("user", "who starts?"), ("assistant", "Caleb Williams.")]
+            memory.history(1), [("user", "Ada: who starts?"), ("assistant", "Caleb Williams.")]
         )
 
 

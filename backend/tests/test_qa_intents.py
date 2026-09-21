@@ -33,7 +33,7 @@ def _run(coro):
 def _classify_returns(raw):
     """Patch qa.classify_question to an async fake returning ``raw``."""
 
-    async def _fake(question, *, history=()):
+    async def _fake(question, *, history=(), asker_name=None):
         return raw
 
     return mock.patch.object(qa, "classify_question", _fake)
@@ -177,7 +177,7 @@ class HardLeakTests(unittest.TestCase):
         open_calls: list[str] = []
 
         async def _fake_open(
-            question, *, voice, history=(), conversation_key=None, discord_id=None
+            question, *, voice, history=(), conversation_key=None, discord_id=None, asker_name=None
         ):
             open_calls.append(question)
             return "Nice try. Picks stay hidden until the window closes."
@@ -232,29 +232,30 @@ class IntentRoutingTests(unittest.TestCase):
         self.assertEqual(out, qa._REGISTER_LINE)
         self.assertEqual(calls, [])  # no LLM call on the unregistered path
 
-    def test_standings_routes_to_leaders_reader(self) -> None:
-        seam_patch, seam_calls = _seam(
-            "get_leaders_context_async",
-            {
-                "leader": "Ada",
-                "leader_total": 40,
-                "runner_up": "Bo",
-                "runner_up_total": 33,
-                "gap": 7,
-            },
-        )
-        phrase_patch, calls = _phrase_returns(None)
+    def test_standings_routes_to_the_open_path(self) -> None:
+        # Live 2026-09-20: the two-name standings fact answered "how many points do I
+        # have", "who is in last" and "who is best this week" with the same leader line.
+        # The open path's lookup_standings carries the whole table and the asker's row.
+        open_calls: list[dict] = []
+
+        async def _fake_open(
+            question, *, voice, history=(), conversation_key=None, discord_id=None, asker_name=None
+        ):
+            open_calls.append({"question": question, "discord_id": discord_id})
+            return "You have 5 points, good for fourth."
+
+        phrase_patch, phrase_calls = _phrase_returns("SHOULD NOT BE USED")
         with (
             _classify_returns({"intent": "standings"}),
             _tokens("KC"),
-            seam_patch,
             _voice(),
             phrase_patch,
+            mock.patch.object(qa.qa_open, "answer_open", _fake_open),
         ):
-            out = _run(qa.answer_question("who's winning?", discord_id=7))
-        self.assertEqual(len(seam_calls), 1)
-        self.assertIn("Ada", out)
-        self.assertIn("Bo", out)
+            out = _run(qa.answer_question("how many points do I have?", discord_id=7))
+        self.assertEqual(out, "You have 5 points, good for fourth.")
+        self.assertEqual(open_calls, [{"question": "how many points do I have?", "discord_id": 7}])
+        self.assertEqual(phrase_calls, [])
 
     def test_lines_slate_with_team_routes_with_team_abbr(self) -> None:
         seam_patch, seam_calls = _seam(
@@ -365,7 +366,7 @@ class IntentRoutingTests(unittest.TestCase):
         calls: list[str] = []
 
         async def _fake_open(
-            question, *, voice, history=(), conversation_key=None, discord_id=None
+            question, *, voice, history=(), conversation_key=None, discord_id=None, asker_name=None
         ):
             calls.append(question)
             return value
@@ -446,53 +447,53 @@ class QaGuardClauseTests(unittest.TestCase):
         self.assertTrue(qa.QA_GUARD.endswith("Reply with ONE short line and at most one emoji."))
 
     def test_the_ban_reaches_a_non_analyst_prompt(self) -> None:
-        # QA_GUARD is shared by every non-analyst intent; standings is one of them.
+        # QA_GUARD is shared by every non-analyst intent; pick_status is one of them.
         seam_patch, _ = _seam(
-            "get_leaders_context_async",
-            {"leader": "Ada", "leader_total": 40, "runner_up": "Bo", "gap": 6},
+            "get_pick_status_async",
+            {"registered": True, "display_name": "Ada", "complete": True, "remaining_labels": []},
         )
-        phrase_patch, calls = _phrase_returns("Ada leads with 40, Bo is 6 back 📉")
+        phrase_patch, calls = _phrase_returns("Ada's all locked in 🔒")
         with (
-            _classify_returns({"intent": "standings"}),
+            _classify_returns({"intent": "pick_status"}),
             _tokens("KC"),
             seam_patch,
             _voice(),
             phrase_patch,
         ):
-            _run(qa.answer_question("who's winning?", discord_id=7))
+            _run(qa.answer_question("am I locked in?", discord_id=7))
         self.assertIn("is not a supplied number", calls[0]["system_prompt"])
 
 
 class BestEffortTests(unittest.TestCase):
     def test_falls_back_to_fact_when_phrase_returns_none(self) -> None:
         seam_patch, _ = _seam(
-            "get_leaders_context_async",
+            "get_pick_status_async",
             {
-                "leader": "Ada",
-                "leader_total": 40,
-                "runner_up": None,
-                "runner_up_total": None,
-                "gap": None,
+                "registered": True,
+                "display_name": "Ada",
+                "pick_open": True,
+                "complete": False,
+                "remaining_labels": [],
             },
         )
         phrase_patch, _ = _phrase_returns(None)
         with (
-            _classify_returns({"intent": "standings"}),
+            _classify_returns({"intent": "pick_status"}),
             _tokens("KC"),
             seam_patch,
             _voice(),
             phrase_patch,
         ):
-            out = _run(qa.answer_question("standings?", discord_id=7))
+            out = _run(qa.answer_question("am I in?", discord_id=7))
         # Exactly one line lands — the deterministic fact itself.
         self.assertIn("Ada", out)
-        self.assertIn("leads the season", out)
+        self.assertIn("not complete", out)
 
     def test_never_raises_when_a_seam_raises(self) -> None:
-        seam_patch, _ = _seam("get_leaders_context_async", raises=True)
+        seam_patch, _ = _seam("get_pick_status_async", raises=True)
         phrase_patch, _ = _phrase_returns("unused")
         with (
-            _classify_returns({"intent": "standings"}),
+            _classify_returns({"intent": "pick_status"}),
             _tokens("KC"),
             seam_patch,
             _voice(),
@@ -1823,6 +1824,58 @@ class PredictionIntentRoutingTests(unittest.TestCase):
         self.assertNotIn("Chiefs -1.5", out)  # the junk second line is dropped
         self.assertIn("**My read: I lean LAC here", out)  # the deterministic body is intact
 
+    def _later_week_case(self, week: int | None):
+        open_calls: list[dict] = []
+
+        async def _fake_open(
+            question, *, voice, history=(), conversation_key=None, discord_id=None, asker_name=None
+        ):
+            open_calls.append({"question": question, "asker_name": asker_name})
+            return "Week 9 is a long way off."
+
+        seam_patch, _ = _seam("get_prediction_inputs_async", _prediction_inputs())  # week 5
+        odds_patch, _ = _fetch_live_odds_returns(None)
+        inj_patch, _ = _fetch_injuries_returns(None)
+        lookup_patch, _ = _lookup_returns(None)
+        phrase_patch, _ = _phrase_returns(None)
+        with (
+            _classify_returns({"intent": "prediction", "team": "Chiefs", "week": week}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            odds_patch,
+            inj_patch,
+            lookup_patch,
+            _voice(),
+            phrase_patch,
+            mock.patch.object(qa.qa_open, "answer_open", _fake_open),
+        ):
+            out = _run(
+                qa.answer_question("who wins the Chiefs game?", discord_id=7, asker_name="Ada")
+            )
+        return out, open_calls
+
+    def test_a_prediction_about_a_later_week_goes_to_the_open_path(self) -> None:
+        # Measured 2026-09-21: the classifier said prediction 4/4 for a week 9 game, and
+        # the read only exists for this week's game.
+        out, open_calls = self._later_week_case(9)
+        self.assertEqual(out, "Week 9 is a long way off.")
+        self.assertEqual(
+            open_calls, [{"question": "who wins the Chiefs game?", "asker_name": "Ada"}]
+        )
+
+    def test_a_prediction_that_names_this_week_or_no_week_keeps_the_read(self) -> None:
+        for week in (5, None):
+            out, open_calls = self._later_week_case(week)
+            self.assertEqual(open_calls, [])
+            self.assertIn("**My read:", out)
+
+    def test_the_analyst_guards_name_no_following_lines_to_stand_in_for(self) -> None:
+        # The placeholder lead copied the guard's own "following lines" wording.
+        for guard in (qa.PREDICTION_GUARD, qa.SLATE_PREDICTION_GUARD):
+            self.assertNotIn("following lines", guard)
+            self.assertIn("never write a square bracket", guard)
+            self.assertTrue(guard.endswith("Reply with ONE short line and at most one emoji."))
+
     def test_prediction_lead_with_a_bracket_placeholder_falls_back_to_the_fact(self) -> None:
         # Live 2026-09-20: the lead reached Discord as "my model makes it [model number
         # and lean from the following lines]."
@@ -1845,7 +1898,7 @@ class PredictionIntentRoutingTests(unittest.TestCase):
             phrase_patch,
         ):
             out = _run(qa.answer_question("who wins the Chiefs game?", discord_id=7))
-        self.assertEqual(out.split("\n")[0], "Here's my read on the KC game.")
+        self.assertEqual(out.split("\n")[0], "Here's my read on this week's KC game, LAC at KC.")
         self.assertNotIn("[", out)
         self.assertIn("**My read: I lean LAC here", out)
 

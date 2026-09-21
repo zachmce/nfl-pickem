@@ -99,8 +99,16 @@ _TEAM_INTENTS = frozenset(
 # (injuries / weather / lines_slate / prediction) stay team-REQUIRED: a non-real team on
 # those still coerces to ``unknown``.
 _TEAM_OPTIONAL_INTENTS = frozenset({QaIntent.news})
+# ``prediction`` carries the week ONLY so a later-week game can be handed to the open
+# path (see ``_LATER_WEEK``); the prediction read itself is always the current week's.
 _WEEK_INTENTS = frozenset(
-    {QaIntent.pick_status, QaIntent.lines_slate, QaIntent.scores, QaIntent.slate_predictions}
+    {
+        QaIntent.pick_status,
+        QaIntent.lines_slate,
+        QaIntent.scores,
+        QaIntent.slate_predictions,
+        QaIntent.prediction,
+    }
 )
 _SUBJECT_INTENTS = frozenset(
     {QaIntent.lines_slate, QaIntent.unknown, QaIntent.coming_soon, QaIntent.news}
@@ -116,7 +124,14 @@ _ANALYST_INTENTS = frozenset({QaIntent.prediction, QaIntent.slate_predictions})
 # The intents the open path answers (2026-09-18): the off-menu football question, the
 # off-topic question the classifier marks unknown, and the once-"coming soon" topics.
 # There is no deterministic decline menu any more.
-_OPEN_INTENTS = frozenset({QaIntent.open_nfl, QaIntent.unknown, QaIntent.coming_soon})
+# ``standings`` joined 2026-09-21: the old two-name fact (leader + runner-up) answered
+# "how many points do I have", "who is in last" and "who is best this week" with the
+# same leader line, four times in a row live. ``lookup_standings`` carries the whole
+# table and the asker's own row. The classifier still emits ``standings``, so a
+# leaderboard question stays apart from an NFL team's record.
+_OPEN_INTENTS = frozenset(
+    {QaIntent.open_nfl, QaIntent.unknown, QaIntent.coming_soon, QaIntent.standings}
+)
 
 # Sane NFL week bounds for the coerced ``week`` param (regular season + playoffs);
 # anything outside becomes None.
@@ -161,8 +176,11 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "questionable across the WHOLE team), weather (the game-time forecast or "
     "conditions for a team's game), news (recent ESPN headlines about a specific "
     "team or the league), "
-    "prediction (who will win a specific team's game — the pick, the cover or "
-    "margin read, who covers the spread), "
+    "prediction (who will win ONE specific team's game THIS WEEK — the pick, the cover "
+    "or margin read, who covers the spread; the bot can only call the game a team plays "
+    "THIS week, so a question that names a LATER week or a later date, a question about "
+    "SEVERAL of a team's games, and a question about the rest of a team's season are "
+    "each open_nfl, NOT prediction), "
     "slate_predictions (your OWN opinion across the whole week's slate — your "
     "picks, who you like, who you like as a favorite or an underdog, your safest "
     "mortal lock, an over/under read, or what your model says about all this "
@@ -202,9 +220,12 @@ CLASSIFIER_SYSTEM_PROMPT = (
 # has to resolve a referent, not follow the whole conversation, and every turn is
 # prompt tokens on a call that runs on EVERY answered message.
 _CLASSIFIER_HISTORY_TURNS = 4
+_ASKER_NAME_CHARS = 64
 
 
-def _classifier_user_content(question: str, history: Sequence[tuple[str, str]]) -> str:
+def _classifier_user_content(
+    question: str, history: Sequence[tuple[str, str]], asker_name: str | None = None
+) -> str:
     """Build the classifier's user message: fenced prior turns, then the fenced question.
 
     Each turn is fenced INDIVIDUALLY through
@@ -227,9 +248,13 @@ def _classifier_user_content(question: str, history: Sequence[tuple[str, str]]) 
     if not lines:
         return fenced_question
     prior = "\n".join(lines)
+    # The asker is named so a follow-up resolves against THEIR earlier turn, not against
+    # another member's question that happens to sit right above it.
+    fenced_asker = chat_personality._fence_untrusted(asker_name or "", limit=_ASKER_NAME_CHARS)
+    written_by = f", written by {fenced_asker}" if fenced_asker else ""
     return (
         "Earlier turns of this conversation, for resolving references only:\n"
-        f"{prior}\n\nCurrent message to classify:\n{fenced_question}"
+        f"{prior}\n\nCurrent message to classify{written_by}:\n{fenced_question}"
     )
 
 
@@ -237,6 +262,7 @@ async def classify_question(
     question: str,
     *,
     history: Sequence[tuple[str, str]] = (),
+    asker_name: str | None = None,
 ) -> dict | None:
     """Classify ``question`` into a raw intent dict, or ``None`` on any failure.
 
@@ -257,7 +283,7 @@ async def classify_question(
     returned ``nfl: true``. Without the prior turns the guard fires on incomplete
     input.
     """
-    fenced = _classifier_user_content(question, history)
+    fenced = _classifier_user_content(question, history, asker_name)
     try:
         raw = await llm_client.classify(fenced, system_prompt=CLASSIFIER_SYSTEM_PROMPT)
     except Exception:
@@ -636,8 +662,9 @@ PREDICTION_GUARD = (
     "Re-voice the supplied intro in character — it leads your read on a specific game, which "
     "lands verbatim on the lines right below it. You may needle the teams or the matchup, but "
     "do NOT declare who wins, loses, or covers, and add NO stat, spread, margin, or number "
-    "that is not in the intro, because your model's own number and its lean are written "
-    "verbatim on the following lines as an independent cross-check on the market. Say NOTHING "
+    "that is not in the intro. The app writes the read itself — the lean and every number — "
+    "under your line, so your line carries none of it and never stands in for it: never "
+    "write a square bracket or a slot for text that comes later. Say NOTHING "
     "about the member's picks, choices, account, or pick'em status, because there are none "
     "here. Reply with ONE short line and at most one emoji."
 )
@@ -660,8 +687,10 @@ SLATE_PREDICTION_GUARD = (
     "lands verbatim on the lines right below it. Your job across those lines is to explain "
     "why each market line sits where it does and to offer your model's own number as an "
     "independent cross-check, never as a bet-this signal. In THIS intro do NOT declare a "
-    "winner, name a side to cover, or add any spread, margin, or number, because every "
-    "figure and lean is written verbatim on the following lines. Say NOTHING about any "
+    "winner, name a side to cover, or add any spread, margin, or number. The app writes "
+    "every figure and lean under your line, so your line carries none of them and never "
+    "stands in for them: never write a square bracket or a slot for text that comes "
+    "later. Say NOTHING about any "
     "member's picks, choices, account, or pick'em status, because there are none here. "
     "Reply with ONE short line and at most one emoji."
 )
@@ -670,6 +699,16 @@ SLATE_PREDICTION_GUARD = (
 # later). Live 2026-09-20: "my model makes it [model number and lean from the following
 # lines]" — the model wrote the guard's own wording as a fill-in slot.
 _PLACEHOLDER_RE = re.compile(r"\[[^\]]*\]")
+
+
+class _LaterWeek:
+    """``_build_fact``'s answer to a prediction about a week that is not this week."""
+
+
+# Measured 2026-09-21: "who wins the chargers texans game in week 9?" classified
+# ``prediction`` 4/4 against a prompt that sends a later week to open_nfl, and emitted
+# ``week: 9`` 4/4. The read only exists for this week's game, so the week decides in code.
+_LATER_WEEK = _LaterWeek()
 
 # Deterministic short-circuit line for an unregistered asker (no LLM call needed).
 _REGISTER_LINE = "You need a pick'em account first — run /register to get set up."
@@ -891,22 +930,6 @@ def _pick_status_fact(status: dict) -> str:
     if remaining:
         return f"{name}, you still need to make these picks this week: {', '.join(remaining)}."
     return f"{name}, your card is not complete yet."
-
-
-def _standings_fact(ctx: dict) -> str:
-    """Build the standings fact from the leaders context (display-only)."""
-    leader = ctx.get("leader")
-    if not leader:
-        return "No standings yet — nobody has a graded pick."
-    leader_total = ctx.get("leader_total")
-    runner_up = ctx.get("runner_up")
-    gap = ctx.get("gap")
-    if runner_up and gap == 0:
-        return f"{leader} and {runner_up} are tied for the lead with {leader_total}."
-    parts = [f"{leader} leads the season with {leader_total}."]
-    if runner_up:
-        parts.append(f"{runner_up} is {gap} back in second.")
-    return " ".join(parts)
 
 
 def _spread_clause(favorite: str, underdog: str | None, spread: str, asked_team: str | None) -> str:
@@ -1416,7 +1439,11 @@ def _prediction_fact(
     # The phrased lead is a pick-FREE flavor intro: the model's lean + number live only in
     # the bold, verbatim body lines above, so the LLM can never misattribute the read to the
     # asker as a pick'em selection (a game read is the bot's own cross-check, not a pick).
-    header = f"Here's my read on the {asked_team or 'that'} game."
+    # The matchup is named so the lead shows the read covers ONE game, this week's.
+    if home and away:
+        header = f"Here's my read on this week's {asked_team or 'that'} game, {away} at {home}."
+    else:
+        header = f"Here's my read on this week's {asked_team or 'that'} game."
     return _ListAnswer(header_fact=header, body="\n".join(lines))
 
 
@@ -1744,7 +1771,7 @@ def _slate_predictions_fact(slate: dict, *, facet: str | None = None) -> str | _
 
 async def _build_fact(
     result: QaResult, *, discord_id: int, slate_facet: str | None = None
-) -> str | _ListAnswer | None:
+) -> str | _ListAnswer | _LaterWeek | None:
     """Route a validated intent to its deterministic reader and build the FACT.
 
     Returns the fact string to phrase, or ``None`` for the pick_status
@@ -1760,9 +1787,6 @@ async def _build_fact(
         if not status.get("registered"):
             return None  # -> _REGISTER_LINE (deterministic, no LLM)
         return _pick_status_fact(status)
-
-    if result.intent is QaIntent.standings:
-        return _standings_fact(await db_bridge.get_leaders_context_async())
 
     if result.intent is QaIntent.lines_slate:
         # Stateless missing-param: a single-game line question with no team resolved
@@ -1877,6 +1901,8 @@ async def _build_fact(
         inputs = await db_bridge.get_prediction_inputs_async(result.team)
         if inputs is None:
             return _PREDICTION_UNRESOLVED_FACT  # no single game this week — never invent
+        if result.week is not None and inputs.get("week") not in (None, result.week):
+            return _LATER_WEEK
 
         # The independent live factors run CONCURRENTLY; each degrades on its own without
         # aborting the briefing (degrade-never-bail). qa.py imports the seams; it never
@@ -1947,7 +1973,7 @@ async def _build_fact(
     if result.intent is QaIntent.bot_help:
         return _HELP_FACT  # Tier 1 — no DB read, and never phrased (see _HELP_FACT)
 
-    # ``open_nfl``, ``unknown`` and ``coming_soon`` are UNREACHABLE here by construction:
+    # ``open_nfl``, ``unknown``, ``coming_soon`` and ``standings`` are UNREACHABLE here:
     # ``answer_question`` returns on the open branch before _build_fact is ever called.
     return _OPEN_DEGRADE_FACT
 
@@ -1958,6 +1984,7 @@ async def answer_question(
     discord_id: int,
     history: Sequence[tuple[str, str]] = (),
     conversation_key: str | None = None,
+    asker_name: str | None = None,
 ) -> str:
     """Answer a league member's @mention ``question`` as one public in-voice line.
 
@@ -1982,7 +2009,7 @@ async def answer_question(
     try:
         from app.bot import db_bridge
 
-        raw = await classify_question(question, history=history)
+        raw = await classify_question(question, history=history, asker_name=asker_name)
         known_team_tokens = await db_bridge.get_real_team_tokens_async()
         result = validate_classification(raw, known_team_tokens=known_team_tokens)
 
@@ -2000,6 +2027,7 @@ async def answer_question(
                 history=history,
                 conversation_key=conversation_key,
                 discord_id=discord_id,
+                asker_name=asker_name,
             )
             return open_answer if open_answer is not None else _OPEN_DEGRADE_FACT
 
@@ -2012,6 +2040,17 @@ async def answer_question(
         if fact is None:
             # pick_status, unregistered asker — deterministic, no phrasing.
             return _REGISTER_LINE
+        if isinstance(fact, _LaterWeek):
+            voice = await db_bridge.resolve_active_voice_async()
+            open_answer = await qa_open.answer_open(
+                question,
+                voice=voice,
+                history=history,
+                conversation_key=conversation_key,
+                discord_id=discord_id,
+                asker_name=asker_name,
+            )
+            return open_answer if open_answer is not None else _OPEN_DEGRADE_FACT
 
         voice = await db_bridge.resolve_active_voice_async()
         # The analyst leads (single-game prediction + whole-slate slate_predictions) use an

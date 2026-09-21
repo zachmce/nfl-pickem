@@ -114,11 +114,24 @@ OPEN_FOLLOW_UP_CLAUSE = (
     "returns."
 )
 
+# Live 2026-09-20: a member's "Look up the number" got the answer to ANOTHER member's
+# question, the turn right above it. Every member shares the one ``user`` role, so the
+# turns now start with the speaker's name and this clause says what the name is for.
+OPEN_SPEAKERS_CLAUSE = (
+    "Several league members talk in this channel, and each member message starts with "
+    "the name of the member who wrote it, followed by a colon. The last message is the "
+    "one question you answer, and you answer it for the member who wrote it. A follow-up "
+    "continues that same member's earlier messages and your replies to them; a question "
+    "that a different member asked earlier is a separate conversation, and you never "
+    "answer it again in place of the last message. Never start your own reply with a name "
+    "and a colon."
+)
+
 OPEN_ROLE = (
     "You are answering a league member's open question about the NFL — a question the "
     "app's own data does not cover — using your own football knowledge rather than any "
     "figure read from the app's database. "
-    f"{OPEN_TOOLS_CLAUSE} {OPEN_PICKS_CLAUSE} {OPEN_FOLLOW_UP_CLAUSE}"
+    f"{OPEN_TOOLS_CLAUSE} {OPEN_PICKS_CLAUSE} {OPEN_FOLLOW_UP_CLAUSE} {OPEN_SPEAKERS_CLAUSE}"
 )
 
 # (a) FORMAT. The 2026-08-20 probe measured the model answering open questions with
@@ -1843,7 +1856,8 @@ _TEAM_SCHEDULE_STATEMENT = (
 _SCHEDULE_GAME_CLAUSE = " In week {week} they play {game}, on {date}."
 _SCHEDULE_BYE_CLAUSE = (
     " The {team} play no game at all in week {week} of the {season} season, because that "
-    "week is their bye week."
+    "week is their bye week; a bye week is never one of the games when the member asks "
+    "for a number of games."
 )
 # Unconditional in wording on both branches, because a caveat the model has to decide
 # whether to apply is a caveat it drops (measured 3/3 on this branch).
@@ -4384,8 +4398,12 @@ async def answer_open(
     history: Sequence[tuple[str, str]] = (),
     conversation_key: str | None = None,
     discord_id: int | None = None,
+    asker_name: str | None = None,
 ) -> str | None:
     """Answer an off-menu NFL ``question`` in ``voice`` as plain prose, or ``None``.
+
+    ``asker_name`` is the asking member's display name. It leads the question the same
+    way the cog's history turns lead with their speaker (see ``OPEN_SPEAKERS_CLAUSE``).
 
     ``discord_id`` (2026-09-18) is the asking member's Discord id, bound in code to the
     one asker-bound tool (``lookup_my_pick_status``); the model never sees or writes it.
@@ -4423,10 +4441,11 @@ async def answer_open(
             if safe_role == "assistant":
                 messages.extend(_grounding_for(conversation_key, str(text)))
             messages.append({"role": safe_role, "content": fenced_turn})
+        named_question = f"{asker_name}: {question}" if asker_name else question
         messages.append(
             {
                 "role": "user",
-                "content": chat_personality._fence_untrusted(question, limit=_QUESTION_CHARS),
+                "content": chat_personality._fence_untrusted(named_question, limit=_QUESTION_CHARS),
             }
         )
 

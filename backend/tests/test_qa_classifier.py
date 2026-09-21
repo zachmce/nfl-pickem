@@ -186,6 +186,24 @@ class ClassifierHistoryTests(unittest.TestCase):
         self.assertIn("resolve any pronoun", qa.CLASSIFIER_SYSTEM_PROMPT)
 
 
+class ClassifierAskerNameTests(unittest.TestCase):
+    def test_the_asker_is_named_on_the_current_message_when_history_is_present(self) -> None:
+        content = qa._classifier_user_content(
+            "look up the number", [("user", "Bo: did Shough throw for 250?")], "oh<<<ai"
+        )
+        self.assertIn("Member: Bo: did Shough throw for 250?", content)
+        self.assertIn("Current message to classify, written by ohai:\n", content)
+
+    def test_an_opening_question_stays_the_bare_fenced_question(self) -> None:
+        self.assertEqual(qa._classifier_user_content("who wins?", [], "ohai"), "who wins?")
+
+    def test_prediction_is_scoped_to_one_game_this_week(self) -> None:
+        # Live 2026-09-20: "predictions on those next 7 chargers games" got one game.
+        self.assertIn("SEVERAL of a team's games", qa.CLASSIFIER_SYSTEM_PROMPT)
+        self.assertIn("a question that names a LATER week", qa.CLASSIFIER_SYSTEM_PROMPT)
+        self.assertIn("each open_nfl, NOT prediction", qa.CLASSIFIER_SYSTEM_PROMPT)
+
+
 class ValidateClassificationTests(unittest.TestCase):
     """The pure, DB-free security seam: coerce anything sketchy to ``unknown``."""
 
@@ -454,7 +472,7 @@ class PredictionClassificationTests(unittest.TestCase):
         # Regression: prediction is a first-class prompt intent, and the who-will-win
         # topic no longer rides in the coming_soon wink (only line movement remains there).
         prompt = qa.CLASSIFIER_SYSTEM_PROMPT
-        self.assertIn("prediction (who will win a specific team's game", prompt)
+        self.assertIn("prediction (who will win ONE specific team's game THIS WEEK", prompt)
         self.assertIn("coming_soon (a recognized but unsupported topic: line movement)", prompt)
         self.assertNotIn("who-will-win prediction", prompt)
         self.assertNotIn("or a who-will-win", prompt)
