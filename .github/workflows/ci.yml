@@ -365,9 +365,9 @@ jobs:
           persist-credentials: false  # artipacked: image build/scan needs no stored git credential
       - name: Set up Docker Buildx
         # build-push-action's load: true needs the buildx/docker driver.
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build image (no push, load into local docker daemon)
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./backend
           file: ./backend/Dockerfile
@@ -418,9 +418,9 @@ jobs:
           persist-credentials: false  # artipacked: image build/scan needs no stored git credential
       - name: Set up Docker Buildx
         # build-push-action's load: true needs the buildx/docker driver.
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build image (no push, load into local docker daemon)
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./frontend
           file: ./frontend/Dockerfile
@@ -505,7 +505,7 @@ jobs:
       - name: osv-scanner (backend + frontend deps)
         id: osv
         continue-on-error: true
-        uses: google/osv-scanner-action/osv-scanner-action@6e4298ebc4db23e847df9b2e2de2939d6f066c67 # v2.5.1
+        uses: google/osv-scanner-action/osv-scanner-action@a345acffa64b0eaede81a3d9aae6141214d9c8fc # v2.6.0
         with:
           scan-args: |-
             --format=sarif
@@ -736,7 +736,7 @@ jobs:
       - name: Set up Docker Buildx
         # buildx's docker-container driver is REQUIRED for build-push-action to emit SBOM +
         # provenance attestation manifests; the default `docker` driver silently cannot.
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Set up crane
         # crane promotes the byte-identical local OCI layout to GHCR and aliases each metadata tag
         # onto the one pushed index digest (spike 001). GHCR auth is inherited from docker/login-action.
@@ -745,7 +745,7 @@ jobs:
         # Build ONCE into a local OCI layout DIRECTORY (tar=false) that Trivy scans and crane
         # promotes byte-identically — no registry push here. mode=max + sbom emit the
         # attestation-bearing OCI index into the directory; `tags:` is only the layout's local ref.
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./backend
           file: ./backend/Dockerfile
@@ -872,7 +872,7 @@ jobs:
       - name: Set up Docker Buildx
         # buildx's docker-container driver is REQUIRED for build-push-action to emit SBOM +
         # provenance attestation manifests; the default `docker` driver silently cannot.
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Set up crane
         # crane promotes the byte-identical local OCI layout to GHCR and aliases each metadata tag
         # onto the one pushed index digest (spike 001). GHCR auth is inherited from docker/login-action.
@@ -881,7 +881,7 @@ jobs:
         # Build ONCE into a local OCI layout DIRECTORY (tar=false) that Trivy scans and crane
         # promotes byte-identically — no registry push here. mode=max + sbom emit the
         # attestation-bearing OCI index into the directory; `tags:` is only the layout's local ref.
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./frontend
           file: ./frontend/Dockerfile
