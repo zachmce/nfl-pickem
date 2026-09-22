@@ -13,7 +13,7 @@
 # ecosystem (/backend) refreshes the pinned digest so it can't silently go stale.
 
 # ---- builder: :latest-dev has uv + pip + apk + a shell, same 3.14.6 as runtime ----
-FROM cgr.dev/chainguard/python:latest-dev@sha256:073219a510343c070f74fd1fd7100b9e599cf68eb1536be8ebd4c0b170ede589 AS builder
+FROM cgr.dev/chainguard/python:latest-dev@sha256:8af5085c793a9b501253117ccceabff2340400f3ef92fb0e09df690dd1e961a4 AS builder
 
 # :latest-dev defaults to the nonroot user, which cannot write /opt/venv (a
 # root-owned root-level dir) nor chown the celerybeat dir below. This is a
@@ -69,7 +69,7 @@ RUN mkdir -p /var/lib/celerybeat \
     && chown -R 65532:65532 /var/lib/celerybeat
 
 # ---- runtime: :latest is distroless Wolfi, glibc, nonroot 65532, NO shell ----
-FROM cgr.dev/chainguard/python:latest@sha256:3402da0629d26501855f13d490b7fa1b525e4a5db3a10af324277e5507fcb8e6
+FROM cgr.dev/chainguard/python:latest@sha256:1206ffee8644e6338b3fc8b6e5dc384b03d91ad1df1d6b74fa4255544ac51ad2
 
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
