@@ -4581,6 +4581,16 @@ def _in_progress(summary: dict, *, clock: str = "4:32", period: int = 3) -> dict
     return live
 
 
+class EspnDateFormatTests(unittest.TestCase):
+    def test_an_iso_kickoff_reads_like_the_lines_close_time(self) -> None:
+        self.assertEqual(qa_open._fmt_espn_date("2026-09-25T00:15Z"), "Fri Sep 25, 12:15 AM UTC")
+        self.assertEqual(
+            qa_open._fmt_espn_date("2026-09-28T17:00:00+00:00"), "Mon Sep 28, 5:00 PM UTC"
+        )
+        for junk in (None, "", "soon", 7):
+            self.assertIsNone(qa_open._fmt_espn_date(junk))
+
+
 class LiveGameToolTests(_OpenPathTestCase):
     """The SHIPPED live game tool (2026-09-18): the game one team plays THIS week, in
     any status, with the box score once it has started."""
@@ -4657,7 +4667,9 @@ class LiveGameToolTests(_OpenPathTestCase):
         self.assertEqual(fetched, [])
         self.assertEqual(body["status"], "not started")
         self.assertEqual(body["broadcasts"], ["FOX"])
-        self.assertEqual(body["kickoff"], "2026-09-20T17:00Z")
+        # Issue #257: the raw ISO string reached Discord as it was.
+        self.assertEqual(body["kickoff"], "Sun Sep 20, 5:00 PM UTC")
+        self.assertNotRegex(body["game_statement"], r"\d{4}-\d{2}-\d{2}T")
         self.assertIn("has not kicked off yet", body["game_statement"])
         self.assertIn("it is on FOX", body["game_statement"])
         self.assertIn("never describe how it is going", body["game_statement"])

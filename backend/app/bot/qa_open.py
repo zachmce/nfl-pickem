@@ -2987,12 +2987,12 @@ async def _lookup_live_game(team: str = "") -> object | None:
         return {
             "game": fixture,
             "status": "not started",
-            "kickoff": game["date"],
+            "kickoff": _fmt_espn_date(game["date"]),
             "venue": game["venue"],
             "broadcasts": game["broadcasts"],
             "game_statement": _LIVE_PRE_STATEMENT.format(
                 game=fixture,
-                date=game["date"] or "a time ESPN does not give",
+                date=_fmt_espn_date(game["date"]) or "a time ESPN does not give",
                 network=_network_clause(game["broadcasts"]),
             ),
             "caveat": espn_extra.SCOREBOARD_CAVEAT,
@@ -3096,7 +3096,7 @@ async def _lookup_week_scoreboard() -> object | None:
     for game in scoreboard["games"]:
         entry = {
             "game": game["name"],
-            "kickoff": game["date"],
+            "kickoff": _fmt_espn_date(game["date"]),
             "state": game["state"],
             "status": game["detail"],
             "venue": game["venue"],
@@ -3164,6 +3164,22 @@ def _fmt_close(when: object) -> str:
     hour = when.hour % 12 or 12
     ampm = "AM" if when.hour < 12 else "PM"
     return f"{when.strftime('%a %b')} {when.day}, {hour}:{when.minute:02d} {ampm} UTC"
+
+
+def _fmt_espn_date(raw: object) -> str | None:
+    """ESPN's ISO kickoff (``2026-09-25T00:15Z``) in the same words as :func:`_fmt_close`.
+
+    Issue #257: the raw string reached Discord as it was.
+    """
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        when = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return _fmt_close(when.astimezone(UTC))
 
 
 async def _lookup_my_pick_status(*, asker_discord_id: int | None) -> object | None:
