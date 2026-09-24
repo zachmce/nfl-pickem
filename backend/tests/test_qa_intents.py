@@ -1895,6 +1895,42 @@ class PredictionIntentRoutingTests(unittest.TestCase):
             out = _run(qa.answer_question("who wins the Chiefs game in week 9?", discord_id=7))
         self.assertEqual(out, "Week 9 is a long way off.")
 
+    def _weather_case(self, week):
+        open_calls: list = []
+
+        async def _fake_open(question, **_kwargs):
+            open_calls.append(question)
+            return "Week 8 looks mild."
+
+        target_patch, target_calls = _seam("get_weather_target_async", None)
+        slate_patch, _ = _seam("get_lines_slate_async", {"week": 5, "games": []})
+        with (
+            _classify_returns({"intent": "weather", "team": "Packers", "week": week}),
+            _tokens("GB", "PACKERS"),
+            target_patch,
+            slate_patch,
+            _voice(),
+            _phrase_returns(None)[0],
+            mock.patch.object(qa.qa_open, "answer_open", _fake_open),
+        ):
+            out = _run(qa.answer_question("weather for the Packers game?", discord_id=7))
+        return out, open_calls, target_calls
+
+    def test_weather_for_a_later_week_goes_to_the_open_path(self) -> None:
+        # Issue #248: the week 8 question got this week's forecast.
+        out, open_calls, target_calls = self._weather_case(8)
+        self.assertEqual(out, "Week 8 looks mild.")
+        self.assertEqual(open_calls, ["weather for the Packers game?"])
+        self.assertEqual(target_calls, [])
+
+    def test_weather_for_this_week_or_no_week_keeps_the_grounded_read(self) -> None:
+        for week in (5, None):
+            with self.subTest(week=week):
+                out, open_calls, target_calls = self._weather_case(week)
+                self.assertEqual(open_calls, [])
+                self.assertEqual(len(target_calls), 1)
+                self.assertEqual(out, qa._WEATHER_DEGRADE_FACT)
+
     def test_a_prediction_that_names_this_week_or_no_week_keeps_the_read(self) -> None:
         for week in (5, None):
             out, open_calls = self._later_week_case(week)

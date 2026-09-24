@@ -473,7 +473,7 @@ class PredictionClassificationTests(unittest.TestCase):
         # topic no longer rides in the coming_soon wink (only line movement remains there).
         prompt = qa.CLASSIFIER_SYSTEM_PROMPT
         self.assertIn("prediction (who will win ONE specific team's game THIS WEEK", prompt)
-        self.assertIn("coming_soon (a recognized but unsupported topic: line movement)", prompt)
+        self.assertIn("coming_soon (line movement, where a line opened, and moneylines", prompt)
         self.assertNotIn("who-will-win prediction", prompt)
         self.assertNotIn("or a who-will-win", prompt)
 
