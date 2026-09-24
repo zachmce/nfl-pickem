@@ -49,6 +49,7 @@ thing to a web search this path gets).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import time
@@ -300,7 +301,9 @@ async def _calendar_facts() -> str:
     from app.services import espn_extra
 
     sentences = [_TODAY_STATEMENT.format(today=_spoken_date(datetime.now(UTC)))]
-    league = await espn_extra.fetch_league()
+    league, week_statement = await asyncio.gather(
+        espn_extra.fetch_league(), _current_week_statement()
+    )
     season = espn_extra.league_season_year(league)
     if season is None:
         sentences.append(_SEASON_SPAN_RULE)
@@ -318,7 +321,6 @@ async def _calendar_facts() -> str:
         template = _MOST_RECENT_FINISHED_STATEMENT if checked else _FINISHED_SEASON_STATEMENT
         sentences.append(template.format(finished=finished, after=finished + 1))
     sentences.append(_NEVER_NOT_HAPPENED_YET_STATEMENT)
-    week_statement = await _current_week_statement()
     if week_statement is not None:
         sentences.append(week_statement)
     return " ".join(sentences)
@@ -4538,6 +4540,10 @@ TOOLS: tuple[_Tool, ...] = (
 # bounded twice over: by rounds AND by wall clock.
 _MAX_TOOL_ROUNDS = 3
 _TOOL_BUDGET_SECONDS = 20.0
+# The whole answer, close and retry included. The tool budget is checked only before a
+# round and each model call may take _OPEN_TIMEOUT_SECONDS, so one answer could hold the
+# channel's answer lock for minutes; past this the member gets the degrade line.
+_ANSWER_BUDGET_SECONDS = 45.0
 
 # GROUNDING memory (issue #220): the tool turns behind each answer, kept per conversation
 # so a follow-up replays them ahead of the answer they produced. Bounded like the cog's
@@ -4788,12 +4794,16 @@ async def _run_tool_loop(
                 return _message_content(message), []  # answered from memory — done
             break  # the model is done with tools; the tools-free close answers
         working.append(_replayable(message))
-        for call in tool_calls:
-            working.append(
-                await _resolve_tool_call(
-                    call, round_index=round_index, asker_discord_id=asker_discord_id
+        working.extend(
+            await asyncio.gather(
+                *(
+                    _resolve_tool_call(
+                        call, round_index=round_index, asker_discord_id=asker_discord_id
+                    )
+                    for call in tool_calls
                 )
             )
+        )
     else:
         logger.info("qa_open_tool_round_cap_reached", rounds=_MAX_TOOL_ROUNDS)
 
@@ -4916,9 +4926,14 @@ async def answer_open(
 
         role = f"{OPEN_ROLE} {await _calendar_facts()}"
         system_prompt = compose_prompt(voice, role, OPEN_GUARD)
-        content, new_turns = await _run_tool_loop(
-            messages, system_prompt=system_prompt, asker_discord_id=discord_id
-        )
+        try:
+            content, new_turns = await asyncio.wait_for(
+                _run_tool_loop(messages, system_prompt=system_prompt, asker_discord_id=discord_id),
+                timeout=_ANSWER_BUDGET_SECONDS,
+            )
+        except TimeoutError:
+            logger.warning("qa_open_answer_budget_exhausted", seconds=_ANSWER_BUDGET_SECONDS)
+            return None
         if content is None:
             return None
         answer = _collapse_repeated_paragraphs(_strip_markdown_structure(content)) or None

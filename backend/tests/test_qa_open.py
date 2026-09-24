@@ -5366,5 +5366,62 @@ class MemoryLimitsClauseTests(unittest.TestCase):
         self.assertIn("more than three players from memory", qa_open.OPEN_MEMORY_LIMITS_CLAUSE)
 
 
+class SpeedTests(_OpenPathTestCase):
+    """2026-09-24 audit: parallel tool calls and one budget for the whole answer."""
+
+    def test_the_tool_calls_of_one_round_run_concurrently(self) -> None:
+        both_started = asyncio.Event()
+        started: list[str] = []
+
+        def _waiting_tool(name: str):
+            async def _run_tool(**_kwargs):
+                started.append(name)
+                if len(started) == 2:
+                    both_started.set()
+                # Run one after the other, the first call would wait here forever.
+                await asyncio.wait_for(both_started.wait(), timeout=1.0)
+                return {"ok": name}
+
+            return qa_open._Tool(
+                name=name,
+                spec={
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "description": "fake",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                },
+                run=_run_tool,
+            )
+
+        two_calls = {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {"id": "a", "type": "function", "function": {"name": "t_a", "arguments": "{}"}},
+                {"id": "b", "type": "function", "function": {"name": "t_b", "arguments": "{}"}},
+            ],
+        }
+        patcher, calls = _open_chat_returns(two_calls, {"role": "assistant", "content": "done"})
+        with mock.patch.object(qa_open, "TOOLS", (_waiting_tool("t_a"), _waiting_tool("t_b"))):
+            with patcher:
+                out = _run(qa_open.answer_open("q", voice=_VOICE))
+        self.assertEqual(out, "done")
+        results = [json.loads(m["content"]) for m in _tool_messages(calls[-1]["messages"])]
+        self.assertEqual(results, [{"ok": "t_a"}, {"ok": "t_b"}])  # order kept
+
+    def test_the_whole_answer_is_bounded(self) -> None:
+        async def _slow(msgs, *, system_prompt, tools=None):
+            await asyncio.sleep(1.0)
+            return {"role": "assistant", "content": "late"}
+
+        with (
+            mock.patch.object(qa_open, "_ANSWER_BUDGET_SECONDS", 0.05),
+            mock.patch.object(qa_open.llm_client, "open_chat", _slow),
+        ):
+            self.assertIsNone(_run(qa_open.answer_open("q", voice=_VOICE)))
+
+
 if __name__ == "__main__":
     unittest.main()
