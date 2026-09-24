@@ -2988,12 +2988,12 @@ async def _lookup_live_game(team: str = "") -> object | None:
         return {
             "game": fixture,
             "status": "not started",
-            "kickoff": game["date"],
+            "kickoff": _fmt_espn_date(game["date"]),
             "venue": game["venue"],
             "broadcasts": game["broadcasts"],
             "game_statement": _LIVE_PRE_STATEMENT.format(
                 game=fixture,
-                date=game["date"] or "a time ESPN does not give",
+                date=_fmt_espn_date(game["date"]) or "a time ESPN does not give",
                 network=_network_clause(game["broadcasts"]),
             ),
             "caveat": espn_extra.SCOREBOARD_CAVEAT,
@@ -3097,7 +3097,7 @@ async def _lookup_week_scoreboard() -> object | None:
     for game in scoreboard["games"]:
         entry = {
             "game": game["name"],
-            "kickoff": game["date"],
+            "kickoff": _fmt_espn_date(game["date"]),
             "state": game["state"],
             "status": game["detail"],
             "venue": game["venue"],
@@ -3165,6 +3165,22 @@ def _fmt_close(when: object) -> str:
     hour = when.hour % 12 or 12
     ampm = "AM" if when.hour < 12 else "PM"
     return f"{when.strftime('%a %b')} {when.day}, {hour}:{when.minute:02d} {ampm} UTC"
+
+
+def _fmt_espn_date(raw: object) -> str | None:
+    """ESPN's ISO kickoff (``2026-09-25T00:15Z``) in the same words as :func:`_fmt_close`.
+
+    Issue #257: the raw string reached Discord as it was.
+    """
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        when = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return _fmt_close(when.astimezone(UTC))
 
 
 async def _lookup_my_pick_status(*, asker_discord_id: int | None) -> object | None:
@@ -5709,8 +5725,9 @@ async def _run_tool_loop(
     — the model stops calling tools, the round cap, or the budget — exactly ONE final
     ``open_chat`` call is made with ``tools=None``, and THAT text is the answer.
 
-    The text a tools-attached round writes over a tool result — a new one or a replayed
-    one — is discarded on purpose (issue #220). Measured 2026-09-15 on the served Qwen
+    On the local vendor the text a tools-attached round writes over a tool result — a
+    new one or a replayed one — is discarded on purpose (issue #220); on the openai
+    vendor that text is the answer and no close is made. Measured 2026-09-15 on the served Qwen
     with the thirteen shipped specs attached: every such reply was the whole answer
     written twice, separated by blank lines, 6/6 at the shipped sampling knobs; with the
     specs withheld the same conversation answered once, 5/5, in one to two seconds.
@@ -5740,6 +5757,10 @@ async def _run_tool_loop(
         if not isinstance(tool_calls, list) or not tool_calls:
             if not _has_tool_turn(working) and not _carries_a_tool_call(message):
                 return _message_content(message), []  # answered from memory — done
+            # The doubling below is the served Qwen's; terra wrote the round text once in
+            # 30/30 (2026-09-24), so the close would only cost a call and ~2 s.
+            if settings.llm_api_vendor == "openai" and not _not_an_answer(message):
+                return _message_content(message), working[len(messages) :]
             break  # the model is done with tools; the tools-free close answers
         bot_telemetry.note_round()
         working.append(_replayable(message))
