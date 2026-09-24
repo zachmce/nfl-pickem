@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict
 
 from app.schemas.types import DiscordId
@@ -131,3 +133,39 @@ class SetBotPersonalityRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     personality_id: str
+
+
+# --------------------------------------------------------------------------- #
+# Bot answer telemetry (issue #248, item 15)
+# --------------------------------------------------------------------------- #
+
+
+class BotAnswerToolCall(BaseModel):
+    name: str
+    args: dict[str, Any] = {}
+    outcome: str = "ok"
+
+
+class BotAnswerRead(BaseModel):
+    """One stored bot answer. Fields are optional: old records may lack new keys."""
+
+    at: str | None = None
+    conversation: str | None = None
+    asker: str | None = None
+    question: str | None = None
+    intent: str | None = None
+    path: str | None = None
+    tools: list[BotAnswerToolCall] = []
+    rounds: int = 0
+    fallback: str | None = None
+    latency_ms: int | None = None
+    vendor: str | None = None
+    model: str | None = None
+    answer: str | None = None
+
+
+class BotAnswerListResponse(BaseModel):
+    """The newest stored answers first. ``available`` is false when Redis is down."""
+
+    available: bool
+    answers: list[BotAnswerRead]

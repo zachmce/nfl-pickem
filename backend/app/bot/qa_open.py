@@ -63,6 +63,7 @@ import structlog
 from app.bot import chat_personality, llm_client
 from app.config import settings
 from app.bot.personality import compose_prompt
+from app.services import bot_telemetry
 
 logger = structlog.get_logger(__name__)
 
@@ -5671,6 +5672,7 @@ async def _resolve_tool_call(
     tool = _lookup_tool(name)
     if tool is None:
         logger.warning("qa_open_tool_unknown", tool=name, round=round_index)
+        bot_telemetry.note_tool(name, {}, outcome="unknown_tool")
         return _tool_message(call_id, name, _UNKNOWN_TOOL_PAYLOAD)
 
     try:
@@ -5679,6 +5681,7 @@ async def _resolve_tool_call(
         decoded = None
     if not isinstance(decoded, dict):
         logger.warning("qa_open_tool_bad_arguments", tool=name, round=round_index)
+        bot_telemetry.note_tool(name, {}, outcome="bad_arguments")
         return _tool_message(call_id, name, _BAD_ARGUMENTS_PAYLOAD)
 
     logger.info("qa_open_tool_call", tool=name, round=round_index)
@@ -5691,6 +5694,7 @@ async def _resolve_tool_call(
         # Belt-and-suspenders over the never-raise adapter contract.
         logger.warning("qa_open_tool_failed", tool=name, round=round_index, exc_info=True)
         result = None
+    bot_telemetry.note_tool(name, arguments_for_run, outcome="no_data" if result is None else "ok")
     if result is None:
         return _tool_message(call_id, name, _NO_DATA_PAYLOAD)
     return _tool_message(call_id, name, result)
@@ -5758,6 +5762,7 @@ async def _run_tool_loop(
             if settings.llm_api_vendor == "openai" and not _not_an_answer(message):
                 return _message_content(message), working[len(messages) :]
             break  # the model is done with tools; the tools-free close answers
+        bot_telemetry.note_round()
         working.append(_replayable(message))
         working.extend(
             await asyncio.gather(
@@ -5781,6 +5786,7 @@ async def _run_tool_loop(
         # once over the folded conversation, else the caller's degrade line — never
         # the stub.
         logger.info("qa_open_close_retried")
+        bot_telemetry.note_fallback("close_retried")
         final = await llm_client.open_chat(
             _fold_tool_turns(working), system_prompt=system_prompt, tools=None
         )
