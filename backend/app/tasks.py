@@ -312,3 +312,39 @@ def freeze_week_task(season: int, week: int) -> dict:
             "already_frozen": result.already_frozen,
             "failed": result.failed,
         }
+
+
+@celery_app.task(name="app.tasks.watch_injuries")
+def watch_injuries_task() -> dict:
+    """Beat-driven: publish ``injury.change`` for this week's games (issue #248 item 7).
+
+    Does nothing unless ``INJURY_ALERTS_ENABLED`` is set. The DB read closes before the
+    ESPN reads start; each event is published best-effort.
+    """
+    import asyncio
+
+    from app.config import settings
+    from app.services import injury_watch, notifications
+    from app.services.notifications_read import (
+        current_season,
+        get_injury_watch_targets,
+        resolve_current_week,
+    )
+
+    if not settings.injury_alerts_enabled:
+        return {"enabled": False}
+    with task_session() as session:
+        season = current_season(session)
+        week = resolve_current_week(session, season) if season is not None else None
+        targets = (
+            get_injury_watch_targets(session, season, week)
+            if season is not None and week is not None
+            else []
+        )
+    read, write = injury_watch.redis_snapshot_store(notifications._redis_client())
+    events = asyncio.run(
+        injury_watch.collect_changes(targets, read_snapshot=read, write_snapshot=write)
+    )
+    for event in events:
+        publish_event(event)
+    return {"enabled": True, "games_watched": len(targets), "events": len(events)}

@@ -48,7 +48,14 @@ logger = structlog.get_logger(__name__)
 
 # Tier-1 event types this seam phrases. Everything else is the notifier's job.
 _HANDLED_TYPES = frozenset(
-    {"window.opened", "game.final", "roster.complete", "misc.graded", "misc.picked"}
+    {
+        "window.opened",
+        "game.final",
+        "roster.complete",
+        "misc.graded",
+        "misc.picked",
+        "injury.change",
+    }
 )
 
 # Margin thresholds (points) for the COMPUTED game.final descriptor. Graded tiers,
@@ -125,6 +132,18 @@ _MISC_PICKED_ROLE = (
     "know the prediction text and it is hidden until the window closes, so NEVER "
     "guess, invent, hint at, or state what they predicted, and NEVER name another "
     "player."
+)
+
+# Issue #248 item 7. The status word is the whole news: the local model has inverted
+# terse injury lines before (memory qa-phrasing-inversion), so the role pins it.
+_INJURY_CHANGE_ROLE = (
+    "You are posting an update from ESPN's official NFL injury report. Begin the line "
+    "with the player's name, then give his team, his new status word exactly as given "
+    "and the game. Never "
+    "change or soften the status word, never say whether he will play beyond what "
+    "that status says, and never add a return date, a replacement, a betting angle or "
+    "any other detail that is not in the facts. The change is always for the worse: "
+    "never call it an upgrade, a promotion or an improvement."
 )
 
 
@@ -304,6 +323,24 @@ def _basic_misc_picked_fact(event: dict) -> str:
     closes, so the fact STATES only that the player got their misc call in.
     """
     return f"{event.get('actor')} just submitted their Week {event.get('week')} misc call."
+
+
+def _basic_injury_change_fact(event: dict) -> str:
+    """The injury.change fact, every clause stated even when a field is empty."""
+    team, opponent = event.get("team"), event.get("opponent")
+    where = "at home against" if event.get("home") else "on the road against"
+    position = (
+        f"the {team} {event.get('position')}" if event.get("position") else f"a {team} player"
+    )
+    old = event.get("old_status")
+    before = f"He was listed {old} before." if old else "He was not on the report before."
+    body = event.get("body_part")
+    injury = f"The listed injury is his {body}." if body else "The report names no body part."
+    return (
+        f"ESPN's injury report now lists {event.get('player')}, {position}, as "
+        f"{event.get('new_status')} for the {team} Week {event.get('week')} game {where} "
+        f"{opponent}. {before} {injury}"
+    )
 
 
 def _impact_priority(impact: dict) -> int:
@@ -623,6 +660,10 @@ async def _enriched_fact_and_prompt(event: dict, active_voice: str) -> tuple[str
         # only actor + week (the prediction is hidden until the window closes).
         prompt = compose_prompt(active_voice, _MISC_PICKED_ROLE, _FACTS_FIRST_GUARD)
         return _basic_misc_picked_fact(event), prompt
+
+    if etype == "injury.change":
+        prompt = compose_prompt(active_voice, _INJURY_CHANGE_ROLE, _FACTS_FIRST_GUARD)
+        return _basic_injury_change_fact(event), prompt
 
     return None
 

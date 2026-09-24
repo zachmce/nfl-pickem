@@ -30,7 +30,7 @@ survives a changing opponent.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import structlog
@@ -2098,3 +2098,55 @@ def get_game_outlook_inputs(session: Session, season: int, week: int, *, team_ab
         "model_home_margin": estimate.expected_margin,
         "model_home_win_prob": estimate.home_win_prob,
     }
+
+
+# Issue #248 item 7: pick counts reach the injury watcher ONLY for a week whose pick
+# window has closed (the ONE hard rule); before that every game reads as not heavy.
+_INJURY_WATCH_DAYS = 7
+
+
+def get_injury_watch_targets(
+    session: Session, season: int, week: int, *, now: datetime | None = None
+) -> list[dict]:
+    """The games of ``week`` whose kickoff is ahead (within a week), to watch for injuries.
+
+    Each target is ``{event_id, week, home, away, heavy}``. ``heavy`` is ``True`` only
+    once the week's pick window has closed and at least a third of the members who
+    picked that week (and never fewer than two) have a non-misc pick on the game.
+    """
+    now = now or datetime.now(timezone.utc)
+    games = list(session.exec(select(Game).where(Game.season == season, Game.week == week)).all())
+    abbr = {t.id: t.abbreviation for t in session.exec(select(Team)).all() if t.id is not None}
+    close_at = _slate_close_at(games)
+    picks_public = close_at is not None and now >= close_at
+
+    pickers_by_game: dict[int, set[int]] = {}
+    threshold = 0
+    if picks_public:
+        game_ids = [g.id for g in games if g.id is not None]
+        picks = session.exec(select(Pick).where(col(Pick.game_id).in_(game_ids))).all()
+        members = {p.user_id for p in picks}
+        threshold = max(2, -(-len(members) // 3))
+        for p in picks:
+            if p.pick_type is not PickType.MISC:
+                pickers_by_game.setdefault(p.game_id, set()).add(p.user_id)
+
+    targets: list[dict] = []
+    for g in games:
+        kickoff = _as_aware(g.kickoff_at)
+        if kickoff is None or not now < kickoff <= now + timedelta(days=_INJURY_WATCH_DAYS):
+            continue
+        home, away = abbr.get(g.home_team_id), abbr.get(g.away_team_id)
+        if not isinstance(g.espn_event_id, int) or home is None or away is None:
+            continue
+        pickers = len(pickers_by_game.get(g.id or -1, set()))
+        targets.append(
+            {
+                "event_id": g.espn_event_id,
+                "week": week,
+                "home": home,
+                "away": away,
+                "heavy": picks_public and pickers >= threshold,
+            }
+        )
+    return targets

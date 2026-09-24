@@ -96,6 +96,9 @@ DISCORD_GUILD_ID=<guild id>
 # Optional: the bot's search_web tool, backed by your own SearXNG instance (it must
 # allow format=json). Unset = no web search.
 # SEARXNG_URL=https://searx.example.com
+# Optional: chat alerts when a relevant player's injury status gets worse before
+# kickoff (the worker reads it). Default off.
+# INJURY_ALERTS_ENABLED=true
 ```
 
 > If any production value is left insecure (dev `SECRET_KEY`, `SESSION_COOKIE_SECURE`

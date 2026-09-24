@@ -94,6 +94,9 @@ class Settings(BaseSettings):
     # Optional SearXNG instance for the open path's ``search_web`` tool (issue #234). Unset
     # = the tool is not registered. It must serve ``format=json``.
     searxng_url: str | None = None
+    # Issue #248 item 7: post a chat line when a relevant player's injury status gets
+    # worse before kickoff. Off by default: it posts into the members' channel.
+    injury_alerts_enabled: bool = False
 
     log_level: str = "INFO"
 
