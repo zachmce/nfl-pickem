@@ -9,18 +9,20 @@ Run with: ``backend/.venv/bin/python -m unittest tests.test_league_data_readers 
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.models import Game, GameStatus, Pick, PickType, Team, User, Week
+from app.models import Game, GameStatus, HistoricalGame, Pick, PickType, Team, User, Week
 from app.services.auth import hash_password
 from app.services.notifications_read import (
     get_league_picks,
+    get_member_season,
     get_pick_completion,
     get_standings_table,
+    get_team_ats_by_game,
     get_week_scores,
 )
 
@@ -187,6 +189,13 @@ class LeaguePicksWindowOpenTests(_ReaderTestCase):
         self.assertEqual(out["outstanding"], ["bob", "carol"])
         self.assertEqual(out["total_players"], 3)
 
+    def test_member_season_counts_no_open_week(self) -> None:
+        with self._session() as session:
+            out = get_member_season(session, SEASON, member="alice")
+        self.assertEqual(out["member"], "alice")
+        self.assertEqual(out["weeks"], [])
+        self.assertEqual(out["open_week"], WEEK)
+
 
 class LeaguePicksWindowClosedTests(_ReaderTestCase):
     def test_every_pick_is_revealed_with_its_label_and_grade(self) -> None:
@@ -242,6 +251,88 @@ class LeaguePicksWindowClosedTests(_ReaderTestCase):
         self.assertEqual(len(both["games"]), 1)  # the KC game is not started
         self.assertEqual(bills["games"], both["games"])
         self.assertEqual(chiefs["games"], [])
+
+    def test_member_season_reports_each_closed_week_and_the_locks(self) -> None:
+        with self._session() as session:
+            alice = get_member_season(session, SEASON, member="@ALICE")
+            bob = get_member_season(session, SEASON, member="bob")
+            carol = get_member_season(session, SEASON, member="carol")
+            nobody = get_member_season(session, SEASON, member="zed")
+        self.assertEqual(alice["member"], "alice")
+        self.assertEqual(alice["weeks"][0]["mortal_lock"]["outcome"], "WIN")
+        self.assertEqual(alice["totals"]["mortal_locks_won"], 1)
+        self.assertEqual(bob["totals"]["mortal_locks_lost"], 1)
+        self.assertEqual(carol["weeks"], [{"week": WEEK, "made_picks": False}])
+        self.assertIsNone(nobody["member"])
+        self.assertEqual(nobody["matches"], [])
+
+    def test_team_ats_reads_the_league_line_for_an_app_season(self) -> None:
+        with self._session() as session:
+            bills = get_team_ats_by_game(session, SEASON, team_abbr="BUF")
+            lions = get_team_ats_by_game(session, SEASON, team_abbr="DET")
+            chiefs = get_team_ats_by_game(session, SEASON, team_abbr="KC")
+        self.assertEqual(bills["source"], "league")
+        self.assertEqual(
+            bills["games"][0],
+            {
+                "week": WEEK,
+                "game": f"week {WEEK}",
+                "opponent": "DET",
+                "venue": "home",
+                "line": "-5.5",
+                "score": "41-31",
+                "straight_up": "WON",
+                "ats": "COVERED",
+            },
+        )
+        self.assertEqual(lions["games"][0]["line"], "+5.5")
+        self.assertEqual(lions["record"], {"covered": 0, "did_not_cover": 1, "push": 0})
+        self.assertEqual(chiefs["games"], [])  # not final yet
+
+    def test_team_ats_reads_the_archive_for_an_earlier_season(self) -> None:
+        with self._session() as session:
+            tid = {
+                t.abbreviation: t.id for t in session.exec(select(Team)).all() if t.id is not None
+            }
+            session.add_all(
+                [
+                    HistoricalGame(
+                        nflverse_game_id="2019_01_DET_BUF",
+                        season=2019,
+                        week=1,
+                        game_type="REG",
+                        gameday=date(2019, 9, 8),
+                        home_team_id=tid["BUF"],
+                        away_team_id=tid["DET"],
+                        home_score=20,
+                        away_score=17,
+                        result=3,
+                        spread_line=Decimal("3.0"),
+                    ),
+                    HistoricalGame(
+                        nflverse_game_id="2019_21_IND_KC",
+                        season=2019,
+                        week=21,
+                        game_type="SB",
+                        gameday=date(2020, 2, 2),
+                        home_team_id=tid["KC"],
+                        away_team_id=tid["IND"],
+                        home_score=30,
+                        away_score=20,
+                        result=10,
+                        spread_line=Decimal("-2.5"),
+                    ),
+                ]
+            )
+            session.commit()
+            bills = get_team_ats_by_game(session, 2019, team_abbr="BUF")
+            chiefs = get_team_ats_by_game(session, 2019, team_abbr="KC")
+        self.assertEqual(bills["source"], "history")
+        self.assertEqual(bills["games"][0]["ats"], "PUSH")
+        self.assertEqual(bills["games"][0]["line"], "-3.0")
+        self.assertEqual(chiefs["games"][0]["game"], "Super Bowl")
+        self.assertEqual(chiefs["games"][0]["line"], "+2.5")
+        self.assertEqual(chiefs["games"][0]["ats"], "COVERED")
 
     def test_an_empty_season_is_empty_not_a_raise(self) -> None:
         with self._session() as session:
