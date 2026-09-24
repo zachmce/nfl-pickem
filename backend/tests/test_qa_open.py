@@ -4033,11 +4033,63 @@ class GroundingReplayTests(_OpenPathTestCase):
         self.assertNotIn("chan-0", qa_open._GROUNDING)  # least recently used went first
         for i in range(qa_open._GROUNDING_MAX_EXCHANGES + 2):
             qa_open._remember_grounding("chan-x", f"answer {i}", [{"role": "tool"}])
-        kept = [answer for answer, _turns in qa_open._GROUNDING["chan-x"]]
+        kept = [answer for answer, _turns, _at in qa_open._GROUNDING["chan-x"]]
         self.assertEqual(len(kept), qa_open._GROUNDING_MAX_EXCHANGES)
         self.assertNotIn("answer 0", kept)  # oldest exchange went first
         self.assertEqual(qa_open._grounding_for("chan-x", "answer 0"), [])
         self.assertEqual(qa_open._grounding_for("chan-x", "answer 5"), [{"role": "tool"}])
+
+    def test_an_old_volatile_result_is_replayed_marked_stale(self) -> None:
+        live = {"role": "tool", "tool_call_id": "a", "name": "lookup_live_game", "content": "{}"}
+        roster = {
+            "role": "tool",
+            "tool_call_id": "b",
+            "name": "lookup_team_roster",
+            "content": "{}",
+        }
+        call = {"role": "assistant", "content": None, "tool_calls": []}
+        qa_open._remember_grounding("chan-s", "BUF 14, MIA 7", [call, live, roster])
+        self.assertEqual(qa_open._grounding_for("chan-s", "BUF 14, MIA 7"), [call, live, roster])
+
+        answer, turns, stored_at = qa_open._GROUNDING["chan-s"][0]
+        old = stored_at - qa_open._VOLATILE_REPLAY_SECONDS - 60
+        qa_open._GROUNDING["chan-s"][0] = (answer, turns, old)
+        replayed = qa_open._grounding_for("chan-s", "BUF 14, MIA 7")
+        self.assertEqual(replayed[0], call)
+        self.assertEqual(replayed[2], roster)  # not volatile — replayed as it was
+        stale = json.loads(replayed[1]["content"])
+        self.assertTrue(stale["stale"])
+        self.assertIn("Call lookup_live_game again", stale["note"])
+        self.assertEqual(stale["old_result"], "{}")
+
+    def test_the_live_and_league_tools_are_volatile(self) -> None:
+        volatile = {tool.name for tool in qa_open.TOOLS if tool.volatile}
+        self.assertEqual(
+            volatile,
+            {
+                "lookup_live_game",
+                "lookup_week_scoreboard",
+                "lookup_my_pick_status",
+                "lookup_league_picks",
+                "lookup_pick_completion",
+                "lookup_standings",
+                "lookup_scores",
+            },
+        )
+
+    def test_a_failed_lookup_never_sends_the_model_to_memory(self) -> None:
+        for payload in (
+            qa_open._NO_DATA_PAYLOAD,
+            qa_open._UNKNOWN_TOOL_PAYLOAD,
+            qa_open._BAD_ARGUMENTS_PAYLOAD,
+        ):
+            self.assertNotIn("from your own football knowledge instead", payload)
+        self.assertIn("could not look it up", qa_open._NO_DATA_PAYLOAD)
+        self.assertIn("Never give", qa_open._NO_DATA_PAYLOAD)
+
+    def test_the_role_no_longer_bans_the_app_database(self) -> None:
+        self.assertNotIn("rather than any figure read from the app's database", qa_open.OPEN_ROLE)
+        self.assertIn("you answer from the tool", qa_open.OPEN_ROLE)
 
 
 # --------------------------------------------------------------------------- #

@@ -475,8 +475,8 @@ async def get_pick_status_async(discord_id: int) -> dict:
     return await asyncio.to_thread(_sync)
 
 
-async def get_lines_slate_async(team_abbr: str | None = None) -> dict:
-    """Async wrapper: this week's lines/slate, optionally narrowed to one team.
+async def get_lines_slate_async(team_abbr: str | None = None, week: int | None = None) -> dict:
+    """Async wrapper: a week's lines/slate (this week by default), optionally one team's.
 
     Resolves the season + current week internally then delegates to
     :func:`app.services.notifications_read.get_lines_slate`. Returns the safe empty
@@ -489,10 +489,10 @@ async def get_lines_slate_async(team_abbr: str | None = None) -> dict:
             season = current_season(session)
             if season is None:
                 return {"week": None, "close_at": None, "games": []}
-            week = resolve_current_week(session, season)
-            if week is None:
+            target = week if week is not None else resolve_current_week(session, season)
+            if target is None:
                 return {"week": None, "close_at": None, "games": []}
-            return get_lines_slate(session, season, week, team_abbr=team_abbr)
+            return get_lines_slate(session, season, target, team_abbr=team_abbr)
 
     return await asyncio.to_thread(_sync)
 
@@ -522,14 +522,17 @@ async def get_slate_predictions_async() -> dict:
     return await asyncio.to_thread(_sync)
 
 
-async def get_week_scores_async(week: int | None = None) -> dict:
+async def get_week_scores_async(week: int | None = None, team_abbr: str | None = None) -> dict:
     """Async wrapper: a week's final + in-progress scores (the current week by default).
 
     Resolves the season internally, and the current week when ``week`` is ``None``
     (issue #227: an earlier week is now reachable), then delegates to
-    :func:`app.services.notifications_read.get_week_scores`. Returns the safe empty
-    shape ``{week: None, games: []}`` on an ambiguous/empty season. Plain dict out
-    only; Discord-free.
+    :func:`app.services.notifications_read.get_week_scores`. With no ``week``, a
+    current week that has nothing scored yet falls back to the week before it: the
+    current week advances once Monday night is final, so from Tuesday to Thursday
+    "the scores" means last week's. Returns the safe empty shape
+    ``{week: None, games: []}`` on an ambiguous/empty season. Plain dict out only;
+    Discord-free.
     """
 
     def _sync() -> dict:
@@ -540,7 +543,12 @@ async def get_week_scores_async(week: int | None = None) -> dict:
             target = week if week is not None else resolve_current_week(session, season)
             if target is None:
                 return {"week": None, "games": []}
-            return get_week_scores(session, season, target)
+            scores = get_week_scores(session, season, target, team_abbr=team_abbr)
+            if week is None and not scores["games"] and target > 1:
+                earlier = get_week_scores(session, season, target - 1, team_abbr=team_abbr)
+                if earlier["games"]:
+                    return earlier
+            return scores
 
     return await asyncio.to_thread(_sync)
 

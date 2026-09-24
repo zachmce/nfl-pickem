@@ -590,6 +590,41 @@ class ConcurrentQuestionTests(unittest.TestCase):
             memory.record(channel_id, "Ada", "hi")
         self.assertNotIn(0, memory._locks)
 
+    def test_channel_eviction_keeps_a_held_lock(self) -> None:
+        memory = mention_qa._ChannelMemory()
+        lock = memory.answer_lock(0)
+        asyncio.run(lock.acquire())
+        for channel_id in range(1, mention_qa._MEMORY_MAX_CHANNELS + 1):
+            memory.record(channel_id, "Ada", "hi")
+        self.assertIs(memory.answer_lock(0), lock)
+
+    def test_forget_drops_one_turn_by_identity(self) -> None:
+        memory = mention_qa._ChannelMemory()
+        memory.record(1, "Ada", "who wins?")
+        turn = memory.record(1, "Ada", "who wins?")
+        memory.forget(1, turn)
+        self.assertEqual(memory.history(1), [("user", "Ada: who wins?")])
+
+    def test_a_rate_limited_question_leaves_no_turn_in_history(self) -> None:
+        cog = _cog()
+        answer_patch, calls = _answer_returns("answer")
+        with answer_patch:
+            _deliver(cog, _make_message(content="<@999> first?", author_id=1))
+            _deliver(cog, _make_message(content="<@999> second?", author_id=1))
+            _deliver(cog, _make_message(content="<@999> third?", author_id=2))
+        self.assertEqual(len(calls), 2)
+        self.assertNotIn(("user", "Ada: second?"), calls[1]["history"])
+        self.assertFalse(any("second?" in text for _role, text in calls[1]["history"]))
+
+    def test_other_member_mentions_reach_the_answer_as_names(self) -> None:
+        cog = _cog()
+        answer_patch, calls = _answer_returns("answer")
+        with answer_patch:
+            message = _make_message(content="<@999> what did <@!555> pick?", author_id=1)
+            message.mentions = [_BOT_USER, SimpleNamespace(id=555, display_name="Austin")]
+            _deliver(cog, message)
+        self.assertEqual(calls[0]["question"], "what did @Austin pick?")
+
 
 class MentionOfAnotherMemberTests(unittest.TestCase):
     def test_a_message_that_mentions_another_member_never_reaches_the_gate(self) -> None:
