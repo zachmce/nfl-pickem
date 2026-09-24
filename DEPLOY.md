@@ -93,6 +93,9 @@ DISCORD_GUILD_ID=<guild id>
 # longer answers); unset = LLM_API_MODEL everywhere.
 # LLM_API_OPEN_MODEL=gpt-5.6-terra
 # Switching back to the local server = the first block again; no code change.
+# Optional: the bot's search_web tool, backed by your own SearXNG instance (it must
+# allow format=json). Unset = no web search.
+# SEARXNG_URL=https://searx.example.com
 ```
 
 > If any production value is left insecure (dev `SECRET_KEY`, `SESSION_COOKIE_SECURE`
