@@ -36,7 +36,7 @@ from decimal import Decimal
 import structlog
 from sqlmodel import Session, col, select
 
-from app.models import Game, GameStatus, Pick, PickType, Team, User, Week
+from app.models import Game, GameStatus, HistoricalGame, Pick, PickType, Team, User, Week
 from app.services import ratings
 from app.services.pick_submission import main_picks_complete
 from app.services.pick_window import compute_window
@@ -1399,6 +1399,110 @@ def _favorite_covered(favorite_margin: Decimal, spread: Decimal) -> bool | None:
     return favorite_margin > spread
 
 
+_ROUND_LABELS = {
+    "WC": "wild card",
+    "DIV": "divisional",
+    "CON": "conference championship",
+    "SB": "Super Bowl",
+}
+
+
+def _ats_row(
+    *, week: int, label: str, opponent: str, home: bool, line: Decimal, scored: int, allowed: int
+) -> dict:
+    """One game's ATS row from the asked team's side. ``line`` is the team's own line
+    in betting notation: negative when it was favored."""
+    margin = Decimal(scored - allowed) + line
+    result = "PUSH" if margin == 0 else ("COVERED" if margin > 0 else "DID NOT COVER")
+    return {
+        "week": week,
+        "game": label,
+        "opponent": opponent,
+        "venue": "home" if home else "away",
+        "line": "PK" if line == 0 else f"{line:+.1f}",
+        "score": f"{scored}-{allowed}",
+        "straight_up": "WON" if scored > allowed else ("LOST" if scored < allowed else "TIED"),
+        "ats": result,
+    }
+
+
+def get_team_ats_by_game(session: Session, season: int, *, team_abbr: str) -> dict:
+    """The asked team's result against the spread in every final game of ``season``.
+
+    A season the app runs reads each game's frozen league line; any other season reads
+    the nflverse consensus line in :class:`HistoricalGame` (1999 to the last finished
+    season), playoffs included. Returns ``{season, team, source, games, record}``,
+    with ``source`` ``"league"`` or ``"history"`` and ``record`` the covered / did not
+    cover / push counts; ``team`` is ``None`` when the token resolves no team.
+    """
+    teams = list(session.exec(select(Team)).all())
+    team_ids = _team_ids_for_token(teams, team_abbr)
+    abbr_by_id = {t.id: t.abbreviation for t in teams if t.id is not None}
+    empty = {"season": season, "team": None, "source": None, "games": [], "record": {}}
+    if not team_ids:
+        return empty
+    team = abbr_by_id.get(next(iter(team_ids)))
+    rows: list[dict] = []
+
+    league_games = list(session.exec(select(Game).where(Game.season == season)).all())
+    source = "league" if league_games else "history"
+    if league_games:
+        for g in sorted(league_games, key=lambda game: game.week):
+            home = g.home_team_id in team_ids
+            if not (home or g.away_team_id in team_ids):
+                continue
+            if g.status is not GameStatus.FINAL or g.home_score is None or g.away_score is None:
+                continue
+            if g.spread is None or g.favorite_team_id not in (g.home_team_id, g.away_team_id):
+                continue
+            favored = g.favorite_team_id in team_ids
+            line = -g.spread if favored else g.spread
+            scored, allowed = (g.home_score, g.away_score) if home else (g.away_score, g.home_score)
+            opponent_id = g.away_team_id if home else g.home_team_id
+            rows.append(
+                _ats_row(
+                    week=g.week,
+                    label=f"week {g.week}",
+                    opponent=abbr_by_id.get(opponent_id, "?"),
+                    home=home,
+                    line=line,
+                    scored=scored,
+                    allowed=allowed,
+                )
+            )
+    else:
+        history = list(
+            session.exec(select(HistoricalGame).where(HistoricalGame.season == season)).all()
+        )
+        for h in sorted(history, key=lambda game: (game.gameday, game.week)):
+            home = h.home_team_id in team_ids
+            if not (home or h.away_team_id in team_ids):
+                continue
+            # spread_line is home-perspective: positive means the home team was favored.
+            line = -h.spread_line if home else h.spread_line
+            scored, allowed = (h.home_score, h.away_score) if home else (h.away_score, h.home_score)
+            opponent_id = h.away_team_id if home else h.home_team_id
+            label = _ROUND_LABELS.get(h.game_type, f"week {h.week}")
+            rows.append(
+                _ats_row(
+                    week=h.week,
+                    label=label,
+                    opponent=abbr_by_id.get(opponent_id, "?"),
+                    home=home,
+                    line=line,
+                    scored=scored,
+                    allowed=allowed,
+                )
+            )
+
+    record = {
+        "covered": sum(1 for row in rows if row["ats"] == "COVERED"),
+        "did_not_cover": sum(1 for row in rows if row["ats"] == "DID NOT COVER"),
+        "push": sum(1 for row in rows if row["ats"] == "PUSH"),
+    }
+    return {"season": season, "team": team, "source": source, "games": rows, "record": record}
+
+
 def get_season_record_and_ats_for_team(session: Session, season: int, *, team_abbr: str) -> dict:
     """The asked team's straight-up record + ATS record for ``season`` (260710-mpw).
 
@@ -1539,6 +1643,88 @@ def get_league_picks(session: Session, season: int, week: int) -> dict:
         )
 
     return {"week": week, "picks_locked": picks_locked, "close_at": close_at, "members": members}
+
+
+def _match_member(names: list[str], asked: str) -> list[str]:
+    """The member names ``asked`` names: an exact case-insensitive match, else every
+    name that contains it. A leading ``@`` is ignored."""
+    needle = asked.strip().lstrip("@").strip().casefold()
+    if not needle:
+        return []
+    exact = [name for name in names if name.casefold() == needle]
+    return exact or [name for name in names if needle in name.casefold()]
+
+
+def get_member_season(session: Session, season: int, *, member: str) -> dict:
+    """One member's result in every week of ``season`` whose pick window has closed.
+
+    Built on :func:`get_league_picks`, so the ONE hard rule holds here too: a week
+    whose window is still open contributes nothing. Returns ``{season, member,
+    matches, weeks, totals, open_week}``: ``matches`` lists the names ``member``
+    matched when it is not exactly one; each week carries the weekly score, the
+    base-pick W-L-P and the mortal lock with its outcome; ``open_week`` is the week
+    still hidden, if any.
+    """
+    week_numbers = sorted(
+        {w.week for w in session.exec(select(Week).where(Week.season == season)).all()}
+    )
+    names = [
+        u.display_name
+        for u in session.exec(select(User).where(col(User.is_active).is_(True))).all()
+    ]
+    matches = _match_member(names, member)
+    result: dict = {
+        "season": season,
+        "member": None,
+        "matches": matches,
+        "weeks": [],
+        "totals": {},
+        "open_week": None,
+    }
+    if len(matches) != 1:
+        return result
+    name = matches[0]
+    result["member"] = name
+
+    weeks: list[dict] = []
+    for week in week_numbers:
+        data = get_league_picks(session, season, week)
+        if not data["picks_locked"]:
+            if result["open_week"] is None and data["close_at"] is not None:
+                result["open_week"] = week
+            continue
+        row = next((m for m in data["members"] if m["display_name"] == name), None)
+        if row is None or not row["picks"]:
+            weeks.append({"week": week, "made_picks": False})
+            continue
+        base = [p for p in row["picks"] if not p["mortal_lock"]]
+        lock = next((p for p in row["picks"] if p["mortal_lock"]), None)
+        weeks.append(
+            {
+                "week": week,
+                "made_picks": True,
+                "weekly_score": row["weekly_score"],
+                "picks_won": sum(1 for p in base if p["outcome"] == "WIN"),
+                "picks_lost": sum(1 for p in base if p["outcome"] == "LOSS"),
+                "picks_pushed": sum(1 for p in base if p["outcome"] == "PUSH"),
+                "mortal_lock": (
+                    {"game": lock["game"], "pick": lock["pick"], "outcome": lock["outcome"]}
+                    if lock is not None
+                    else None
+                ),
+            }
+        )
+    locks = [w["mortal_lock"] for w in weeks if w.get("mortal_lock")]
+    result["weeks"] = weeks
+    result["totals"] = {
+        "weeks_counted": len(weeks),
+        "season_score": sum(w.get("weekly_score", 0) for w in weeks),
+        "mortal_locks_won": sum(1 for lock in locks if lock["outcome"] == "WIN"),
+        "mortal_locks_lost": sum(1 for lock in locks if lock["outcome"] == "LOSS"),
+        "mortal_locks_pushed": sum(1 for lock in locks if lock["outcome"] == "PUSH"),
+        "mortal_locks_not_final": sum(1 for lock in locks if lock["outcome"] == "UNGRADEABLE"),
+    }
+    return result
 
 
 def get_pick_completion(session: Session, season: int, week: int) -> dict:

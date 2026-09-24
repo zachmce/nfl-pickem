@@ -1,0 +1,1374 @@
+{
+ "displayName": "2017 National Football League Draft",
+ "year": 2017,
+ "rounds": 7,
+ "status": {
+  "description": "Completed",
+  "name": "COMPLETED",
+  "round": 7,
+  "state": "post"
+ },
+ "positions": [
+  {
+   "abbreviation": "QB",
+   "displayName": "Quarterback",
+   "id": "8"
+  },
+  {
+   "abbreviation": "RB",
+   "displayName": "Running Back",
+   "id": "9"
+  },
+  {
+   "abbreviation": "WR",
+   "displayName": "Wide Receiver",
+   "id": "1"
+  },
+  {
+   "abbreviation": "TE",
+   "displayName": "Tight End",
+   "id": "7"
+  },
+  {
+   "abbreviation": "FB",
+   "displayName": "Fullback",
+   "id": "10"
+  },
+  {
+   "abbreviation": "OT",
+   "displayName": "Offensive Tackle",
+   "id": "46"
+  },
+  {
+   "abbreviation": "OG",
+   "displayName": "Offensive Guard",
+   "id": "47"
+  },
+  {
+   "abbreviation": "C",
+   "displayName": "Center",
+   "id": "91"
+  },
+  {
+   "abbreviation": "DT",
+   "displayName": "Defensive Tackle",
+   "id": "32"
+  },
+  {
+   "abbreviation": "DE",
+   "displayName": "Defensive End",
+   "id": "31"
+  },
+  {
+   "abbreviation": "ILB",
+   "displayName": "Inside Linebacker",
+   "id": "90"
+  },
+  {
+   "abbreviation": "OLB",
+   "displayName": "Outside Linebacker",
+   "id": "107"
+  },
+  {
+   "abbreviation": "CB",
+   "displayName": "Cornerback",
+   "id": "29"
+  },
+  {
+   "abbreviation": "S",
+   "displayName": "Safety",
+   "id": "36"
+  },
+  {
+   "abbreviation": "PK",
+   "displayName": "Place Kicker",
+   "id": "22"
+  },
+  {
+   "abbreviation": "P",
+   "displayName": "Punter",
+   "id": "94"
+  },
+  {
+   "abbreviation": "LS",
+   "displayName": "Long Snapper",
+   "id": "96"
+  }
+ ],
+ "teams": [
+  {
+   "abbreviation": "ARI",
+   "displayName": "Arizona Cardinals",
+   "id": "22"
+  },
+  {
+   "abbreviation": "ATL",
+   "displayName": "Atlanta Falcons",
+   "id": "1"
+  },
+  {
+   "abbreviation": "BAL",
+   "displayName": "Baltimore Ravens",
+   "id": "33"
+  },
+  {
+   "abbreviation": "BUF",
+   "displayName": "Buffalo Bills",
+   "id": "2"
+  },
+  {
+   "abbreviation": "CAR",
+   "displayName": "Carolina Panthers",
+   "id": "29"
+  },
+  {
+   "abbreviation": "CHI",
+   "displayName": "Chicago Bears",
+   "id": "3"
+  },
+  {
+   "abbreviation": "CIN",
+   "displayName": "Cincinnati Bengals",
+   "id": "4"
+  },
+  {
+   "abbreviation": "CLE",
+   "displayName": "Cleveland Browns",
+   "id": "5"
+  },
+  {
+   "abbreviation": "DAL",
+   "displayName": "Dallas Cowboys",
+   "id": "6"
+  },
+  {
+   "abbreviation": "DEN",
+   "displayName": "Denver Broncos",
+   "id": "7"
+  },
+  {
+   "abbreviation": "DET",
+   "displayName": "Detroit Lions",
+   "id": "8"
+  },
+  {
+   "abbreviation": "GB",
+   "displayName": "Green Bay Packers",
+   "id": "9"
+  },
+  {
+   "abbreviation": "HOU",
+   "displayName": "Houston Texans",
+   "id": "34"
+  },
+  {
+   "abbreviation": "IND",
+   "displayName": "Indianapolis Colts",
+   "id": "11"
+  },
+  {
+   "abbreviation": "JAX",
+   "displayName": "Jacksonville Jaguars",
+   "id": "30"
+  },
+  {
+   "abbreviation": "KC",
+   "displayName": "Kansas City Chiefs",
+   "id": "12"
+  },
+  {
+   "abbreviation": "LAC",
+   "displayName": "Los Angeles Chargers",
+   "id": "24"
+  },
+  {
+   "abbreviation": "LAR",
+   "displayName": "Los Angeles Rams",
+   "id": "14"
+  },
+  {
+   "abbreviation": "MIA",
+   "displayName": "Miami Dolphins",
+   "id": "15"
+  },
+  {
+   "abbreviation": "MIN",
+   "displayName": "Minnesota Vikings",
+   "id": "16"
+  },
+  {
+   "abbreviation": "NE",
+   "displayName": "New England Patriots",
+   "id": "17"
+  },
+  {
+   "abbreviation": "NO",
+   "displayName": "New Orleans Saints",
+   "id": "18"
+  },
+  {
+   "abbreviation": "NYG",
+   "displayName": "New York Giants",
+   "id": "19"
+  },
+  {
+   "abbreviation": "NYJ",
+   "displayName": "New York Jets",
+   "id": "20"
+  },
+  {
+   "abbreviation": "OAK",
+   "displayName": "Oakland Raiders",
+   "id": "13"
+  },
+  {
+   "abbreviation": "PHI",
+   "displayName": "Philadelphia Eagles",
+   "id": "21"
+  },
+  {
+   "abbreviation": "PIT",
+   "displayName": "Pittsburgh Steelers",
+   "id": "23"
+  },
+  {
+   "abbreviation": "SEA",
+   "displayName": "Seattle Seahawks",
+   "id": "26"
+  },
+  {
+   "abbreviation": "SF",
+   "displayName": "San Francisco 49ers",
+   "id": "25"
+  },
+  {
+   "abbreviation": "TB",
+   "displayName": "Tampa Bay Buccaneers",
+   "id": "27"
+  },
+  {
+   "abbreviation": "TEN",
+   "displayName": "Tennessee Titans",
+   "id": "10"
+  },
+  {
+   "abbreviation": "WSH",
+   "displayName": "Washington Redskins",
+   "id": "28"
+  }
+ ],
+ "picks": [
+  {
+   "overall": 1,
+   "pick": 1,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "5",
+   "traded": false,
+   "athlete": {
+    "displayName": "Myles Garrett",
+    "position": {
+     "id": "31"
+    },
+    "team": {
+     "shortDisplayName": "Texas A&M"
+    }
+   }
+  },
+  {
+   "overall": 2,
+   "pick": 2,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "3",
+   "traded": true,
+   "tradeNote": "From SF",
+   "athlete": {
+    "displayName": "Mitchell Trubisky",
+    "position": {
+     "id": "8"
+    },
+    "team": {
+     "shortDisplayName": "UNC"
+    }
+   }
+  },
+  {
+   "overall": 3,
+   "pick": 3,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "25",
+   "traded": true,
+   "tradeNote": "From CHI",
+   "athlete": {
+    "displayName": "Solomon Thomas",
+    "position": {
+     "id": "32"
+    },
+    "team": {
+     "shortDisplayName": "Stanford"
+    }
+   }
+  },
+  {
+   "overall": 4,
+   "pick": 4,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "30",
+   "traded": false,
+   "athlete": {
+    "displayName": "Leonard Fournette",
+    "position": {
+     "id": "9"
+    },
+    "team": {
+     "shortDisplayName": "LSU"
+    }
+   }
+  },
+  {
+   "overall": 5,
+   "pick": 5,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "10",
+   "traded": true,
+   "tradeNote": "From LA",
+   "athlete": {
+    "displayName": "Corey Davis",
+    "position": {
+     "id": "1"
+    },
+    "team": {
+     "shortDisplayName": "W Michigan"
+    }
+   }
+  },
+  {
+   "overall": 6,
+   "pick": 6,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "20",
+   "traded": false,
+   "athlete": {
+    "displayName": "Jamal Adams",
+    "position": {
+     "id": "36"
+    },
+    "team": {
+     "shortDisplayName": "LSU"
+    }
+   }
+  },
+  {
+   "overall": 7,
+   "pick": 7,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "24",
+   "traded": false,
+   "athlete": {
+    "displayName": "Mike Williams",
+    "position": {
+     "id": "1"
+    },
+    "team": {
+     "shortDisplayName": "Clemson"
+    }
+   }
+  },
+  {
+   "overall": 8,
+   "pick": 8,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "29",
+   "traded": false,
+   "athlete": {
+    "displayName": "Christian McCaffrey",
+    "position": {
+     "id": "9"
+    },
+    "team": {
+     "shortDisplayName": "Stanford"
+    }
+   }
+  },
+  {
+   "overall": 9,
+   "pick": 9,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "4",
+   "traded": false,
+   "athlete": {
+    "displayName": "John Ross",
+    "position": {
+     "id": "1"
+    },
+    "team": {
+     "shortDisplayName": "Washington"
+    }
+   }
+  },
+  {
+   "overall": 10,
+   "pick": 10,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "12",
+   "traded": true,
+   "tradeNote": "From BUF",
+   "athlete": {
+    "displayName": "Patrick Mahomes",
+    "position": {
+     "id": "8"
+    },
+    "team": {
+     "shortDisplayName": "Texas Tech"
+    }
+   }
+  },
+  {
+   "overall": 11,
+   "pick": 11,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "18",
+   "traded": false,
+   "athlete": {
+    "displayName": "Marshon Lattimore",
+    "position": {
+     "id": "29"
+    },
+    "team": {
+     "shortDisplayName": "OSU"
+    }
+   }
+  },
+  {
+   "overall": 12,
+   "pick": 12,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "34",
+   "traded": true,
+   "tradeNote": "From PHI through CLE",
+   "athlete": {
+    "displayName": "Deshaun Watson",
+    "position": {
+     "id": "8"
+    },
+    "team": {
+     "shortDisplayName": "Clemson"
+    }
+   }
+  },
+  {
+   "overall": 13,
+   "pick": 13,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "22",
+   "traded": false,
+   "athlete": {
+    "displayName": "Haason Reddick",
+    "position": {
+     "id": "90"
+    },
+    "team": {
+     "shortDisplayName": "Temple"
+    }
+   }
+  },
+  {
+   "overall": 14,
+   "pick": 14,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "21",
+   "traded": true,
+   "tradeNote": "From MIN",
+   "athlete": {
+    "displayName": "Derek Barnett",
+    "position": {
+     "id": "31"
+    },
+    "team": {
+     "shortDisplayName": "Tennessee"
+    }
+   }
+  },
+  {
+   "overall": 15,
+   "pick": 15,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "11",
+   "traded": false,
+   "athlete": {
+    "displayName": "Malik Hooker",
+    "position": {
+     "id": "36"
+    },
+    "team": {
+     "shortDisplayName": "OSU"
+    }
+   }
+  },
+  {
+   "overall": 16,
+   "pick": 16,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "33",
+   "traded": false,
+   "athlete": {
+    "displayName": "Marlon Humphrey",
+    "position": {
+     "id": "29"
+    },
+    "team": {
+     "shortDisplayName": "Alabama"
+    }
+   }
+  },
+  {
+   "overall": 17,
+   "pick": 17,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "28",
+   "traded": false,
+   "athlete": {
+    "displayName": "Jonathan Allen",
+    "position": {
+     "id": "32"
+    },
+    "team": {
+     "shortDisplayName": "Alabama"
+    }
+   }
+  },
+  {
+   "overall": 18,
+   "pick": 18,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "10",
+   "traded": false,
+   "athlete": {
+    "displayName": "Adoree' Jackson",
+    "position": {
+     "id": "29"
+    },
+    "team": {
+     "shortDisplayName": "USC"
+    }
+   }
+  },
+  {
+   "overall": 19,
+   "pick": 19,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "27",
+   "traded": false,
+   "athlete": {
+    "displayName": "O.J. Howard",
+    "position": {
+     "id": "7"
+    },
+    "team": {
+     "shortDisplayName": "Alabama"
+    }
+   }
+  },
+  {
+   "overall": 20,
+   "pick": 20,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "7",
+   "traded": false,
+   "athlete": {
+    "displayName": "Garett Bolles",
+    "position": {
+     "id": "46"
+    },
+    "team": {
+     "shortDisplayName": "Utah"
+    }
+   }
+  },
+  {
+   "overall": 21,
+   "pick": 21,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "8",
+   "traded": false,
+   "athlete": {
+    "displayName": "Jarrad Davis",
+    "position": {
+     "id": "90"
+    },
+    "team": {
+     "shortDisplayName": "Florida"
+    }
+   }
+  },
+  {
+   "overall": 22,
+   "pick": 22,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "15",
+   "traded": false,
+   "athlete": {
+    "displayName": "Charles Harris",
+    "position": {
+     "id": "107"
+    },
+    "team": {
+     "shortDisplayName": "Missouri"
+    }
+   }
+  },
+  {
+   "overall": 23,
+   "pick": 23,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "19",
+   "traded": false,
+   "athlete": {
+    "displayName": "Evan Engram",
+    "position": {
+     "id": "7"
+    },
+    "team": {
+     "shortDisplayName": "Ole Miss"
+    }
+   }
+  },
+  {
+   "overall": 24,
+   "pick": 24,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "13",
+   "traded": false,
+   "athlete": {
+    "displayName": "Gareon Conley",
+    "position": {
+     "id": "29"
+    },
+    "team": {
+     "shortDisplayName": "OSU"
+    }
+   }
+  },
+  {
+   "overall": 25,
+   "pick": 25,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "5",
+   "traded": true,
+   "tradeNote": "From HOU",
+   "athlete": {
+    "displayName": "Jabrill Peppers",
+    "position": {
+     "id": "36"
+    },
+    "team": {
+     "shortDisplayName": "Michigan"
+    }
+   }
+  },
+  {
+   "overall": 26,
+   "pick": 26,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "1",
+   "traded": true,
+   "tradeNote": "From SEA",
+   "athlete": {
+    "displayName": "Takkarist McKinley",
+    "position": {
+     "id": "31"
+    },
+    "team": {
+     "shortDisplayName": "UCLA"
+    }
+   }
+  },
+  {
+   "overall": 27,
+   "pick": 27,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "2",
+   "traded": true,
+   "tradeNote": "From KC",
+   "athlete": {
+    "displayName": "Tre'Davious White",
+    "position": {
+     "id": "29"
+    },
+    "team": {
+     "shortDisplayName": "LSU"
+    }
+   }
+  },
+  {
+   "overall": 28,
+   "pick": 28,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "6",
+   "traded": false,
+   "athlete": {
+    "displayName": "Taco Charlton",
+    "position": {
+     "id": "31"
+    },
+    "team": {
+     "shortDisplayName": "Michigan"
+    }
+   }
+  },
+  {
+   "overall": 29,
+   "pick": 29,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "5",
+   "traded": true,
+   "tradeNote": "From GB",
+   "athlete": {
+    "displayName": "David Njoku",
+    "position": {
+     "id": "7"
+    },
+    "team": {
+     "shortDisplayName": "Miami"
+    }
+   }
+  },
+  {
+   "overall": 30,
+   "pick": 30,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "23",
+   "traded": false,
+   "athlete": {
+    "displayName": "T.J. Watt",
+    "position": {
+     "id": "107"
+    },
+    "team": {
+     "shortDisplayName": "Wisconsin"
+    }
+   }
+  },
+  {
+   "overall": 31,
+   "pick": 31,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "25",
+   "traded": true,
+   "tradeNote": "From ATL through SEA",
+   "athlete": {
+    "displayName": "Reuben Foster",
+    "position": {
+     "id": "90"
+    },
+    "team": {
+     "shortDisplayName": "Alabama"
+    }
+   }
+  },
+  {
+   "overall": 32,
+   "pick": 32,
+   "round": 1,
+   "status": "SELECTION_MADE",
+   "teamId": "18",
+   "traded": true,
+   "tradeNote": "From NE",
+   "athlete": {
+    "displayName": "Ryan Ramczyk",
+    "position": {
+     "id": "46"
+    },
+    "team": {
+     "shortDisplayName": "Wisconsin"
+    }
+   }
+  },
+  {
+   "overall": 33,
+   "pick": 1,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "9",
+   "traded": true,
+   "tradeNote": "From CLE",
+   "athlete": {
+    "displayName": "Kevin King",
+    "position": {
+     "id": "29"
+    },
+    "team": {
+     "shortDisplayName": "Washington"
+    }
+   }
+  },
+  {
+   "overall": 34,
+   "pick": 2,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "30",
+   "traded": true,
+   "tradeNote": "From SF through SEA",
+   "athlete": {
+    "displayName": "Cam Robinson",
+    "position": {
+     "id": "46"
+    },
+    "team": {
+     "shortDisplayName": "Alabama"
+    }
+   }
+  },
+  {
+   "overall": 35,
+   "pick": 3,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "26",
+   "traded": true,
+   "tradeNote": "From JAX",
+   "athlete": {
+    "displayName": "Malik McDowell",
+    "position": {
+     "id": "32"
+    },
+    "team": {
+     "shortDisplayName": "Michigan State"
+    }
+   }
+  },
+  {
+   "overall": 36,
+   "pick": 4,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "22",
+   "traded": true,
+   "tradeNote": "From CHI",
+   "athlete": {
+    "displayName": "Budda Baker",
+    "position": {
+     "id": "36"
+    },
+    "team": {
+     "shortDisplayName": "Washington"
+    }
+   }
+  },
+  {
+   "overall": 37,
+   "pick": 5,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "2",
+   "traded": true,
+   "tradeNote": "From LAR",
+   "athlete": {
+    "displayName": "Zay Jones",
+    "position": {
+     "id": "1"
+    },
+    "team": {
+     "shortDisplayName": "ECU"
+    }
+   }
+  },
+  {
+   "overall": 38,
+   "pick": 6,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "24",
+   "traded": false,
+   "athlete": {
+    "displayName": "Forrest Lamp",
+    "position": {
+     "id": "47"
+    },
+    "team": {
+     "shortDisplayName": "W Kentucky"
+    }
+   }
+  },
+  {
+   "overall": 39,
+   "pick": 7,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "20",
+   "traded": false,
+   "athlete": {
+    "displayName": "Marcus Maye",
+    "position": {
+     "id": "36"
+    },
+    "team": {
+     "shortDisplayName": "Florida"
+    }
+   }
+  },
+  {
+   "overall": 40,
+   "pick": 8,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "29",
+   "traded": false,
+   "athlete": {
+    "displayName": "Curtis Samuel",
+    "position": {
+     "id": "1"
+    },
+    "team": {
+     "shortDisplayName": "OSU"
+    }
+   }
+  },
+  {
+   "overall": 41,
+   "pick": 9,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "16",
+   "traded": true,
+   "tradeNote": "From CIN",
+   "athlete": {
+    "displayName": "Dalvin Cook",
+    "position": {
+     "id": "9"
+    },
+    "team": {
+     "shortDisplayName": "FSU"
+    }
+   }
+  },
+  {
+   "overall": 42,
+   "pick": 10,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "18",
+   "traded": false,
+   "athlete": {
+    "displayName": "Marcus Williams",
+    "position": {
+     "id": "36"
+    },
+    "team": {
+     "shortDisplayName": "Utah"
+    }
+   }
+  },
+  {
+   "overall": 43,
+   "pick": 11,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "21",
+   "traded": false,
+   "athlete": {
+    "displayName": "Sidney Jones",
+    "position": {
+     "id": "29"
+    },
+    "team": {
+     "shortDisplayName": "Washington"
+    }
+   }
+  },
+  {
+   "overall": 44,
+   "pick": 12,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "14",
+   "traded": true,
+   "tradeNote": "From BUF",
+   "athlete": {
+    "displayName": "Gerald Everett",
+    "position": {
+     "id": "7"
+    },
+    "team": {
+     "shortDisplayName": "South Alabama"
+    }
+   }
+  },
+  {
+   "overall": 45,
+   "pick": 13,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "3",
+   "traded": true,
+   "tradeNote": "From ARI",
+   "athlete": {
+    "displayName": "Adam Shaheen",
+    "position": {
+     "id": "7"
+    },
+    "team": {
+     "shortDisplayName": "Ashland"
+    }
+   }
+  },
+  {
+   "overall": 46,
+   "pick": 14,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "11",
+   "traded": false,
+   "athlete": {
+    "displayName": "Quincy Wilson",
+    "position": {
+     "id": "29"
+    },
+    "team": {
+     "shortDisplayName": "Florida"
+    }
+   }
+  },
+  {
+   "overall": 47,
+   "pick": 15,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "33",
+   "traded": false,
+   "athlete": {
+    "displayName": "Tyus Bowser",
+    "position": {
+     "id": "107"
+    },
+    "team": {
+     "shortDisplayName": "Houston"
+    }
+   }
+  },
+  {
+   "overall": 48,
+   "pick": 16,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "4",
+   "traded": true,
+   "tradeNote": "From MIN",
+   "athlete": {
+    "displayName": "Joe Mixon",
+    "position": {
+     "id": "9"
+    },
+    "team": {
+     "shortDisplayName": "Oklahoma"
+    }
+   }
+  },
+  {
+   "overall": 49,
+   "pick": 17,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "28",
+   "traded": false,
+   "athlete": {
+    "displayName": "Ryan Anderson",
+    "position": {
+     "id": "107"
+    },
+    "team": {
+     "shortDisplayName": "Alabama"
+    }
+   }
+  },
+  {
+   "overall": 50,
+   "pick": 18,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "27",
+   "traded": false,
+   "athlete": {
+    "displayName": "Justin Evans",
+    "position": {
+     "id": "36"
+    },
+    "team": {
+     "shortDisplayName": "Texas A&M"
+    }
+   }
+  },
+  {
+   "overall": 51,
+   "pick": 19,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "7",
+   "traded": false,
+   "athlete": {
+    "displayName": "DeMarcus Walker",
+    "position": {
+     "id": "31"
+    },
+    "team": {
+     "shortDisplayName": "FSU"
+    }
+   }
+  },
+  {
+   "overall": 52,
+   "pick": 20,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "5",
+   "traded": true,
+   "tradeNote": "From TEN",
+   "athlete": {
+    "displayName": "DeShone Kizer",
+    "position": {
+     "id": "8"
+    },
+    "team": {
+     "shortDisplayName": "Notre Dame"
+    }
+   }
+  },
+  {
+   "overall": 53,
+   "pick": 21,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "8",
+   "traded": false,
+   "athlete": {
+    "displayName": "Teez Tabor",
+    "position": {
+     "id": "29"
+    },
+    "team": {
+     "shortDisplayName": "Florida"
+    }
+   }
+  },
+  {
+   "overall": 54,
+   "pick": 22,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "15",
+   "traded": false,
+   "athlete": {
+    "displayName": "Raekwon McMillan",
+    "position": {
+     "id": "90"
+    },
+    "team": {
+     "shortDisplayName": "OSU"
+    }
+   }
+  },
+  {
+   "overall": 55,
+   "pick": 23,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "19",
+   "traded": false,
+   "athlete": {
+    "displayName": "Dalvin Tomlinson",
+    "position": {
+     "id": "32"
+    },
+    "team": {
+     "shortDisplayName": "Alabama"
+    }
+   }
+  },
+  {
+   "overall": 56,
+   "pick": 24,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "13",
+   "traded": false,
+   "athlete": {
+    "displayName": "Obi Melifonwu",
+    "position": {
+     "id": "36"
+    },
+    "team": {
+     "shortDisplayName": "UConn"
+    }
+   }
+  },
+  {
+   "overall": 57,
+   "pick": 25,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "34",
+   "traded": false,
+   "athlete": {
+    "displayName": "Zach Cunningham",
+    "position": {
+     "id": "90"
+    },
+    "team": {
+     "shortDisplayName": "Vanderbilt"
+    }
+   }
+  },
+  {
+   "overall": 58,
+   "pick": 26,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "26",
+   "traded": false,
+   "athlete": {
+    "displayName": "Ethan Pocic",
+    "position": {
+     "id": "91"
+    },
+    "team": {
+     "shortDisplayName": "LSU"
+    }
+   }
+  },
+  {
+   "overall": 59,
+   "pick": 27,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "12",
+   "traded": false,
+   "athlete": {
+    "displayName": "Tanoh Kpassagnon",
+    "position": {
+     "id": "31"
+    },
+    "team": {
+     "shortDisplayName": "Villanova"
+    }
+   }
+  },
+  {
+   "overall": 60,
+   "pick": 28,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "6",
+   "traded": false,
+   "athlete": {
+    "displayName": "Chidobe Awuzie",
+    "position": {
+     "id": "29"
+    },
+    "team": {
+     "shortDisplayName": "Colorado"
+    }
+   }
+  },
+  {
+   "overall": 61,
+   "pick": 29,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "9",
+   "traded": false,
+   "athlete": {
+    "displayName": "Josh Jones",
+    "position": {
+     "id": "36"
+    },
+    "team": {
+     "shortDisplayName": "NC State"
+    }
+   }
+  },
+  {
+   "overall": 62,
+   "pick": 30,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "23",
+   "traded": false,
+   "athlete": {
+    "displayName": "JuJu Smith-Schuster",
+    "position": {
+     "id": "1"
+    },
+    "team": {
+     "shortDisplayName": "USC"
+    }
+   }
+  },
+  {
+   "overall": 63,
+   "pick": 31,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "2",
+   "traded": true,
+   "tradeNote": "From ATL",
+   "athlete": {
+    "displayName": "Dion Dawkins",
+    "position": {
+     "id": "47"
+    },
+    "team": {
+     "shortDisplayName": "Temple"
+    }
+   }
+  },
+  {
+   "overall": 64,
+   "pick": 32,
+   "round": 2,
+   "status": "SELECTION_MADE",
+   "teamId": "29",
+   "traded": true,
+   "tradeNote": "From NE",
+   "athlete": {
+    "displayName": "Taylor Moton",
+    "position": {
+     "id": "46"
+    },
+    "team": {
+     "shortDisplayName": "W Michigan"
+    }
+   }
+  }
+ ]
+}

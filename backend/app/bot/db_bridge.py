@@ -28,6 +28,7 @@ from app.services.notifications_read import (
     get_leaders_context,
     get_league_picks,
     get_lines_slate,
+    get_member_season,
     get_pick_completion,
     get_pick_status_for_user,
     get_prediction_inputs_for_team,
@@ -37,6 +38,7 @@ from app.services.notifications_read import (
     get_season_record_and_ats_for_team,
     get_slate_predictions_for_week,
     get_standings_table,
+    get_team_ats_by_game,
     get_team_topic_for_token,
     get_week_pick_keys,
     get_week_recap_context,
@@ -715,5 +717,31 @@ async def get_standings_table_async() -> dict:
             if season is None:
                 return {"season": None, "entries": []}
             return get_standings_table(session, season)
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_team_ats_async(team_abbr: str, season: int | None = None) -> dict:
+    """Async wrapper: one team's game-by-game ATS results for a season (this one by default)."""
+
+    def _sync() -> dict:
+        with task_session() as session:
+            target = season if season is not None else current_season(session)
+            if target is None:
+                return {"season": None, "team": None, "source": None, "games": [], "record": {}}
+            return get_team_ats_by_game(session, target, team_abbr=team_abbr)
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_member_season_async(member: str) -> dict:
+    """Async wrapper: one member's closed weeks this season. The pick gate still holds."""
+
+    def _sync() -> dict:
+        with task_session() as session:
+            season = current_season(session)
+            if season is None:
+                return {"season": None, "member": None, "matches": [], "weeks": [], "totals": {}}
+            return get_member_season(session, season, member=member)
 
     return await asyncio.to_thread(_sync)

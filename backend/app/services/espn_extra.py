@@ -3653,3 +3653,99 @@ async def fetch_live_game_summary(event_id: Any) -> dict | None:
         ttl_seconds=LIVE_SUMMARY_CACHE_TTL_SECONDS,
         label="live_summary",
     )
+
+
+# --------------------------------------------------------------------------- #
+# DRAFT (2026-09-24). A member asked who went in the 2017 first round and got a list
+# from memory with a duplicate name and three players who were not first-round picks.
+# ONE site-host call carries every pick of a draft plus its team and position maps.
+# --------------------------------------------------------------------------- #
+
+DRAFT_URL = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/draft?season={season}"
+DRAFT_CACHE_TTL_SECONDS = 21600
+DRAFT_SEASON_MIN = 1936
+DRAFT_MAX_PICKS = 40
+
+DRAFT_CAVEAT = (
+    "Every pick here is from ESPN's own record of that draft. Report each pick with its "
+    "overall number, its team and its player exactly as listed, never add a player who is "
+    "not listed, and never move a player to a different round or team."
+)
+
+
+async def fetch_draft(season: int) -> dict | None:
+    """Fetch ESPN's full draft for ``season`` — best-effort, ``None`` on any failure."""
+    if isinstance(season, bool) or not isinstance(season, int):
+        return None
+    if not DRAFT_SEASON_MIN <= season <= _SCHEDULE_SEASON_MAX:
+        return None
+    return await _fetch_cached(
+        DRAFT_URL.format(season=season),
+        cache_key=f"qa:draft:{season}",
+        ttl_seconds=DRAFT_CACHE_TTL_SECONDS,
+        label="draft",
+    )
+
+
+def _dict_at(source: dict, key: str) -> dict:
+    """``source[key]`` when it is a dict, else an empty dict. Pure."""
+    value = source.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def parse_draft(
+    payload: Any, *, draft_round: int | None = None, team_abbr: str | None = None
+) -> dict | None:
+    """The draft's picks, narrowed to one round and/or one team. Pure, never raises.
+
+    Returns ``{year, status, picks, total}`` where each pick is ``{overall, round,
+    pick, team, player, position, college, traded_from}``; ``total`` counts the
+    matching picks before the :data:`DRAFT_MAX_PICKS` cap. ``None`` when the shape is
+    unusable.
+    """
+    if not isinstance(payload, dict) or not isinstance(payload.get("picks"), list):
+        return None
+    teams = {
+        str(t.get("id")): t.get("abbreviation")
+        for t in payload.get("teams") or []
+        if isinstance(t, dict)
+    }
+    positions = {
+        str(p.get("id")): p.get("abbreviation")
+        for p in payload.get("positions") or []
+        if isinstance(p, dict)
+    }
+    wanted_team = team_abbr.strip().upper() if isinstance(team_abbr, str) and team_abbr else None
+    picks: list[dict[str, Any]] = []
+    for raw in payload["picks"]:
+        if not isinstance(raw, dict):
+            continue
+        athlete = _dict_at(raw, "athlete")
+        team = teams.get(str(raw.get("teamId")))
+        if draft_round is not None and raw.get("round") != draft_round:
+            continue
+        if wanted_team is not None and (not isinstance(team, str) or team.upper() != wanted_team):
+            continue
+        position = _dict_at(athlete, "position")
+        college = _dict_at(athlete, "team")
+        trade_note = raw.get("tradeNote") if raw.get("traded") else None
+        picks.append(
+            {
+                "overall": raw.get("overall"),
+                "round": raw.get("round"),
+                "pick": raw.get("pick"),
+                "team": team,
+                "player": _first_str(athlete.get("displayName")),
+                "position": positions.get(str(position.get("id"))),
+                "college": _first_str(college.get("shortDisplayName"), college.get("location")),
+                "traded_from": _first_str(trade_note),
+            }
+        )
+    status = _dict_at(payload, "status")
+    year = payload.get("year")
+    return {
+        "year": year if isinstance(year, int) else None,
+        "status": _first_str(status.get("name")),
+        "picks": picks[:DRAFT_MAX_PICKS],
+        "total": len(picks),
+    }

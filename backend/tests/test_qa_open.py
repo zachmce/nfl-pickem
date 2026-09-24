@@ -323,6 +323,17 @@ class CarriesAToolCallTests(unittest.TestCase):
         self.assertFalse(qa_open._carries_a_tool_call({"role": "assistant", "content": None}))
         self.assertFalse(qa_open._carries_a_tool_call({"role": "assistant", "content": "Let me."}))
 
+    def test_the_token_gap_is_not_a_tool_call_on_openai(self) -> None:
+        # Measured 2026-09-24 on gpt-5.6-terra: a digit-heavy ATS answer, 151 tokens.
+        rows = "Week 1 at IND: +1.5, lost 8\u201333 \u2014 did not cover.  \n" * 6
+        message = {"role": "assistant", "content": rows, "_completion_tokens": 151}
+        with mock.patch.object(qa_open.settings, "llm_api_vendor", "local"):
+            self.assertTrue(qa_open._carries_a_tool_call(message))
+        with mock.patch.object(qa_open.settings, "llm_api_vendor", "openai"):
+            self.assertFalse(qa_open._carries_a_tool_call(message))
+            leaked = {"role": "assistant", "content": "<tool_call>x</tool_call>"}
+            self.assertTrue(qa_open._carries_a_tool_call(leaked))
+
     def test_a_literal_marker_is_a_tool_call_on_any_server(self) -> None:
         leaked = "Let me look.\n\n<tool_call>\n<function=lookup_player>\n</function>\n</tool_call>"
         self.assertTrue(qa_open._carries_a_tool_call({"role": "assistant", "content": leaked}))
@@ -888,6 +899,10 @@ class ShippedRegistryTests(_OpenPathTestCase):
                 "lookup_standings",
                 "lookup_lines",
                 "lookup_scores",
+                "lookup_team_ats",
+                "lookup_member_season",
+                "lookup_injury_report",
+                "lookup_draft",
             ],
         )
         params = qa_open.TOOLS[0].spec["function"]["parameters"]
@@ -1156,9 +1171,10 @@ class ShippedRegistryTests(_OpenPathTestCase):
         # up to the next hundred, so raising it stays a decision rather than a rubber
         # stamp, and no one new spec may exceed 1,700 bytes on its own. 27,726 on
         # 2026-09-18 with the live game and the week scoreboard tools (fifteen tools);
-        # 32,251 the same day with the six app-data tools (twenty-one tools).
+        # 32,251 the same day with the six app-data tools (twenty-one tools). 36,145 on
+        # 2026-09-24 with team ATS, member season, injury report and draft (25 tools).
         total = sum(len(json.dumps(tool.spec)) for tool in qa_open.TOOLS)
-        self.assertLess(total, 32300, f"the shipped tool specs now total {total} bytes")
+        self.assertLess(total, 36200, f"the shipped tool specs now total {total} bytes")
         for tool in qa_open.TOOLS[5:]:
             with self.subTest(tool=tool.name):
                 self.assertLess(len(json.dumps(tool.spec)), 1700)
@@ -4074,6 +4090,8 @@ class GroundingReplayTests(_OpenPathTestCase):
                 "lookup_pick_completion",
                 "lookup_standings",
                 "lookup_scores",
+                "lookup_member_season",
+                "lookup_injury_report",
             },
         )
 
@@ -5108,7 +5126,7 @@ class LinesToolTests(_OpenPathTestCase):
         with _db("get_lines_slate_async", data, calls):
             body = _run(qa_open._lookup_lines())
         assert isinstance(body, dict)
-        self.assertEqual(calls, [((None,), {})])
+        self.assertEqual(calls, [((None,), {"week": None})])
         self.assertEqual(body["games"], games)
         self.assertEqual(body["picks_window"], "open until Sun Sep 20, 5:00 PM UTC")
         self.assertIn(
@@ -5127,7 +5145,7 @@ class LinesToolTests(_OpenPathTestCase):
             calls,
         ):
             out = _run(qa_open._lookup_lines(team="kc"))
-        self.assertEqual(calls, [(("KC",), {})])
+        self.assertEqual(calls, [(("KC",), {"week": None})])
         self.assertEqual(out, {"note": qa_open._NO_LINE_FOR_TEAM_NOTE.format(team="KC", week=2)})
         with _db(
             "get_lines_slate_async",
@@ -5156,6 +5174,196 @@ class ScoresToolTests(_OpenPathTestCase):
                 _run(qa_open._lookup_scores()), {"note": qa_open._NO_SCORES_YET_NOTE.format(week=3)}
             )
         self.assertEqual(_run(qa_open._lookup_scores(week=0)), {"note": qa_open._BAD_WEEK_NOTE})
+
+
+# --------------------------------------------------------------------------- #
+# 2026-09-24 transcript tools: team ATS, member season, injury report, draft.
+# --------------------------------------------------------------------------- #
+
+_DRAFT_FIXTURE = Path(__file__).parent / "fixtures" / "espn_draft_2017.json"
+
+
+class TeamAtsToolTests(_OpenPathTestCase):
+    def test_the_games_and_the_record_are_relayed_with_the_source(self) -> None:
+        games = [{"week": 1, "opponent": "BUF", "line": "+3.5", "score": "20-24", "ats": "PUSH"}]
+        data = {
+            "season": 2026,
+            "team": "MIA",
+            "source": "league",
+            "games": games,
+            "record": {"covered": 0, "did_not_cover": 0, "push": 1},
+        }
+        calls: list = []
+        with _db("get_team_ats_async", data, calls):
+            body = _run(qa_open._lookup_team_ats(team="mia"))
+        assert isinstance(body, dict)
+        self.assertEqual(calls, [(("MIA", None), {})])
+        self.assertEqual(body["games"], games)
+        self.assertIn("covered 0, did not cover 0 and pushed 1", body["ats_statement"])
+        self.assertIn("frozen line", body["ats_statement"])
+
+    def test_a_past_season_names_the_archive_and_misses_are_notes(self) -> None:
+        data = {"season": 2019, "team": "MIA", "source": "history", "games": [{}], "record": {}}
+        with _db("get_team_ats_async", data):
+            body = _run(qa_open._lookup_team_ats(team="MIA", season=2019))
+        assert isinstance(body, dict)
+        self.assertIn("nflverse", body["ats_statement"])
+        self.assertEqual(_run(qa_open._lookup_team_ats()), {"note": qa_open._NO_TEAM_FOR_ATS_NOTE})
+        empty = {"season": 2026, "team": "MIA", "source": "league", "games": [], "record": {}}
+        with _db("get_team_ats_async", empty):
+            miss = _run(qa_open._lookup_team_ats(team="MIA"))
+        assert isinstance(miss, dict)
+        self.assertIn("never give a result from your own memory", miss["note"])
+
+
+class MemberSeasonToolTests(_OpenPathTestCase):
+    def test_a_member_season_is_relayed_with_the_open_week(self) -> None:
+        weeks = [{"week": 1, "made_picks": True, "mortal_lock": {"outcome": "WIN"}}]
+        data = {
+            "season": 2026,
+            "member": "austin_babayaga",
+            "matches": ["austin_babayaga"],
+            "weeks": weeks,
+            "totals": {"mortal_locks_won": 1, "mortal_locks_lost": 1, "mortal_locks_pushed": 0},
+            "open_week": 3,
+        }
+        calls: list = []
+        with _db("get_member_season_async", data, calls):
+            body = _run(qa_open._lookup_member_season(member="@austin_babayaga"))
+        assert isinstance(body, dict)
+        self.assertEqual(calls, [(("@austin_babayaga",), {})])
+        self.assertIn("mortal locks won 1, lost 1", body["member_season_statement"])
+        self.assertIn("Week 3 is still open", body["member_season_statement"])
+
+    def test_an_ambiguous_or_unknown_name_is_a_note(self) -> None:
+        base = {"season": 2026, "member": None, "weeks": [], "totals": {}}
+        with _db("get_member_season_async", {**base, "matches": ["bot_alice", "bot_bob"]}):
+            body = _run(qa_open._lookup_member_season(member="bot"))
+        self.assertEqual(
+            body,
+            {
+                "note": qa_open._AMBIGUOUS_MEMBER_NOTE.format(
+                    member="bot", names="bot_alice, bot_bob"
+                )
+            },
+        )
+        with _db("get_member_season_async", {**base, "matches": []}):
+            body = _run(qa_open._lookup_member_season(member="zed"))
+        self.assertEqual(body, {"note": qa_open._NO_SUCH_MEMBER_NOTE.format(member="zed")})
+
+    def test_the_hidden_picks_note_points_at_earlier_weeks(self) -> None:
+        note = qa_open._PICKS_HIDDEN_NOTE.format(week=3, when="soon")
+        self.assertIn("Every week before week 3 has closed", note)
+        self.assertIn("lookup_member_season", note)
+
+
+class InjuryReportToolTests(_OpenPathTestCase):
+    _PAYLOAD = {
+        "injuries": [
+            {
+                "team": {"abbreviation": "LV"},
+                "injuries": [
+                    {
+                        "status": "Out",
+                        "date": "2026-09-23T18:00Z",
+                        "athlete": {
+                            "displayName": "Brock Bowers",
+                            "position": {"abbreviation": "TE"},
+                        },
+                        "details": {"type": "Knee"},
+                    }
+                ],
+            }
+        ]
+    }
+
+    def test_the_report_is_relayed_for_the_team_game_this_week(self) -> None:
+        async def _fetch(event_id):
+            return self._PAYLOAD
+
+        with (
+            _db("get_injuries_event_id_async", (401, "LV")),
+            mock.patch("app.services.espn_extra.fetch_injuries", _fetch),
+        ):
+            body = _run(qa_open._lookup_injury_report(team="lv"))
+        assert isinstance(body, dict)
+        self.assertEqual(body["players"][0]["display_name"], "Brock Bowers")
+        self.assertEqual(body["players"][0]["status"], "Out")
+        self.assertIn("LV game this week, 1 players", body["injury_statement"])
+
+    def test_a_bye_and_a_failed_read_are_notes(self) -> None:
+        with _db("get_injuries_event_id_async", None):
+            body = _run(qa_open._lookup_injury_report(team="LV"))
+        self.assertEqual(body, {"note": qa_open._NO_GAME_FOR_INJURIES_NOTE.format(team="LV")})
+
+        async def _none(event_id):
+            return None
+
+        with (
+            _db("get_injuries_event_id_async", (401, "LV")),
+            mock.patch("app.services.espn_extra.fetch_injuries", _none),
+        ):
+            body = _run(qa_open._lookup_injury_report(team="LV"))
+        self.assertEqual(body, {"note": qa_open._INJURIES_FAILED_NOTE.format(team="LV")})
+
+
+class DraftToolTests(_OpenPathTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.payload = json.loads(_DRAFT_FIXTURE.read_text())
+
+    def test_parse_draft_reads_round_one_in_order(self) -> None:
+        from app.services import espn_extra
+
+        draft = espn_extra.parse_draft(self.payload, draft_round=1)
+        assert draft is not None
+        self.assertEqual(draft["year"], 2017)
+        self.assertEqual(draft["total"], 32)
+        names = [pick["player"] for pick in draft["picks"]]
+        self.assertEqual(len(names), len(set(names)))
+        mahomes = draft["picks"][9]
+        self.assertEqual(
+            (mahomes["overall"], mahomes["team"], mahomes["player"], mahomes["position"]),
+            (10, "KC", "Patrick Mahomes", "QB"),
+        )
+        self.assertEqual(mahomes["traded_from"], "From BUF")
+        self.assertNotIn("Zach Cunningham", names)  # a second-round pick
+
+    def test_parse_draft_narrows_to_a_team(self) -> None:
+        from app.services import espn_extra
+
+        draft = espn_extra.parse_draft(self.payload, team_abbr="kc")
+        assert draft is not None
+        self.assertTrue(draft["picks"])
+        self.assertEqual({pick["team"] for pick in draft["picks"]}, {"KC"})
+        self.assertIsNone(espn_extra.parse_draft({"picks": "x"}))
+
+    def test_the_tool_defaults_to_round_one_and_notes_every_miss(self) -> None:
+        payload = self.payload
+
+        async def _fetch(season):
+            return payload
+
+        with mock.patch("app.services.espn_extra.fetch_draft", _fetch):
+            body = _run(qa_open._lookup_draft(season=2017))
+        assert isinstance(body, dict)
+        self.assertEqual(len(body["picks"]), 32)
+        self.assertIn("round 1", body["draft_statement"])
+        self.assertEqual(_run(qa_open._lookup_draft()), {"note": qa_open._NO_DRAFT_YEAR_NOTE})
+
+        async def _none(season):
+            return None
+
+        with mock.patch("app.services.espn_extra.fetch_draft", _none):
+            body = _run(qa_open._lookup_draft(season=2017))
+        self.assertEqual(body, {"note": qa_open._DRAFT_FAILED_NOTE.format(season=2017)})
+
+
+class MemoryLimitsClauseTests(unittest.TestCase):
+    def test_the_role_bans_negative_claims_and_long_lists_from_memory(self) -> None:
+        self.assertIn(qa_open.OPEN_MEMORY_LIMITS_CLAUSE, qa_open.OPEN_ROLE)
+        self.assertIn("Never tell the member that a player", qa_open.OPEN_MEMORY_LIMITS_CLAUSE)
+        self.assertIn("more than three players from memory", qa_open.OPEN_MEMORY_LIMITS_CLAUSE)
 
 
 if __name__ == "__main__":

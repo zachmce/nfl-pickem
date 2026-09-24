@@ -60,6 +60,7 @@ from datetime import UTC, datetime
 import structlog
 
 from app.bot import chat_personality, llm_client
+from app.config import settings
 from app.bot.personality import compose_prompt
 
 logger = structlog.get_logger(__name__)
@@ -83,11 +84,13 @@ logger = structlog.get_logger(__name__)
 # so the byte-pinned guard constants stay untouched.
 OPEN_TOOLS_CLAUSE = (
     "You have two kinds of lookup tools. The league tools read the app's own database: "
-    "this week's spreads and totals, the scores the app records, the season standings, "
-    "who has finished their card, every member's picks once a week locks, and the asking "
-    "member's own card status. The ESPN tools read ESPN's live data: a team's or a "
-    "player's season totals, who starts, a past season's results, the news, and the score, "
-    "the box score and the network of a game this week. When a tool covers a question you "
+    "each week's spreads and totals, the scores the app records, the season standings, "
+    "who has finished their card, every member's picks once a week locks, one member's "
+    "season so far, the asking member's own card status, and a team's results against the "
+    "spread in any season since 1999. The ESPN tools read ESPN's live data: a team's or a "
+    "player's season totals, who starts, a team's injury report, a past season's results, "
+    "any year's draft, the news, and the score, the box score and the network of a game "
+    "this week. When a tool covers a question you "
     "call it and report what it returns, and you never decline such a question as one "
     "some other part of the bot answers."
 )
@@ -130,11 +133,24 @@ OPEN_SPEAKERS_CLAUSE = (
 
 # The old first sentence said "using your own football knowledge rather than any figure
 # read from the app's database", which contradicted OPEN_TOOLS_CLAUSE's league tools.
+# Live 2026-09-23: "how many picks did Drake Maye throw in the Super Bowl" got "he hasn't
+# played in a Super Bowl" (New England played Super Bowl LX), and a 2017 first round from
+# memory carried a duplicate name and three players from later rounds.
+OPEN_MEMORY_LIMITS_CLAUSE = (
+    "Your memory of the last few seasons is out of date. Never tell the member that a "
+    "player or a team has never done something, never played in a game or never won "
+    "something unless a lookup you made shows it; for a playoff game or a Super Bowl, "
+    "call lookup_playoff_results or lookup_game_leaders first. Never write a list of more "
+    "than three players from memory: call the tool that lists them, or say you cannot "
+    "list them reliably."
+)
+
 OPEN_ROLE = (
     "You are answering a league member's open question about the NFL or about this "
     "pick'em league. When a lookup tool covers the question you answer from the tool, "
     "and you use your own football knowledge only for what no tool covers. "
-    f"{OPEN_TOOLS_CLAUSE} {OPEN_PICKS_CLAUSE} {OPEN_FOLLOW_UP_CLAUSE} {OPEN_SPEAKERS_CLAUSE}"
+    f"{OPEN_TOOLS_CLAUSE} {OPEN_PICKS_CLAUSE} {OPEN_FOLLOW_UP_CLAUSE} {OPEN_SPEAKERS_CLAUSE} "
+    f"{OPEN_MEMORY_LIMITS_CLAUSE}"
 )
 
 # (a) FORMAT. The 2026-08-20 probe measured the model answering open questions with
@@ -451,6 +467,10 @@ def _carries_a_tool_call(message: dict) -> bool:
     text = _message_content(message) or ""
     if _TOOL_CALL_MARKER in text:
         return True
+    # OpenAI never strips a call out of the text, so the gap only measures tokenization:
+    # measured 2026-09-24, a digit-heavy ATS answer tripped it 3/11 on gpt-5.6-terra.
+    if settings.llm_api_vendor == "openai":
+        return False
     generated = message.get(llm_client.COMPLETION_TOKENS_KEY)
     if not isinstance(generated, int):
         return False
@@ -3241,7 +3261,10 @@ _PICKS_HIDDEN_NOTE = (
     "at {when}, the week's first kickoff, and that includes the asking member's own picks "
     "in this public channel. Tell the member plainly that picks are hidden until then, "
     "say when they unlock, and never guess, hint at or infer what anyone picked. Who has "
-    "and has not finished their card is not hidden: lookup_pick_completion answers that."
+    "and has not finished their card is not hidden: lookup_pick_completion answers that. "
+    "Every week before week {week} has closed and its picks are public: call this tool "
+    "again with that week number, or call lookup_member_season for one member's whole "
+    "season so far."
 )
 _NO_PICKS_THAT_WEEK_NOTE = (
     "The week {week} window has closed and no member has any pick recorded for it. Tell "
@@ -3409,12 +3432,15 @@ _STANDINGS_TOOL_DESCRIPTION = (
 )
 
 
-async def _lookup_lines(team: str = "") -> object | None:
-    """This week's frozen spreads and totals, optionally one team's game."""
+async def _lookup_lines(team: str = "", week: int | None = None) -> object | None:
+    """A week's frozen spreads and totals (this week by default), optionally one team's game."""
     from app.bot import db_bridge
 
+    asked_week = _coerce_week_arg(week)
+    if week is not None and asked_week is None:
+        return {"note": _BAD_WEEK_NOTE}
     team_abbr = team.strip().upper() if isinstance(team, str) else ""
-    data = await db_bridge.get_lines_slate_async(team_abbr or None)
+    data = await db_bridge.get_lines_slate_async(team_abbr or None, week=asked_week)
     if data.get("week") is None:
         return {"note": _NO_SEASON_NOTE}
     games = list(data.get("games") or [])
@@ -3455,11 +3481,14 @@ _LINES_CAVEAT = (
 
 _LINES_TOOL_DESCRIPTION = (
     "Look up the pick'em league's frozen point spread and over/under total for every game "
-    "this week, or for one team's game, and when the pick window closes. Call this tool "
-    "when the member asks what the line or the spread is, who is favored and by how much, "
-    "what the total is, what games are on the slate, or when picks lock. Pass the team "
-    "argument, as a standard abbreviation such as KC, only when the member names a team. "
-    "These are the league's locked lines, not a live sportsbook."
+    "in a week of this season, or for one team's game, and when that week's pick window "
+    "closes. Call this tool when the member asks what the line or the spread is or was, "
+    "who is favored and by how much, what the total is, what games are on the slate, or "
+    "when picks lock. Pass the team argument, as a standard abbreviation such as KC, only "
+    "when the member names a team. Leave the week argument out for this week and pass it "
+    "only when the member names a week or says last week. These are the league's locked "
+    "lines, not a live sportsbook. For how a team did against the spread across a "
+    "season, lookup_team_ats is the tool."
 )
 
 
@@ -3508,6 +3537,297 @@ _SCORES_TOOL_DESCRIPTION = (
     "week, in which case pass the number of the week before this one. For yards, "
     "leaders and scoring plays inside one game, lookup_live_game or lookup_game_leaders "
     "is the tool."
+)
+
+
+# --------------------------------------------------------------------------- #
+# 2026-09-24 transcript: a Dolphins week-by-week ATS question was declined though the
+# app holds every frozen line; a member's season of mortal locks was refused as
+# "hidden" because the pick tool reads one week; an injury status came from a dated
+# headline; a 2017 first round came from memory with three wrong names.
+# --------------------------------------------------------------------------- #
+
+
+async def _lookup_team_ats(team: str = "", season: int | None = None) -> object | None:
+    """One team's result against the spread in every final game of a season."""
+    from app.bot import db_bridge
+
+    team_abbr = team.strip().upper() if isinstance(team, str) else ""
+    if not team_abbr:
+        return {"note": _NO_TEAM_FOR_ATS_NOTE}
+    asked = season if isinstance(season, int) and not isinstance(season, bool) else None
+    data = await db_bridge.get_team_ats_async(team_abbr, asked)
+    if data.get("season") is None:
+        return {"note": _NO_SEASON_NOTE}
+    if data.get("team") is None:
+        return {"note": _UNKNOWN_ATS_TEAM_NOTE.format(team=team_abbr)}
+    games = list(data.get("games") or [])
+    if not games:
+        return {"note": _NO_ATS_GAMES_NOTE.format(team=data["team"], season=data["season"])}
+    record = data.get("record") or {}
+    source = _ATS_LEAGUE_SOURCE if data.get("source") == "league" else _ATS_HISTORY_SOURCE
+    return {
+        "team": data["team"],
+        "season": data["season"],
+        "games": games,
+        "record": record,
+        "ats_statement": _ATS_STATEMENT.format(
+            team=data["team"],
+            season=data["season"],
+            count=len(games),
+            covered=record.get("covered", 0),
+            missed=record.get("did_not_cover", 0),
+            push=record.get("push", 0),
+            source=source,
+        ),
+        "caveat": _ATS_CAVEAT,
+    }
+
+
+_NO_TEAM_FOR_ATS_NOTE = (
+    "No team was given, so this tool looked nothing up. Call it again with the team's "
+    "standard abbreviation, such as MIA."
+)
+_UNKNOWN_ATS_TEAM_NOTE = (
+    "{team} is not an NFL team abbreviation this tool knows, so it looked nothing up. Call "
+    "it again with a standard abbreviation such as MIA or KC."
+)
+_NO_ATS_GAMES_NOTE = (
+    "The {team} have no final game with a line in the {season} NFL season in the app's "
+    "data, so there is no result against the spread to report. Tell the member that "
+    "plainly, and never give a result from your own memory instead."
+)
+_ATS_LEAGUE_SOURCE = "the pick'em league's own frozen line for each game"
+_ATS_HISTORY_SOURCE = "the consensus closing-week line from the nflverse game archive"
+_ATS_STATEMENT = (
+    "Against the spread in the {season} NFL season, the {team} covered {covered}, did not "
+    "cover {missed} and pushed {push} of the {count} final games listed below, measured "
+    "against {source}. Each game lists the team's own line, where a minus sign means the "
+    "team was favored, the final score from the team's side, and whether it covered."
+)
+_ATS_CAVEAT = (
+    "Report each game's line, score and result exactly as listed, and never work out a "
+    "cover or a record that is not written here."
+)
+_TEAM_ATS_TOOL_DESCRIPTION = (
+    "Look up how one NFL team did against the spread in every final game of a season, "
+    "game by game: its line, the final score and whether it covered, plus its season "
+    "record against the spread. Call this tool when the member asks for a team's record "
+    "against the spread, ATS record, how often a team covers, or whether a team covered "
+    "in a given week, this season or in any season since 1999. The team argument is the "
+    "standard abbreviation, such as MIA. Leave the season argument out for this season "
+    "and pass it only when the member names a year; an NFL season is named for the year "
+    "it started in. This season uses the league's own frozen lines, and an earlier season "
+    "uses the archived consensus line."
+)
+
+
+async def _lookup_member_season(member: str = "") -> object | None:
+    """One league member's closed weeks this season: scores, pick W-L and mortal locks."""
+    from app.bot import db_bridge
+
+    asked = member.strip() if isinstance(member, str) else ""
+    if not asked:
+        return {"note": _NO_MEMBER_NOTE}
+    data = await db_bridge.get_member_season_async(asked)
+    if data.get("season") is None:
+        return {"note": _NO_SEASON_NOTE}
+    if data.get("member") is None:
+        matches = list(data.get("matches") or [])
+        if matches:
+            return {"note": _AMBIGUOUS_MEMBER_NOTE.format(member=asked, names=", ".join(matches))}
+        return {"note": _NO_SUCH_MEMBER_NOTE.format(member=asked)}
+    weeks = list(data.get("weeks") or [])
+    totals = data.get("totals") or {}
+    name = data["member"]
+    if not weeks:
+        return {"member": name, "note": _NO_CLOSED_WEEKS_NOTE.format(member=name)}
+    statement = _MEMBER_SEASON_STATEMENT.format(
+        member=name,
+        season=data["season"],
+        count=len(weeks),
+        won=totals.get("mortal_locks_won", 0),
+        lost=totals.get("mortal_locks_lost", 0),
+        pushed=totals.get("mortal_locks_pushed", 0),
+    )
+    if data.get("open_week") is not None:
+        statement += _OPEN_WEEK_CLAUSE.format(week=data["open_week"])
+    return {
+        "member": name,
+        "season": data["season"],
+        "weeks": weeks,
+        "totals": totals,
+        "member_season_statement": statement,
+        "caveat": _MEMBER_SEASON_CAVEAT,
+    }
+
+
+_NO_MEMBER_NOTE = (
+    "No member name was given, so this tool looked nothing up. Call it again with the "
+    "member's name as the member wrote it."
+)
+_NO_SUCH_MEMBER_NOTE = (
+    "No league member is named {member}. Tell the member plainly that you found no league "
+    "member by that name, and never guess who was meant."
+)
+_AMBIGUOUS_MEMBER_NOTE = (
+    "The name {member} matches more than one league member: {names}. Ask the member which "
+    "one they mean, and report nothing until they answer."
+)
+_NO_CLOSED_WEEKS_NOTE = (
+    "No week's pick window has closed yet this season, so none of {member}'s picks are "
+    "public yet. Tell the member that plainly."
+)
+_MEMBER_SEASON_STATEMENT = (
+    "These are {member}'s results in the {count} weeks of the {season} season whose pick "
+    "window has closed. Across those weeks {member}'s mortal locks won {won}, lost {lost} "
+    "and pushed {pushed}."
+)
+_OPEN_WEEK_CLAUSE = " Week {week} is still open, so its picks are hidden and are not counted here."
+_MEMBER_SEASON_CAVEAT = (
+    "Report each week and each total exactly as listed, and never add up a total that is "
+    "not written here. A week with made_picks false is a week the member made no picks."
+)
+_MEMBER_SEASON_TOOL_DESCRIPTION = (
+    "Look up one league member's whole season so far, week by week, for every week whose "
+    "pick window has closed: their weekly score, how many of their picks won and lost, "
+    "and their mortal lock with its result, plus season totals. Call this tool when the "
+    "member asks how someone has done this season, how many mortal locks someone has hit, "
+    "someone's record, or how a member did across several weeks. The member argument is "
+    "the member's name as written in the question, without the @. For one week's picks "
+    "by every member, lookup_league_picks is the tool."
+)
+
+
+async def _lookup_injury_report(team: str = "") -> object | None:
+    """``team``'s injury report for its game this week, from ESPN's game summary."""
+    from app.bot import db_bridge
+    from app.services import espn_extra
+
+    team_abbr = team.strip().upper() if isinstance(team, str) else ""
+    if not team_abbr:
+        return {"note": _NO_TEAM_FOR_INJURIES_NOTE}
+    resolved = await db_bridge.get_injuries_event_id_async(team_abbr)
+    if resolved is None:
+        return {"note": _NO_GAME_FOR_INJURIES_NOTE.format(team=team_abbr)}
+    event_id, abbr = resolved
+    payload = await espn_extra.fetch_injuries(event_id)
+    players = espn_extra.parse_injuries(payload, abbr) if payload is not None else None
+    if players is None:
+        return {"note": _INJURIES_FAILED_NOTE.format(team=abbr)}
+    if not players:
+        return {"team": abbr, "note": _NO_INJURIES_NOTE.format(team=abbr)}
+    return {
+        "team": abbr,
+        "players": players,
+        "injury_statement": _INJURY_STATEMENT.format(team=abbr, count=len(players)),
+        "caveat": _INJURY_CAVEAT,
+    }
+
+
+_NO_TEAM_FOR_INJURIES_NOTE = (
+    "No team was given, so this tool looked nothing up. Call it again with the team's "
+    "standard abbreviation; lookup_player_current_team finds a player's team."
+)
+_NO_GAME_FOR_INJURIES_NOTE = (
+    "The {team} have no game this week in the app, so there is no game-week injury report "
+    "for them; they may be on their bye. Tell the member that, and use search_nfl_news for "
+    "the latest story instead of a status from memory."
+)
+_INJURIES_FAILED_NOTE = (
+    "The injury report for the {team} could not be read just now. Tell the member plainly "
+    "that you could not pull it, and never give a player's status from memory."
+)
+_NO_INJURIES_NOTE = (
+    "ESPN's injury report for the {team} game this week lists no injured players. Tell the "
+    "member that plainly."
+)
+_INJURY_STATEMENT = (
+    "This is ESPN's current injury report for the {team} game this week, {count} players. "
+    "Each player carries a status such as Out, Doubtful or Questionable, the body part and "
+    "the date of the entry."
+)
+_INJURY_CAVEAT = (
+    "Report each player's status exactly as listed, with the date of the entry. A player "
+    "who is not listed is not on this week's report, so never call him hurt or healthy "
+    "beyond that."
+)
+_INJURY_REPORT_TOOL_DESCRIPTION = (
+    "Look up a team's current injury report for its game this week: every listed "
+    "player's status, such as Out, Doubtful or Questionable, the injury and the date of "
+    "the entry. Call this tool when the member asks whether a player is playing, what a "
+    "player's status or injury is, who is out for a team, or whether someone is hurt, "
+    "because a news headline can be days older than the report. The team argument is the "
+    "team's standard abbreviation, such as LV; when the member names only a player, call "
+    "lookup_player_current_team first to find his team."
+)
+
+
+async def _lookup_draft(
+    season: int | None = None, draft_round: int | None = None, team: str = ""
+) -> object | None:
+    """One NFL draft's picks from ESPN, narrowed to a round and/or a team."""
+    from app.services import espn_extra
+
+    if isinstance(season, bool) or not isinstance(season, int):
+        return {"note": _NO_DRAFT_YEAR_NOTE}
+    asked_round = draft_round if isinstance(draft_round, int) and 1 <= draft_round <= 7 else None
+    team_abbr = team.strip().upper() if isinstance(team, str) and team.strip() else None
+    if asked_round is None and team_abbr is None:
+        asked_round = 1
+    payload = await espn_extra.fetch_draft(season)
+    draft = (
+        espn_extra.parse_draft(payload, draft_round=asked_round, team_abbr=team_abbr)
+        if payload is not None
+        else None
+    )
+    if draft is None:
+        return {"note": _DRAFT_FAILED_NOTE.format(season=season)}
+    if not draft["picks"]:
+        return {"note": _NO_DRAFT_PICKS_NOTE.format(season=season)}
+    scope = []
+    if asked_round is not None:
+        scope.append(f"round {asked_round}")
+    if team_abbr is not None:
+        scope.append(f"the {team_abbr} picks")
+    statement = _DRAFT_STATEMENT.format(
+        season=season, scope=" and ".join(scope), count=len(draft["picks"])
+    )
+    if draft["total"] > len(draft["picks"]):
+        statement += _DRAFT_TRUNCATED_CLAUSE.format(total=draft["total"])
+    return {
+        "season": season,
+        "picks": draft["picks"],
+        "draft_statement": statement,
+        "caveat": espn_extra.DRAFT_CAVEAT,
+    }
+
+
+_NO_DRAFT_YEAR_NOTE = (
+    "No draft year was given, so this tool looked nothing up. Call it again with the year "
+    "of the draft, such as 2017."
+)
+_DRAFT_FAILED_NOTE = (
+    "The {season} draft could not be read just now. Tell the member plainly that you could "
+    "not look it up, and never list picks from your own memory instead."
+)
+_NO_DRAFT_PICKS_NOTE = (
+    "ESPN's record of the {season} draft has no pick matching that round or team. Tell the "
+    "member that plainly, and never list picks from your own memory instead."
+)
+_DRAFT_STATEMENT = (
+    "These are the {count} picks of the {season} NFL draft for {scope}, in draft order."
+)
+_DRAFT_TRUNCATED_CLAUSE = (
+    " The draft has {total} matching picks and only the first ones are listed; say so."
+)
+_DRAFT_TOOL_DESCRIPTION = (
+    "Look up the picks of one NFL draft from ESPN's record: each pick's overall number, "
+    "team, player, position and college, and whether the pick was traded. Call this tool "
+    "every time the member asks who was drafted in a year, who went in a round, who a "
+    "team drafted, or where a player was drafted, and never list draft picks from memory. "
+    "The season argument is the draft year. Pass draft_round for one round and team, as a "
+    "standard abbreviation, for one team's picks; with neither, it returns the first round."
 )
 
 
@@ -4080,6 +4400,10 @@ TOOLS: tuple[_Tool, ...] = (
                                 "for that team's game only."
                             ),
                         },
+                        "week": {
+                            "type": "integer",
+                            "description": "Optional week number. Leave it out for this week.",
+                        },
                     },
                     "required": [],
                 },
@@ -4108,6 +4432,104 @@ TOOLS: tuple[_Tool, ...] = (
         },
         run=_lookup_scores,
         volatile=True,
+    ),
+    _Tool(
+        name="lookup_team_ats",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_team_ats",
+                "description": _TEAM_ATS_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {
+                            "type": "string",
+                            "description": "The team's standard abbreviation, such as MIA.",
+                        },
+                        "season": {
+                            "type": "integer",
+                            "description": "Optional season year. Leave it out for this season.",
+                        },
+                    },
+                    "required": ["team"],
+                },
+            },
+        },
+        run=_lookup_team_ats,
+    ),
+    _Tool(
+        name="lookup_member_season",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_member_season",
+                "description": _MEMBER_SEASON_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "member": {
+                            "type": "string",
+                            "description": "The league member's name, without the @.",
+                        },
+                    },
+                    "required": ["member"],
+                },
+            },
+        },
+        run=_lookup_member_season,
+        volatile=True,
+    ),
+    _Tool(
+        name="lookup_injury_report",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_injury_report",
+                "description": _INJURY_REPORT_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {
+                            "type": "string",
+                            "description": "The team's standard abbreviation, such as LV.",
+                        },
+                    },
+                    "required": ["team"],
+                },
+            },
+        },
+        run=_lookup_injury_report,
+        volatile=True,
+    ),
+    _Tool(
+        name="lookup_draft",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_draft",
+                "description": _DRAFT_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "season": {
+                            "type": "integer",
+                            "description": "The draft year, such as 2017.",
+                        },
+                        "draft_round": {
+                            "type": "integer",
+                            "description": "Optional round number from 1 to 7.",
+                        },
+                        "team": {
+                            "type": "string",
+                            "description": "Optional team abbreviation for that team's picks.",
+                        },
+                    },
+                    "required": ["season"],
+                },
+            },
+        },
+        run=_lookup_draft,
     ),
 )
 
