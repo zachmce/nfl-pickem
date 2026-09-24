@@ -1033,3 +1033,75 @@ class RunNotifierFreezeWeekTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RunNotifierThroughputTests(unittest.IsolatedAsyncioTestCase):
+    """Issue #248 item 16: phrasing runs concurrently, posting keeps arrival order."""
+
+    async def _drive(self, events, embellish):
+        subscribe_frame = {"type": "subscribe", "data": 1}
+        frames = [{"type": "message", "data": json.dumps(e)} for e in events]
+        chat_channel = _SendableChannel(id=456, name="pickem-chat")
+        client = _FakeClient(_SendableGuild([chat_channel]))
+        created: list[_FakeRedis] = []
+
+        def fake_from_url(_url):  # noqa: ANN001
+            if created:  # pragma: no cover
+                raise AssertionError("reconnected unexpectedly")
+            redis_client = _FakeRedis(_FakePubSub([subscribe_frame, *frames]))
+            created.append(redis_client)
+            return redis_client
+
+        with (
+            mock.patch("redis.asyncio.from_url", fake_from_url),
+            mock.patch("app.bot.notifier.get_settings", lambda: _FakeSettings()),
+            mock.patch("app.bot.notifier._RECONNECT_BACKOFF_START", 0),
+            mock.patch("app.bot.notifier._RECONNECT_BACKOFF_MAX", 0),
+            mock.patch("app.bot.chat_personality.embellish_chat", embellish),
+        ):
+            with self.assertRaises(asyncio.CancelledError):
+                await run_notifier(client)
+        return chat_channel
+
+    async def test_slow_phrasing_overlaps_and_the_order_holds(self) -> None:
+        delays = {"A": 0.3, "B": 0.1, "C": 0.2, "D": 0.05}
+
+        async def _slow(event):
+            await asyncio.sleep(delays[event["actor"]])
+            return f"{event['actor']} is in"
+
+        events = [roster_complete_event(actor=name, week=3) for name in delays]
+        started = asyncio.get_running_loop().time()
+        chat = await self._drive(events, _slow)
+        elapsed = asyncio.get_running_loop().time() - started
+        self.assertEqual(chat.sent, ["A is in", "B is in", "C is in", "D is in"])
+        # Serial phrasing takes the sum (0.65 s); four at once take about the longest.
+        self.assertLess(elapsed, 0.5)
+
+    async def test_one_failed_phrase_blocks_no_other_event(self) -> None:
+        async def _flaky(event):
+            if event["actor"] == "B":
+                raise RuntimeError("llm exploded")
+            await asyncio.sleep(0.05)
+            return f"{event['actor']} is in"
+
+        events = [roster_complete_event(actor=name, week=3) for name in ("A", "B", "C")]
+        chat = await self._drive(events, _flaky)
+        self.assertEqual(chat.sent, ["A is in", "C is in"])
+
+    async def test_no_more_than_the_limit_phrase_at_once(self) -> None:
+        from app.bot import notifier
+
+        running = {"now": 0, "peak": 0}
+
+        async def _count(event):
+            running["now"] += 1
+            running["peak"] = max(running["peak"], running["now"])
+            await asyncio.sleep(0.02)
+            running["now"] -= 1
+            return f"{event['actor']} is in"
+
+        events = [roster_complete_event(actor=f"p{i}", week=3) for i in range(10)]
+        chat = await self._drive(events, _count)
+        self.assertEqual(len(chat.sent), 10)
+        self.assertEqual(running["peak"], notifier._PREPARE_CONCURRENCY)
