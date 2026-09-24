@@ -284,7 +284,7 @@ class IntentRoutingTests(unittest.TestCase):
         ):
             out = _run(qa.answer_question("what's the chiefs line?", discord_id=7))
         # team resolved to a real token and passed through to the reader.
-        self.assertEqual(seam_calls[0]["kwargs"], {"team_abbr": "CHIEFS"})
+        self.assertEqual(seam_calls[0]["kwargs"], {"team_abbr": "CHIEFS", "week": None})
         self.assertIn("KC", out)
 
     def test_lines_slate_missing_team_is_stateless_soft_decline(self) -> None:
@@ -332,6 +332,20 @@ class IntentRoutingTests(unittest.TestCase):
         self.assertEqual(len(seam_calls), 1)
         self.assertIn("27", out)
         self.assertIn("final", out)
+
+    def test_scores_passes_the_asked_week_and_team_to_the_reader(self) -> None:
+        seam_patch, seam_calls = _seam("get_week_scores_async", {"week": 2, "games": []})
+        phrase_patch, _ = _phrase_returns(None)
+        with (
+            _classify_returns({"intent": "scores", "team": "Chiefs", "week": 2}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            _run(qa.answer_question("week 2 Chiefs score?", discord_id=7))
+        self.assertEqual(seam_calls[0]["args"], (2,))
+        self.assertEqual(seam_calls[0]["kwargs"], {"team_abbr": "CHIEFS"})
 
     def test_bot_help_hands_out_the_slash_commands(self) -> None:
         # A bare "help" must surface the member-facing slash commands — the whole
@@ -1632,7 +1646,8 @@ class PredictionFactTests(unittest.TestCase):
         )
         assert isinstance(fact, qa._ListAnswer)
         self.assertIn(
-            "Heads up: you locked this at KC -3, but the current market has KC -6", fact.body
+            "Heads up: the league locked this line at KC -3, but the current market has KC -6",
+            fact.body,
         )
 
     def test_conflict_callout_fires_on_favorite_flip(self) -> None:
@@ -1647,7 +1662,7 @@ class PredictionFactTests(unittest.TestCase):
         # shared lean lands on the HOME side (KC). The lean is body-only; the flip fires.
         self.assertIn("**My read: I lean KC here — a cross-check, not a bet.**", fact.body)
         self.assertIn("The market has LAC -2, but my model makes it KC by 1.", fact.body)
-        self.assertIn("Heads up: you locked this at KC -3", fact.body)
+        self.assertIn("Heads up: the league locked this line at KC -3", fact.body)
         # The lean lives ONLY in the body — the pick-free lead never carries a lean.
         self.assertNotIn("lean", fact.header_fact)
 
@@ -1777,7 +1792,7 @@ class PredictionIntentRoutingTests(unittest.TestCase):
         # verbatim (model KC +1.0 vs live KC -6 -> lean the AWAY/underdog LAC).
         self.assertIn("**My read: I lean LAC here — a cross-check, not a bet.**", out)
         self.assertIn("The market has KC -6, but my model makes it KC by 1.", out)
-        self.assertIn("Heads up: you locked this at KC -3", out)
+        self.assertIn("Heads up: the league locked this line at KC -3", out)
 
     def test_prediction_lead_phrases_with_analyst_prompt_not_pick_status_guard(self) -> None:
         # The lead must NOT inherit QA_GUARD's pick-status framing — that primed Gemma to
@@ -1862,6 +1877,23 @@ class PredictionIntentRoutingTests(unittest.TestCase):
         self.assertEqual(
             open_calls, [{"question": "who wins the Chiefs game?", "asker_name": "Ada"}]
         )
+
+    def test_a_later_week_prediction_for_a_team_on_its_bye_goes_to_the_open_path(self) -> None:
+        async def _fake_open(question, **_kwargs):
+            return "Week 9 is a long way off."
+
+        inputs_patch, _ = _seam("get_prediction_inputs_async", None)  # a bye this week
+        slate_patch, _ = _seam("get_lines_slate_async", {"week": 5, "games": []})
+        with (
+            _classify_returns({"intent": "prediction", "team": "Chiefs", "week": 9}),
+            _tokens("KC", "CHIEFS"),
+            inputs_patch,
+            slate_patch,
+            _voice(),
+            mock.patch.object(qa.qa_open, "answer_open", _fake_open),
+        ):
+            out = _run(qa.answer_question("who wins the Chiefs game in week 9?", discord_id=7))
+        self.assertEqual(out, "Week 9 is a long way off.")
 
     def test_a_prediction_that_names_this_week_or_no_week_keeps_the_read(self) -> None:
         for week in (5, None):
@@ -2296,6 +2328,15 @@ class SlateFacetTests(unittest.TestCase):
         self.assertEqual(qa._slate_facet("safest lock even if it's an over?"), "mortal_lock")
         # " over " is space-fenced so "coverage" / "cover" never trip the totals facet.
         self.assertIsNone(qa._slate_facet("who has the best coverage this week?"))
+
+    def test_slate_facet_matches_whole_words_only(self) -> None:
+        self.assertIsNone(qa._slate_facet("who do you like this week before picks lock?"))
+        self.assertIsNone(qa._slate_facet("who beats the clock this week?"))
+        self.assertIsNone(qa._slate_facet("who do you like after a blocked punt week?"))
+        self.assertIsNone(qa._slate_facet("who do you like, thinking it over this weekend?"))
+        self.assertEqual(qa._slate_facet("what's your lock this week?"), "mortal_lock")
+        self.assertEqual(qa._slate_facet("any dogs you like?"), "underdog")
+        self.assertEqual(qa._slate_facet("do you like the over anywhere?"), "total")
 
     def test_favorite_facet_names_top_divergence_favorite(self) -> None:
         fact = qa._slate_predictions_fact(_facet_slate(), facet="favorite")

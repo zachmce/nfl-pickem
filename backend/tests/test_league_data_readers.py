@@ -21,6 +21,7 @@ from app.services.notifications_read import (
     get_league_picks,
     get_pick_completion,
     get_standings_table,
+    get_week_scores,
 )
 
 SEASON = 2026
@@ -232,6 +233,15 @@ class LeaguePicksWindowClosedTests(_ReaderTestCase):
         self.assertGreater(out["entries"][0]["season_total"], out["entries"][1]["season_total"])
         self.assertEqual(out["entries"][1]["rank"], 2)
         self.assertNotIn("user_id", str(out))
+
+    def test_week_scores_narrow_to_the_asked_team(self) -> None:
+        with self._session() as session:
+            both = get_week_scores(session, SEASON, WEEK)
+            bills = get_week_scores(session, SEASON, WEEK, team_abbr="BILLS")
+            chiefs = get_week_scores(session, SEASON, WEEK, team_abbr="KC")
+        self.assertEqual(len(both["games"]), 1)  # the KC game is not started
+        self.assertEqual(bills["games"], both["games"])
+        self.assertEqual(chiefs["games"], [])
 
     def test_an_empty_season_is_empty_not_a_raise(self) -> None:
         with self._session() as session:

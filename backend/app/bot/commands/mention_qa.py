@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import OrderedDict, deque
+from collections.abc import Sequence
 
 import discord
 import structlog
@@ -74,6 +75,23 @@ def _strip_bot_mention(content: str, bot_id: int) -> str:
     for token in (f"<@{bot_id}>", f"<@!{bot_id}>"):
         stripped = stripped.replace(token, " ")
     return " ".join(stripped.split())
+
+
+def _name_member_mentions(content: str, mentions: Sequence[object]) -> str:
+    """Replace each OTHER member's ``<@id>`` token with ``@display name``.
+
+    The model cannot resolve a raw id, so "what did <@123> pick?" had no member name to
+    look up. A mention whose member is not in ``mentions`` stays as it is.
+    """
+    named = content
+    for member in mentions:
+        member_id = getattr(member, "id", None)
+        name = getattr(member, "display_name", None) or getattr(member, "name", None)
+        if member_id is None or not name:
+            continue
+        for token in (f"<@{member_id}>", f"<@!{member_id}>"):
+            named = named.replace(token, f"@{name}")
+    return named
 
 
 # Discord rejects any message body over 2000 chars with a 400 (error 50035). The
@@ -143,7 +161,11 @@ class _ChannelMemory:
         while len(self._turns) > _MEMORY_MAX_CHANNELS:
             evicted, _ = self._turns.popitem(last=False)
             self._last_bot_reply.pop(evicted, None)
-            self._locks.pop(evicted, None)
+            # A held lock stays: dropping it lets a new question start a second answer
+            # in that channel while the first still runs.
+            lock = self._locks.get(evicted)
+            if lock is None or not lock.locked():
+                self._locks.pop(evicted, None)
         return existing
 
     def record(
@@ -153,6 +175,20 @@ class _ChannelMemory:
         turn = (speaker, text, is_bot)
         self._touch(channel_id).append(turn)
         return turn
+
+    def forget(self, channel_id: int, turn: tuple[str, str, bool]) -> None:
+        """Drop ``turn`` BY IDENTITY, for a question the bot will not answer.
+
+        An unanswered question left in the transcript reads, in the next answer's
+        history, as a question still waiting for a reply (the 2026-09-20 double answer).
+        """
+        turns = self._turns.get(channel_id)
+        if turns is None:
+            return
+        kept = [kept_turn for kept_turn in turns if kept_turn is not turn]
+        if len(kept) != len(turns):
+            turns.clear()
+            turns.extend(kept)
 
     def answer_lock(self, channel_id: int) -> asyncio.Lock:
         """The lock that makes answers in ``channel_id`` run one at a time."""
@@ -275,6 +311,7 @@ class MentionQaCog(commands.Cog):
             question = _strip_bot_mention(message.content, self.bot.user.id)
             if not question:
                 return
+            question = _name_member_mentions(question, message.mentions)
 
             # (5) Record first so the gate's transcript ends in this message.
             channel_id = message.channel.id
@@ -299,6 +336,7 @@ class MentionQaCog(commands.Cog):
             # (7) Per-user cooldown — only ever spent on a message we would answer.
             if self._is_rate_limited(message):
                 logger.info("mention_qa_cooldown_dropped", channel_id=channel_id)
+                self._memory.forget(channel_id, turn)
                 return
 
             # (8) Show the "Pick'em Bot is typing…" indicator for the whole answer + send.
@@ -310,6 +348,7 @@ class MentionQaCog(commands.Cog):
             # the second answer's history held the first question with no reply to it.
             async with self._memory.answer_lock(channel_id), message.channel.typing():
                 history = self._memory.history(channel_id, exclude=turn)
+                answered = False
                 line = await qa.answer_question(
                     question,
                     discord_id=message.author.id,
@@ -324,12 +363,17 @@ class MentionQaCog(commands.Cog):
                 # lines, so suppressing link embeds is always the right call here.
                 # Split so a long whole-slate answer (>2000 chars after logo tokens)
                 # sends as multiple messages instead of 400-ing the gateway send.
-                for chunk in _split_for_discord(decorated):
-                    await message.channel.send(
-                        chunk,
-                        allowed_mentions=discord.AllowedMentions.none(),
-                        suppress_embeds=True,
-                    )
+                try:
+                    for chunk in _split_for_discord(decorated):
+                        await message.channel.send(
+                            chunk,
+                            allowed_mentions=discord.AllowedMentions.none(),
+                            suppress_embeds=True,
+                        )
+                        answered = True
+                finally:
+                    if not answered:
+                        self._memory.forget(channel_id, turn)
                 # (9) Stamp the bot's own reply — this is what opens the pre-filter so a
                 # bare follow-up in this channel can reach the gate at all.
                 self._memory.record_bot_reply(channel_id, self._bot_name(), line, now=time.time())

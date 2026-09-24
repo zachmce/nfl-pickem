@@ -13,8 +13,9 @@ Posture, which is DELIBERATELY different from every other answer path:
   wrong spread is a defect. The ten grounded intents keep their current strictness
   and their DB-owned facts are never guessed here — ``OPEN_GUARD`` forbids stating a
   spread, total, standing, close time, or any member's pick (a score is allowed once a
-  tool handed it over, 2026-09-18), and this module makes NO ``db_bridge`` call at all,
-  so it cannot read anyone's picks.
+  tool handed it over, 2026-09-18). Since 2026-09-18 the league tools read the app's
+  data through ``db_bridge``; the pick gate lives in
+  ``notifications_read.get_league_picks``, not in this module.
 * **Best-effort, ``None`` by contract.** :func:`answer_open` NEVER raises; the caller
   falls back to a deterministic degrade line.
 * **No ``discord`` import** — the cog :mod:`app.bot.commands.mention_qa` stays the
@@ -111,7 +112,7 @@ OPEN_FOLLOW_UP_CLAUSE = (
     "A tool result that is already in this conversation is yours to answer from. When a "
     "follow-up question asks about a game, a player, a team or a season that no tool "
     "result in this conversation covers, call the tool for it and answer from what it "
-    "returns."
+    "returns. A tool result marked stale is out of date, so call that tool again first."
 )
 
 # Live 2026-09-20: a member's "Look up the number" got the answer to ANOTHER member's
@@ -127,10 +128,12 @@ OPEN_SPEAKERS_CLAUSE = (
     "and a colon."
 )
 
+# The old first sentence said "using your own football knowledge rather than any figure
+# read from the app's database", which contradicted OPEN_TOOLS_CLAUSE's league tools.
 OPEN_ROLE = (
-    "You are answering a league member's open question about the NFL — a question the "
-    "app's own data does not cover — using your own football knowledge rather than any "
-    "figure read from the app's database. "
+    "You are answering a league member's open question about the NFL or about this "
+    "pick'em league. When a lookup tool covers the question you answer from the tool, "
+    "and you use your own football knowledge only for what no tool covers. "
     f"{OPEN_TOOLS_CLAUSE} {OPEN_PICKS_CLAUSE} {OPEN_FOLLOW_UP_CLAUSE} {OPEN_SPEAKERS_CLAUSE}"
 )
 
@@ -517,6 +520,10 @@ class _Tool:
     # An asker-bound tool receives ``asker_discord_id`` from the loop, never from the
     # model: the id is bound in code at call time and its spec declares no argument.
     asker_bound: bool = False
+    # A volatile tool reads data that changes within minutes (a live score, who has
+    # picked). Its replayed result is marked stale once it is older than
+    # _VOLATILE_REPLAY_SECONDS, so a follow-up re-calls it instead of repeating it.
+    volatile: bool = False
 
 
 async def _lookup_team_roster(team: str = "", position: str | None = None) -> object | None:
@@ -3978,6 +3985,7 @@ TOOLS: tuple[_Tool, ...] = (
             },
         },
         run=_lookup_live_game,
+        volatile=True,
     ),
     _Tool(
         name="lookup_week_scoreboard",
@@ -3990,6 +3998,7 @@ TOOLS: tuple[_Tool, ...] = (
             },
         },
         run=_lookup_week_scoreboard,
+        volatile=True,
     ),
     _Tool(
         name="lookup_my_pick_status",
@@ -4002,6 +4011,7 @@ TOOLS: tuple[_Tool, ...] = (
             },
         },
         run=_lookup_my_pick_status,
+        volatile=True,
         asker_bound=True,
     ),
     _Tool(
@@ -4024,6 +4034,7 @@ TOOLS: tuple[_Tool, ...] = (
             },
         },
         run=_lookup_league_picks,
+        volatile=True,
     ),
     _Tool(
         name="lookup_pick_completion",
@@ -4036,6 +4047,7 @@ TOOLS: tuple[_Tool, ...] = (
             },
         },
         run=_lookup_pick_completion,
+        volatile=True,
     ),
     _Tool(
         name="lookup_standings",
@@ -4048,6 +4060,7 @@ TOOLS: tuple[_Tool, ...] = (
             },
         },
         run=_lookup_standings,
+        volatile=True,
         asker_bound=True,
     ),
     _Tool(
@@ -4094,6 +4107,7 @@ TOOLS: tuple[_Tool, ...] = (
             },
         },
         run=_lookup_scores,
+        volatile=True,
     ),
 )
 
@@ -4108,7 +4122,13 @@ _TOOL_BUDGET_SECONDS = 20.0
 # channel memory: keys evict least-recently-used, exchanges evict oldest.
 _GROUNDING_MAX_KEYS = 64
 _GROUNDING_MAX_EXCHANGES = 4
-_GROUNDING: OrderedDict[str, deque[tuple[str, list[dict]]]] = OrderedDict()
+_VOLATILE_REPLAY_SECONDS = 120.0
+_STALE_RESULT_NOTE = (
+    "This result was looked up {minutes} minutes ago and is out of date now, because "
+    "this data changes during the day. Call {name} again and answer from the new result, "
+    "never from this one."
+)
+_GROUNDING: OrderedDict[str, deque[tuple[str, list[dict], float]]] = OrderedDict()
 
 # Fence caps for the open path (issue #220). The fence's 280-char default was sized for
 # a one-line prediction, and it cut the bot's own previous answer in half in the history,
@@ -4121,16 +4141,20 @@ _QUESTION_CHARS = 600
 # instead of being handed silence (silence reads as "the data says nothing", which is
 # how an invented answer gets written). Concrete full sentences, never fragments.
 _UNKNOWN_TOOL_PAYLOAD = (
-    "That tool does not exist. Answer the question from your own football knowledge "
-    "instead, and do not try to call it again."
+    "That tool does not exist, so nothing was looked up. Call one of the tools you were "
+    "given instead, and never try to call this one again."
 )
 _BAD_ARGUMENTS_PAYLOAD = (
-    "The arguments for that tool could not be read as JSON. Answer the question from "
-    "your own football knowledge instead."
+    "The arguments for that tool could not be read as JSON, so nothing was looked up. "
+    "Call the tool again with its arguments written as one JSON object."
 )
+# A failed lookup must never send the model to memory: a raised league read (a DB
+# hiccup) used to tell it to answer standings or picks "from your own football
+# knowledge", against OPEN_OWNERSHIP_CLAUSE.
 _NO_DATA_PAYLOAD = (
-    "That tool returned no data right now. Answer the question from your own football "
-    "knowledge instead, and say plainly if you are not sure."
+    "That lookup failed just now, so you have no data from it. Tell the member plainly "
+    "that you could not look it up this time. Never give a score, a line, a standings "
+    "position, a member's pick or a statistic from your own memory in its place."
 )
 
 
@@ -4369,14 +4393,33 @@ async def _run_tool_loop(
 
 
 def _grounding_for(key: str | None, answer: str) -> list[dict]:
-    """The tool turns stored under ``key`` for the answer text ``answer``, else ``[]``."""
+    """The tool turns stored under ``key`` for the answer text ``answer``, else ``[]``.
+
+    A volatile tool's result older than :data:`_VOLATILE_REPLAY_SECONDS` is replayed
+    wrapped in :data:`_STALE_RESULT_NOTE`: replayed as it was, a 1:15 live score was
+    the model's answer to "what's the score now?" at 2:40.
+    """
     exchanges = _GROUNDING.get(key) if key is not None else None
     if exchanges is None:
         return []
-    for stored_answer, turns in exchanges:
+    for stored_answer, turns, stored_at in exchanges:
         if stored_answer == answer:
-            return list(turns)
+            age = time.monotonic() - stored_at
+            if age < _VOLATILE_REPLAY_SECONDS:
+                return list(turns)
+            return [_staled(turn, age) for turn in turns]
     return []
+
+
+def _staled(turn: dict, age: float) -> dict:
+    """``turn`` with a volatile tool's result wrapped in the stale note. Pure."""
+    name = turn.get("name")
+    tool = _lookup_tool(name) if turn.get("role") == "tool" and isinstance(name, str) else None
+    if tool is None or not tool.volatile:
+        return turn
+    note = _STALE_RESULT_NOTE.format(minutes=max(1, round(age / 60)), name=tool.name)
+    content = json.dumps({"stale": True, "note": note, "old_result": turn.get("content")})
+    return {**turn, "content": content}
 
 
 def _remember_grounding(key: str, answer: str, turns: list[dict]) -> None:
@@ -4386,7 +4429,7 @@ def _remember_grounding(key: str, answer: str, turns: list[dict]) -> None:
         exchanges = deque(maxlen=_GROUNDING_MAX_EXCHANGES)
         _GROUNDING[key] = exchanges
     _GROUNDING.move_to_end(key)
-    exchanges.append((answer, list(turns)))
+    exchanges.append((answer, list(turns), time.monotonic()))
     while len(_GROUNDING) > _GROUNDING_MAX_KEYS:
         _GROUNDING.popitem(last=False)
 

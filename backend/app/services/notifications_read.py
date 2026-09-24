@@ -1132,17 +1132,23 @@ def get_slate_predictions_for_week(session: Session, season: int, week: int) -> 
     }
 
 
-def get_week_scores(session: Session, season: int, week: int) -> dict:
+def get_week_scores(
+    session: Session, season: int, week: int, *, team_abbr: str | None = None
+) -> dict:
     """Display-only final + in-progress scores for ``{season, week}``.
 
     Returns ``{week, games: [{away, home, away_score, home_score, status}, ...]}``
     for the week's games that are FINAL or IN_PROGRESS (SCHEDULED games have no
     score yet and are omitted). Scores are integers; ``status`` is the plain
-    :class:`~app.models.GameStatus` value. Display-only (public); pure read.
+    :class:`~app.models.GameStatus` value. ``team_abbr`` (a real validator token)
+    narrows ``games`` to that team's game. Display-only (public); pure read.
     """
     games = list(session.exec(select(Game).where(Game.season == season, Game.week == week)).all())
     teams = list(session.exec(select(Team)).all())
     abbr_by_team_id = {t.id: t.abbreviation for t in teams if t.id is not None}
+    if team_abbr is not None:
+        team_ids = _team_ids_for_token(teams, team_abbr)
+        games = [g for g in games if g.home_team_id in team_ids or g.away_team_id in team_ids]
 
     scored = [
         {

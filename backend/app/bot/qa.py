@@ -84,6 +84,7 @@ class QaIntent(str, Enum):
 _TEAM_INTENTS = frozenset(
     {
         QaIntent.lines_slate,
+        QaIntent.scores,
         QaIntent.injuries,
         QaIntent.weather,
         QaIntent.news,
@@ -1426,7 +1427,7 @@ def _prediction_fact(
         if favorite_flip or mag_delta >= _PREDICTION_CONFLICT_THRESHOLD:
             # using_live => the effective line IS the live line (live_fav / live_mag).
             lines.append(
-                f"Heads up: you locked this at {frozen_fav} -{_fmt_num(frozen_spread)}, "
+                f"Heads up: the league locked this line at {frozen_fav} -{_fmt_num(frozen_spread)}, "
                 f"but the current market has {live_fav} -{_fmt_num(live_mag)}."
             )
 
@@ -1586,34 +1587,40 @@ _SLATE_NO_TOTALS = (
 )
 
 # The deterministic pick-type facets a user can ask about WITHIN the whole-slate opinion
-# intent. Each is a (facet, keyword-group) pair; detection is a pure lowercase substring
+# intent. Each is a (facet, keyword-group) pair; detection is a pure lowercase WHOLE-WORD
 # scan of the RAW question, checked in THIS priority order so an incidental token can't
 # outrank a more specific one (e.g. "safest lock" beats a stray "over"). Code owns the
 # facet AND every number, so the analyst-intent contract holds — the classifier LLM never
-# emits a facet param. The " over "/" under " tokens are space-fenced so "coverage" /
-# "cover" never trip the totals facet.
+# emits a facet param. Whole words, because a substring scan read "clock", "blocked" and
+# "before picks lock" as a mortal-lock ask and "over the weekend" as a totals ask.
 _SLATE_FACET_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("mortal_lock", ("mortal lock", "lock", "safest")),
-    ("total", ("over/under", "over or under", "o/u", "total", " over ", " under ")),
-    ("underdog", ("underdog", "upset", "dog")),
-    ("favorite", ("favorite", "favourite", "chalk", "fav")),
+    ("mortal_lock", ("mortal lock", "mortal", "safest", "your lock", "best lock", "a lock")),
+    ("total", ("over/under", "over or under", "o/u", "total", "totals", "the over", "the under")),
+    ("underdog", ("underdog", "underdogs", "upset", "upsets", "dog", "dogs")),
+    ("favorite", ("favorite", "favorites", "favourite", "chalk", "fav", "favs")),
+)
+_SLATE_FACET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
+    (
+        facet,
+        re.compile(r"(?<![\w/])(?:" + "|".join(re.escape(k) for k in keywords) + r")(?![\w/])"),
+    )
+    for facet, keywords in _SLATE_FACET_KEYWORDS
 )
 
 
 def _slate_facet(question: str) -> str | None:
     """Deterministically map a raw whole-slate question to a pick-type facet, or ``None``.
 
-    Lowercase-scans the RAW ``question`` (padded with spaces so the ``" over "`` / ``" under "``
-    word-boundary tokens match at the string ends) for the first matching keyword group in
-    PRIORITY order — mortal_lock, then total, then underdog, then favorite. A plain
-    whole-slate ask with no pick-type keyword returns ``None`` (the existing line-by-line
-    breakdown). Pure and network-free — no LLM, no I/O.
+    Scans the lowercased RAW ``question`` for the first keyword group, matched as whole
+    words, in PRIORITY order — mortal_lock, then total, then underdog, then favorite. A
+    plain whole-slate ask with no pick-type keyword returns ``None`` (the existing
+    line-by-line breakdown). Pure and network-free — no LLM, no I/O.
     """
     if not question:
         return None
-    padded = f" {question.lower()} "
-    for facet, keywords in _SLATE_FACET_KEYWORDS:
-        if any(keyword in padded for keyword in keywords):
+    lowered = question.lower()
+    for facet, pattern in _SLATE_FACET_PATTERNS:
+        if pattern.search(lowered):
             return facet
     return None
 
@@ -1793,10 +1800,14 @@ async def _build_fact(
         # gets a soft decline — never an ask-and-wait / pending slot.
         if result.team is None and _wants_single_game(result.subject):
             return _SOFT_DECLINE_FACT
-        return _slate_fact(await db_bridge.get_lines_slate_async(team_abbr=result.team))
+        return _slate_fact(
+            await db_bridge.get_lines_slate_async(team_abbr=result.team, week=result.week)
+        )
 
     if result.intent is QaIntent.scores:
-        return _scores_fact(await db_bridge.get_week_scores_async())
+        return _scores_fact(
+            await db_bridge.get_week_scores_async(result.week, team_abbr=result.team)
+        )
 
     if result.intent is QaIntent.slate_predictions:
         # DERIVED-FACTS whole-week: code owns every model number + the lean AND the pick-type
@@ -1900,6 +1911,11 @@ async def _build_fact(
             return _PREDICTION_NO_TEAM_FACT
         inputs = await db_bridge.get_prediction_inputs_async(result.team)
         if inputs is None:
+            # A team on its bye this week still has a game in the week the member named.
+            if result.week is not None:
+                current = (await db_bridge.get_lines_slate_async()).get("week")
+                if current is not None and result.week != current:
+                    return _LATER_WEEK
             return _PREDICTION_UNRESOLVED_FACT  # no single game this week — never invent
         if result.week is not None and inputs.get("week") not in (None, result.week):
             return _LATER_WEEK
