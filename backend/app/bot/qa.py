@@ -100,8 +100,8 @@ _TEAM_INTENTS = frozenset(
 # (injuries / weather / lines_slate / prediction) stay team-REQUIRED: a non-real team on
 # those still coerces to ``unknown``.
 _TEAM_OPTIONAL_INTENTS = frozenset({QaIntent.news})
-# ``prediction`` carries the week ONLY so a later-week game can be handed to the open
-# path (see ``_LATER_WEEK``); the prediction read itself is always the current week's.
+# ``prediction`` and ``weather`` carry the week ONLY so a later-week game can be handed
+# to the open path (see ``_LATER_WEEK``); their own reads are always the current week's.
 _WEEK_INTENTS = frozenset(
     {
         QaIntent.pick_status,
@@ -109,6 +109,7 @@ _WEEK_INTENTS = frozenset(
         QaIntent.scores,
         QaIntent.slate_predictions,
         QaIntent.prediction,
+        QaIntent.weather,
     }
 )
 _SUBJECT_INTENTS = frozenset(
@@ -175,7 +176,8 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "EARLIER season is open_nfl, not scores), "
     "injuries (a team's injury report — who is hurt, out, doubtful, or "
     "questionable across the WHOLE team), weather (the game-time forecast or "
-    "conditions for a team's game), news (recent ESPN headlines about a specific "
+    'conditions for a team\'s game; put a week the member names in "week"), news '
+    "(recent ESPN headlines about a specific "
     "team or the league), "
     "prediction (who will win ONE specific team's game THIS WEEK — the pick, the cover "
     "or margin read, who covers the spread; the bot can only call the game a team plays "
@@ -200,7 +202,8 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "POSITION on a team — why he is out, whether he plays this week, his status, or "
     "the latest on him — is open_nfl, NOT injuries and NOT news, because injuries "
     'and news cover a whole team; a player\'s name is NEVER the "team"), '
-    "coming_soon (a recognized but unsupported topic: line movement), "
+    "coming_soon (line movement, where a line opened, and moneylines, which lines_slate "
+    "does not hold), "
     "unknown (anything you are "
     'not sure about). "team" is a team name or abbreviation the question is about, '
     'or null. "week" is an integer week number, or null. "subject" is a short noun '
@@ -1844,6 +1847,11 @@ async def _build_fact(
         # declines (no HTTP, no DB lookup) — the forecast is always game-scoped.
         if result.team is None:
             return _WEATHER_NO_TEAM_FACT
+        # Issue #248: the week 8 forecast used to come back for this week's game.
+        if result.week is not None:
+            current = (await db_bridge.get_lines_slate_async()).get("week")
+            if current is not None and result.week != current:
+                return _LATER_WEEK
         # Resolve the asked team's current-week game -> HOME abbr + kickoff. None ->
         # degrade (unresolvable game — never invent a forecast).
         resolved = await db_bridge.get_weather_target_async(result.team)

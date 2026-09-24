@@ -3581,6 +3581,11 @@ async def _lookup_team_ats(team: str = "", season: int | None = None) -> object 
             missed=record.get("did_not_cover", 0),
             push=record.get("push", 0),
             source=source,
+        )
+        + _TOTALS_CLAUSE.format(
+            over=record.get("over", 0),
+            under=record.get("under", 0),
+            push=record.get("total_push", 0),
         ),
         "caveat": _ATS_CAVEAT,
     }
@@ -3607,16 +3612,21 @@ _ATS_STATEMENT = (
     "against {source}. Each game lists the team's own line, where a minus sign means the "
     "team was favored, the final score from the team's side, and whether it covered."
 )
+_TOTALS_CLAUSE = (
+    " Against the over/under total, those games went over {over}, under {under} and "
+    "pushed {push}; a game listed with no total had none and is not counted."
+)
 _ATS_CAVEAT = (
     "Report each game's line, score and result exactly as listed, and never work out a "
     "cover or a record that is not written here."
 )
 _TEAM_ATS_TOOL_DESCRIPTION = (
     "Look up how one NFL team did against the spread in every final game of a season, "
-    "game by game: its line, the final score and whether it covered, plus its season "
-    "record against the spread. Call this tool when the member asks for a team's record "
-    "against the spread, ATS record, how often a team covers, or whether a team covered "
-    "in a given week, this season or in any season since 1999. The team argument is the "
+    "game by game: its line, the final score, whether it covered and whether the game "
+    "went over or under the total, plus its season records against the spread and the "
+    "total. Call this tool when the member asks for a team's record against the spread, "
+    "ATS record, over/under record, how often a team covers or hits the over, or whether "
+    "a team covered in a given week, this season or in any season since 1999. The team argument is the "
     "standard abbreviation, such as MIA. Leave the season argument out for this season "
     "and pass it only when the member names a year; an NFL season is named for the year "
     "it started in. This season uses the league's own frozen lines, and an earlier season "
@@ -3659,6 +3669,8 @@ async def _lookup_member_season(member: str = "") -> object | None:
         "season": data["season"],
         "weeks": weeks,
         "totals": totals,
+        "by_pick_type": data.get("by_pick_type") or {},
+        "lock_streaks": data.get("lock_streaks") or {},
         "member_season_statement": statement,
         "caveat": _MEMBER_SEASON_CAVEAT,
     }
@@ -3688,14 +3700,18 @@ _MEMBER_SEASON_STATEMENT = (
 _OPEN_WEEK_CLAUSE = " Week {week} is still open, so its picks are hidden and are not counted here."
 _MEMBER_SEASON_CAVEAT = (
     "Report each week and each total exactly as listed, and never add up a total that is "
-    "not written here. A week with made_picks false is a week the member made no picks."
+    "not written here. A week with made_picks false is a week the member made no picks. "
+    "by_pick_type counts every pick, mortal locks included, by the kind of pick."
 )
 _MEMBER_SEASON_TOOL_DESCRIPTION = (
     "Look up one league member's whole season so far, week by week, for every week whose "
     "pick window has closed: their weekly score, how many of their picks won and lost, "
-    "and their mortal lock with its result, plus season totals. Call this tool when the "
-    "member asks how someone has done this season, how many mortal locks someone has hit, "
-    "someone's record, or how a member did across several weeks. The member argument is "
+    "and their mortal lock with its result, plus season totals, a won-lost count for each "
+    "kind of pick (favorite, underdog, over, under, misc) and their mortal-lock streaks. "
+    "Call this tool when the member asks how someone has done this season, how many "
+    "mortal locks someone has hit, someone's record, whether someone always takes the "
+    "underdog or the over, how good someone is at a kind of pick, or how a member did "
+    "across several weeks. The member argument is "
     "the member's name as written in the question, without the @. For one week's picks "
     "by every member, lookup_league_picks is the tool."
 )
@@ -3830,6 +3846,298 @@ _DRAFT_TOOL_DESCRIPTION = (
     "team drafted, or where a player was drafted, and never list draft picks from memory. "
     "The season argument is the draft year. Pass draft_round for one round and team, as a "
     "standard abbreviation, for one team's picks; with neither, it returns the first round."
+)
+
+
+# --------------------------------------------------------------------------- #
+# Issue #248: head-to-head history, the league's own records and one game's outlook
+# (the model read, the line's movement and the weather), for any week on the open path.
+# --------------------------------------------------------------------------- #
+
+
+async def _lookup_head_to_head(team: str = "", opponent: str = "") -> object | None:
+    """Every final meeting of two teams since 1999, from the app's game archive."""
+    from app.bot import db_bridge
+
+    team_abbr = team.strip().upper() if isinstance(team, str) else ""
+    opponent_abbr = opponent.strip().upper() if isinstance(opponent, str) else ""
+    if not team_abbr or not opponent_abbr:
+        return {"note": _NO_TEAMS_FOR_H2H_NOTE}
+    data = await db_bridge.get_head_to_head_async(team_abbr, opponent_abbr)
+    if data.get("team") is None or data.get("opponent") is None:
+        unknown = opponent_abbr if data.get("team") is not None else team_abbr
+        return {"note": _UNKNOWN_ATS_TEAM_NOTE.format(team=unknown)}
+    record = data.get("record") or {}
+    if not record.get("meetings"):
+        return {"note": _NO_MEETINGS_NOTE.format(team=data["team"], opponent=data["opponent"])}
+    return {
+        "team": data["team"],
+        "opponent": data["opponent"],
+        "record": record,
+        "playoff_meetings": data["playoff_meetings"],
+        "recent_meetings": data["recent"],
+        "head_to_head_statement": _H2H_STATEMENT.format(
+            team=data["team"],
+            opponent=data["opponent"],
+            first=data["first_season"],
+            meetings=record["meetings"],
+            won=record["won"],
+            lost=record["lost"],
+            tied=record["tied"],
+            recent=len(data["recent"]),
+        ),
+        "caveat": _H2H_CAVEAT,
+    }
+
+
+_NO_TEAMS_FOR_H2H_NOTE = (
+    "This tool needs two teams, so it looked nothing up. Call it again with both teams' "
+    "standard abbreviations, such as BUF and MIA."
+)
+_NO_MEETINGS_NOTE = (
+    "The app's game archive has no final game between the {team} and the {opponent} since "
+    "1999. Tell the member that plainly, and never give a meeting from your own memory."
+)
+_H2H_STATEMENT = (
+    "Since the {first} season the {team} and the {opponent} met {meetings} times, playoffs "
+    "included, and the {team} won {won}, lost {lost} and tied {tied} of them. The "
+    "{recent} most recent meetings are listed newest first, each with the score from the "
+    "{team}' side, and every playoff meeting is listed too."
+)
+_H2H_CAVEAT = (
+    "The archive starts with the 1999 season, so say 'since 1999' with every all-time "
+    "count and never give a record from before 1999. Report each score exactly as listed."
+)
+_HEAD_TO_HEAD_TOOL_DESCRIPTION = (
+    "Look up the head-to-head history of two NFL teams since 1999: their record against "
+    "each other, split into regular season and playoffs, every playoff meeting and the "
+    "ten most recent games with scores and dates. Call this tool when the member asks "
+    "how two teams have done against each other, the all-time series, the last time two "
+    "teams met, or whether two teams ever met in the playoffs. Pass both teams as "
+    "standard abbreviations, such as BUF and MIA."
+)
+
+
+async def _lookup_league_records() -> object | None:
+    """The pick'em league's records across this season's closed weeks."""
+    from app.bot import db_bridge
+
+    data = await db_bridge.get_league_records_async()
+    if data.get("season") is None:
+        return {"note": _NO_SEASON_NOTE}
+    if not data.get("weeks_counted"):
+        return {"note": _NO_RECORDS_YET_NOTE}
+    statement = _LEAGUE_RECORDS_STATEMENT.format(season=data["season"], weeks=data["weeks_counted"])
+    if data.get("open_week") is not None:
+        statement += _OPEN_WEEK_CLAUSE.format(week=data["open_week"])
+    return {
+        "season": data["season"],
+        "weekly_winners": data["weekly_winners"],
+        "best_weeks": data["best_weeks"],
+        "perfect_cards": data["perfect_cards"],
+        "members": data["members"],
+        "records_statement": statement,
+        "caveat": _LEAGUE_RECORDS_CAVEAT,
+    }
+
+
+_NO_RECORDS_YET_NOTE = (
+    "No week's pick window has closed yet this season, so the league has no records yet. "
+    "Tell the member that plainly."
+)
+_LEAGUE_RECORDS_STATEMENT = (
+    "These are the pick'em league's records across the {weeks} closed weeks of the "
+    "{season} season: the top score of each week and who had it, the five best weekly "
+    "scores, every perfect card (a week in which every graded pick won) and, for each "
+    "member, weekly wins, mortal locks won and lost and the longest run of won locks."
+)
+_LEAGUE_RECORDS_CAVEAT = (
+    "Report each record exactly as listed. A tied top score gives every member named a "
+    "weekly win. Never count or rank anything that is not written here."
+)
+_LEAGUE_RECORDS_TOOL_DESCRIPTION = (
+    "Look up the pick'em league's own records this season: who won each week, the best "
+    "single-week scores, perfect cards, who has the most weekly wins and the longest "
+    "streak of won mortal locks. Call this tool when the member asks who won a week, "
+    "who has won the most weeks, the best week anyone has had, whether anyone has had a "
+    "perfect week, or who has the longest lock streak. For one member's season week by "
+    "week, lookup_member_season is the tool; for the season table, lookup_standings is."
+)
+
+
+async def _lookup_game_outlook(team: str = "", week: int | None = None) -> object | None:
+    """One team's game in a week of this season: the model read, the line and the weather."""
+    from app.bot import db_bridge
+    from app.services import live_odds, weather
+
+    asked_week = _coerce_week_arg(week)
+    if week is not None and asked_week is None:
+        return {"note": _BAD_WEEK_NOTE}
+    team_abbr = team.strip().upper() if isinstance(team, str) else ""
+    if not team_abbr:
+        return {"note": _NO_TEAM_FOR_OUTLOOK_NOTE}
+    data = await db_bridge.get_game_outlook_async(team_abbr, asked_week)
+    if data.get("week") is None:
+        return {"note": _NO_SEASON_NOTE}
+    if not data.get("found"):
+        if not data.get("known_team"):
+            return {"note": _UNKNOWN_ATS_TEAM_NOTE.format(team=team_abbr)}
+        return {"note": _NO_OUTLOOK_GAME_NOTE.format(team=team_abbr, week=data["week"])}
+    home, away = data["home"], data["away"]
+    answer: dict = {
+        "game": f"{away} at {home}",
+        "week": data["week"],
+        "kickoff": _fmt_close(data.get("kickoff_at")),
+    }
+    if data["status"] == "FINAL":
+        answer["final_score"] = f"{away} {data['away_score']}, {home} {data['home_score']}"
+        answer["note"] = _OUTLOOK_FINAL_NOTE.format(game=answer["game"], week=data["week"])
+        return answer
+
+    margin = float(data["model_home_margin"])
+    side, prob = (
+        (home, data["model_home_win_prob"])
+        if margin >= 0
+        else (
+            away,
+            1 - data["model_home_win_prob"],
+        )
+    )
+    answer["model_read"] = _MODEL_READ_STATEMENT.format(
+        side=side, points=f"{abs(margin):.1f}", percent=round(prob * 100)
+    )
+    if data.get("spread") is not None and data.get("favorite"):
+        answer["league_line"] = _LEAGUE_LINE_STATEMENT.format(
+            favorite=data["favorite"],
+            spread=data["spread"],
+            total=data.get("total") or "not set",
+            state="frozen for picks" if data.get("frozen") else "not frozen yet",
+        )
+    else:
+        answer["league_line"] = _NO_LEAGUE_LINE_STATEMENT
+
+    kickoff = data.get("kickoff_at")
+    stadium = weather.lookup_stadium(home or "")
+
+    async def _movement() -> dict | None:
+        event_id = data.get("espn_event_id")
+        if not isinstance(event_id, int):
+            return None
+        return await live_odds.fetch_line_movement(event_id, data.get("espn_competition_id"))
+
+    async def _forecast() -> dict | None:
+        if stadium is None or stadium.indoor or not isinstance(kickoff, datetime):
+            return None
+        days_out = (kickoff - datetime.now(UTC)).total_seconds() / 86400
+        if not 0 <= days_out <= _FORECAST_DAYS:
+            return None
+        payload = await weather.fetch_forecast(stadium.lat, stadium.lon)
+        return weather.parse_forecast(payload, kickoff) if payload is not None else None
+
+    movement, forecast = await asyncio.gather(_movement(), _forecast())
+    answer["line_movement"] = (
+        _LINE_MOVEMENT_STATEMENT.format(home=home, away=away, **_dashes(movement))
+        if movement is not None
+        else _NO_LINE_MOVEMENT_STATEMENT
+    )
+    answer["weather"] = _outlook_weather(stadium, kickoff, forecast)
+    answer["caveat"] = _OUTLOOK_CAVEAT
+    return answer
+
+
+_FORECAST_DAYS = 15
+
+
+def _dashes(movement: dict) -> dict:
+    """``movement`` with every missing value spelled out, so no blank reaches the model."""
+    return {k: (v if v is not None else "not given") for k, v in movement.items()}
+
+
+def _outlook_weather(stadium: object, kickoff: object, forecast: dict | None) -> str:
+    from app.services.weather import Stadium
+
+    if not isinstance(stadium, Stadium):
+        return _NO_WEATHER_STATEMENT
+    if stadium.indoor:
+        return _INDOOR_WEATHER_STATEMENT.format(stadium=stadium.name)
+    if isinstance(kickoff, datetime) and kickoff <= datetime.now(UTC):
+        return _KICKED_OFF_WEATHER_STATEMENT
+    if forecast is None:
+        return _NO_FORECAST_STATEMENT.format(stadium=stadium.name, days=_FORECAST_DAYS)
+    return _FORECAST_STATEMENT.format(
+        stadium=stadium.name,
+        temperature=_or_unknown(forecast.get("temperature_f"), "°F"),
+        wind=_or_unknown(forecast.get("wind_mph"), " mph"),
+        precip=_or_unknown(forecast.get("precip_in"), " inches"),
+    )
+
+
+def _or_unknown(value: object, unit: str) -> str:
+    return f"{value}{unit}" if isinstance(value, (int, float)) else "not given"
+
+
+_NO_TEAM_FOR_OUTLOOK_NOTE = (
+    "No team was given, so this tool looked nothing up. Call it again with the team's "
+    "standard abbreviation, such as KC."
+)
+_NO_OUTLOOK_GAME_NOTE = (
+    "The {team} have no game in week {week} in the app; that is most likely their bye "
+    "week. Tell the member that plainly."
+)
+_OUTLOOK_FINAL_NOTE = (
+    "{game} in week {week} is already over, so there is no outlook to give. Report the "
+    "final score as listed."
+)
+_MODEL_READ_STATEMENT = (
+    "The bot's own rating model has the {side} winning by {points} points, and gives the "
+    "{side} a {percent} percent chance to win the game."
+)
+_LEAGUE_LINE_STATEMENT = (
+    "The pick'em league's line is {favorite} favored by {spread} with a total of {total}, {state}."
+)
+_NO_LEAGUE_LINE_STATEMENT = "The pick'em league has no line for this game yet."
+_LINE_MOVEMENT_STATEMENT = (
+    "At {provider}, the {home} spread opened at {home_spread_open} and is "
+    "{home_spread_now} now; the total opened at {total_open} and is {total_now} now; the "
+    "{home} moneyline opened at {home_moneyline_open} and is {home_moneyline_now} now, and "
+    "the {away} moneyline opened at {away_moneyline_open} and is {away_moneyline_now} now."
+)
+_NO_LINE_MOVEMENT_STATEMENT = (
+    "No sportsbook opening or current line could be read for this game just now, so say "
+    "nothing about how the line moved."
+)
+_INDOOR_WEATHER_STATEMENT = (
+    "The game is at {stadium}, which has a roof, so the weather does not affect play."
+)
+_FORECAST_STATEMENT = (
+    "The forecast at {stadium} for the kickoff hour is {temperature}, wind {wind} and "
+    "{precip} of precipitation."
+)
+_NO_FORECAST_STATEMENT = (
+    "There is no forecast for this game at {stadium}: a forecast exists only for the next "
+    "{days} days, or it could not be read just now. Say that plainly and never guess the "
+    "weather."
+)
+_KICKED_OFF_WEATHER_STATEMENT = (
+    "The game has already kicked off, so there is no pre-game forecast to give. Say that "
+    "plainly and never guess the weather."
+)
+_NO_WEATHER_STATEMENT = "The app does not know this game's stadium, so there is no forecast."
+_OUTLOOK_CAVEAT = (
+    "The model read is the bot's own simple rating model. It does not beat the betting "
+    "line, so call it a cross-check and never a betting tip. A spread is written from the "
+    "named team's side, where a minus sign means that team is favored. Report every "
+    "number exactly as listed."
+)
+_GAME_OUTLOOK_TOOL_DESCRIPTION = (
+    "Look up one team's game in any week of this season: the bot's own rating-model "
+    "read of who wins and by how much, the pick'em league's line, how the sportsbook "
+    "line moved from its opening number, and the kickoff forecast at the stadium. Call "
+    "this tool when the member asks who the bot or the model likes in a game, what the "
+    "model thinks, whether a line has moved, where a line opened, the moneyline, or "
+    "what the weather will be for a game. The team argument is a standard abbreviation, "
+    "such as KC. Leave the week argument out for this week and pass it when the member "
+    "names a week."
 )
 
 
@@ -4635,6 +4943,70 @@ _BASE_TOOLS: tuple[_Tool, ...] = (
             },
         },
         run=_lookup_draft,
+    ),
+    _Tool(
+        name="lookup_head_to_head",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_head_to_head",
+                "description": _HEAD_TO_HEAD_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {
+                            "type": "string",
+                            "description": "The first team's standard abbreviation, such as BUF.",
+                        },
+                        "opponent": {
+                            "type": "string",
+                            "description": "The other team's standard abbreviation, such as MIA.",
+                        },
+                    },
+                    "required": ["team", "opponent"],
+                },
+            },
+        },
+        run=_lookup_head_to_head,
+    ),
+    _Tool(
+        name="lookup_league_records",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_league_records",
+                "description": _LEAGUE_RECORDS_TOOL_DESCRIPTION,
+                "parameters": {"type": "object", "properties": {}, "required": []},
+            },
+        },
+        run=_lookup_league_records,
+        volatile=True,
+    ),
+    _Tool(
+        name="lookup_game_outlook",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_game_outlook",
+                "description": _GAME_OUTLOOK_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {
+                            "type": "string",
+                            "description": "The team's standard abbreviation, such as KC.",
+                        },
+                        "week": {
+                            "type": "integer",
+                            "description": "Optional week number. Leave it out for this week.",
+                        },
+                    },
+                    "required": ["team"],
+                },
+            },
+        },
+        run=_lookup_game_outlook,
+        volatile=True,
     ),
 )
 

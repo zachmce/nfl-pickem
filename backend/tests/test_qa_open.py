@@ -903,6 +903,9 @@ class ShippedRegistryTests(_OpenPathTestCase):
                 "lookup_member_season",
                 "lookup_injury_report",
                 "lookup_draft",
+                "lookup_head_to_head",
+                "lookup_league_records",
+                "lookup_game_outlook",
             ],
         )
         params = qa_open.TOOLS[0].spec["function"]["parameters"]
@@ -1173,8 +1176,10 @@ class ShippedRegistryTests(_OpenPathTestCase):
         # 2026-09-18 with the live game and the week scoreboard tools (fifteen tools);
         # 32,251 the same day with the six app-data tools (twenty-one tools). 36,145 on
         # 2026-09-24 with team ATS, member season, injury report and draft (25 tools).
+        # 38,835 the same day with head-to-head, league records and game outlook, and the
+        # totals and pick-type halves of team ATS and member season (issue #248).
         total = sum(len(json.dumps(tool.spec)) for tool in qa_open.TOOLS)
-        self.assertLess(total, 36200, f"the shipped tool specs now total {total} bytes")
+        self.assertLess(total, 38900, f"the shipped tool specs now total {total} bytes")
         for tool in qa_open.TOOLS[5:]:
             with self.subTest(tool=tool.name):
                 self.assertLess(len(json.dumps(tool.spec)), 1700)
@@ -4092,6 +4097,8 @@ class GroundingReplayTests(_OpenPathTestCase):
                 "lookup_scores",
                 "lookup_member_season",
                 "lookup_injury_report",
+                "lookup_league_records",
+                "lookup_game_outlook",
             },
         )
 

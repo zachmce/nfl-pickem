@@ -25,8 +25,11 @@ from app.services.notifications_read import (
     get_current_week_event_id_for_team,
     get_current_week_weather_target_for_team,
     get_game_final_context,
+    get_game_outlook_inputs,
+    get_head_to_head,
     get_history_pick_keys,
     get_leaders_context,
+    get_league_records,
     get_league_picks,
     get_lines_slate,
     get_member_season,
@@ -758,5 +761,44 @@ async def get_member_season_async(member: str) -> dict:
             if season is None:
                 return {"season": None, "member": None, "matches": [], "weeks": [], "totals": {}}
             return get_member_season(session, season, member=member)
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_head_to_head_async(team_abbr: str, opponent_abbr: str) -> dict:
+    """Async wrapper: every final meeting of two teams since 1999."""
+
+    def _sync() -> dict:
+        with task_session() as session:
+            return get_head_to_head(session, team_abbr=team_abbr, opponent_abbr=opponent_abbr)
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_league_records_async() -> dict:
+    """Async wrapper: the league's records across this season's closed weeks."""
+
+    def _sync() -> dict:
+        with task_session() as session:
+            season = current_season(session)
+            if season is None:
+                return {"season": None}
+            return get_league_records(session, season)
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_game_outlook_async(team_abbr: str, week: int | None = None) -> dict:
+    """Async wrapper: one team's game in a week of this season (this week by default)."""
+
+    def _sync() -> dict:
+        with task_session() as session:
+            season = current_season(session)
+            if season is None:
+                return {"found": False, "week": None}
+            target = week if week is not None else resolve_current_week(session, season)
+            if target is None:
+                return {"found": False, "week": None}
+            return get_game_outlook_inputs(session, season, target, team_abbr=team_abbr)
 
     return await asyncio.to_thread(_sync)

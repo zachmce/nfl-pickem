@@ -18,7 +18,11 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from app.models import Game, GameStatus, HistoricalGame, Pick, PickType, Team, User, Week
 from app.services.auth import hash_password
 from app.services.notifications_read import (
+    _lock_streaks,
+    get_game_outlook_inputs,
+    get_head_to_head,
     get_league_picks,
+    get_league_records,
     get_member_season,
     get_pick_completion,
     get_standings_table,
@@ -195,6 +199,15 @@ class LeaguePicksWindowOpenTests(_ReaderTestCase):
         self.assertEqual(out["member"], "alice")
         self.assertEqual(out["weeks"], [])
         self.assertEqual(out["open_week"], WEEK)
+        self.assertEqual(out["by_pick_type"], {})
+
+    def test_league_records_count_no_open_week(self) -> None:
+        with self._session() as session:
+            out = get_league_records(session, SEASON)
+        self.assertEqual(out["weeks_counted"], 0)
+        self.assertEqual(out["open_week"], WEEK)
+        self.assertEqual(out["members"], [])
+        self.assertNotIn("alice", str(out))
 
 
 class LeaguePicksWindowClosedTests(_ReaderTestCase):
@@ -283,10 +296,15 @@ class LeaguePicksWindowClosedTests(_ReaderTestCase):
                 "score": "41-31",
                 "straight_up": "WON",
                 "ats": "COVERED",
+                "total": "51.5",
+                "over_under": "OVER",
             },
         )
         self.assertEqual(lions["games"][0]["line"], "+5.5")
-        self.assertEqual(lions["record"], {"covered": 0, "did_not_cover": 1, "push": 0})
+        self.assertEqual(
+            lions["record"],
+            {"covered": 0, "did_not_cover": 1, "push": 0, "over": 1, "under": 0, "total_push": 0},
+        )
         self.assertEqual(chiefs["games"], [])  # not final yet
 
     def test_team_ats_reads_the_archive_for_an_earlier_season(self) -> None:
@@ -339,6 +357,126 @@ class LeaguePicksWindowClosedTests(_ReaderTestCase):
             self.assertEqual(get_standings_table(session, 1999), {"season": 1999, "entries": []})
             self.assertEqual(get_league_picks(session, SEASON, 9)["members"], [])
             self.assertEqual(get_pick_completion(session, SEASON, 9)["complete"], [])
+
+
+class LeagueRecordsAndTendencyTests(_ReaderTestCase):
+    """Issue #248: pick-type split, lock streaks, league records, head-to-head, outlook."""
+
+    def test_member_season_splits_every_pick_by_kind(self) -> None:
+        with self._session() as session:
+            alice = get_member_season(session, SEASON, member="alice")
+            bob = get_member_season(session, SEASON, member="bob")
+        # The lock and the base favorite pick both rode BUF -5.5 in a 41-31 win.
+        self.assertEqual(
+            alice["by_pick_type"]["favorite"], {"won": 2, "lost": 0, "pushed": 0, "not_final": 0}
+        )
+        self.assertEqual(alice["by_pick_type"]["over"]["won"], 1)  # 72 points over 51.5
+        self.assertEqual(alice["by_pick_type"]["underdog"]["not_final"], 1)
+        self.assertEqual(alice["by_pick_type"]["misc"]["not_final"], 1)
+        self.assertEqual(alice["lock_streaks"]["longest_win_streak"], 1)
+        self.assertEqual(
+            bob["by_pick_type"], {"underdog": {"won": 0, "lost": 1, "pushed": 0, "not_final": 0}}
+        )
+        self.assertEqual(bob["lock_streaks"]["current_streak"], "1 lost in a row")
+
+    def test_lock_streaks_skip_pushes_and_ungraded_locks(self) -> None:
+        streaks = _lock_streaks(["WIN", "WIN", "LOSS", "WIN", "PUSH", "UNGRADEABLE", "WIN"])
+        self.assertEqual(streaks, {"longest_win_streak": 2, "current_streak": "2 won in a row"})
+        self.assertEqual(_lock_streaks([]), {"longest_win_streak": 0, "current_streak": None})
+
+    def test_league_records_name_the_week_winner_and_the_perfect_card(self) -> None:
+        with self._session() as session:
+            out = get_league_records(session, SEASON)
+        self.assertEqual(out["weeks_counted"], 1)
+        self.assertEqual(out["weekly_winners"][0]["winners"], ["alice"])
+        # alice's three graded picks all won; her ungraded ones do not spoil the card.
+        self.assertEqual(out["perfect_cards"], [{"member": "alice", "week": WEEK, "picks_won": 3}])
+        self.assertEqual(out["best_weeks"][0]["member"], "alice")
+        self.assertEqual(
+            out["members"][0],
+            {
+                "member": "alice",
+                "weekly_wins": 1,
+                "locks_won": 1,
+                "locks_lost": 0,
+                "longest_lock_win_streak": 1,
+            },
+        )
+        self.assertEqual(out["members"][1]["locks_lost"], 1)
+
+    def _archive(self, session: Session) -> None:
+        tid = {t.abbreviation: t.id for t in session.exec(select(Team)).all() if t.id is not None}
+
+        def game(gid: str, season: int, kind: str, home: str, away: str, hs: int, as_: int):
+            return HistoricalGame(
+                nflverse_game_id=gid,
+                season=season,
+                week=20 if kind != "REG" else 5,
+                game_type=kind,
+                gameday=date(season, 10, 1) if kind == "REG" else date(season + 1, 1, 20),
+                home_team_id=tid[home],
+                away_team_id=tid[away],
+                home_score=hs,
+                away_score=as_,
+                result=hs - as_,
+                spread_line=Decimal("1.0"),
+                total_line=Decimal("44.0"),
+            )
+
+        session.add_all(
+            [
+                game("2019_05_DET_BUF", 2019, "REG", "BUF", "DET", 20, 17),
+                game("2021_20_BUF_DET", 2021, "CON", "DET", "BUF", 27, 24),
+                game("2022_05_BUF_DET", 2022, "REG", "DET", "BUF", 10, 10),
+                # A season the app runs: Game holds it, so this archive row must not count.
+                game(f"{SEASON}_05_DET_BUF", SEASON, "REG", "BUF", "DET", 3, 0),
+                game("2020_05_KC_IND", 2020, "REG", "IND", "KC", 30, 3),
+            ]
+        )
+        session.commit()
+
+    def test_head_to_head_joins_the_archive_and_the_league_season_once(self) -> None:
+        with self._session() as session:
+            self._archive(session)
+            out = get_head_to_head(session, team_abbr="DET", opponent_abbr="bills")
+        self.assertEqual((out["team"], out["opponent"]), ("DET", "BUF"))
+        self.assertEqual(out["first_season"], 2019)
+        record = out["record"]
+        self.assertEqual(
+            (record["meetings"], record["won"], record["lost"], record["tied"]), (4, 1, 2, 1)
+        )
+        self.assertEqual(record["playoffs"], {"won": 1, "lost": 0, "tied": 0})
+        self.assertEqual(out["playoff_meetings"][0]["game"], "conference championship")
+        # Newest first; the app's own final (41-31 BUF) leads.
+        self.assertEqual(out["recent"][0]["season"], SEASON)
+        self.assertEqual(out["recent"][0]["score"], "31-41")
+        self.assertEqual(out["recent"][0]["venue"], "away")
+        self.assertEqual(out["recent"][-1]["season"], 2019)
+
+    def test_head_to_head_misses_are_empty_not_a_raise(self) -> None:
+        with self._session() as session:
+            nobody = get_head_to_head(session, team_abbr="ZZZ", opponent_abbr="BUF")
+            same = get_head_to_head(session, team_abbr="BUF", opponent_abbr="BILLS")
+            never = get_head_to_head(session, team_abbr="KC", opponent_abbr="BUF")
+        self.assertIsNone(nobody["team"])
+        self.assertEqual(same["record"], {})
+        self.assertEqual(never["record"]["meetings"], 0)
+
+    def test_game_outlook_reads_the_line_and_the_model_for_any_week(self) -> None:
+        with self._session() as session:
+            chiefs = get_game_outlook_inputs(session, SEASON, WEEK, team_abbr="IND")
+            bills = get_game_outlook_inputs(session, SEASON, WEEK, team_abbr="BUF")
+            bye = get_game_outlook_inputs(session, SEASON, WEEK + 1, team_abbr="KC")
+            nobody = get_game_outlook_inputs(session, SEASON, WEEK, team_abbr="ZZZ")
+        self.assertTrue(chiefs["found"])
+        self.assertEqual((chiefs["home"], chiefs["away"]), ("KC", "IND"))
+        self.assertEqual((chiefs["favorite"], chiefs["spread"]), ("KC", "7.0"))
+        self.assertEqual(chiefs["status"], "SCHEDULED")
+        self.assertIsInstance(chiefs["model_home_margin"], float)
+        self.assertTrue(0.0 <= chiefs["model_home_win_prob"] <= 1.0)
+        self.assertEqual(bills["status"], "FINAL")
+        self.assertEqual((bye["found"], bye["known_team"]), (False, True))
+        self.assertEqual((nobody["found"], nobody["known_team"]), (False, False))
 
 
 if __name__ == "__main__":
