@@ -911,6 +911,8 @@ class ShippedRegistryTests(_OpenPathTestCase):
                 "lookup_team_outlook",
                 "lookup_qbr",
                 "lookup_transactions",
+                "lookup_championships",
+                "lookup_hall_of_fame",
             ],
         )
         params = qa_open.TOOLS[0].spec["function"]["parameters"]
@@ -1183,9 +1185,10 @@ class ShippedRegistryTests(_OpenPathTestCase):
         # 2026-09-24 with team ATS, member season, injury report and draft (25 tools).
         # 38,835 the same day with head-to-head, league records and game outlook, and the
         # totals and pick-type halves of team ATS and member season (issue #248); 43,255
-        # with career, awards, FPI, QBR and transactions (33 tools).
+        # with career, awards, FPI, QBR and transactions (33 tools); 45,121 with the
+        # championships and Hall of Fame corpus tools and the awards player argument.
         total = sum(len(json.dumps(tool.spec)) for tool in qa_open.TOOLS)
-        self.assertLess(total, 43300, f"the shipped tool specs now total {total} bytes")
+        self.assertLess(total, 45200, f"the shipped tool specs now total {total} bytes")
         for tool in qa_open.TOOLS[5:]:
             with self.subTest(tool=tool.name):
                 self.assertLess(len(json.dumps(tool.spec)), 1700)
@@ -3709,6 +3712,45 @@ class ToolLoopTests(_OpenPathTestCase):
         self.assertEqual(close[-1]["role"], "tool")
         self.assertFalse(any(m.get("content") == doubled for m in close))
 
+    def test_on_openai_the_round_text_is_the_answer_and_no_close_is_made(self) -> None:
+        # Measured 2026-09-24: terra wrote the round text once in 30/30, so the close
+        # only cost a call. The tool turns still come back for the grounding replay.
+        tool, _ = _fake_tool()
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_starter", '{"team": "CHI"}'),
+            _text("Caleb Williams starts at QB for the Bears."),
+        )
+        with (
+            mock.patch.object(qa_open.settings, "llm_api_vendor", "openai"),
+            mock.patch.object(qa_open, "TOOLS", (tool,)),
+            patcher,
+        ):
+            text, turns = _run(
+                qa_open._run_tool_loop(
+                    [{"role": "user", "content": "who starts?"}], system_prompt="s"
+                )
+            )
+        self.assertEqual(text, "Caleb Williams starts at QB for the Bears.")
+        self.assertEqual(len(calls), 2)
+        self.assertEqual([t.get("role") for t in turns], ["assistant", "tool"])
+
+    def test_on_openai_an_empty_round_still_goes_to_the_close(self) -> None:
+        tool, _ = _fake_tool()
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_starter", '{"team": "CHI"}'),
+            {"role": "assistant", "content": None},
+            _text("Caleb Williams starts at QB for the Bears."),
+        )
+        with (
+            mock.patch.object(qa_open.settings, "llm_api_vendor", "openai"),
+            mock.patch.object(qa_open, "TOOLS", (tool,)),
+            patcher,
+        ):
+            out = _run(qa_open.answer_open("who starts at QB for the Bears?", voice=_VOICE))
+        self.assertEqual(out, "Caleb Williams starts at QB for the Bears.")
+        self.assertEqual(len(calls), 3)
+        self.assertIsNone(calls[2]["tools"])
+
     def test_a_first_round_text_answer_still_returns_at_once(self) -> None:
         # No tool result in the conversation, no doubling measured: one call, no close.
         tool, tool_calls = _fake_tool()
@@ -4581,6 +4623,16 @@ def _in_progress(summary: dict, *, clock: str = "4:32", period: int = 3) -> dict
     return live
 
 
+class EspnDateFormatTests(unittest.TestCase):
+    def test_an_iso_kickoff_reads_like_the_lines_close_time(self) -> None:
+        self.assertEqual(qa_open._fmt_espn_date("2026-09-25T00:15Z"), "Fri Sep 25, 12:15 AM UTC")
+        self.assertEqual(
+            qa_open._fmt_espn_date("2026-09-28T17:00:00+00:00"), "Mon Sep 28, 5:00 PM UTC"
+        )
+        for junk in (None, "", "soon", 7):
+            self.assertIsNone(qa_open._fmt_espn_date(junk))
+
+
 class LiveGameToolTests(_OpenPathTestCase):
     """The SHIPPED live game tool (2026-09-18): the game one team plays THIS week, in
     any status, with the box score once it has started."""
@@ -4657,7 +4709,9 @@ class LiveGameToolTests(_OpenPathTestCase):
         self.assertEqual(fetched, [])
         self.assertEqual(body["status"], "not started")
         self.assertEqual(body["broadcasts"], ["FOX"])
-        self.assertEqual(body["kickoff"], "2026-09-20T17:00Z")
+        # Issue #257: the raw ISO string reached Discord as it was.
+        self.assertEqual(body["kickoff"], "Sun Sep 20, 5:00 PM UTC")
+        self.assertNotRegex(body["game_statement"], r"\d{4}-\d{2}-\d{2}T")
         self.assertIn("has not kicked off yet", body["game_statement"])
         self.assertIn("it is on FOX", body["game_statement"])
         self.assertIn("never describe how it is going", body["game_statement"])

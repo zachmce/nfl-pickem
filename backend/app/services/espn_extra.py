@@ -3991,7 +3991,8 @@ _CORE_REF_ATHLETE_RE = re.compile(_CORE_REF_PREFIX + r"athletes/([0-9]{1,12})(?:
 _CORE_REF_TEAM_RE = re.compile(_CORE_REF_PREFIX + r"teams/([0-9]{1,4})(?:[?/]|$)")
 
 AWARDS_CAVEAT = (
-    "Every winner here is from ESPN's awards record. An award season is the NFL season it "
+    "Every winner here is from ESPN's awards record or from the AP award tables, as each "
+    "award's source says. An award season is the NFL season it "
     "honors: the Super Bowl MVP of the 2012 season won the Super Bowl played in early "
     "2013. Report each winner exactly as listed and never name a winner who is not listed."
 )
@@ -3999,12 +4000,19 @@ AWARDS_CAVEAT = (
 
 def season_award_id(award: Any) -> str | None:
     """The ESPN id of a named award, or ``None``. Pure."""
+    key = season_award_key(award)
+    return SEASON_AWARDS[key] if key is not None else None
+
+
+def season_award_key(award: Any) -> str | None:
+    """The canonical :data:`SEASON_AWARDS` key of a named award, or ``None``. Pure."""
     if not isinstance(award, str):
         return None
     key = " ".join(award.lower().replace("'", "").split())
     for prefix in ("the ", "nfl ", "ap "):
         key = key.removeprefix(prefix)
-    return SEASON_AWARDS.get(_AWARD_ALIASES.get(key, key))
+    key = _AWARD_ALIASES.get(key, key)
+    return key if key in SEASON_AWARDS else None
 
 
 def _valid_season(season: Any, minimum: int) -> bool:

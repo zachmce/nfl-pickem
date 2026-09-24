@@ -304,6 +304,20 @@ class IntentRoutingTests(unittest.TestCase):
         self.assertEqual(out, qa._SOFT_DECLINE_FACT)
         self.assertEqual(seam_calls, [])  # stateless: no reader call, no pending slot
 
+    def test_a_plural_lines_question_gets_the_slate_not_the_decline(self) -> None:
+        # Seen in the telemetry panel 2026-09-24: "what are the lines this week?" was
+        # declined, because "line" matched inside "lines".
+        for subject, single in (
+            ("the lines this week", False),
+            ("spreads and totals", False),
+            ("the odds this week", False),
+            ("the over/under", True),
+            ("the spread", True),
+            ("underdog", True),
+        ):
+            with self.subTest(subject=subject):
+                self.assertIs(qa._wants_single_game(subject), single)
+
     def test_scores_routes_to_week_scores_reader(self) -> None:
         seam_patch, seam_calls = _seam(
             "get_week_scores_async",
