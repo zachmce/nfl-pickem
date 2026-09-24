@@ -91,6 +91,9 @@ class Settings(BaseSettings):
     # means every path uses LLM_API_MODEL. Lets a stronger model serve the open path
     # while the classifier and the one-line phrasing stay on a cheaper one.
     llm_api_open_model: str | None = None
+    # Optional SearXNG instance for the open path's ``search_web`` tool (issue #234). Unset
+    # = the tool is not registered. It must serve ``format=json``.
+    searxng_url: str | None = None
 
     log_level: str = "INFO"
 
@@ -120,6 +123,7 @@ class Settings(BaseSettings):
         "llm_api_model",
         "llm_api_key",
         "llm_api_open_model",
+        "searxng_url",
         mode="before",
     )
     @classmethod
