@@ -31,9 +31,10 @@ refreshed ``pick_count``); DELETE returns 204 with no body.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlmodel import Session
 
 from app.api.deps import require_admin
@@ -42,8 +43,8 @@ from app.exceptions import ConflictError, NotFoundError
 from app.models import Game, PickResult, PickType, Team, User
 from app.schemas.admin import (
     AdminUserListResponse,
-    BotAnswerListResponse,
-    BotAnswerRead,
+    BotTranscriptEntry,
+    BotTranscriptResponse,
     AdminUserRead,
     BotPersonalityRead,
     FreezeWeekRequest,
@@ -481,20 +482,49 @@ def set_bot_personality_setting(
     )
 
 
-# Issue #248 item 15: the last answers the bot gave, read from the capped Redis list the
-# bot writes. Read-only; a Redis outage returns ``available: false``, never a 500.
-@router.get("/bot-answers", response_model=BotAnswerListResponse)
-def get_bot_answers(
-    limit: int = Query(default=bot_telemetry.MAX_ANSWERS, ge=1, le=bot_telemetry.MAX_ANSWERS),
+# Issues #248/#252: the bot's channel transcript, read from the capped Redis list the bot
+# writes. Read-only; a Redis outage returns ``available: false``, never a 500.
+@router.get("/bot-transcript", response_model=BotTranscriptResponse)
+def get_bot_transcript(
+    limit: int = Query(default=500, ge=1, le=bot_telemetry.MAX_ENTRIES),
+    since: datetime | None = Query(default=None),
+    until: datetime | None = Query(default=None),
     admin: User = Depends(require_admin),
-) -> BotAnswerListResponse:
-    records = bot_telemetry.read_recent(limit)
+) -> BotTranscriptResponse:
+    records = bot_telemetry.read_recent(limit, since=_aware(since), until=_aware(until))
     if records is None:
-        return BotAnswerListResponse(available=False, answers=[])
-    answers: list[BotAnswerRead] = []
+        return BotTranscriptResponse(available=False, entries=[])
+    entries: list[BotTranscriptEntry] = []
     for record in records:
         try:
-            answers.append(BotAnswerRead.model_validate(record))
+            entries.append(BotTranscriptEntry.model_validate(record))
         except ValueError:
             continue
-    return BotAnswerListResponse(available=True, answers=answers)
+    return BotTranscriptResponse(available=True, entries=entries)
+
+
+@router.get("/bot-transcript/export")
+def export_bot_transcript(
+    since: datetime | None = Query(default=None),
+    until: datetime | None = Query(default=None),
+    admin: User = Depends(require_admin),
+) -> Response:
+    """Every stored entry in the window as JSON Lines, oldest first, as a file download."""
+    records = bot_telemetry.read_recent(
+        bot_telemetry.MAX_ENTRIES, since=_aware(since), until=_aware(until)
+    )
+    if records is None:
+        raise HTTPException(status_code=503, detail="transcript_unavailable")
+    body = "".join(json.dumps(r, default=str) + "\n" for r in reversed(records))
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%MZ")
+    return Response(
+        content=body,
+        media_type="application/x-ndjson",
+        headers={"Content-Disposition": f'attachment; filename="bot-transcript-{stamp}.jsonl"'},
+    )
+
+
+def _aware(moment: datetime | None) -> datetime | None:
+    if moment is None or moment.tzinfo is not None:
+        return moment
+    return moment.replace(tzinfo=timezone.utc)

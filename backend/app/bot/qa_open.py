@@ -5996,7 +5996,13 @@ async def _resolve_tool_call(
         # Belt-and-suspenders over the never-raise adapter contract.
         logger.warning("qa_open_tool_failed", tool=name, round=round_index, exc_info=True)
         result = None
-    bot_telemetry.note_tool(name, arguments_for_run, outcome="no_data" if result is None else "ok")
+    note = result.get("note") if isinstance(result, dict) else None
+    bot_telemetry.note_tool(
+        name,
+        arguments_for_run,
+        outcome="no_data" if result is None else ("note" if note is not None else "ok"),
+        note=note,
+    )
     if result is None:
         return _tool_message(call_id, name, _NO_DATA_PAYLOAD)
     return _tool_message(call_id, name, result)

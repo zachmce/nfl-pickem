@@ -41,6 +41,8 @@ from discord.ext import commands
 
 from app.bot import qa, qa_room
 from app.bot.team_emoji import decorate_team_logos
+from app.config import settings
+from app.services import bot_telemetry
 
 logger = structlog.get_logger(__name__)
 
@@ -231,6 +233,42 @@ class _ChannelMemory:
         return last is not None and (now - last) <= _ROOM_RECENT_SECONDS
 
 
+def _is_chat_channel(channel: object) -> bool:
+    """Whether ``channel`` is the league chat channel (DISCORD_CHAT_CHANNEL, id or name).
+
+    Every message there goes into the transcript (issue #252); elsewhere only messages
+    addressed to the bot do, so a private channel's chatter is never stored.
+    """
+    setting = (settings.discord_chat_channel or "").strip()
+    if not setting:
+        return False
+    if setting.isdigit():
+        return getattr(channel, "id", None) == int(setting)
+    name = getattr(channel, "name", None)
+    return isinstance(name, str) and name.casefold() == setting.lstrip("#").casefold()
+
+
+def _message_meta(message: discord.Message, *, mentioned: bool, reply_to_bot: bool) -> dict:
+    return {
+        "channel": getattr(message.channel, "name", None),
+        "channel_id": str(getattr(message.channel, "id", "")),
+        "message_id": str(getattr(message, "id", "")),
+        "author": getattr(message.author, "display_name", None) or "someone",
+        "mentioned": mentioned,
+        "reply_to_bot": reply_to_bot,
+    }
+
+
+def _post_text(message: discord.Message) -> str:
+    """A bot post's text: its content, else its embeds' titles and descriptions."""
+    parts = [message.content] if message.content else []
+    for embed in getattr(message, "embeds", None) or []:
+        for part in (getattr(embed, "title", None), getattr(embed, "description", None)):
+            if part:
+                parts.append(part)
+    return " | ".join(parts)
+
+
 def _is_reply_to_bot(message: discord.Message, bot_user_id: int) -> bool:
     """Whether ``message`` is a Discord reply to one of the BOT's own messages.
 
@@ -259,6 +297,9 @@ class MentionQaCog(commands.Cog):
         # Bounded per-channel transcript — feeds both the room gate and the open
         # path's conversation history.
         self._memory = _ChannelMemory()
+        # The bot's own Q&A reply ids: the answer entry already holds that text, so the
+        # echo through on_message is not logged a second time.
+        self._reply_ids: deque[int] = deque(maxlen=200)
 
     def _is_rate_limited(self, message: discord.Message) -> bool:
         """Whether ``message``'s author is over the per-user cooldown right now.
@@ -294,22 +335,42 @@ class MentionQaCog(commands.Cog):
           9.   record the bot's own reply (what opens the pre-filter next time) —
                still inside the lock, so the next waiting answer reads it.
         """
+        trace = None
         try:
-            # (1) Ignore messages from bots / the bot itself.
-            if message.author.bot:
-                return
-            # (2) Guild messages only — DMs are out of scope.
+            # (2) Guild messages only — DMs are out of scope, and never logged.
             if message.guild is None:
+                return
+            in_chat = _is_chat_channel(message.channel)
+            bot_user = self.bot.user
+            mentioned = bot_user is not None and bot_user in message.mentions
+            reply_to_bot = bot_user is not None and _is_reply_to_bot(message, bot_user.id)
+            meta = _message_meta(message, mentioned=mentioned, reply_to_bot=reply_to_bot)
+
+            def skip(decision: str, text: str | None = None) -> None:
+                if in_chat or mentioned or reply_to_bot:
+                    bot_telemetry.log_message(
+                        kind="member", **meta, question=text or message.content, decision=decision
+                    )
+
+            # (1) Ignore messages from bots / the bot itself (its event posts are logged).
+            if message.author.bot:
+                if in_chat and getattr(message, "id", None) not in self._reply_ids:
+                    own = bot_user is not None and message.author.id == bot_user.id
+                    bot_telemetry.log_message(
+                        kind="bot_post" if own else "other_bot", **meta, content=_post_text(message)
+                    )
                 return
             # (3) @everyone / @here is never addressed to the bot in particular.
             if message.mention_everyone:
+                skip("ignored:everyone")
                 return
-            if self.bot.user is None:
+            if bot_user is None:
                 return
 
             # (4) A bare ping (or an empty body) is not a question.
-            question = _strip_bot_mention(message.content, self.bot.user.id)
+            question = _strip_bot_mention(message.content, bot_user.id)
             if not question:
+                skip("ignored:empty")
                 return
             question = _name_member_mentions(question, message.mentions)
 
@@ -319,24 +380,30 @@ class MentionQaCog(commands.Cog):
             turn = self._memory.record(channel_id, speaker, question)
 
             # (6) Is this addressed to the bot?
-            mentioned = self.bot.user in message.mentions
-            if not (mentioned or _is_reply_to_bot(message, self.bot.user.id)):
+            addressed_by = "mention" if mentioned else "reply" if reply_to_bot else "room_gate"
+            if not (mentioned or reply_to_bot):
                 if message.mentions:
-                    return  # addressed to another member — the gate is never consulted
+                    # addressed to another member — the gate is never consulted
+                    skip("not_addressed:mentions_another_member", question)
+                    return
                 if not self._memory.spoke_recently(channel_id, now=time.time()):
-                    return  # cold channel — the gate is never consulted
+                    # cold channel — the gate is never consulted
+                    skip("not_addressed:bot_not_recently_active", question)
+                    return
                 addressed = await qa_room.is_addressed(
                     self._memory.transcript(channel_id), bot_name=self._bot_name()
                 )
                 # Logged both ways: a silent drop was undiagnosable from a transcript.
                 logger.info("mention_qa_gate_decision", channel_id=channel_id, addressed=addressed)
                 if not addressed:
+                    skip("not_addressed:room_gate_said_no", question)
                     return
 
             # (7) Per-user cooldown — only ever spent on a message we would answer.
             if self._is_rate_limited(message):
                 logger.info("mention_qa_cooldown_dropped", channel_id=channel_id)
                 self._memory.forget(channel_id, turn)
+                skip("cooldown", question)
                 return
 
             # (8) Show the "Pick'em Bot is typing…" indicator for the whole answer + send.
@@ -349,6 +416,12 @@ class MentionQaCog(commands.Cog):
             async with self._memory.answer_lock(channel_id), message.channel.typing():
                 history = self._memory.history(channel_id, exclude=turn)
                 answered = False
+                trace = bot_telemetry.start(
+                    question,
+                    conversation_key=str(channel_id),
+                    asker_name=speaker,
+                    message={**meta, "addressed_by": addressed_by},
+                )
                 line = await qa.answer_question(
                     question,
                     discord_id=message.author.id,
@@ -365,15 +438,22 @@ class MentionQaCog(commands.Cog):
                 # sends as multiple messages instead of 400-ing the gateway send.
                 try:
                     for chunk in _split_for_discord(decorated):
-                        await message.channel.send(
+                        sent = await message.channel.send(
                             chunk,
                             allowed_mentions=discord.AllowedMentions.none(),
                             suppress_embeds=True,
                         )
+                        sent_id = getattr(sent, "id", None)
+                        if sent_id is not None:
+                            self._reply_ids.append(sent_id)
                         answered = True
                 finally:
                     if not answered:
                         self._memory.forget(channel_id, turn)
+                    bot_telemetry.finish(
+                        trace, line, decision="answered" if answered else "send_failed"
+                    )
+                    trace = None
                 # (9) Stamp the bot's own reply — this is what opens the pre-filter so a
                 # bare follow-up in this channel can reach the gate at all.
                 self._memory.record_bot_reply(channel_id, self._bot_name(), line, now=time.time())
@@ -382,6 +462,8 @@ class MentionQaCog(commands.Cog):
             # per-message guard). answer_question and is_addressed are best-effort too,
             # but guard the send / decorate path here as well.
             logger.warning("mention_qa_on_message_failed", exc_info=True)
+            if trace is not None:
+                bot_telemetry.finish(trace, None, decision="error")
 
 
 async def setup(bot: commands.Bot) -> None:
