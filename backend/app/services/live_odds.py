@@ -129,3 +129,79 @@ async def fetch_live_odds(season: int, week: int, event_id: int) -> ScoreboardOd
     if payload is None:
         return None
     return select_live_odds_for_event(payload, event_id)
+
+
+# Issue #248: the core API's odds item carries each book's opening line next to its
+# current one (live 2026-09-24: GB opened -7.5, now -4.5). Its movement/history
+# endpoints return nothing, so open vs current is all the movement there is.
+CORE_ODDS_URL = (
+    "https://sports.core.api.espn.com/v2/sports/football/leagues/nfl"
+    "/events/{event_id}/competitions/{competition_id}/odds"
+)
+LINE_MOVEMENT_CACHE_TTL_SECONDS = 300
+
+
+def _american(block: Any, *path: str) -> str | None:
+    """The ``american`` string at ``block[path...]``, or ``None``.
+
+    A ``"current"`` path falls back to ``"close"``: a finished game carries only the close.
+    """
+    value = _american_at(block, path)
+    if value is None and path and path[0] == "current":
+        value = _american_at(block, ("close", *path[1:]))
+    return value
+
+
+def _american_at(block: Any, path: tuple[str, ...]) -> str | None:
+    for key in path:
+        block = block.get(key) if isinstance(block, dict) else None
+    value = block.get("american") if isinstance(block, dict) else None
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def parse_line_movement(payload: Any) -> dict | None:
+    """The first book's opening and current spread, total and moneyline, or ``None``.
+
+    Spreads and moneylines are from the HOME team's side. A value the book does not
+    carry is ``None``; ``None`` overall when no book carries an opening or current line.
+    """
+    items = payload.get("items") if isinstance(payload, dict) else None
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        home = item.get("homeTeamOdds")
+        away = item.get("awayTeamOdds")
+        line = {
+            "provider": (item.get("provider") or {}).get("name")
+            if isinstance(item.get("provider"), dict)
+            else None,
+            "home_spread_open": _american(home, "open", "pointSpread"),
+            "home_spread_now": _american(home, "current", "pointSpread"),
+            "total_open": _american(item, "open", "total"),
+            "total_now": _american(item, "current", "total"),
+            "home_moneyline_open": _american(home, "open", "moneyLine"),
+            "home_moneyline_now": _american(home, "current", "moneyLine"),
+            "away_moneyline_open": _american(away, "open", "moneyLine"),
+            "away_moneyline_now": _american(away, "current", "moneyLine"),
+        }
+        if any(v for k, v in line.items() if k != "provider"):
+            return line
+    return None
+
+
+async def fetch_line_movement(event_id: int, competition_id: int | None = None) -> dict | None:
+    """One game's opening and current line from ESPN's core odds, or ``None``.
+
+    Both ids are ints from our own DB (T-mpw-01); the contract is ``fetch_cached``'s.
+    """
+    if isinstance(event_id, bool) or not isinstance(event_id, int):
+        return None
+    competition = competition_id if isinstance(competition_id, int) else event_id
+    payload = await http_cache.fetch_cached(
+        CORE_ODDS_URL.format(event_id=event_id, competition_id=competition),
+        cache_key=f"qa:live_odds:core:{event_id}",
+        ttl_seconds=LINE_MOVEMENT_CACHE_TTL_SECONDS,
+        label="line_movement",
+        redis_client=_redis_client,
+    )
+    return parse_line_movement(payload) if payload is not None else None

@@ -1,0 +1,124 @@
+{
+ "count": 1,
+ "items": [
+  {
+   "provider": {
+    "id": "100",
+    "name": "DraftKings"
+   },
+   "details": "GB -4.5",
+   "spread": -4.5,
+   "overUnder": 42.5,
+   "open": {
+    "total": {
+     "alternateDisplayValue": "46.5",
+     "american": "46.5"
+    }
+   },
+   "current": {
+    "total": {
+     "alternateDisplayValue": "42.5",
+     "american": "42.5"
+    }
+   },
+   "homeTeamOdds": {
+    "favorite": true,
+    "underdog": false,
+    "open": {
+     "favorite": true,
+     "pointSpread": {
+      "alternateDisplayValue": "-7.5",
+      "american": "-7.5"
+     },
+     "spread": {
+      "value": 1.9,
+      "displayValue": "10/11",
+      "alternateDisplayValue": "-110",
+      "decimal": 1.9,
+      "fraction": "10/11",
+      "american": "-110"
+     },
+     "moneyLine": {
+      "value": 1.27,
+      "displayValue": "5/18",
+      "alternateDisplayValue": "-360",
+      "decimal": 1.27,
+      "fraction": "5/18",
+      "american": "-360"
+     }
+    },
+    "current": {
+     "pointSpread": {
+      "alternateDisplayValue": "-4.5",
+      "american": "-4.5"
+     },
+     "spread": {
+      "value": 1.86,
+      "displayValue": "20/23",
+      "alternateDisplayValue": "-115",
+      "decimal": 1.86,
+      "fraction": "20/23",
+      "american": "-115"
+     },
+     "moneyLine": {
+      "value": 1.4,
+      "displayValue": "20/49",
+      "alternateDisplayValue": "-245",
+      "decimal": 1.4,
+      "fraction": "20/49",
+      "american": "-245"
+     }
+    }
+   },
+   "awayTeamOdds": {
+    "favorite": false,
+    "underdog": true,
+    "open": {
+     "favorite": false,
+     "pointSpread": {
+      "alternateDisplayValue": "+7.5",
+      "american": "+7.5"
+     },
+     "spread": {
+      "value": 1.9,
+      "displayValue": "10/11",
+      "alternateDisplayValue": "-110",
+      "decimal": 1.9,
+      "fraction": "10/11",
+      "american": "-110"
+     },
+     "moneyLine": {
+      "value": 3.85,
+      "displayValue": "57/20",
+      "alternateDisplayValue": "+285",
+      "decimal": 3.85,
+      "fraction": "57/20",
+      "american": "+285"
+     }
+    },
+    "current": {
+     "pointSpread": {
+      "alternateDisplayValue": "+4.5",
+      "american": "+4.5"
+     },
+     "spread": {
+      "value": 1.95,
+      "displayValue": "20/21",
+      "alternateDisplayValue": "-105",
+      "decimal": 1.95,
+      "fraction": "20/21",
+      "american": "-105"
+     },
+     "moneyLine": {
+      "value": 3.0,
+      "displayValue": "2/1",
+      "alternateDisplayValue": "+200",
+      "decimal": 3.0,
+      "fraction": "2/1",
+      "american": "+200"
+     }
+    }
+   }
+  }
+ ]
+}
