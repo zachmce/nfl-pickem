@@ -28,6 +28,9 @@ No ``discord`` import (this module stays on the Discord-free side). Uses
 
 from __future__ import annotations
 
+import asyncio
+import weakref
+
 import httpx
 import structlog
 
@@ -165,6 +168,26 @@ def _translate_for_openai(body: dict) -> dict:
     return out
 
 
+# One pooled client per event loop and timeout: a client per call paid a new TCP + TLS
+# handshake on every model call, up to six per open answer on api.openai.com. Keyed by
+# the loop because a client is bound to the loop it first ran on, and by the
+# ``httpx.AsyncClient`` class so a test's patch of that class still takes effect.
+_CLIENTS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[tuple, httpx.AsyncClient]] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _shared_client(timeout: float) -> httpx.AsyncClient:
+    """The pooled client for the running loop and ``timeout``, created on first use."""
+    per_loop = _CLIENTS.setdefault(asyncio.get_running_loop(), {})
+    key = (timeout, httpx.AsyncClient)
+    client = per_loop.get(key)
+    if client is None or getattr(client, "is_closed", False):
+        client = httpx.AsyncClient(timeout=timeout)
+        per_loop[key] = client
+    return client
+
+
 async def _post_chat(
     body: dict,
     *,
@@ -207,11 +230,11 @@ async def _post_chat(
         wire_body = _translate_for_openai(wire_body)
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        client = _shared_client(timeout)
+        response = await client.post(url, json=wire_body, headers=headers)
+        if response.status_code >= 500:
+            logger.warning(f"{log_prefix}_retry", status_code=response.status_code)
             response = await client.post(url, json=wire_body, headers=headers)
-            if response.status_code >= 500:
-                logger.warning(f"{log_prefix}_retry", status_code=response.status_code)
-                response = await client.post(url, json=wire_body, headers=headers)
         if response.status_code != 200:
             logger.warning(f"{log_prefix}_non_200", status_code=response.status_code)
             return None

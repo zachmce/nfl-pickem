@@ -15,6 +15,7 @@ Contract invariants:
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import datetime
 
 from app.db import task_session
@@ -439,19 +440,33 @@ async def get_leaders_context_async() -> dict:
 # --------------------------------------------------------------------------- #
 
 
+# The team table is static, and every question read it; an empty set (an unseeded DB)
+# is never cached.
+_TEAM_TOKENS_TTL_SECONDS = 3600.0
+_team_tokens_cache: tuple[float, frozenset[str]] | None = None
+
+
 async def get_real_team_tokens_async() -> set[str]:
     """Async wrapper: the real 32-team token set for the Q&A validator.
 
     Abbreviations + display-name tokens (see
     :func:`app.services.notifications_read.get_real_team_tokens`). Returns an empty
-    set on an unseeded DB. Plain set out only; Discord-free.
+    set on an unseeded DB. Cached for :data:`_TEAM_TOKENS_TTL_SECONDS`. Plain set out
+    only; Discord-free.
     """
+    global _team_tokens_cache
+    now = time.monotonic()
+    if _team_tokens_cache is not None and now - _team_tokens_cache[0] < _TEAM_TOKENS_TTL_SECONDS:
+        return set(_team_tokens_cache[1])
 
     def _sync() -> set[str]:
         with task_session() as session:
             return get_real_team_tokens(session)
 
-    return await asyncio.to_thread(_sync)
+    tokens = await asyncio.to_thread(_sync)
+    if tokens:
+        _team_tokens_cache = (now, frozenset(tokens))
+    return tokens
 
 
 async def get_pick_status_async(discord_id: int) -> dict:

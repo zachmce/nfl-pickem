@@ -173,5 +173,26 @@ class VendorSettingTests(unittest.TestCase):
         self.assertIsNone(Settings.model_validate({"llm_api_open_model": "  "}).llm_api_open_model)
 
 
+class SharedClientTests(unittest.TestCase):
+    def test_one_client_serves_every_call_in_a_loop(self) -> None:
+        built: list[object] = []
+
+        class _CountingClient(_ScriptedClient):
+            def __init__(self, *args, **kwargs) -> None:
+                built.append(kwargs)
+
+        async def _two_calls() -> None:
+            await llm_client.phrase("fact", system_prompt="sys")
+            await llm_client.phrase("fact", system_prompt="sys")
+
+        _ScriptedClient.responses = [_OK]
+        _ScriptedClient.posted = []
+        with _configured(), mock.patch.object(httpx, "AsyncClient", _CountingClient):
+            _run(_two_calls())
+            _run(_two_calls())
+        self.assertEqual(len(_ScriptedClient.posted), 4)
+        self.assertEqual(len(built), 2)  # one per event loop, not one per call
+
+
 if __name__ == "__main__":
     unittest.main()

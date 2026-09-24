@@ -44,8 +44,15 @@ COG_MODULES = (
 )
 
 
+# Marks a member whose avatar the sweep has not stored yet (a stored hash may be None).
+_UNSEEN = object()
+
+
 class PickemBot(commands.Bot):
     """Discord bot client for the NFL pick'em platform."""
+
+    # Discord id -> the avatar hash last stored for that member.
+    _stored_avatars: dict[int, str | None]
 
     async def setup_hook(self) -> None:
         """Load cog extensions and guild-scope the slash-command tree.
@@ -53,6 +60,7 @@ class PickemBot(commands.Bot):
         Called exactly once after login, before event dispatch. Guild-scoped sync
         propagates instantly; bare global sync can take up to 1 hour.
         """
+        self._stored_avatars = {}
         guild = discord.Object(id=get_settings().discord_guild_id)
         for module in COG_MODULES:
             await self.load_extension(module)
@@ -138,7 +146,11 @@ class PickemBot(commands.Bot):
             swept = 0
             for member in guild.members:
                 avatar_hash = member.avatar.key if member.avatar else None
-                await db_bridge.upsert_avatar_hash_async(member.id, avatar_hash)
+                # An unchanged hash already stored needs no thread, session or commit.
+                if self._stored_avatars.get(member.id, _UNSEEN) == avatar_hash:
+                    continue
+                if await db_bridge.upsert_avatar_hash_async(member.id, avatar_hash):
+                    self._stored_avatars[member.id] = avatar_hash
                 swept += 1
             logger.info("avatar_sweep_complete", swept=swept)
         except Exception:
