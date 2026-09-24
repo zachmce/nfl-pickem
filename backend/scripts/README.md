@@ -156,6 +156,66 @@ cd backend
 
 ---
 
+## `bot_eval.py` — regression eval set for the @mention bot
+
+### What it is
+
+A committed set of member questions (`bot_eval_cases.json`). Each question goes
+through `qa.answer_question`, the full answer path: the classifier, then the grounded
+path or the open path with its tools. The eval uses the **live** model and the
+**local** DB, and checks each answer against its case (issue #248 item 13). Offline
+tests stub the model, so they cannot find a routing error or an invented fact. This
+eval can.
+
+> **Never start the bot to run this.** Only one Discord app exists. A local bot
+> process takes over the production replies. The eval calls the answer function
+> directly and needs only the database.
+
+### How to run it
+
+```bash
+cd backend
+docker compose up -d db                 # the DB only
+set -a && . ../.env && set +a           # the LLM server, model and key
+export POSTGRES_HOST=localhost REDIS_URL=redis://127.0.0.1:1/0
+uv run python -m scripts.bot_eval --samples 2
+```
+
+- The `REDIS_URL` value points at a closed port on purpose. Every cache read then
+  fails open at once, and no stale cache hides a change.
+- If `LLM_API_SERVER` or `LLM_API_MODEL` is not set, the runner stops with exit code 2.
+  Without these values every model call returns `None` with no error.
+- Options:
+  - `--only <id-prefix>` runs a subset of the cases, for example `--only routing.`.
+  - `--samples N` sets the number of samples for each case.
+  - `--min-pass 0.9` sets the pass rate below which the runner exits 1.
+  - `--concurrency 4` sets the number of samples that run at the same time.
+  - `--report <path>` sets where the JSON report goes. The default is `/tmp/bot_eval_report.json`.
+  - `--vendor-note` stores free text in the report.
+
+The runner prints one line for each case and one reason for each failed sample. Then it
+prints the pass rate for each group (the case id up to the first dot) and the token
+usage it read from the model responses.
+
+### A case
+
+| Key | Meaning |
+|---|---|
+| `id` | `group.name`. The group is the prefix. |
+| `question` | The member's message. `{current_week}`, `{last_week}`, `{later_week}` and `{open_week}` come from the local DB. A case whose placeholder has no value is skipped. |
+| `history` / `setup` | Earlier turns. The runner sends `setup` questions first, with the same conversation key, so the grounding replay is tested. |
+| `expect_intent`, `open_path` | The classifier intent (any of the list), and whether the answer went to the open path. |
+| `tools_any` / `tools_all` / `tools_none` / `no_tools` | The tools the answer must call, must all call, must not call, or none at all. |
+| `must_match` / `must_not_match` | Case-insensitive regexes on the answer text. Use only facts that stay the same: past seasons, career totals, awards. |
+| `allow_degrade` | Accept a "try again later" line (for example, the forecast for a game that already kicked off). |
+| `requires` | `SEARXNG_URL`: skip the case when that value is not set. |
+
+A sample fails on no answer, on a degrade line, or on any failed check. The local DB
+holds the 2025 demo season, and its weeks move with the demo anchor. For this reason,
+the text checks never use league data.
+
+---
+
 ## Production team seeder — `app.seeds.teams`
 
 > Not in `scripts/`. Documented here for discoverability; the seeder itself lives
