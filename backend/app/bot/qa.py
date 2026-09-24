@@ -2011,10 +2011,20 @@ async def answer_question(
     conversation_key: str | None = None,
     asker_name: str | None = None,
 ) -> str:
-    """Answer ``question`` (see :func:`_answer_question`) and record its telemetry trace."""
+    """Answer ``question`` (see :func:`_answer_question`) and record its telemetry trace.
+
+    When the chat cog already opened a trace for this message, the answer adds to it and
+    the cog finishes it after the send; otherwise this call owns the trace.
+    """
     from app.services import bot_telemetry
 
-    trace = bot_telemetry.start(question, conversation_key=conversation_key, asker_name=asker_name)
+    trace = bot_telemetry.current()
+    owned = trace is None
+    if trace is None:
+        trace = bot_telemetry.start(
+            question, conversation_key=conversation_key, asker_name=asker_name
+        )
+    bot_telemetry.note_history(len(history))
     answer = await _answer_question(
         question,
         discord_id=discord_id,
@@ -2026,7 +2036,8 @@ async def answer_question(
         bot_telemetry.note_fallback("open_degrade")
     elif answer == _ERROR_LINE:
         bot_telemetry.note_fallback("error")
-    bot_telemetry.finish(trace, answer)
+    if owned:
+        bot_telemetry.finish(trace, answer)
     return answer
 
 
@@ -2063,6 +2074,7 @@ async def _answer_question(
         from app.services import bot_telemetry
 
         raw = await classify_question(question, history=history, asker_name=asker_name)
+        bot_telemetry.note_classification(raw)
         known_team_tokens = await db_bridge.get_real_team_tokens_async()
         result = validate_classification(raw, known_team_tokens=known_team_tokens)
         bot_telemetry.note_intent(result.intent.value)

@@ -308,55 +308,80 @@ export function setBotPersonality(id: string): Promise<BotPersonality> {
 }
 
 // --------------------------------------------------------------------------- //
-// Bot answer telemetry (issue #248, item 15). Mirrors backend BotAnswerRead.
+// The bot's channel transcript (issues #248 item 15, #252). Mirrors backend
+// BotTranscriptEntry: every field but tools/rounds may be absent on an entry.
 // --------------------------------------------------------------------------- //
 
 export interface BotAnswerToolCall {
   name: string;
   args: Record<string, unknown>;
   outcome: string;
+  note?: string | null;
 }
 
-export interface BotAnswer {
+export interface BotTranscriptEntry {
   at: string | null;
-  conversation: string | null;
-  asker: string | null;
+  kind: string | null;
+  channel: string | null;
+  author: string | null;
+  addressed_by: string | null;
+  decision: string | null;
   question: string | null;
+  content: string | null;
   intent: string | null;
+  classifier: Record<string, unknown> | null;
   path: string | null;
   tools: BotAnswerToolCall[];
   rounds: number;
   fallback: string | null;
+  history_turns: number | null;
   latency_ms: number | null;
   vendor: string | null;
   model: string | null;
   answer: string | null;
 }
 
-/** `available` is false when the server cannot reach the answer store. */
-export interface BotAnswerList {
+/** `available` is false when the server cannot reach the transcript store. */
+export interface BotTranscript {
   available: boolean;
-  answers: BotAnswer[];
+  entries: BotTranscriptEntry[];
 }
 
-/** The newest stored bot answers first (admin only). */
-export function listBotAnswers(): Promise<BotAnswerList> {
-  return api<BotAnswerList>("/api/admin/bot-answers");
+/** The newest transcript entries first (admin only). */
+export function listBotTranscript(limit = 500): Promise<BotTranscript> {
+  return api<BotTranscript>(`/api/admin/bot-transcript?limit=${limit}`);
 }
 
+/** The export URL for a window; a blank bound is open-ended. Local input -> UTC ISO. */
+export function transcriptExportUrl(since: string, until: string): string {
+  const params = new URLSearchParams();
+  if (since) params.set("since", new Date(since).toISOString());
+  if (until) params.set("until", new Date(until).toISOString());
+  const query = params.toString();
+  return `/api/admin/bot-transcript/export${query ? `?${query}` : ""}`;
+}
+
+export type EntryView = "all" | "answered" | "skipped" | "posts";
 export type FallbackFilter = "all" | "fallback" | "clean";
 
-/** Filter answers client-side; an empty tool or intent matches every answer. */
-export function filterAnswers(
-  answers: BotAnswer[],
+function viewOf(e: BotTranscriptEntry): EntryView {
+  if (e.kind === "bot_post" || e.kind === "other_bot") return "posts";
+  return e.decision === "answered" ? "answered" : "skipped";
+}
+
+/** Filter entries client-side; an empty tool or intent matches every entry. */
+export function filterEntries(
+  entries: BotTranscriptEntry[],
+  view: EntryView,
   tool: string,
   intent: string,
   fallback: FallbackFilter,
-): BotAnswer[] {
-  return answers.filter(
-    (a) =>
-      (tool === "" || a.tools.some((t) => t.name === tool)) &&
-      (intent === "" || a.intent === intent) &&
-      (fallback === "all" || (fallback === "fallback") === (a.fallback !== null)),
+): BotTranscriptEntry[] {
+  return entries.filter(
+    (e) =>
+      (view === "all" || viewOf(e) === view) &&
+      (tool === "" || e.tools.some((t) => t.name === tool)) &&
+      (intent === "" || e.intent === intent) &&
+      (fallback === "all" || (fallback === "fallback") === !!e.fallback),
   );
 }

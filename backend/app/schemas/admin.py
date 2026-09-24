@@ -136,7 +136,7 @@ class SetBotPersonalityRequest(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
-# Bot answer telemetry (issue #248, item 15)
+# The bot's channel transcript (issue #248 item 15, issue #252)
 # --------------------------------------------------------------------------- #
 
 
@@ -144,28 +144,38 @@ class BotAnswerToolCall(BaseModel):
     name: str
     args: dict[str, Any] = {}
     outcome: str = "ok"
+    note: str | None = None
 
 
-class BotAnswerRead(BaseModel):
-    """One stored bot answer. Fields are optional: old records may lack new keys."""
+class BotTranscriptEntry(BaseModel):
+    """One stored channel entry. Every field is optional: an entry has only its own kind's."""
 
     at: str | None = None
-    conversation: str | None = None
-    asker: str | None = None
+    kind: str | None = None
+    channel: str | None = None
+    message_id: str | None = None
+    author: str | None = None
+    mentioned: bool | None = None
+    reply_to_bot: bool | None = None
+    addressed_by: str | None = None
+    decision: str | None = None
     question: str | None = None
+    content: str | None = None
     intent: str | None = None
+    classifier: dict[str, Any] | None = None
     path: str | None = None
     tools: list[BotAnswerToolCall] = []
     rounds: int = 0
     fallback: str | None = None
+    history_turns: int | None = None
     latency_ms: int | None = None
     vendor: str | None = None
     model: str | None = None
     answer: str | None = None
 
 
-class BotAnswerListResponse(BaseModel):
-    """The newest stored answers first. ``available`` is false when Redis is down."""
+class BotTranscriptResponse(BaseModel):
+    """The newest entries first. ``available`` is false when Redis is down."""
 
     available: bool
-    answers: list[BotAnswerRead]
+    entries: list[BotTranscriptEntry]

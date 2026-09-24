@@ -767,3 +767,67 @@ class LongAnswerChunkingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ChannelTranscriptTests(unittest.TestCase):
+    """Issue #252: every chat-channel message becomes one transcript entry."""
+
+    def setUp(self) -> None:
+        from app.services import bot_telemetry
+
+        self.stored: list[dict] = []
+        patchers = [
+            mock.patch.object(bot_telemetry, "_store", self.stored.append),
+            mock.patch.object(mention_qa.settings, "discord_chat_channel", "77"),
+        ]
+        for patcher in patchers:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_an_answer_is_one_entry_with_its_message_and_decision(self) -> None:
+        cog = _cog()
+        patcher, _ = _answer_returns("KC 27, LAC 20")
+        with patcher:
+            _deliver(cog, _make_message(content="<@999> score?", author_name="Ada"))
+        (entry,) = self.stored
+        self.assertEqual(entry["decision"], "answered")
+        self.assertEqual(entry["addressed_by"], "mention")
+        self.assertEqual((entry["author"], entry["question"]), ("Ada", "score?"))
+        self.assertEqual(entry["answer"], "KC 27, LAC 20")
+
+    def test_chat_channel_chatter_is_logged_with_why_it_was_skipped(self) -> None:
+        cog = _cog()
+        patcher, calls = _answer_returns("x")
+        with patcher:
+            _deliver(cog, _make_message(content="anyone watching?", mentions_bot=False))
+        self.assertEqual(calls, [])
+        (entry,) = self.stored
+        self.assertEqual(entry["decision"], "not_addressed:bot_not_recently_active")
+        self.assertEqual(entry["question"], "anyone watching?")
+
+    def test_chatter_in_another_channel_is_never_stored(self) -> None:
+        cog = _cog()
+        patcher, _ = _answer_returns("x")
+        with patcher:
+            _deliver(cog, _make_message(content="private talk", mentions_bot=False, channel_id=5))
+        self.assertEqual(self.stored, [])
+
+    def test_a_bot_event_post_is_logged_but_its_own_reply_is_not_twice(self) -> None:
+        cog = _cog()
+        post = _make_message(content="Week 3 is locked.", author_bot=True, author_id=999)
+        post.id = 501
+        _deliver(cog, post)
+        cog._reply_ids.append(502)
+        echo = _make_message(content="KC 27", author_bot=True, author_id=999)
+        echo.id = 502
+        _deliver(cog, echo)
+        (entry,) = self.stored
+        self.assertEqual((entry["kind"], entry["content"]), ("bot_post", "Week 3 is locked."))
+
+    def test_a_cooldown_drop_is_logged(self) -> None:
+        cog = _cog()
+        patcher, _ = _answer_returns("ok")
+        with patcher:
+            _deliver(cog, _make_message(content="<@999> one"))
+            _deliver(cog, _make_message(content="<@999> two"))
+        self.assertEqual([e["decision"] for e in self.stored], ["answered", "cooldown"])
