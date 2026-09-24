@@ -5721,8 +5721,9 @@ async def _run_tool_loop(
     — the model stops calling tools, the round cap, or the budget — exactly ONE final
     ``open_chat`` call is made with ``tools=None``, and THAT text is the answer.
 
-    The text a tools-attached round writes over a tool result — a new one or a replayed
-    one — is discarded on purpose (issue #220). Measured 2026-09-15 on the served Qwen
+    On the local vendor the text a tools-attached round writes over a tool result — a
+    new one or a replayed one — is discarded on purpose (issue #220); on the openai
+    vendor that text is the answer and no close is made. Measured 2026-09-15 on the served Qwen
     with the thirteen shipped specs attached: every such reply was the whole answer
     written twice, separated by blank lines, 6/6 at the shipped sampling knobs; with the
     specs withheld the same conversation answered once, 5/5, in one to two seconds.
@@ -5752,6 +5753,10 @@ async def _run_tool_loop(
         if not isinstance(tool_calls, list) or not tool_calls:
             if not _has_tool_turn(working) and not _carries_a_tool_call(message):
                 return _message_content(message), []  # answered from memory — done
+            # The doubling below is the served Qwen's; terra wrote the round text once in
+            # 30/30 (2026-09-24), so the close would only cost a call and ~2 s.
+            if settings.llm_api_vendor == "openai" and not _not_an_answer(message):
+                return _message_content(message), working[len(messages) :]
             break  # the model is done with tools; the tools-free close answers
         working.append(_replayable(message))
         working.extend(

@@ -3709,6 +3709,45 @@ class ToolLoopTests(_OpenPathTestCase):
         self.assertEqual(close[-1]["role"], "tool")
         self.assertFalse(any(m.get("content") == doubled for m in close))
 
+    def test_on_openai_the_round_text_is_the_answer_and_no_close_is_made(self) -> None:
+        # Measured 2026-09-24: terra wrote the round text once in 30/30, so the close
+        # only cost a call. The tool turns still come back for the grounding replay.
+        tool, _ = _fake_tool()
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_starter", '{"team": "CHI"}'),
+            _text("Caleb Williams starts at QB for the Bears."),
+        )
+        with (
+            mock.patch.object(qa_open.settings, "llm_api_vendor", "openai"),
+            mock.patch.object(qa_open, "TOOLS", (tool,)),
+            patcher,
+        ):
+            text, turns = _run(
+                qa_open._run_tool_loop(
+                    [{"role": "user", "content": "who starts?"}], system_prompt="s"
+                )
+            )
+        self.assertEqual(text, "Caleb Williams starts at QB for the Bears.")
+        self.assertEqual(len(calls), 2)
+        self.assertEqual([t.get("role") for t in turns], ["assistant", "tool"])
+
+    def test_on_openai_an_empty_round_still_goes_to_the_close(self) -> None:
+        tool, _ = _fake_tool()
+        patcher, calls = _open_chat_returns(
+            _tool_call_message("lookup_starter", '{"team": "CHI"}'),
+            {"role": "assistant", "content": None},
+            _text("Caleb Williams starts at QB for the Bears."),
+        )
+        with (
+            mock.patch.object(qa_open.settings, "llm_api_vendor", "openai"),
+            mock.patch.object(qa_open, "TOOLS", (tool,)),
+            patcher,
+        ):
+            out = _run(qa_open.answer_open("who starts at QB for the Bears?", voice=_VOICE))
+        self.assertEqual(out, "Caleb Williams starts at QB for the Bears.")
+        self.assertEqual(len(calls), 3)
+        self.assertIsNone(calls[2]["tools"])
+
     def test_a_first_round_text_answer_still_returns_at_once(self) -> None:
         # No tool result in the conversation, no doubling measured: one call, no close.
         tool, tool_calls = _fake_tool()
