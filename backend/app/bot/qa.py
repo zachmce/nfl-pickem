@@ -816,7 +816,8 @@ _PREDICTION_FROZEN_FALLBACK_NOTE = "Working off the line we've got locked here â
 _PREDICTION_CONFLICT_THRESHOLD = Decimal("1.0")
 
 # Subject hints that a lines question is about a SINGLE game (so a missing team is a
-# stateless soft-decline, not a whole-slate dump).
+# stateless soft-decline, not a whole-slate dump). Matched as whole singular words:
+# as substrings "the lines this week" read as one game and the slate was declined.
 _SINGLE_GAME_HINTS = (
     "spread",
     "line",
@@ -826,16 +827,15 @@ _SINGLE_GAME_HINTS = (
     "favorite",
     "underdog",
     "moneyline",
-    "odds",
 )
+_SINGLE_GAME_RE = re.compile(r"\b(?:" + "|".join(_SINGLE_GAME_HINTS) + r")\b")
 
 
 def _wants_single_game(subject: str | None) -> bool:
     """Whether a teamless lines question implies ONE game (-> soft-decline)."""
     if not subject:
         return False
-    low = subject.lower()
-    return any(hint in low for hint in _SINGLE_GAME_HINTS)
+    return _SINGLE_GAME_RE.search(subject.lower()) is not None
 
 
 @dataclass(frozen=True)
