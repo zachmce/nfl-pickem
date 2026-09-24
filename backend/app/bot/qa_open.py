@@ -2080,7 +2080,11 @@ _TEAM_RECORD_TOOL_DESCRIPTION = (
 
 
 async def _lookup_player_game_log(
-    player: str = "", team: str = "", season: int | None = None, week: int | None = None
+    player: str = "",
+    team: str = "",
+    season: int | None = None,
+    week: int | None = None,
+    season_type: str | None = None,
 ) -> object | None:
     """Look up what ONE NFL player did in ONE game, or in his most recent games.
 
@@ -2106,7 +2110,12 @@ async def _lookup_player_game_log(
     asked_season = season if isinstance(season, int) and not isinstance(season, bool) else None
     asked_week = week if isinstance(week, int) and not isinstance(week, bool) else None
     payload = await espn_extra.fetch_athlete_gamelog(athlete_id, season=asked_season)
-    facts = espn_extra.parse_athlete_gamelog(payload, week=asked_week) if payload else None
+    postseason = _SEASON_TYPES.get(season_type) if isinstance(season_type, str) else None
+    facts = (
+        espn_extra.parse_athlete_gamelog(payload, week=asked_week, postseason=postseason)
+        if payload
+        else None
+    )
     if facts is None:
         return {**identity, "note": _NO_GAME_LOG_NOTE.format(player=name)}
 
@@ -2116,6 +2125,8 @@ async def _lookup_player_game_log(
             note = _NO_GAME_THAT_WEEK_FOR_PLAYER_NOTE.format(
                 player=name, week=asked_week, season=_season_phrase(year)
             )
+        elif postseason:
+            note = _NO_PLAYOFF_GAMES_NOTE.format(player=name, season=_season_phrase(year))
         else:
             note = _NO_GAMES_LOGGED_NOTE.format(player=name, season=_season_phrase(year))
         return {**identity, "note": note}
@@ -2141,6 +2152,14 @@ async def _lookup_player_game_log(
         "game_log_statement": statement,
         "caveat": espn_extra.GAME_LOG_CAVEAT,
     }
+
+
+_SEASON_TYPES = {"regular": False, "postseason": True}
+_NO_PLAYOFF_GAMES_NOTE = (
+    "ESPN's game log lists no playoff games for {player} in {season}, so he played no "
+    "playoff game that season. Tell the member that plainly, and never give a figure "
+    "from your own memory instead."
+)
 
 
 def _season_phrase(season: object) -> str:
@@ -2206,12 +2225,12 @@ _GAME_LOG_TOOL_DESCRIPTION = (
     "Look up what one NFL player did in ONE single game. Call this tool every time the "
     "member asks what a player did in one game, in a given week, last week or lately, "
     "because your own memory of any single game is often a year or more out of date. The "
-    "player argument is the player's name exactly as the member wrote it. Pass the team "
-    "argument only when the member's own question names a team, and then it is that "
-    "team's standard abbreviation such as LAR. Pass the week argument ONLY when the "
-    "member named a week number, and pass the season argument ONLY when he named a "
-    "specific year; leave both out for last week, lately or this "
+    "player argument is the player's name as the member wrote it. Pass the team "
+    "argument, as an abbreviation such as LAR, only when the question names a team. "
+    "Pass week or season ONLY when the member "
+    "named that week number or year; leave both out for last week, lately or this "
     "season, because this tool knows which season is the most recent one and you do not. "
+    "Pass season_type postseason for playoff games. "
     "With no week it reports his most recent games and not his whole season. Every "
     "figure it returns belongs to the ONE game it is listed under, so never report one "
     "of them as a season total. It carries no score, so never say "
@@ -4142,6 +4161,324 @@ _GAME_OUTLOOK_TOOL_DESCRIPTION = (
 
 
 # --------------------------------------------------------------------------- #
+# Issue #248: general football knowledge from ESPN — careers, awards, FPI, QBR and
+# roster moves. Each one replaces an answer the model used to give from memory.
+# --------------------------------------------------------------------------- #
+
+
+async def _lookup_player_career(player: str = "", season_type: str | None = None) -> object | None:
+    """One player's whole career from ESPN: every season, career totals, awards and bio."""
+    from app.services import espn_extra
+
+    asked_for = player.strip() if isinstance(player, str) else ""
+    if not asked_for:
+        return {"note": _NO_PLAYER_FOR_CAREER_NOTE}
+    resolved = await _resolve_player(asked_for, "")
+    if not resolved:
+        return {"note": _PLAYER_LOOKUP_FAILED_NOTE.format(player=asked_for)}
+    if "athlete_id" not in resolved:
+        return resolved
+    athlete_id, identity, _on_roster = _resolved_parts(resolved)
+    name = str(identity["player"])
+    postseason = season_type == "postseason"
+
+    stats_payload, bio_payload, overview_payload = await asyncio.gather(
+        espn_extra.fetch_athlete_career_stats(athlete_id, postseason=postseason),
+        espn_extra.fetch_athlete_bio(athlete_id),
+        espn_extra.fetch_athlete_overview(athlete_id),
+    )
+    career = espn_extra.parse_athlete_career(stats_payload) if stats_payload else None
+    if career is None:
+        return {**identity, "note": _CAREER_FAILED_NOTE.format(player=name)}
+    kind = "playoff" if postseason else "regular-season"
+    result: dict[str, object] = {**identity}
+    bio = espn_extra.parse_athlete_bio(bio_payload) if bio_payload else None
+    if bio is not None:
+        result["bio"] = {key: value for key, value in bio.items() if value is not None}
+    awards = espn_extra.parse_athlete_awards(overview_payload) if overview_payload else None
+    if awards is not None:
+        result["awards"] = awards
+        if not awards:
+            result["awards_statement"] = _NO_AWARDS_STATEMENT.format(player=name)
+    if not career["categories"]:
+        result["note"] = _NO_CAREER_STATS_NOTE.format(player=name, kind=kind)
+        return result
+    result["career"] = career["categories"]
+    result["career_statement"] = _CAREER_STATEMENT.format(player=name, kind=kind)
+    result["caveat"] = espn_extra.CAREER_CAVEAT
+    return result
+
+
+_NO_PLAYER_FOR_CAREER_NOTE = (
+    "No player was given, so this tool looked nothing up. Call it again with the player's "
+    "name as the member wrote it."
+)
+_CAREER_FAILED_NOTE = (
+    "{player}'s career record could not be read from ESPN just now. Tell the member plainly "
+    "that you could not look it up, and never give a career figure from your own memory."
+)
+_NO_CAREER_STATS_NOTE = (
+    "ESPN lists no {kind} statistics for {player}. Tell the member that plainly, and never "
+    "give a figure from your own memory instead."
+)
+_NO_AWARDS_STATEMENT = "ESPN's record lists no major NFL awards for {player}."
+_CAREER_STATEMENT = (
+    "These are {player}'s {kind} statistics from ESPN: one row per season with the team he "
+    "played for, and the career totals for each category. The columns map explains each "
+    "short label."
+)
+_CAREER_TOOL_DESCRIPTION = (
+    "Look up one NFL player's whole career, current or retired: every season's statistics "
+    "with his team, the career totals, his major awards (MVP, Super Bowl MVP and others) "
+    "and his bio (draft slot, college, age, years in the league). Call this tool every "
+    "time the member asks for career numbers, a career total, how many times a player won "
+    "an award, where he was drafted or how his seasons compare. The player argument is "
+    "the name as the member wrote it. Pass season_type postseason for playoff career "
+    "numbers. For one season only, lookup_player_season_stats is the tool."
+)
+
+
+async def _lookup_season_awards(season: int | None = None, award: str = "") -> object | None:
+    """The winners of the NFL's major awards for one season, from ESPN."""
+    from app.services import espn_extra
+
+    if isinstance(season, bool) or not isinstance(season, int):
+        return {"note": _NO_AWARD_SEASON_NOTE}
+    if isinstance(award, str) and award.strip():
+        award_id = espn_extra.season_award_id(award)
+        if award_id is None:
+            names = ", ".join(espn_extra.SEASON_AWARDS)
+            return {"note": _UNKNOWN_AWARD_NOTE.format(award=award.strip(), names=names)}
+        award_ids = [award_id]
+    else:
+        award_ids = list(espn_extra.SEASON_AWARDS.values())
+
+    payloads = await asyncio.gather(
+        *(espn_extra.fetch_season_award(season, one) for one in award_ids)
+    )
+    parsed = [espn_extra.parse_season_award(p) for p in payloads if p is not None]
+    awards = [a for a in parsed if a is not None and a["award"]]
+    if not awards:
+        return {"note": _AWARDS_FAILED_NOTE.format(season=season)}
+
+    athlete_ids = sorted({w["athlete_id"] for a in awards for w in a["winners"] if w["athlete_id"]})
+    people = await asyncio.gather(
+        *(espn_extra.fetch_season_athlete(season, one) for one in athlete_ids)
+    )
+    names_by_id = {
+        one: espn_extra.parse_season_athlete(p) for one, p in zip(athlete_ids, people) if p
+    }
+    rows: list[dict[str, object]] = []
+    for one in awards:
+        winners: list[dict[str, object]] = []
+        for w in one["winners"]:
+            person = names_by_id.get(w["athlete_id"]) if w["athlete_id"] else None
+            winners.append(
+                {
+                    "winner": person["name"] if person else None,
+                    "position": person["position"] if person else None,
+                    "team": w["team"],
+                }
+            )
+        rows.append({"award": one["award"], "winners": winners})
+    return {
+        "season": season,
+        "awards": rows,
+        "awards_statement": _AWARDS_STATEMENT.format(season=season),
+        "caveat": espn_extra.AWARDS_CAVEAT,
+    }
+
+
+_NO_AWARD_SEASON_NOTE = (
+    "No season was given, so this tool looked nothing up. Call it again with the season "
+    "year the award honors, such as 2012."
+)
+_UNKNOWN_AWARD_NOTE = (
+    "{award} is not an award this tool knows. Call it again with one of these names, or "
+    "with no award for all of them: {names}."
+)
+_AWARDS_FAILED_NOTE = (
+    "ESPN's awards record for the {season} season could not be read or has no entry. Tell "
+    "the member plainly that you could not look it up, and never name a winner from your "
+    "own memory instead."
+)
+_AWARDS_STATEMENT = (
+    "These are the award winners ESPN lists for the {season} NFL season. A winner with no "
+    "name has only a team in ESPN's record, so give the team and say the record names no "
+    "player."
+)
+_AWARDS_TOOL_DESCRIPTION = (
+    "Look up who won the NFL's major awards in one season: MVP, Super Bowl MVP, offensive "
+    "and defensive player and rookie of the year, coach of the year, comeback player and "
+    "Walter Payton Man of the Year. Call this tool every time the member asks who won an "
+    "award in a year, and never name a winner from memory. The season argument is the "
+    "season the award honors, so the Super Bowl played in February 2013 is season 2012. "
+    "Pass award for one award, or leave it out for all of them. For every award one "
+    "player has won, lookup_player_career is the tool."
+)
+
+
+async def _lookup_team_outlook(team: str = "") -> object | None:
+    """ESPN's FPI projection for one club, or the top clubs by FPI."""
+    from app.services import espn_extra
+
+    team_abbr = team.strip().upper() if isinstance(team, str) and team.strip() else None
+    payload = await espn_extra.fetch_power_index()
+    facts = espn_extra.parse_power_index(payload, team_abbr) if payload is not None else None
+    if facts is None:
+        return {"note": _OUTLOOK_FAILED_NOTE}
+    if not facts["teams"]:
+        return {"note": _UNKNOWN_OUTLOOK_TEAM_NOTE.format(team=team_abbr)}
+    season = facts["season"] or "current"
+    statement = (
+        _OUTLOOK_TEAM_STATEMENT.format(team=facts["teams"][0]["team"], season=season)
+        if team_abbr
+        else _OUTLOOK_TOP_STATEMENT.format(count=len(facts["teams"]), season=season)
+    )
+    return {
+        "season": facts["season"],
+        "teams": facts["teams"],
+        "outlook_statement": statement,
+        "caveat": espn_extra.POWER_INDEX_CAVEAT,
+    }
+
+
+_OUTLOOK_FAILED_NOTE = (
+    "ESPN's Football Power Index could not be read just now. Tell the member plainly that "
+    "you could not look it up, and never give a projection or a percentage from memory."
+)
+_UNKNOWN_OUTLOOK_TEAM_NOTE = (
+    "{team} is not in ESPN's Football Power Index. Call the tool again with a standard "
+    "team abbreviation such as BUF."
+)
+_OUTLOOK_TEAM_STATEMENT = (
+    "This is ESPN's Football Power Index for the {team} in the {season} season: the FPI "
+    "value and rank, the record so far, ESPN's projected final record, and its percentage "
+    "chance of each playoff outcome."
+)
+_OUTLOOK_TOP_STATEMENT = (
+    "These are the top {count} clubs in ESPN's Football Power Index for the {season} "
+    "season, best first, with ESPN's projected record and playoff chances for each."
+)
+_TEAM_OUTLOOK_TOOL_DESCRIPTION = (
+    "Look up ESPN's Football Power Index (FPI) for this season: a team's FPI rating and "
+    "rank, projected final record, and ESPN's percentage chance to make the playoffs, win "
+    "the division, reach and win the Super Bowl. Call this tool when the member asks for "
+    "a team's playoff chances or odds, its projected wins, where it ranks, or who the best "
+    "teams are. Pass the team as a standard abbreviation such as BUF; leave it out for the "
+    "top teams. These are ESPN's projections, never yours. For a team's actual record, "
+    "lookup_team_record is the tool."
+)
+
+
+async def _lookup_qbr(
+    season: int | None = None, week: int | None = None, player: str = ""
+) -> object | None:
+    """ESPN Total QBR for a season or one week, ranked or for one quarterback."""
+    from app.services import espn_extra
+
+    asked_season = season if isinstance(season, int) and not isinstance(season, bool) else None
+    if asked_season is None:
+        asked_season = espn_extra.league_season_year(await espn_extra.fetch_league())
+        if asked_season is None:
+            return {"note": _QBR_FAILED_NOTE.format(season="this")}
+    if asked_season < espn_extra.QBR_SEASON_MIN:
+        return {"note": _QBR_TOO_EARLY_NOTE.format(season=asked_season)}
+    asked_week = week if isinstance(week, int) and not isinstance(week, bool) else None
+    payload = await espn_extra.fetch_qbr(asked_season, asked_week)
+    facts = espn_extra.parse_qbr(payload, player) if payload is not None else None
+    if facts is None:
+        return {"note": _QBR_FAILED_NOTE.format(season=asked_season)}
+    scope = f"week {asked_week} of the {asked_season}" if asked_week else f"the {asked_season}"
+    if not facts["quarterbacks"]:
+        who = player.strip() if isinstance(player, str) and player.strip() else None
+        note = _QBR_NO_PLAYER_NOTE if who else _QBR_EMPTY_NOTE
+        return {"note": note.format(player=who, scope=scope)}
+    return {
+        "season": asked_season,
+        "week": asked_week,
+        "quarterbacks": facts["quarterbacks"],
+        "qbr_statement": _QBR_STATEMENT.format(scope=scope, count=facts["total"]),
+        "caveat": espn_extra.QBR_CAVEAT,
+    }
+
+
+_QBR_FAILED_NOTE = (
+    "ESPN's QBR table for the {season} season could not be read just now. Tell the member "
+    "plainly that you could not look it up, and never give a rating from memory."
+)
+_QBR_TOO_EARLY_NOTE = (
+    "ESPN's Total QBR starts with the 2006 season, so there is no QBR for {season}. Tell "
+    "the member that plainly."
+)
+_QBR_NO_PLAYER_NOTE = (
+    "{player} is not among the qualified quarterbacks in ESPN's QBR table for {scope} "
+    "season. Tell the member that plainly; he may not have enough plays to qualify."
+)
+_QBR_EMPTY_NOTE = (
+    "ESPN's QBR table for {scope} season lists no qualified quarterbacks yet. Tell the "
+    "member that plainly."
+)
+_QBR_STATEMENT = (
+    "This is ESPN's Total QBR table for {scope} season, {count} qualified quarterbacks, "
+    "ranked by Total QBR."
+)
+_QBR_TOOL_DESCRIPTION = (
+    "Look up ESPN's Total QBR quarterback ratings for a season since 2006, or for one "
+    "week, ranked best first. Call this tool when the member asks about QBR, the best or "
+    "worst quarterback by QBR, or a quarterback's QBR. Leave season out for this season. "
+    "Pass week only when the member names a week, and player to find one quarterback. "
+    "QBR is not the passer rating; for passer rating or passing yards, "
+    "lookup_player_season_stats or lookup_league_leaders is the tool."
+)
+
+
+async def _lookup_transactions(team: str = "", season: int | None = None) -> object | None:
+    """ESPN's most recent roster moves, league-wide or for one club."""
+    from app.services import espn_extra
+
+    team_abbr = team.strip().upper() if isinstance(team, str) and team.strip() else None
+    if team_abbr is not None and team_abbr not in espn_extra.NFL_TEAM_ABBRS:
+        return {"note": _UNKNOWN_TRANSACTIONS_TEAM_NOTE.format(team=team_abbr)}
+    asked_season = season if isinstance(season, int) and not isinstance(season, bool) else None
+    payload = await espn_extra.fetch_transactions(team_abbr, asked_season)
+    moves = espn_extra.parse_transactions(payload, team_abbr) if payload is not None else None
+    if moves is None:
+        return {"note": _TRANSACTIONS_FAILED_NOTE}
+    who = f"the {team_abbr}" if team_abbr else "all NFL clubs"
+    if not moves:
+        return {"note": _NO_TRANSACTIONS_NOTE.format(who=who)}
+    return {
+        "team": team_abbr,
+        "moves": moves,
+        "transactions_statement": _TRANSACTIONS_STATEMENT.format(count=len(moves), who=who),
+        "caveat": espn_extra.TRANSACTIONS_CAVEAT,
+    }
+
+
+_UNKNOWN_TRANSACTIONS_TEAM_NOTE = (
+    "{team} is not an NFL team abbreviation, so nothing was looked up. Call the tool again "
+    "with a standard abbreviation such as NYJ."
+)
+_TRANSACTIONS_FAILED_NOTE = (
+    "ESPN's list of roster moves could not be read just now. Tell the member plainly that "
+    "you could not look it up, and never name a signing or a release from memory."
+)
+_NO_TRANSACTIONS_NOTE = (
+    "ESPN lists no roster moves for {who} in that period. Tell the member that plainly."
+)
+_TRANSACTIONS_STATEMENT = "These are the {count} most recent roster moves ESPN lists for {who}."
+_TRANSACTIONS_TOOL_DESCRIPTION = (
+    "Look up the most recent NFL roster moves from ESPN: signings, releases, trades, "
+    "waiver claims and injured-reserve moves, each with its date. Call this tool when the "
+    "member asks who a team signed, cut, traded for or put on injured reserve, or what "
+    "moves a team made lately. Pass the team as a standard abbreviation such as NYJ, or "
+    "leave it out for the whole league. Pass season only for moves in a past season. For "
+    "a player's injury status this week, lookup_injury_report is the tool."
+)
+
+
+# --------------------------------------------------------------------------- #
 # WEB SEARCH (issue #234): the operator's own SearXNG instance, registered only when
 # SEARXNG_URL is set. Live 2026-09-20 a member asked which channel number shows the
 # game in Augusta and no tool could look it up.
@@ -4273,6 +4610,13 @@ def _leader_category_enum() -> list[str]:
     from app.services import espn_extra
 
     return list(espn_extra.LEADER_SORTS)
+
+
+def _season_award_enum() -> list[str]:
+    """The award names the seam accepts, DERIVED so the two cannot drift apart."""
+    from app.services import espn_extra
+
+    return list(espn_extra.SEASON_AWARDS)
 
 
 _BASE_TOOLS: tuple[_Tool, ...] = (
@@ -4518,21 +4862,17 @@ _BASE_TOOLS: tuple[_Tool, ...] = (
                         },
                         "team": {
                             "type": "string",
-                            "description": (
-                                "Optional team abbreviation, and ONLY when the member's "
-                                "own question names a team."
-                            ),
+                            "description": "Team abbreviation, ONLY when the question names one.",
                         },
                         "season": {
                             "type": "integer",
-                            "description": (
-                                "The four-digit year, and ONLY when the member named one."
-                            ),
+                            "description": "Four-digit year, ONLY when the member named one.",
                         },
                         "week": {
                             "type": "integer",
-                            "description": ("The week number, and ONLY when the member named one."),
+                            "description": "Week number, ONLY when the member named one.",
                         },
+                        "season_type": {"type": "string", "enum": ["regular", "postseason"]},
                     },
                     "required": ["player"],
                 },
@@ -5006,6 +5346,125 @@ _BASE_TOOLS: tuple[_Tool, ...] = (
             },
         },
         run=_lookup_game_outlook,
+        volatile=True,
+    ),
+    _Tool(
+        name="lookup_player_career",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_player_career",
+                "description": _CAREER_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "player": {
+                            "type": "string",
+                            "description": "The player's name as the member wrote it.",
+                        },
+                        "season_type": {
+                            "type": "string",
+                            "enum": ["regular", "postseason"],
+                            "description": "postseason for playoff career numbers.",
+                        },
+                    },
+                    "required": ["player"],
+                },
+            },
+        },
+        run=_lookup_player_career,
+    ),
+    _Tool(
+        name="lookup_season_awards",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_season_awards",
+                "description": _AWARDS_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "season": {
+                            "type": "integer",
+                            "description": "The season the award honors, such as 2012.",
+                        },
+                        "award": {
+                            "type": "string",
+                            "enum": _season_award_enum(),
+                            "description": "Optional; leave it out for every award.",
+                        },
+                    },
+                    "required": ["season"],
+                },
+            },
+        },
+        run=_lookup_season_awards,
+    ),
+    _Tool(
+        name="lookup_team_outlook",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_team_outlook",
+                "description": _TEAM_OUTLOOK_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {
+                            "type": "string",
+                            "description": "Optional team abbreviation, such as BUF.",
+                        },
+                    },
+                    "required": [],
+                },
+            },
+        },
+        run=_lookup_team_outlook,
+    ),
+    _Tool(
+        name="lookup_qbr",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_qbr",
+                "description": _QBR_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "season": {"type": "integer", "description": "Optional season year."},
+                        "week": {"type": "integer", "description": "Optional week number."},
+                        "player": {
+                            "type": "string",
+                            "description": "Optional quarterback name.",
+                        },
+                    },
+                    "required": [],
+                },
+            },
+        },
+        run=_lookup_qbr,
+    ),
+    _Tool(
+        name="lookup_transactions",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_transactions",
+                "description": _TRANSACTIONS_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {
+                            "type": "string",
+                            "description": "Optional team abbreviation, such as NYJ.",
+                        },
+                        "season": {"type": "integer", "description": "Optional past season."},
+                    },
+                    "required": [],
+                },
+            },
+        },
+        run=_lookup_transactions,
         volatile=True,
     ),
 )

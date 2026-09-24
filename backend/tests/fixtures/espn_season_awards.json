@@ -1,0 +1,56 @@
+{
+ "2012_477": {
+  "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2012/awards/477?lang=en&region=us",
+  "id": "477",
+  "name": "NFL MVP",
+  "description": "AP NFL Most Valuable Player",
+  "season": {
+   "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2012?lang=en&region=us"
+  },
+  "winners": [
+   {
+    "athlete": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2012/athletes/10452?lang=en&region=us"
+    },
+    "team": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2012/teams/16?lang=en&region=us"
+    }
+   }
+  ]
+ },
+ "2012_317": {
+  "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2012/awards/317?lang=en&region=us",
+  "id": "317",
+  "name": "Super Bowl MVP",
+  "description": "Super Bowl MVP",
+  "season": {
+   "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2012?lang=en&region=us"
+  },
+  "winners": [
+   {
+    "athlete": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2012/athletes/11252?lang=en&region=us"
+    },
+    "team": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2012/teams/33?lang=en&region=us"
+    }
+   }
+  ]
+ },
+ "1980_477": {
+  "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/1980/awards/477?lang=en&region=us",
+  "id": "477",
+  "name": "NFL MVP",
+  "description": "AP NFL Most Valuable Player",
+  "season": {
+   "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/1980?lang=en&region=us"
+  },
+  "winners": [
+   {
+    "team": {
+     "$ref": "http://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/1980/teams/5?lang=en&region=us"
+    }
+   }
+  ]
+ }
+}

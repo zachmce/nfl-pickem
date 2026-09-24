@@ -1,0 +1,350 @@
+{
+ "teams": {
+  "tampa-bay-buccaneers": {
+   "id": "27",
+   "displayName": "Tampa Bay Buccaneers",
+   "abbreviation": "TB"
+  },
+  "new-england-patriots": {
+   "id": "17",
+   "displayName": "New England Patriots",
+   "abbreviation": "NE"
+  }
+ },
+ "categories": [
+  {
+   "name": "passing",
+   "displayName": "Passing",
+   "labels": [
+    "GP",
+    "CMP",
+    "ATT",
+    "CMP%",
+    "YDS",
+    "AVG",
+    "TD",
+    "INT",
+    "LNG",
+    "SACK",
+    "RTG",
+    "QBR"
+   ],
+   "names": [
+    "gamesPlayed",
+    "completions",
+    "passingAttempts",
+    "completionPct",
+    "passingYards",
+    "yardsPerPassAttempt",
+    "passingTouchdowns",
+    "interceptions",
+    "longPassing",
+    "sacks",
+    "QBRating",
+    "adjQBR"
+   ],
+   "displayNames": [
+    "Games Played",
+    "Completions",
+    "Passing Attempts",
+    "Completion Percentage",
+    "Passing Yards",
+    "Yards Per Pass Attempt",
+    "Passing Touchdowns",
+    "Interceptions",
+    "Longest Pass",
+    "Total Sacks",
+    "Passer Rating",
+    "Adjusted QBR"
+   ],
+   "statistics": [
+    {
+     "teamId": "17",
+     "teamSlug": "new-england-patriots",
+     "season": {
+      "year": 2000,
+      "displayName": "2000"
+     },
+     "stats": [
+      "1",
+      "1",
+      "3",
+      "33.3",
+      "6",
+      "2.0",
+      "0",
+      "0",
+      "6",
+      "0",
+      "42.4",
+      "-"
+     ],
+     "position": "QB"
+    },
+    {
+     "teamId": "17",
+     "teamSlug": "new-england-patriots",
+     "season": {
+      "year": 2007,
+      "displayName": "2007"
+     },
+     "stats": [
+      "16",
+      "398",
+      "578",
+      "68.9",
+      "4,806",
+      "8.3",
+      "50",
+      "8",
+      "69",
+      "21",
+      "117.2",
+      "87.0"
+     ],
+     "position": "QB"
+    },
+    {
+     "teamId": "27",
+     "teamSlug": "tampa-bay-buccaneers",
+     "season": {
+      "year": 2022,
+      "displayName": "2022"
+     },
+     "stats": [
+      "17",
+      "490",
+      "733",
+      "66.8",
+      "4,694",
+      "6.4",
+      "25",
+      "9",
+      "63",
+      "22",
+      "90.7",
+      "54.6"
+     ],
+     "position": "QB"
+    }
+   ],
+   "totals": [
+    "335",
+    "7753",
+    "12050",
+    "64.3",
+    "89,214",
+    "7.4",
+    "649",
+    "212",
+    "99",
+    "565",
+    "97.2",
+    "-"
+   ],
+   "sortKey": "passing"
+  },
+  {
+   "name": "rushing",
+   "displayName": "Rushing",
+   "labels": [
+    "GP",
+    "CAR",
+    "YDS",
+    "AVG",
+    "TD",
+    "LNG",
+    "FD",
+    "FUM",
+    "LST"
+   ],
+   "names": [
+    "gamesPlayed",
+    "rushingAttempts",
+    "rushingYards",
+    "yardsPerRushAttempt",
+    "rushingTouchdowns",
+    "longRushing",
+    "rushingFirstDowns",
+    "rushingFumbles",
+    "rushingFumblesLost"
+   ],
+   "displayNames": [
+    "Games Played",
+    "Rushing Attempts",
+    "Rushing Yards",
+    "Yards Per Rush Attempt",
+    "Rushing Touchdowns",
+    "Long Rushing",
+    "Rushing 1st downs",
+    "Rushing Fumbles",
+    "Rushing Fumbles Lost"
+   ],
+   "statistics": [
+    {
+     "teamId": "17",
+     "teamSlug": "new-england-patriots",
+     "season": {
+      "year": 2007,
+      "displayName": "2007"
+     },
+     "stats": [
+      "16",
+      "37",
+      "98",
+      "2.6",
+      "2",
+      "19",
+      "14",
+      "1",
+      "1"
+     ],
+     "position": "QB"
+    },
+    {
+     "teamId": "27",
+     "teamSlug": "tampa-bay-buccaneers",
+     "season": {
+      "year": 2022,
+      "displayName": "2022"
+     },
+     "stats": [
+      "17",
+      "29",
+      "-1",
+      "0.0",
+      "1",
+      "2",
+      "5",
+      "2",
+      "2"
+     ],
+     "position": "QB"
+    }
+   ],
+   "totals": [
+    "335",
+    "693",
+    "1,123",
+    "1.6",
+    "28",
+    "22",
+    "232",
+    "35",
+    "15"
+   ],
+   "sortKey": "rushing"
+  },
+  {
+   "name": "defensive",
+   "displayName": "Defense",
+   "labels": [
+    "GP",
+    "TOT",
+    "SOLO",
+    "AST",
+    "SACK",
+    "FF",
+    "FR",
+    "YDS",
+    "INT",
+    "YDS",
+    "AVG",
+    "TD",
+    "LNG",
+    "PD",
+    "STF",
+    "STFYDS",
+    "KB"
+   ],
+   "names": [
+    "gamesPlayed",
+    "totalTackles",
+    "soloTackles",
+    "assistTackles",
+    "sacks",
+    "fumblesForced",
+    "fumblesRecovered",
+    "fumblesRecoveredYards",
+    "interceptions",
+    "interceptionYards",
+    "avgInterceptionYards",
+    "interceptionTouchdowns",
+    "longInterception",
+    "passesDefended",
+    "stuffs",
+    "stuffYards",
+    "kicksBlocked"
+   ],
+   "displayNames": [
+    "Games Played",
+    "Total Tackles",
+    "Solo Tackles",
+    "Assist Tackles",
+    "Sacks",
+    "Forced Fumbles",
+    "Fumbles Recovered",
+    "Fumbles Recovered Yards",
+    "Interceptions",
+    "Interception Yards",
+    "Average Interception Yards",
+    "Interception Touchdowns",
+    "Long Interception",
+    "Passes Defended",
+    "Stuffs",
+    "Stuff Yards",
+    "Kicks Blocked"
+   ],
+   "statistics": [
+    {
+     "teamId": "27",
+     "teamSlug": "tampa-bay-buccaneers",
+     "season": {
+      "year": 2022,
+      "displayName": "2022"
+     },
+     "stats": [
+      "17",
+      "1",
+      "1",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0.0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0"
+     ],
+     "position": "QB"
+    }
+   ],
+   "totals": [
+    "335",
+    "14",
+    "14",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0.0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0"
+   ],
+   "sortKey": "defensive"
+  }
+ ]
+}

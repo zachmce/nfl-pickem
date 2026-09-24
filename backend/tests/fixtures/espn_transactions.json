@@ -1,0 +1,41 @@
+{
+ "league": {
+  "count": 1592,
+  "transactions": [
+   {
+    "date": "2026-09-23T07:00Z",
+    "description": "Signed DB Robert Longerbeam from Philadelphia's practice squad.",
+    "team": {
+     "abbreviation": "ATL"
+    }
+   },
+   {
+    "date": "2026-09-23T07:00Z",
+    "description": "Signed DL Austin Johnson to the practice squad.",
+    "team": {
+     "abbreviation": "BUF"
+    }
+   },
+   {
+    "date": "2026-09-23T07:00Z",
+    "description": "Waived LS Beau Gardner. Designated LB Noah Sewell and DE Shemar Turner to return from the PUP list.",
+    "team": {
+     "abbreviation": "CHI"
+    }
+   }
+  ]
+ },
+ "team_nyj": {
+  "count": 43,
+  "transactions": [
+   {
+    "date": "2026-09-23T07:00Z",
+    "description": "Signed DT Jack Heflin and WR Malik McClain from the practice squad. Placed LB Marcelino McCrary-Ball, DT David Onyemata and WR Arian Smith on injured reserve. Signed TE Cody Hardy and DT Isaiahh Loudermilk to the practice squad."
+   },
+   {
+    "date": "2026-09-22T07:00Z",
+    "description": "Signed LB Troy Reeder from the practice squad. Signed LB Jaden Keller and QB Will Levis to the practice squad. Released QB Bailey Zappe from the practice squad."
+   }
+  ]
+ }
+}

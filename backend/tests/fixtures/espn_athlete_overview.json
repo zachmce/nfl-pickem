@@ -1,0 +1,47 @@
+{
+ "awards": [
+  {
+   "id": "317",
+   "league": "nfl",
+   "name": "Super Bowl MVP",
+   "displayCount": "5x",
+   "seasons": [
+    "2020",
+    "2016",
+    "2014",
+    "2003",
+    "2001"
+   ]
+  },
+  {
+   "id": "477",
+   "league": "nfl",
+   "name": "NFL MVP",
+   "displayCount": "3x",
+   "seasons": [
+    "2017",
+    "2010",
+    "2007"
+   ]
+  },
+  {
+   "id": "478",
+   "league": "nfl",
+   "name": "NFL Offensive Player of the Year",
+   "displayCount": "2x",
+   "seasons": [
+    "2010",
+    "2007"
+   ]
+  },
+  {
+   "id": "483",
+   "league": "nfl",
+   "name": "NFL Comeback Player of the Year",
+   "displayCount": "1x",
+   "seasons": [
+    "2009"
+   ]
+  }
+ ]
+}
