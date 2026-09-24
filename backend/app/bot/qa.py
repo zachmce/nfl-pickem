@@ -816,7 +816,8 @@ _PREDICTION_FROZEN_FALLBACK_NOTE = "Working off the line we've got locked here â
 _PREDICTION_CONFLICT_THRESHOLD = Decimal("1.0")
 
 # Subject hints that a lines question is about a SINGLE game (so a missing team is a
-# stateless soft-decline, not a whole-slate dump).
+# stateless soft-decline, not a whole-slate dump). Matched as whole singular words:
+# as substrings "the lines this week" read as one game and the slate was declined.
 _SINGLE_GAME_HINTS = (
     "spread",
     "line",
@@ -826,16 +827,15 @@ _SINGLE_GAME_HINTS = (
     "favorite",
     "underdog",
     "moneyline",
-    "odds",
 )
+_SINGLE_GAME_RE = re.compile(r"\b(?:" + "|".join(_SINGLE_GAME_HINTS) + r")\b")
 
 
 def _wants_single_game(subject: str | None) -> bool:
     """Whether a teamless lines question implies ONE game (-> soft-decline)."""
     if not subject:
         return False
-    low = subject.lower()
-    return any(hint in low for hint in _SINGLE_GAME_HINTS)
+    return _SINGLE_GAME_RE.search(subject.lower()) is not None
 
 
 @dataclass(frozen=True)
@@ -2011,6 +2011,33 @@ async def answer_question(
     conversation_key: str | None = None,
     asker_name: str | None = None,
 ) -> str:
+    """Answer ``question`` (see :func:`_answer_question`) and record its telemetry trace."""
+    from app.services import bot_telemetry
+
+    trace = bot_telemetry.start(question, conversation_key=conversation_key, asker_name=asker_name)
+    answer = await _answer_question(
+        question,
+        discord_id=discord_id,
+        history=history,
+        conversation_key=conversation_key,
+        asker_name=asker_name,
+    )
+    if answer == _OPEN_DEGRADE_FACT:
+        bot_telemetry.note_fallback("open_degrade")
+    elif answer == _ERROR_LINE:
+        bot_telemetry.note_fallback("error")
+    bot_telemetry.finish(trace, answer)
+    return answer
+
+
+async def _answer_question(
+    question: str,
+    *,
+    discord_id: int,
+    history: Sequence[tuple[str, str]] = (),
+    conversation_key: str | None = None,
+    asker_name: str | None = None,
+) -> str:
     """Answer a league member's @mention ``question`` as one public in-voice line.
 
     The best-effort orchestrator (mirrors ``embellish_chat``'s guarded posture;
@@ -2033,10 +2060,12 @@ async def answer_question(
     """
     try:
         from app.bot import db_bridge
+        from app.services import bot_telemetry
 
         raw = await classify_question(question, history=history, asker_name=asker_name)
         known_team_tokens = await db_bridge.get_real_team_tokens_async()
         result = validate_classification(raw, known_team_tokens=known_team_tokens)
+        bot_telemetry.note_intent(result.intent.value)
 
         # The OPEN branch (260820-lw6) is taken BEFORE the slate facet / _build_fact
         # block and returns directly: the open answer must NOT reach ``_build_fact``
@@ -2045,6 +2074,7 @@ async def answer_question(
         # silently destroy it. It reads the RAW question, not the classifier subject.
         # Since 2026-09-18 ``unknown`` and ``coming_soon`` land here too.
         if result.intent in _OPEN_INTENTS:
+            bot_telemetry.note_open_path()
             voice = await db_bridge.resolve_active_voice_async()
             open_answer = await qa_open.answer_open(
                 question,
@@ -2066,6 +2096,7 @@ async def answer_question(
             # pick_status, unregistered asker â€” deterministic, no phrasing.
             return _REGISTER_LINE
         if isinstance(fact, _LaterWeek):
+            bot_telemetry.note_open_path()
             voice = await db_bridge.resolve_active_voice_async()
             open_answer = await qa_open.answer_open(
                 question,
@@ -2098,6 +2129,8 @@ async def answer_question(
                 phrased_header = await llm_client.phrase(
                     fact.header_fact, system_prompt=system_prompt
                 )
+                if phrased_header is None:
+                    bot_telemetry.note_fallback("unphrased")
                 header = phrased_header if phrased_header is not None else fact.header_fact
                 if _PLACEHOLDER_RE.search(header):
                     logger.info("qa_header_placeholder_scrubbed", intent=result.intent.value)
@@ -2117,6 +2150,8 @@ async def answer_question(
             return f"{header}\n{fact.body}"
 
         phrased = await llm_client.phrase(fact, system_prompt=system_prompt)
+        if phrased is None:
+            bot_telemetry.note_fallback("unphrased")
         return phrased if phrased is not None else fact
     except Exception:
         # A classify / db / phrase hiccup must never escape into the gateway loop.

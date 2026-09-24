@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session
 
 from app.api.deps import require_admin
@@ -42,6 +42,8 @@ from app.exceptions import ConflictError, NotFoundError
 from app.models import Game, PickResult, PickType, Team, User
 from app.schemas.admin import (
     AdminUserListResponse,
+    BotAnswerListResponse,
+    BotAnswerRead,
     AdminUserRead,
     BotPersonalityRead,
     FreezeWeekRequest,
@@ -77,6 +79,7 @@ from app.services.app_settings import (
     set_bot_personality,
 )
 from app.bot.personality import available_personality_ids
+from app.services import bot_telemetry
 from app.services.pick_submission import (
     _load_week_games,
     _normalized_game,
@@ -476,3 +479,22 @@ def set_bot_personality_setting(
         active_id=active,
         available_ids=available_personality_ids(),
     )
+
+
+# Issue #248 item 15: the last answers the bot gave, read from the capped Redis list the
+# bot writes. Read-only; a Redis outage returns ``available: false``, never a 500.
+@router.get("/bot-answers", response_model=BotAnswerListResponse)
+def get_bot_answers(
+    limit: int = Query(default=bot_telemetry.MAX_ANSWERS, ge=1, le=bot_telemetry.MAX_ANSWERS),
+    admin: User = Depends(require_admin),
+) -> BotAnswerListResponse:
+    records = bot_telemetry.read_recent(limit)
+    if records is None:
+        return BotAnswerListResponse(available=False, answers=[])
+    answers: list[BotAnswerRead] = []
+    for record in records:
+        try:
+            answers.append(BotAnswerRead.model_validate(record))
+        except ValueError:
+            continue
+    return BotAnswerListResponse(available=True, answers=answers)
