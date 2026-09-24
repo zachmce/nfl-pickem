@@ -306,3 +306,57 @@ export function setBotPersonality(id: string): Promise<BotPersonality> {
     body: JSON.stringify({ personality_id: id }),
   });
 }
+
+// --------------------------------------------------------------------------- //
+// Bot answer telemetry (issue #248, item 15). Mirrors backend BotAnswerRead.
+// --------------------------------------------------------------------------- //
+
+export interface BotAnswerToolCall {
+  name: string;
+  args: Record<string, unknown>;
+  outcome: string;
+}
+
+export interface BotAnswer {
+  at: string | null;
+  conversation: string | null;
+  asker: string | null;
+  question: string | null;
+  intent: string | null;
+  path: string | null;
+  tools: BotAnswerToolCall[];
+  rounds: number;
+  fallback: string | null;
+  latency_ms: number | null;
+  vendor: string | null;
+  model: string | null;
+  answer: string | null;
+}
+
+/** `available` is false when the server cannot reach the answer store. */
+export interface BotAnswerList {
+  available: boolean;
+  answers: BotAnswer[];
+}
+
+/** The newest stored bot answers first (admin only). */
+export function listBotAnswers(): Promise<BotAnswerList> {
+  return api<BotAnswerList>("/api/admin/bot-answers");
+}
+
+export type FallbackFilter = "all" | "fallback" | "clean";
+
+/** Filter answers client-side; an empty tool or intent matches every answer. */
+export function filterAnswers(
+  answers: BotAnswer[],
+  tool: string,
+  intent: string,
+  fallback: FallbackFilter,
+): BotAnswer[] {
+  return answers.filter(
+    (a) =>
+      (tool === "" || a.tools.some((t) => t.name === tool)) &&
+      (intent === "" || a.intent === intent) &&
+      (fallback === "all" || (fallback === "fallback") === (a.fallback !== null)),
+  );
+}
