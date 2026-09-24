@@ -911,6 +911,8 @@ class ShippedRegistryTests(_OpenPathTestCase):
                 "lookup_team_outlook",
                 "lookup_qbr",
                 "lookup_transactions",
+                "lookup_championships",
+                "lookup_hall_of_fame",
             ],
         )
         params = qa_open.TOOLS[0].spec["function"]["parameters"]
@@ -1183,9 +1185,10 @@ class ShippedRegistryTests(_OpenPathTestCase):
         # 2026-09-24 with team ATS, member season, injury report and draft (25 tools).
         # 38,835 the same day with head-to-head, league records and game outlook, and the
         # totals and pick-type halves of team ATS and member season (issue #248); 43,255
-        # with career, awards, FPI, QBR and transactions (33 tools).
+        # with career, awards, FPI, QBR and transactions (33 tools); 45,121 with the
+        # championships and Hall of Fame corpus tools and the awards player argument.
         total = sum(len(json.dumps(tool.spec)) for tool in qa_open.TOOLS)
-        self.assertLess(total, 43300, f"the shipped tool specs now total {total} bytes")
+        self.assertLess(total, 45200, f"the shipped tool specs now total {total} bytes")
         for tool in qa_open.TOOLS[5:]:
             with self.subTest(tool=tool.name):
                 self.assertLess(len(json.dumps(tool.spec)), 1700)

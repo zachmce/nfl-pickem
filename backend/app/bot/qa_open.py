@@ -4238,49 +4238,88 @@ _CAREER_TOOL_DESCRIPTION = (
 )
 
 
-async def _lookup_season_awards(season: int | None = None, award: str = "") -> object | None:
-    """The winners of the NFL's major awards for one season, from ESPN."""
-    from app.services import espn_extra
+async def _lookup_season_awards(
+    season: int | None = None, award: str = "", player: str = ""
+) -> object | None:
+    """The winners of the NFL's major awards for one season, or every award one player won.
 
-    if isinstance(season, bool) or not isinstance(season, int):
-        return {"note": _NO_AWARD_SEASON_NOTE}
+    ESPN is read first; the AP award tables of the history corpus fill any award ESPN
+    names no winner for, and every season before ESPN's record starts.
+    """
+    from app.services import espn_extra, history_corpus
+
+    award_key = None
     if isinstance(award, str) and award.strip():
-        award_id = espn_extra.season_award_id(award)
-        if award_id is None:
+        award_key = espn_extra.season_award_key(award)
+        if award_key is None:
             names = ", ".join(espn_extra.SEASON_AWARDS)
             return {"note": _UNKNOWN_AWARD_NOTE.format(award=award.strip(), names=names)}
-        award_ids = [award_id]
-    else:
-        award_ids = list(espn_extra.SEASON_AWARDS.values())
+    asked_player = player.strip() if isinstance(player, str) else ""
+    valid_season = isinstance(season, int) and not isinstance(season, bool)
+    if asked_player and not valid_season:
+        return _awards_for_player(asked_player, award_key)
+    if not valid_season:
+        return {"note": _NO_AWARD_SEASON_NOTE}
+    assert isinstance(season, int)
+    keys = [award_key] if award_key else list(espn_extra.SEASON_AWARDS)
 
-    payloads = await asyncio.gather(
-        *(espn_extra.fetch_season_award(season, one) for one in award_ids)
-    )
-    parsed = [espn_extra.parse_season_award(p) for p in payloads if p is not None]
-    awards = [a for a in parsed if a is not None and a["award"]]
-    if not awards:
-        return {"note": _AWARDS_FAILED_NOTE.format(season=season)}
+    espn_rows: dict[str, dict] = {}
+    if season >= espn_extra.AWARDS_SEASON_MIN:
+        payloads = await asyncio.gather(
+            *(espn_extra.fetch_season_award(season, espn_extra.SEASON_AWARDS[k]) for k in keys)
+        )
+        parsed = {
+            k: espn_extra.parse_season_award(p) for k, p in zip(keys, payloads) if p is not None
+        }
+        found = {k: a for k, a in parsed.items() if a is not None and a["award"]}
+        athlete_ids = sorted(
+            {w["athlete_id"] for a in found.values() for w in a["winners"] if w["athlete_id"]}
+        )
+        people = await asyncio.gather(
+            *(espn_extra.fetch_season_athlete(season, one) for one in athlete_ids)
+        )
+        names_by_id = {
+            one: espn_extra.parse_season_athlete(p) for one, p in zip(athlete_ids, people) if p
+        }
+        for k, one in found.items():
+            winners: list[dict[str, object]] = []
+            for w in one["winners"]:
+                person = names_by_id.get(w["athlete_id"]) if w["athlete_id"] else None
+                winners.append(
+                    {
+                        "winner": person["name"] if person else None,
+                        "position": person["position"] if person else None,
+                        "team": w["team"],
+                    }
+                )
+            espn_rows[k] = {"award": one["award"], "source": "ESPN", "winners": winners}
 
-    athlete_ids = sorted({w["athlete_id"] for a in awards for w in a["winners"] if w["athlete_id"]})
-    people = await asyncio.gather(
-        *(espn_extra.fetch_season_athlete(season, one) for one in athlete_ids)
-    )
-    names_by_id = {
-        one: espn_extra.parse_season_athlete(p) for one, p in zip(athlete_ids, people) if p
-    }
     rows: list[dict[str, object]] = []
-    for one in awards:
-        winners: list[dict[str, object]] = []
-        for w in one["winners"]:
-            person = names_by_id.get(w["athlete_id"]) if w["athlete_id"] else None
-            winners.append(
+    for k in keys:
+        espn_row = espn_rows.get(k)
+        if espn_row and any(w["winner"] for w in espn_row["winners"]):
+            rows.append(espn_row)
+            continue
+        table = history_corpus.awards(season=season, award=k)
+        if table:
+            rows.append(
                 {
-                    "winner": person["name"] if person else None,
-                    "position": person["position"] if person else None,
-                    "team": w["team"],
+                    "award": _CORPUS_AWARD_TITLES.get(k, k),
+                    "source": "AP award tables",
+                    "winners": [
+                        {
+                            "winner": r["winner"],
+                            "position": r["position"] or None,
+                            "team": r["team"],
+                        }
+                        for r in table
+                    ],
                 }
             )
-        rows.append({"award": one["award"], "winners": winners})
+        elif espn_row:
+            rows.append(espn_row)
+    if not rows:
+        return {"note": _AWARDS_FAILED_NOTE.format(season=season)}
     return {
         "season": season,
         "awards": rows,
@@ -4289,6 +4328,59 @@ async def _lookup_season_awards(season: int | None = None, award: str = "") -> o
     }
 
 
+_CORPUS_AWARD_TITLES = {
+    "mvp": "AP NFL MVP",
+    "super bowl mvp": "Super Bowl MVP",
+    "offensive player of the year": "AP Offensive Player of the Year",
+    "defensive player of the year": "AP Defensive Player of the Year",
+    "offensive rookie of the year": "AP Offensive Rookie of the Year",
+    "defensive rookie of the year": "AP Defensive Rookie of the Year",
+    "coach of the year": "AP Coach of the Year",
+    "comeback player of the year": "AP Comeback Player of the Year",
+}
+
+
+def _awards_for_player(player: str, award_key: str | None) -> dict:
+    """Every AP award (Super Bowl MVP included) one player or coach won, oldest first."""
+    from app.services import history_corpus
+
+    wins = history_corpus.awards(award=award_key, player=player)
+    latest = history_corpus.latest_season("ap_awards.csv")
+    covered = ", ".join(_CORPUS_AWARD_TITLES.values())
+    if not wins:
+        return {"note": _NO_PLAYER_AWARDS_NOTE.format(player=player, awards=covered, latest=latest)}
+    return {
+        "player": player,
+        "wins": [
+            {
+                "season": r["season"],
+                "award": _CORPUS_AWARD_TITLES.get(r["award"], r["award"]),
+                "winner": r["winner"],
+                "team": r["team"],
+            }
+            for r in wins
+        ],
+        "awards_statement": _PLAYER_AWARDS_STATEMENT.format(
+            count=len(wins), player=player, awards=covered, latest=latest
+        ),
+        "caveat": _PLAYER_AWARDS_CAVEAT,
+    }
+
+
+_NO_PLAYER_AWARDS_NOTE = (
+    "The AP award tables list no win for anyone named {player} through the {latest} season. "
+    "The tables cover these awards only: {awards}. Tell the member that plainly, name the "
+    "awards the tables cover, and never add an award or a count from your own memory."
+)
+_PLAYER_AWARDS_STATEMENT = (
+    "These are the {count} wins the AP award tables list for the name {player} through the "
+    "{latest} season. The tables cover these awards only: {awards}."
+)
+_PLAYER_AWARDS_CAVEAT = (
+    "Count only the wins listed, per award, and give the season of each. If the listed "
+    "winners are two different people, say so and name both. Never add a win that is not "
+    "listed; for an award the tables do not cover, say that the tables do not cover it."
+)
 _NO_AWARD_SEASON_NOTE = (
     "No season was given, so this tool looked nothing up. Call it again with the season "
     "year the award honors, such as 2012."
@@ -4303,9 +4395,9 @@ _AWARDS_FAILED_NOTE = (
     "own memory instead."
 )
 _AWARDS_STATEMENT = (
-    "These are the award winners ESPN lists for the {season} NFL season. A winner with no "
-    "name has only a team in ESPN's record, so give the team and say the record names no "
-    "player."
+    "These are the award winners listed for the {season} NFL season, each with its source. "
+    "A winner with no name has only a team in ESPN's record, so give the team and say the "
+    "record names no player."
 )
 _AWARDS_TOOL_DESCRIPTION = (
     "Look up who won the NFL's major awards in one season: MVP, Super Bowl MVP, offensive "
@@ -4313,8 +4405,9 @@ _AWARDS_TOOL_DESCRIPTION = (
     "Walter Payton Man of the Year. Call this tool every time the member asks who won an "
     "award in a year, and never name a winner from memory. The season argument is the "
     "season the award honors, so the Super Bowl played in February 2013 is season 2012. "
-    "Pass award for one award, or leave it out for all of them. For every award one "
-    "player has won, lookup_player_career is the tool."
+    "Pass award for one award, or leave it out for all of them. When the member asks how "
+    "many times a player or a coach won an award, or every award he won, pass player and "
+    "leave season out. For a player's career statistics, lookup_player_career is the tool."
 )
 
 
@@ -4475,6 +4568,157 @@ _TRANSACTIONS_TOOL_DESCRIPTION = (
     "moves a team made lately. Pass the team as a standard abbreviation such as NYJ, or "
     "leave it out for the whole league. Pass season only for moves in a past season. For "
     "a player's injury status this week, lookup_injury_report is the tool."
+)
+
+
+# --------------------------------------------------------------------------- #
+# Issue #248 item 11: the static history corpus (Wikipedia tables, committed CSV) for
+# league titles since 1920 and the Hall of Fame. Offline and deterministic.
+# --------------------------------------------------------------------------- #
+
+
+async def _lookup_championships(team: str = "", season: int | None = None) -> object | None:
+    """League title games since 1920 for one franchise or one season, or every Super Bowl."""
+    from app.services import history_corpus
+
+    asked_season = season if isinstance(season, int) and not isinstance(season, bool) else None
+    abbr = None
+    if isinstance(team, str) and team.strip():
+        abbr = history_corpus.franchise(team)
+        if abbr is None:
+            return {"note": _UNKNOWN_ATS_TEAM_NOTE.format(team=team.strip().upper())}
+    rows = history_corpus.championships(season=asked_season, team=abbr)
+    if asked_season is None and abbr is None:
+        rows = [r for r in rows if r["game"].startswith("Super Bowl")]
+    games = [_title_game(r) for r in rows]
+    latest = history_corpus.latest_season("championships.csv")
+    if not games:
+        return {"note": _NO_TITLE_GAMES_NOTE.format(latest=latest)}
+    answer: dict[str, object] = {"games": games}
+    if abbr is not None:
+        record = history_corpus.championship_record(abbr)
+        answer["team"] = abbr
+        answer["record"] = record
+        answer["championships_statement"] = _TEAM_TITLES_STATEMENT.format(team=abbr, **record)
+    else:
+        answer["championships_statement"] = _TITLES_STATEMENT.format(count=len(games))
+    answer["caveat"] = _TITLES_CAVEAT.format(latest=latest)
+    return answer
+
+
+def _title_game(row: dict) -> str:
+    if row["game"] == "NFL title (by standings)":
+        return (
+            f"{row['season']} season: the {row['winner']} won the NFL title on the final "
+            f"standings, ahead of the {row['loser']}."
+        )
+    return (
+        f"{row['season']} season, {row['game']} ({row['date']}, {row['venue']}): the "
+        f"{row['winner']} beat the {row['loser']} {row['winner_score']}-{row['loser_score']}."
+    )
+
+
+_NO_TITLE_GAMES_NOTE = (
+    "The history tables have no title game for that team or season through the {latest} "
+    "season. Tell the member that plainly and never name a title game from your own memory."
+)
+_TITLES_STATEMENT = "These are the {count} title games listed, oldest first."
+_TEAM_TITLES_STATEMENT = (
+    "The {team} franchise, under every name it has played as, won {super_bowls_won} Super "
+    "Bowls and lost {super_bowls_lost}, and won {nfl_titles_before_1966} NFL titles before "
+    "the Super Bowl era. Every title game it played is listed, oldest first."
+)
+_TITLES_CAVEAT = (
+    "The tables run through the {latest} season and hold the NFL champions from 1920, the "
+    "NFL Championship Games from 1933 and every Super Bowl. They hold no AFL championship "
+    "game from 1960 to 1969, so never count an AFL title as an NFL title or a Super Bowl. "
+    "Report each game and each count exactly as listed."
+)
+_CHAMPIONSHIPS_TOOL_DESCRIPTION = (
+    "Look up NFL title history since 1920: every Super Bowl with its score, the NFL "
+    "Championship Games from 1933, the earlier standings champions, and one franchise's "
+    "count of Super Bowls won and lost and older NFL titles. Call this tool when the member "
+    "asks who won a Super Bowl or a title in a year, how many Super Bowls or championships a "
+    "team has, when a team last won it all, or who a team beat in a Super Bowl. Pass team "
+    "as a standard abbreviation such as PIT, or season, or neither for every Super Bowl."
+)
+
+
+async def _lookup_hall_of_fame(
+    player: str = "", team: str = "", class_year: int | None = None
+) -> object | None:
+    """Pro Football Hall of Fame inductees by name, franchise or induction class."""
+    from app.services import history_corpus
+
+    asked_player = player.strip() if isinstance(player, str) else ""
+    asked_class = (
+        class_year if isinstance(class_year, int) and not isinstance(class_year, bool) else None
+    )
+    abbr = None
+    if isinstance(team, str) and team.strip():
+        abbr = history_corpus.franchise(team)
+        if abbr is None:
+            return {"note": _UNKNOWN_ATS_TEAM_NOTE.format(team=team.strip().upper())}
+    if not asked_player and abbr is None and asked_class is None:
+        return {"note": _NO_HOF_QUERY_NOTE}
+    rows = history_corpus.hall_of_fame(
+        player=asked_player or None, team=abbr, class_year=asked_class
+    )
+    latest = history_corpus.latest_season("hall_of_fame.csv")
+    if not rows:
+        if asked_player:
+            return {"note": _NOT_IN_HOF_NOTE.format(player=asked_player, latest=latest)}
+        return {"note": _NO_HOF_ROWS_NOTE.format(latest=latest)}
+    detailed = bool(asked_player) or len(rows) <= _HOF_DETAIL_LIMIT
+    inductees = [
+        {
+            "name": r["name"],
+            "class": r["class"],
+            "position": r["position"],
+            **(
+                {"first_year_of_eligibility": r["first_year_of_eligibility"], "teams": r["teams"]}
+                if detailed
+                else {}
+            ),
+        }
+        for r in rows
+    ]
+    return {
+        "inductees": inductees,
+        "hall_of_fame_statement": _HOF_STATEMENT.format(count=len(rows), latest=latest),
+        "caveat": _HOF_CAVEAT,
+    }
+
+
+_HOF_DETAIL_LIMIT = 12
+_NO_HOF_QUERY_NOTE = (
+    "This tool needs a player's name, a team or a class year, so it looked nothing up. Call "
+    "it again with one of them."
+)
+_NOT_IN_HOF_NOTE = (
+    "The Hall of Fame list through the class of {latest} has no inductee named {player}. "
+    "Tell the member that {player} is not in the Pro Football Hall of Fame as of the class "
+    "of {latest}, and check the spelling of the name with the member if it looks wrong."
+)
+_NO_HOF_ROWS_NOTE = (
+    "The Hall of Fame list through the class of {latest} has no inductee for that team or "
+    "class. Tell the member that plainly."
+)
+_HOF_STATEMENT = (
+    "These are the {count} Pro Football Hall of Fame inductees that match, from the list "
+    "through the class of {latest}, each with the class he was inducted in."
+)
+_HOF_CAVEAT = (
+    "Report each inductee and class exactly as listed; a team's list counts everyone who "
+    "played or coached there, even briefly. first_year_of_eligibility yes means he was "
+    "elected in his first year of eligibility. Never add an inductee who is not listed."
+)
+_HALL_OF_FAME_TOOL_DESCRIPTION = (
+    "Look up the Pro Football Hall of Fame: whether a player or coach is in it and his "
+    "class, a team's Hall of Famers, or one year's class. Call this tool when the member "
+    "asks if someone is a Hall of Famer, when he was inducted, whether he got in on the "
+    "first ballot, who is in the Hall from a team, or who was in a class. Pass player, or "
+    "team as a standard abbreviation such as CHI, or class_year."
 )
 
 
@@ -5393,8 +5637,12 @@ _BASE_TOOLS: tuple[_Tool, ...] = (
                             "enum": _season_award_enum(),
                             "description": "Optional; leave it out for every award.",
                         },
+                        "player": {
+                            "type": "string",
+                            "description": "Optional player or coach name, for his wins.",
+                        },
                     },
-                    "required": ["season"],
+                    "required": [],
                 },
             },
         },
@@ -5466,6 +5714,60 @@ _BASE_TOOLS: tuple[_Tool, ...] = (
         },
         run=_lookup_transactions,
         volatile=True,
+    ),
+    _Tool(
+        name="lookup_championships",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_championships",
+                "description": _CHAMPIONSHIPS_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {
+                            "type": "string",
+                            "description": "Optional team abbreviation, such as PIT.",
+                        },
+                        "season": {
+                            "type": "integer",
+                            "description": "Optional season; a Super Bowl belongs to the season before it.",
+                        },
+                    },
+                    "required": [],
+                },
+            },
+        },
+        run=_lookup_championships,
+    ),
+    _Tool(
+        name="lookup_hall_of_fame",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_hall_of_fame",
+                "description": _HALL_OF_FAME_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "player": {
+                            "type": "string",
+                            "description": "Optional player or coach name.",
+                        },
+                        "team": {
+                            "type": "string",
+                            "description": "Optional team abbreviation, such as CHI.",
+                        },
+                        "class_year": {
+                            "type": "integer",
+                            "description": "Optional induction year, such as 2021.",
+                        },
+                    },
+                    "required": [],
+                },
+            },
+        },
+        run=_lookup_hall_of_fame,
     ),
 )
 

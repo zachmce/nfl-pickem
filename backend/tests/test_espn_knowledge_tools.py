@@ -343,6 +343,7 @@ class AdapterTests(unittest.TestCase):
             [
                 {
                     "award": "NFL MVP",
+                    "source": "ESPN",
                     "winners": [
                         {"winner": "Adrian Peterson", "position": "RB", "team": "Minnesota Vikings"}
                     ],
@@ -350,8 +351,15 @@ class AdapterTests(unittest.TestCase):
             ],
         )
         self.assertEqual(athlete.await_count, 2)  # one per call: the id is shared
+        # ESPN named no player for the other awards: the AP tables fill every one they
+        # hold, and only the Walter Payton award keeps ESPN's team-only row.
         team_only = [a for a in every["awards"] if a["winners"][0]["winner"] is None]
-        self.assertEqual(len(team_only), len(espn_extra.SEASON_AWARDS) - 1)
+        self.assertEqual([a["award"] for a in team_only], ["NFL MVP"])
+        filled = {a["award"]: a for a in every["awards"] if a["source"] == "AP award tables"}
+        self.assertEqual(
+            filled["AP Defensive Player of the Year"]["winners"][0]["winner"], "J. J. Watt"
+        )
+        self.assertEqual(len(every["awards"]), len(espn_extra.SEASON_AWARDS))
 
     def test_awards_adapter_notes_an_unknown_award_and_a_missing_season(self) -> None:
         self.assertIn(

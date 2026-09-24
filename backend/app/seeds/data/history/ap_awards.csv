@@ -1,0 +1,471 @@
+# Source: Wikipedia (AP_NFL_Coach_of_the_Year, AP_NFL_Comeback_Player_of_the_Year, AP_NFL_Defensive_Player_of_the_Year, AP_NFL_Most_Valuable_Player, AP_NFL_Offensive_Player_of_the_Year, AP_NFL_Rookie_of_the_Year, Super_Bowl_Most_Valuable_Player_Award), CC BY-SA 4.0.
+season,award,winner,position,team
+1957,coach of the year,George Wilson,,Detroit Lions
+1957,mvp,Jim Brown,Fullback,Cleveland Browns
+1957,offensive rookie of the year,Jim Brown,Running back,Cleveland Browns
+1958,coach of the year,Weeb Ewbank,,Baltimore Colts
+1958,mvp,Jim Brown,Fullback,Cleveland Browns
+1958,offensive rookie of the year,Jimmy Orr,Wide receiver,Pittsburgh Steelers
+1959,coach of the year,Vince Lombardi,,Green Bay Packers
+1959,mvp,Johnny Unitas,Quarterback,Baltimore Colts
+1959,offensive rookie of the year,Boyd Dowler,Wide receiver,Green Bay Packers
+1960,coach of the year,Buck Shaw,,Philadelphia Eagles
+1960,mvp,Norm Van Brocklin,Quarterback,Philadelphia Eagles
+1960,offensive rookie of the year,Gail Cogdill,Split end,Detroit Lions
+1961,coach of the year,Allie Sherman,,New York Giants
+1961,mvp,Paul Hornung,Running back,Green Bay Packers
+1961,offensive rookie of the year,Mike Ditka,Tight end,Chicago Bears
+1962,coach of the year,Allie Sherman,,New York Giants
+1962,mvp,Jim Taylor,Running back,Green Bay Packers
+1962,offensive rookie of the year,Ron Bull,Running back,Chicago Bears
+1963,coach of the year,George Halas,,Chicago Bears
+1963,mvp,Y. A. Tittle,Quarterback,New York Giants
+1963,offensive rookie of the year,Paul Flatley,Wide receiver,Minnesota Vikings
+1964,coach of the year,Don Shula,,Baltimore Colts
+1964,mvp,Johnny Unitas,Quarterback,Baltimore Colts
+1964,offensive rookie of the year,Charley Taylor,Running back,Washington Redskins
+1965,coach of the year,George Halas,,Chicago Bears
+1965,mvp,Jim Brown,Fullback,Cleveland Browns
+1965,offensive rookie of the year,Gale Sayers,Running back,Chicago Bears
+1966,coach of the year,Tom Landry,,Dallas Cowboys
+1966,mvp,Bart Starr,Quarterback,Green Bay Packers
+1966,offensive rookie of the year,Johnny Roland,Running back,St. Louis Cardinals
+1966,super bowl mvp,Bart Starr,Quarterback,Green Bay Packers
+1967,coach of the year,George Allen,,Los Angeles Rams
+1967,coach of the year,Don Shula,,Baltimore Colts
+1967,defensive rookie of the year,Lem Barney,Cornerback,Detroit Lions
+1967,mvp,Johnny Unitas,Quarterback,Baltimore Colts
+1967,offensive rookie of the year,Mel Farr,Running back,Detroit Lions
+1967,super bowl mvp,Bart Starr,Quarterback,Green Bay Packers
+1968,coach of the year,Don Shula,,Baltimore Colts
+1968,defensive rookie of the year,Claude Humphrey,Defensive end,Atlanta Falcons
+1968,mvp,Earl Morrall,Quarterback,Baltimore Colts
+1968,offensive rookie of the year,Earl McCullouch,Wide receiver,Detroit Lions
+1968,super bowl mvp,Joe Namath,Quarterback,New York Jets
+1969,coach of the year,Bud Grant,,Minnesota Vikings
+1969,defensive rookie of the year,Joe Greene,Defensive tackle,Pittsburgh Steelers
+1969,mvp,Roman Gabriel,Quarterback,Los Angeles Rams
+1969,offensive rookie of the year,Calvin Hill,Running back,Dallas Cowboys
+1969,super bowl mvp,Len Dawson,Quarterback,Kansas City Chiefs
+1970,coach of the year,Paul Brown,,Cincinnati Bengals
+1970,defensive rookie of the year,Bruce Taylor,Cornerback,San Francisco 49ers
+1970,mvp,John Brodie,Quarterback,San Francisco 49ers
+1970,offensive rookie of the year,Dennis Shaw,Quarterback,Buffalo Bills
+1970,super bowl mvp,Chuck Howley,Linebacker,Dallas Cowboys
+1971,coach of the year,George Allen,,Washington Redskins
+1971,defensive player of the year,Alan Page,DT,Minnesota
+1971,defensive rookie of the year,Isiah Robertson,Linebacker,Los Angeles Rams
+1971,mvp,Alan Page,Defensive tackle,Minnesota Vikings
+1971,offensive rookie of the year,John Brockington,Running back,Green Bay Packers
+1971,super bowl mvp,Roger Staubach,Quarterback,Dallas Cowboys
+1972,coach of the year,Don Shula,,Miami Dolphins
+1972,defensive player of the year,Joe Greene,DT,Pittsburgh
+1972,defensive rookie of the year,Willie Buchanon,Cornerback,Green Bay Packers
+1972,mvp,Larry Brown,Running back,Washington Redskins
+1972,offensive player of the year,Larry Brown,Running back,Washington Redskins
+1972,offensive rookie of the year,Franco Harris,Running back,Pittsburgh Steelers
+1972,super bowl mvp,Jake Scott,Safety,Miami Dolphins
+1973,coach of the year,Chuck Knox,,Los Angeles Rams
+1973,defensive player of the year,Dick Anderson,S,Miami
+1973,defensive rookie of the year,Wally Chambers,Defensive tackle,Chicago Bears
+1973,mvp,O. J. Simpson,Running back,Buffalo Bills
+1973,offensive player of the year,O. J. Simpson,Running back,Buffalo Bills
+1973,offensive rookie of the year,Chuck Foreman,Running back,Minnesota Vikings
+1973,super bowl mvp,Larry Csonka,Running back,Miami Dolphins
+1974,coach of the year,Don Coryell,,St. Louis Cardinals
+1974,defensive player of the year,Joe Greene,DT,Pittsburgh
+1974,defensive rookie of the year,Jack Lambert,Linebacker,Pittsburgh Steelers
+1974,mvp,Ken Stabler,Quarterback,Oakland Raiders
+1974,offensive player of the year,Ken Stabler,Quarterback,Oakland Raiders
+1974,offensive rookie of the year,Don Woods,Running back,San Diego Chargers
+1974,super bowl mvp,Franco Harris,Running back,Pittsburgh Steelers
+1975,coach of the year,Ted Marchibroda,,Baltimore Colts
+1975,defensive player of the year,Mel Blount,CB,Pittsburgh
+1975,defensive rookie of the year,Robert Brazile,Linebacker,Houston Oilers
+1975,mvp,Fran Tarkenton,Quarterback,Minnesota Vikings
+1975,offensive player of the year,Fran Tarkenton,Quarterback,Minnesota Vikings
+1975,offensive rookie of the year,Mike Thomas,Running back,Washington Redskins
+1975,super bowl mvp,Lynn Swann,Wide receiver,Pittsburgh Steelers
+1976,coach of the year,Forrest Gregg,,Cleveland Browns
+1976,defensive player of the year,Jack Lambert,LB,Pittsburgh
+1976,defensive rookie of the year,Mike Haynes,Cornerback,New England Patriots
+1976,mvp,Bert Jones,Quarterback,Baltimore Colts
+1976,offensive player of the year,Bert Jones,Quarterback,Baltimore Colts
+1976,offensive rookie of the year,Sammy White,Wide receiver,Minnesota Vikings
+1976,super bowl mvp,Fred Biletnikoff,Wide receiver,Oakland Raiders
+1977,coach of the year,Red Miller,,Denver Broncos
+1977,defensive player of the year,Harvey Martin,DE,Dallas
+1977,defensive rookie of the year,A. J. Duhe,Defensive end,Miami Dolphins
+1977,mvp,Walter Payton,Running back,Chicago Bears
+1977,offensive player of the year,Walter Payton,Running back,Chicago Bears
+1977,offensive rookie of the year,Tony Dorsett,Running back,Dallas Cowboys
+1977,super bowl mvp,Harvey Martin,Defensive end,Dallas Cowboys
+1977,super bowl mvp,Randy White,Defensive tackle,Dallas Cowboys
+1978,coach of the year,Jack Patera,,Seattle Seahawks
+1978,defensive player of the year,Randy Gradishar,LB,Denver
+1978,defensive rookie of the year,Al Baker,Defensive end,Detroit Lions
+1978,mvp,Terry Bradshaw,Quarterback,Pittsburgh Steelers
+1978,offensive player of the year,Earl Campbell,Running back,Houston Oilers
+1978,offensive rookie of the year,Earl Campbell,Running back,Houston Oilers
+1978,super bowl mvp,Terry Bradshaw,Quarterback,Pittsburgh Steelers
+1979,coach of the year,Jack Pardee,,Washington Redskins
+1979,defensive player of the year,Lee Roy Selmon,DE,Tampa Bay
+1979,defensive rookie of the year,Jim Haslett,Linebacker,Buffalo Bills
+1979,mvp,Earl Campbell,Running back,Houston Oilers
+1979,offensive player of the year,Earl Campbell,Running back,Houston Oilers
+1979,offensive rookie of the year,Ottis Anderson,Running back,St. Louis Cardinals
+1979,super bowl mvp,Terry Bradshaw,Quarterback,Pittsburgh Steelers
+1980,coach of the year,Chuck Knox,,Buffalo Bills
+1980,defensive player of the year,Lester Hayes,CB,Oakland
+1980,defensive rookie of the year,Buddy Curry,Linebacker,Atlanta Falcons
+1980,defensive rookie of the year,Al Richardson,Linebacker,Atlanta Falcons
+1980,mvp,Brian Sipe,Quarterback,Cleveland Browns
+1980,offensive player of the year,Earl Campbell,Running back,Houston Oilers
+1980,offensive rookie of the year,Billy Sims,Running back,Detroit Lions
+1980,super bowl mvp,Jim Plunkett,Quarterback,Oakland Raiders
+1981,coach of the year,Bill Walsh,,San Francisco 49ers
+1981,defensive player of the year,Lawrence Taylor,LB,NY Giants
+1981,defensive rookie of the year,Lawrence Taylor,Linebacker,New York Giants
+1981,mvp,Ken Anderson,Quarterback,Cincinnati Bengals
+1981,offensive player of the year,Ken Anderson,Quarterback,Cincinnati Bengals
+1981,offensive rookie of the year,George Rogers,Running back,New Orleans Saints
+1981,super bowl mvp,Joe Montana,Quarterback,San Francisco 49ers
+1982,coach of the year,Joe Gibbs,,Washington Redskins
+1982,defensive player of the year,Lawrence Taylor,LB,NY Giants
+1982,defensive rookie of the year,Chip Banks,Linebacker,Cleveland Browns
+1982,mvp,Mark Moseley,Placekicker,Washington Redskins
+1982,offensive player of the year,Dan Fouts,Quarterback,San Diego Chargers
+1982,offensive rookie of the year,Marcus Allen,Running back,Los Angeles Raiders
+1982,super bowl mvp,John Riggins,Running back,Washington Redskins
+1983,coach of the year,Joe Gibbs,,Washington Redskins
+1983,defensive player of the year,Doug Betters,DE,Miami
+1983,defensive rookie of the year,Vernon Maxwell,Linebacker,Baltimore Colts
+1983,mvp,Joe Theismann,Quarterback,Washington Redskins
+1983,offensive player of the year,Joe Theismann,Quarterback,Washington Redskins
+1983,offensive rookie of the year,Eric Dickerson,Running back,Los Angeles Rams
+1983,super bowl mvp,Marcus Allen,Running back,Los Angeles Raiders
+1984,coach of the year,Chuck Knox,,Seattle Seahawks
+1984,defensive player of the year,Kenny Easley,S,Seattle
+1984,defensive rookie of the year,Bill Maas,Defensive tackle,Kansas City Chiefs
+1984,mvp,Dan Marino,Quarterback,Miami Dolphins
+1984,offensive player of the year,Dan Marino,Quarterback,Miami Dolphins
+1984,offensive rookie of the year,Louis Lipps,Wide receiver,Pittsburgh Steelers
+1984,super bowl mvp,Joe Montana,Quarterback,San Francisco 49ers
+1985,coach of the year,Mike Ditka,,Chicago Bears
+1985,defensive player of the year,Mike Singletary,LB,Chicago
+1985,defensive rookie of the year,Duane Bickett,Linebacker,Indianapolis Colts
+1985,mvp,Marcus Allen,Running back,Los Angeles Raiders
+1985,offensive player of the year,Marcus Allen,Running back,Los Angeles Raiders
+1985,offensive rookie of the year,Eddie Brown,Wide receiver,Cincinnati Bengals
+1985,super bowl mvp,Richard Dent,Defensive end,Chicago Bears
+1986,coach of the year,Bill Parcells,,New York Giants
+1986,defensive player of the year,Lawrence Taylor,LB,NY Giants
+1986,defensive rookie of the year,Leslie O'Neal,Defensive end,San Diego Chargers
+1986,mvp,Lawrence Taylor,Linebacker,New York Giants
+1986,offensive player of the year,Eric Dickerson,Running back,Los Angeles Rams
+1986,offensive rookie of the year,Rueben Mayes,Running back,New Orleans Saints
+1986,super bowl mvp,Phil Simms,Quarterback,New York Giants
+1987,coach of the year,Jim Mora,,New Orleans Saints
+1987,defensive player of the year,Reggie White,DE,Philadelphia
+1987,defensive rookie of the year,Shane Conlan,Linebacker,Buffalo Bills
+1987,mvp,John Elway,Quarterback,Denver Broncos
+1987,offensive player of the year,Jerry Rice,Wide receiver,San Francisco 49ers
+1987,offensive rookie of the year,Troy Stradford,Running back,Miami Dolphins
+1987,super bowl mvp,Doug Williams,Quarterback,Washington Redskins
+1988,coach of the year,Mike Ditka,,Chicago Bears
+1988,defensive player of the year,Mike Singletary,LB,Chicago
+1988,defensive rookie of the year,Erik McMillan,Safety,New York Jets
+1988,mvp,Boomer Esiason,Quarterback,Cincinnati Bengals
+1988,offensive player of the year,Roger Craig,Running back,San Francisco 49ers
+1988,offensive rookie of the year,John Stephens,Running back,New England Patriots
+1988,super bowl mvp,Jerry Rice,Wide receiver,San Francisco 49ers
+1989,coach of the year,Lindy Infante,,Green Bay Packers
+1989,defensive player of the year,Keith Millard,DT,Minnesota
+1989,defensive rookie of the year,Derrick Thomas,Linebacker,Kansas City Chiefs
+1989,mvp,Joe Montana,Quarterback,San Francisco 49ers
+1989,offensive player of the year,Joe Montana,Quarterback,San Francisco 49ers
+1989,offensive rookie of the year,Barry Sanders,Running back,Detroit Lions
+1989,super bowl mvp,Joe Montana,Quarterback,San Francisco 49ers
+1990,coach of the year,Jimmy Johnson,,Dallas Cowboys
+1990,defensive player of the year,Bruce Smith,DE,Buffalo
+1990,defensive rookie of the year,Mark Carrier,Safety,Chicago Bears
+1990,mvp,Joe Montana,Quarterback,San Francisco 49ers
+1990,offensive player of the year,Warren Moon,Quarterback,Houston Oilers
+1990,offensive rookie of the year,Emmitt Smith,Running back,Dallas Cowboys
+1990,super bowl mvp,Ottis Anderson,Running back,New York Giants
+1991,coach of the year,Wayne Fontes,,Detroit Lions
+1991,defensive player of the year,Pat Swilling,LB,New Orleans
+1991,defensive rookie of the year,Mike Croel,Linebacker,Denver Broncos
+1991,mvp,Thurman Thomas,Running back,Buffalo Bills
+1991,offensive player of the year,Thurman Thomas,Running back,Buffalo Bills
+1991,offensive rookie of the year,Leonard Russell,Running back,New England Patriots
+1991,super bowl mvp,Mark Rypien,Quarterback,Washington Redskins
+1992,coach of the year,Bill Cowher,,Pittsburgh Steelers
+1992,defensive player of the year,Cortez Kennedy,DT,Seattle
+1992,defensive rookie of the year,Dale Carter,Cornerback,Kansas City Chiefs
+1992,mvp,Steve Young,Quarterback,San Francisco 49ers
+1992,offensive player of the year,Steve Young,Quarterback,San Francisco 49ers
+1992,offensive rookie of the year,Carl Pickens,Wide receiver,Cincinnati Bengals
+1992,super bowl mvp,Troy Aikman,Quarterback,Dallas Cowboys
+1993,coach of the year,Dan Reeves,,New York Giants
+1993,defensive player of the year,Rod Woodson,CB,Pittsburgh
+1993,defensive rookie of the year,Dana Stubblefield,Defensive tackle,San Francisco 49ers
+1993,mvp,Emmitt Smith,Running back,Dallas Cowboys
+1993,offensive player of the year,Jerry Rice,Wide receiver,San Francisco 49ers
+1993,offensive rookie of the year,Jerome Bettis,Running back,Los Angeles Rams
+1993,super bowl mvp,Emmitt Smith,Running back,Dallas Cowboys
+1994,coach of the year,Bill Parcells,,New England Patriots
+1994,defensive player of the year,Deion Sanders,CB,San Francisco
+1994,defensive rookie of the year,Tim Bowens,Defensive tackle,Miami Dolphins
+1994,mvp,Steve Young,Quarterback,San Francisco 49ers
+1994,offensive player of the year,Barry Sanders,Running back,Detroit Lions
+1994,offensive rookie of the year,Marshall Faulk,Running back,Indianapolis Colts
+1994,super bowl mvp,Steve Young,Quarterback,San Francisco 49ers
+1995,coach of the year,Ray Rhodes,,Philadelphia Eagles
+1995,defensive player of the year,Bryce Paup,LB,Buffalo
+1995,defensive rookie of the year,Hugh Douglas,Defensive end,New York Jets
+1995,mvp,Brett Favre,Quarterback,Green Bay Packers
+1995,offensive player of the year,Brett Favre,Quarterback,Green Bay Packers
+1995,offensive rookie of the year,Curtis Martin,Running back,New England Patriots
+1995,super bowl mvp,Larry Brown,Cornerback,Dallas Cowboys
+1996,coach of the year,Dom Capers,,Carolina Panthers
+1996,defensive player of the year,Bruce Smith,DE,Buffalo
+1996,defensive rookie of the year,Simeon Rice,Defensive end,Arizona Cardinals
+1996,mvp,Brett Favre,Quarterback,Green Bay Packers
+1996,offensive player of the year,Terrell Davis,Running back,Denver Broncos
+1996,offensive rookie of the year,Eddie George,Running back,Houston Oilers
+1996,super bowl mvp,Desmond Howard,Return specialist,Green Bay Packers
+1997,coach of the year,Jim Fassel,,New York Giants
+1997,defensive player of the year,Dana Stubblefield,DT,San Francisco
+1997,defensive rookie of the year,Peter Boulware,Linebacker,Baltimore Ravens
+1997,mvp,Brett Favre,Quarterback,Green Bay Packers
+1997,mvp,Barry Sanders,Running back,Detroit Lions
+1997,offensive player of the year,Barry Sanders,Running back,Detroit Lions
+1997,offensive rookie of the year,Warrick Dunn,Running back,Tampa Bay Buccaneers
+1997,super bowl mvp,Terrell Davis,Running back,Denver Broncos
+1998,coach of the year,Dan Reeves,,Atlanta Falcons
+1998,comeback player of the year,Doug Flutie,QB,Buffalo
+1998,defensive player of the year,Reggie White,DE,Green Bay
+1998,defensive rookie of the year,Charles Woodson,Cornerback,Oakland Raiders
+1998,mvp,Terrell Davis,Running back,Denver Broncos
+1998,offensive player of the year,Terrell Davis,Running back,Denver Broncos
+1998,offensive rookie of the year,Randy Moss,Wide receiver,Minnesota Vikings
+1998,super bowl mvp,John Elway,Quarterback,Denver Broncos
+1999,coach of the year,Dick Vermeil,,St. Louis Rams
+1999,comeback player of the year,Bryant Young,DT,San Francisco
+1999,defensive player of the year,Warren Sapp,DT,Tampa Bay
+1999,defensive rookie of the year,Jevon Kearse,Defensive end,Tennessee Titans
+1999,mvp,Kurt Warner,Quarterback,St. Louis Rams
+1999,offensive player of the year,Marshall Faulk,Running back,St. Louis Rams
+1999,offensive rookie of the year,Edgerrin James,Running back,Indianapolis Colts
+1999,super bowl mvp,Kurt Warner,Quarterback,St. Louis Rams
+2000,coach of the year,Jim Haslett,,New Orleans Saints
+2000,comeback player of the year,Joe Johnson,DE,New Orleans
+2000,defensive player of the year,Ray Lewis,LB,Baltimore
+2000,defensive rookie of the year,Brian Urlacher,Linebacker,Chicago Bears
+2000,mvp,Marshall Faulk,Running back,St. Louis Rams
+2000,offensive player of the year,Marshall Faulk,Running back,St. Louis Rams
+2000,offensive rookie of the year,Mike Anderson,Running back,Denver Broncos
+2000,super bowl mvp,Ray Lewis,Linebacker,Baltimore Ravens
+2001,coach of the year,Dick Jauron,,Chicago Bears
+2001,comeback player of the year,Garrison Hearst,RB,San Francisco
+2001,defensive player of the year,Michael Strahan,DE,NY Giants
+2001,defensive rookie of the year,Kendrell Bell,Linebacker,Pittsburgh Steelers
+2001,mvp,Kurt Warner,Quarterback,St. Louis Rams
+2001,offensive player of the year,Marshall Faulk,Running back,St. Louis Rams
+2001,offensive rookie of the year,Anthony Thomas,Running back,Chicago Bears
+2001,super bowl mvp,Tom Brady,Quarterback,New England Patriots
+2002,coach of the year,Andy Reid,,Philadelphia Eagles
+2002,comeback player of the year,Tommy Maddox,QB,Pittsburgh
+2002,defensive player of the year,Derrick Brooks,LB,Tampa Bay
+2002,defensive rookie of the year,Julius Peppers,Defensive end,Carolina Panthers
+2002,mvp,Rich Gannon,Quarterback,Oakland Raiders
+2002,offensive player of the year,Priest Holmes,Running back,Kansas City Chiefs
+2002,offensive rookie of the year,Clinton Portis,Running back,Denver Broncos
+2002,super bowl mvp,Dexter Jackson,Safety,Tampa Bay Buccaneers
+2003,coach of the year,Bill Belichick,,New England Patriots
+2003,comeback player of the year,Jon Kitna,QB,Cincinnati
+2003,defensive player of the year,Ray Lewis,LB,Baltimore
+2003,defensive rookie of the year,Terrell Suggs,Linebacker,Baltimore Ravens
+2003,mvp,Peyton Manning,Quarterback,Indianapolis Colts
+2003,mvp,Steve McNair,Quarterback,Tennessee Titans
+2003,offensive player of the year,Jamal Lewis,Running back,Baltimore Ravens
+2003,offensive rookie of the year,Anquan Boldin,Wide receiver,Arizona Cardinals
+2003,super bowl mvp,Tom Brady,Quarterback,New England Patriots
+2004,coach of the year,Marty Schottenheimer,,San Diego Chargers
+2004,comeback player of the year,Drew Brees,QB,San Diego
+2004,defensive player of the year,Ed Reed,S,Baltimore
+2004,defensive rookie of the year,Jonathan Vilma,Linebacker,New York Jets
+2004,mvp,Peyton Manning,Quarterback,Indianapolis Colts
+2004,offensive player of the year,Peyton Manning,Quarterback,Indianapolis Colts
+2004,offensive rookie of the year,Ben Roethlisberger,Quarterback,Pittsburgh Steelers
+2004,super bowl mvp,Deion Branch,Wide receiver,New England Patriots
+2005,coach of the year,Lovie Smith,,Chicago Bears
+2005,comeback player of the year,Tedy Bruschi,LB,New England
+2005,comeback player of the year,Steve Smith Sr.,WR,Carolina
+2005,defensive player of the year,Brian Urlacher,LB,Chicago
+2005,defensive rookie of the year,Shawne Merriman,Linebacker,San Diego Chargers
+2005,mvp,Shaun Alexander,Running back,Seattle Seahawks
+2005,offensive player of the year,Shaun Alexander,Running back,Seattle Seahawks
+2005,offensive rookie of the year,Cadillac Williams,Running back,Tampa Bay Buccaneers
+2005,super bowl mvp,Hines Ward,Wide receiver,Pittsburgh Steelers
+2006,coach of the year,Sean Payton,,New Orleans Saints
+2006,comeback player of the year,Chad Pennington,QB,NY Jets
+2006,defensive player of the year,Jason Taylor,DE,Miami
+2006,defensive rookie of the year,DeMeco Ryans,Linebacker,Houston Texans
+2006,mvp,LaDainian Tomlinson,Running back,San Diego Chargers
+2006,offensive player of the year,LaDainian Tomlinson,Running back,San Diego Chargers
+2006,offensive rookie of the year,Vince Young,Quarterback,Tennessee Titans
+2006,super bowl mvp,Peyton Manning,Quarterback,Indianapolis Colts
+2007,coach of the year,Bill Belichick,,New England Patriots
+2007,comeback player of the year,Greg Ellis,DE,Dallas
+2007,defensive player of the year,Bob Sanders,S,Indianapolis
+2007,defensive rookie of the year,Patrick Willis,Linebacker,San Francisco 49ers
+2007,mvp,Tom Brady,Quarterback,New England Patriots
+2007,offensive player of the year,Tom Brady,Quarterback,New England Patriots
+2007,offensive rookie of the year,Adrian Peterson,Running back,Minnesota Vikings
+2007,super bowl mvp,Eli Manning,Quarterback,New York Giants
+2008,coach of the year,Mike Smith,,Atlanta Falcons
+2008,comeback player of the year,Chad Pennington,QB,Miami
+2008,defensive player of the year,James Harrison,LB,Pittsburgh
+2008,defensive rookie of the year,Jerod Mayo,Linebacker,New England Patriots
+2008,mvp,Peyton Manning,Quarterback,Indianapolis Colts
+2008,offensive player of the year,Drew Brees,Quarterback,New Orleans Saints
+2008,offensive rookie of the year,Matt Ryan,Quarterback,Atlanta Falcons
+2008,super bowl mvp,Santonio Holmes,Wide receiver,Pittsburgh Steelers
+2009,coach of the year,Marvin Lewis,,Cincinnati Bengals
+2009,comeback player of the year,Tom Brady,QB,New England
+2009,defensive player of the year,Charles Woodson,CB,Green Bay
+2009,defensive rookie of the year,Brian Cushing,Linebacker,Houston Texans
+2009,mvp,Peyton Manning,Quarterback,Indianapolis Colts
+2009,offensive player of the year,Chris Johnson,Running back,Tennessee Titans
+2009,offensive rookie of the year,Percy Harvin,Wide receiver,Minnesota Vikings
+2009,super bowl mvp,Drew Brees,Quarterback,New Orleans Saints
+2010,coach of the year,Bill Belichick,,New England Patriots
+2010,comeback player of the year,Michael Vick,QB,Philadelphia
+2010,defensive player of the year,Troy Polamalu,S,Pittsburgh
+2010,defensive rookie of the year,Ndamukong Suh,Defensive tackle,Detroit Lions
+2010,mvp,Tom Brady,Quarterback,New England Patriots
+2010,offensive player of the year,Tom Brady,Quarterback,New England Patriots
+2010,offensive rookie of the year,Sam Bradford,Quarterback,St. Louis Rams
+2010,super bowl mvp,Aaron Rodgers,Quarterback,Green Bay Packers
+2011,coach of the year,Jim Harbaugh,,San Francisco 49ers
+2011,comeback player of the year,Matthew Stafford,QB,Detroit
+2011,defensive player of the year,Terrell Suggs,LB,Baltimore
+2011,defensive rookie of the year,Von Miller,Linebacker,Denver Broncos
+2011,mvp,Aaron Rodgers,Quarterback,Green Bay Packers
+2011,offensive player of the year,Drew Brees,Quarterback,New Orleans Saints
+2011,offensive rookie of the year,Cam Newton,Quarterback,Carolina Panthers
+2011,super bowl mvp,Eli Manning,Quarterback,New York Giants
+2012,coach of the year,Bruce Arians,,Indianapolis Colts
+2012,comeback player of the year,Peyton Manning,QB,Denver
+2012,defensive player of the year,J. J. Watt,DE,Houston
+2012,defensive rookie of the year,Luke Kuechly,Linebacker,Carolina Panthers
+2012,mvp,Adrian Peterson,Running back,Minnesota Vikings
+2012,offensive player of the year,Adrian Peterson,Running back,Minnesota Vikings
+2012,offensive rookie of the year,Robert Griffin III,Quarterback,Washington Redskins
+2012,super bowl mvp,Joe Flacco,Quarterback,Baltimore Ravens
+2013,coach of the year,Ron Rivera,,Carolina Panthers
+2013,comeback player of the year,Philip Rivers,QB,San Diego
+2013,defensive player of the year,Luke Kuechly,LB,Carolina
+2013,defensive rookie of the year,Sheldon Richardson,Defensive end,New York Jets
+2013,mvp,Peyton Manning,Quarterback,Denver Broncos
+2013,offensive player of the year,Peyton Manning,Quarterback,Denver Broncos
+2013,offensive rookie of the year,Eddie Lacy,Running back,Green Bay Packers
+2013,super bowl mvp,Malcolm Smith,Linebacker,Seattle Seahawks
+2014,coach of the year,Bruce Arians,,Arizona Cardinals
+2014,comeback player of the year,Rob Gronkowski,TE,New England
+2014,defensive player of the year,J. J. Watt,DE,Houston
+2014,defensive rookie of the year,Aaron Donald,Defensive tackle,St. Louis Rams
+2014,mvp,Aaron Rodgers,Quarterback,Green Bay Packers
+2014,offensive player of the year,DeMarco Murray,Running back,Dallas Cowboys
+2014,offensive rookie of the year,Odell Beckham Jr.,Wide receiver,New York Giants
+2014,super bowl mvp,Tom Brady,Quarterback,New England Patriots
+2015,coach of the year,Ron Rivera,,Carolina Panthers
+2015,comeback player of the year,Eric Berry,S,Kansas City
+2015,defensive player of the year,J. J. Watt,DE,Houston
+2015,defensive rookie of the year,Marcus Peters,Cornerback,Kansas City Chiefs
+2015,mvp,Cam Newton,Quarterback,Carolina Panthers
+2015,offensive player of the year,Cam Newton,Quarterback,Carolina Panthers
+2015,offensive rookie of the year,Todd Gurley,Running back,St. Louis Rams
+2015,super bowl mvp,Von Miller,Linebacker,Denver Broncos
+2016,coach of the year,Jason Garrett,,Dallas Cowboys
+2016,comeback player of the year,Jordy Nelson,WR,Green Bay
+2016,defensive player of the year,Khalil Mack,DE,Oakland
+2016,defensive rookie of the year,Joey Bos,Defensive end,San Diego Chargers
+2016,mvp,Matt Ryan,Quarterback,Atlanta Falcons
+2016,offensive player of the year,Matt Ryan,Quarterback,Atlanta Falcons
+2016,offensive rookie of the year,Dak Prescott,Quarterback,Dallas Cowboys
+2016,super bowl mvp,Tom Brady,Quarterback,New England Patriots
+2017,coach of the year,Sean McVay,,Los Angeles Rams
+2017,comeback player of the year,Keenan Allen,WR,LA Chargers
+2017,defensive player of the year,Aaron Donald,DT,LA Rams
+2017,defensive rookie of the year,Marshon Lattimore,Cornerback,New Orleans Saints
+2017,mvp,Tom Brady,Quarterback,New England Patriots
+2017,offensive player of the year,Todd Gurley,Running back,Los Angeles Rams
+2017,offensive rookie of the year,Alvin Kamara,Running back,New Orleans Saints
+2017,super bowl mvp,Nick Foles,Quarterback,Philadelphia Eagles
+2018,coach of the year,Matt Nagy,,Chicago Bears
+2018,comeback player of the year,Andrew Luck,QB,Indianapolis
+2018,defensive player of the year,Aaron Donald,DT,LA Rams
+2018,defensive rookie of the year,Shaquille Leonard,Linebacker,Indianapolis Colts
+2018,mvp,Patrick Mahomes,Quarterback,Kansas City Chiefs
+2018,offensive player of the year,Patrick Mahomes,Quarterback,Kansas City Chiefs
+2018,offensive rookie of the year,Saquon Barkley,Running back,New York Giants
+2018,super bowl mvp,Julian Edelman,Wide receiver,New England Patriots
+2019,coach of the year,John Harbaugh,,Baltimore Ravens
+2019,comeback player of the year,Ryan Tannehill,QB,Tennessee
+2019,defensive player of the year,Stephon Gilmore,CB,New England
+2019,defensive rookie of the year,Nick Bos,Defensive end,San Francisco 49ers
+2019,mvp,Lamar Jackson,Quarterback,Baltimore Ravens
+2019,offensive player of the year,Michael Thomas,Wide receiver,New Orleans Saints
+2019,offensive rookie of the year,Kyler Murray,Quarterback,Arizona Cardinals
+2019,super bowl mvp,Patrick Mahomes,Quarterback,Kansas City Chiefs
+2020,coach of the year,Kevin Stefanski,,Cleveland Browns
+2020,comeback player of the year,Alex Smith,QB,Washington
+2020,defensive player of the year,Aaron Donald,DT,LA Rams
+2020,defensive rookie of the year,Chase Young,Defensive end,Washington Football Team
+2020,mvp,Aaron Rodgers,Quarterback,Green Bay Packers
+2020,offensive player of the year,Derrick Henry,Running back,Tennessee Titans
+2020,offensive rookie of the year,Justin Herbert,Quarterback,Los Angeles Chargers
+2020,super bowl mvp,Tom Brady,Quarterback,Tampa Bay Buccaneers
+2021,coach of the year,Mike Vrabel,,Tennessee Titans
+2021,comeback player of the year,Joe Burrow,QB,Cincinnati
+2021,defensive player of the year,T. J. Watt,LB,Pittsburgh
+2021,defensive rookie of the year,Micah Parsons,Linebacker,Dallas Cowboys
+2021,mvp,Aaron Rodgers,Quarterback,Green Bay Packers
+2021,offensive player of the year,Cooper Kupp,Wide receiver,Los Angeles Rams
+2021,offensive rookie of the year,Ja'Marr Chase,Wide receiver,Cincinnati Bengals
+2021,super bowl mvp,Cooper Kupp,Wide receiver,Los Angeles Rams
+2022,coach of the year,Brian Daboll,,New York Giants
+2022,comeback player of the year,Geno Smith,QB,Seattle
+2022,defensive player of the year,Nick Bos,DE,San Francisco
+2022,defensive rookie of the year,Sauce Gardner,Cornerback,New York Jets
+2022,mvp,Patrick Mahomes,Quarterback,Kansas City Chiefs
+2022,offensive player of the year,Justin Jefferson,Wide receiver,Minnesota Vikings
+2022,offensive rookie of the year,Garrett Wilson,Wide receiver,New York Jets
+2022,super bowl mvp,Patrick Mahomes,Quarterback,Kansas City Chiefs
+2023,coach of the year,Kevin Stefanski,,Cleveland Browns
+2023,comeback player of the year,Joe Flacco,QB,Cleveland
+2023,defensive player of the year,Myles Garrett,DE,Cleveland
+2023,defensive rookie of the year,Will Anderson Jr.,Defensive end,Houston Texans
+2023,mvp,Lamar Jackson,Quarterback,Baltimore Ravens
+2023,offensive player of the year,Christian McCaffrey,Running back,San Francisco 49ers
+2023,offensive rookie of the year,C. J. Stroud,Quarterback,Houston Texans
+2023,super bowl mvp,Patrick Mahomes,Quarterback,Kansas City Chiefs
+2024,coach of the year,Kevin O'Connell,,Minnesota Vikings
+2024,comeback player of the year,Joe Burrow,QB,Cincinnati
+2024,defensive player of the year,Patrick Surtain II,CB,Denver
+2024,defensive rookie of the year,Jared Verse,Linebacker,Los Angeles Rams
+2024,mvp,Josh Allen,Quarterback,Buffalo Bills
+2024,offensive player of the year,Saquon Barkley,Running back,Philadelphia Eagles
+2024,offensive rookie of the year,Jayden Daniels,Quarterback,Washington Commanders
+2024,super bowl mvp,Jalen Hurts,Quarterback,Philadelphia Eagles
+2025,coach of the year,Mike Vrabel,,New England Patriots
+2025,comeback player of the year,Christian McCaffrey,RB,San Francisco
+2025,defensive player of the year,Myles Garrett,DE,Cleveland
+2025,defensive rookie of the year,Carson Schwesinger,Linebacker,Cleveland Browns
+2025,mvp,Matthew Stafford,Quarterback,Los Angeles Rams
+2025,offensive player of the year,Jaxon Smith-Njigba,Wide receiver,Seattle Seahawks
+2025,offensive rookie of the year,Tetairoa McMillan,Wide receiver,Carolina Panthers
+2025,super bowl mvp,Kenneth Walker III,Running back,Seattle Seahawks
