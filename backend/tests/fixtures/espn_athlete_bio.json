@@ -1,0 +1,32 @@
+{
+ "athlete": {
+  "id": "2330",
+  "displayName": "Tom Brady",
+  "active": false,
+  "status": {
+   "id": "2",
+   "name": "Inactive",
+   "type": "inactive",
+   "abbreviation": "Inactive"
+  },
+  "age": 49,
+  "displayDOB": "3/8/1977",
+  "displayBirthPlace": "San Mateo, CA",
+  "college": {
+   "id": "130",
+   "mascot": "Wolverines",
+   "name": "Michigan",
+   "shortName": "Michigan",
+   "abbrev": "MICH"
+  },
+  "displayDraft": "2000: Rd 6, Pk 199 (NE)",
+  "displayExperience": "23rd Season",
+  "debutYear": 2000,
+  "position": {
+   "abbreviation": "QB"
+  },
+  "team": {
+   "displayName": "Tampa Bay Buccaneers"
+  }
+ }
+}

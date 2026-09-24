@@ -437,6 +437,8 @@ GAMELOG_CACHE_TTL_SECONDS = 21600
 # so six games alone was 3,492 against the 3,400-byte payload ceiling. The fact cap is the
 # full row width because a lower one drops every rushing figure (index 12 of 16).
 GAME_LOG_MAX_EVENTS = 3
+# A playoff run is at most four games (wild card to Super Bowl).
+POSTSEASON_LOG_MAX_EVENTS = 4
 GAME_LOG_MAX_FACTS = 16
 
 # The ``categories[].splitType`` of each block. A member asking about "week 2" means the
@@ -2093,7 +2095,12 @@ def _parse_one_logged_game(
     }
 
 
-def parse_athlete_gamelog(payload: Any, *, week: int | None = None) -> dict | None:
+_GAMELOG_POSTSEASON_SPLIT = "3"
+
+
+def parse_athlete_gamelog(
+    payload: Any, *, week: int | None = None, postseason: bool | None = None
+) -> dict | None:
     """Extract ONE game, or the most recent games, from a raw athlete game-log payload.
 
     Pure and never-raising. Returns ``None`` only on an unusable top-level shape; ``events``
@@ -2118,8 +2125,12 @@ def parse_athlete_gamelog(payload: Any, *, week: int | None = None) -> dict | No
         for category in categories if isinstance(categories, list) else []:
             if not isinstance(category, dict):
                 continue
-            regular = str(category.get("splitType")) == _GAMELOG_REGULAR_SPLIT
-            if asked is not None and not regular:
+            split = str(category.get("splitType"))
+            if postseason is True and split != _GAMELOG_POSTSEASON_SPLIT:
+                continue
+            if postseason is False and split != _GAMELOG_REGULAR_SPLIT:
+                continue
+            if asked is not None and postseason is not True and split != _GAMELOG_REGULAR_SPLIT:
                 continue  # a member asking about a week means the regular season's week
             for entry in category.get("events") or []:
                 if not isinstance(entry, dict):
@@ -2134,7 +2145,7 @@ def parse_athlete_gamelog(payload: Any, *, week: int | None = None) -> dict | No
     return {
         "season": _gamelog_season(payload),
         "week": asked,
-        "games": games[:GAME_LOG_MAX_EVENTS],
+        "games": games[: POSTSEASON_LOG_MAX_EVENTS if postseason else GAME_LOG_MAX_EVENTS],
     }
 
 
@@ -2188,6 +2199,9 @@ def parse_team_record(payload: Any, team_abbr: Any) -> dict | None:
                 continue
             label = _TEAM_RECORD_LABELS.get(_first_str(record.get("type")) or "")
             summary = _stat_value(record.get("summary"))
+            # Before ~1998 ESPN fills every split with "0-0" (1985 Bears: home 0-0).
+            if label != "overall record" and summary is not None and summary.strip() == "0-0":
+                summary = None
             if label is not None and summary is not None and label not in records:
                 records[label] = summary
             if index == 0:
@@ -3749,3 +3763,544 @@ def parse_draft(
         "picks": picks[:DRAFT_MAX_PICKS],
         "total": len(picks),
     }
+
+
+# --------------------------------------------------------------------------- #
+# Issue #248: career, awards, FPI, QBR and transactions. A core-API ``$ref`` is never
+# fetched: only a numeric id is taken out of a ref on the core host, and the URL is
+# built here from that id.
+# --------------------------------------------------------------------------- #
+
+_WEB_ATHLETE_URL = "https://site.web.api.espn.com/apis/common/v3/sports/football/nfl/athletes"
+ATHLETE_POSTSEASON_STATS_URL = _WEB_ATHLETE_URL + "/{athlete_id}/stats?seasontype=3"
+ATHLETE_BIO_URL = _WEB_ATHLETE_URL + "/{athlete_id}"
+ATHLETE_OVERVIEW_URL = _WEB_ATHLETE_URL + "/{athlete_id}/overview"
+CAREER_CACHE_TTL_SECONDS = 21600
+CAREER_MAX_CATEGORIES = 4
+
+CAREER_CAVEAT = (
+    "Every figure here is from ESPN's record of this player's career. Report a career "
+    "total only from career_totals and a season's figures only from that season's row; "
+    "never add rows together yourself. An award season is the NFL season it honors, so a "
+    "Super Bowl MVP listed for the 2020 season was won in the Super Bowl played in early "
+    "2021."
+)
+
+
+def _valid_athlete_id(athlete_id: Any) -> str | None:
+    candidate = athlete_id.strip() if isinstance(athlete_id, str) else ""
+    return candidate if _ATHLETE_ID_RE.fullmatch(candidate) else None
+
+
+async def fetch_athlete_career_stats(athlete_id: Any, *, postseason: bool = False) -> dict | None:
+    """One athlete's season-by-season table, regular season or playoffs. ``None`` on failure."""
+    if not postseason:
+        return await fetch_athlete_stats(athlete_id)
+    candidate = _valid_athlete_id(athlete_id)
+    if candidate is None:
+        return None
+    return await _fetch_cached(
+        ATHLETE_POSTSEASON_STATS_URL.format(athlete_id=candidate),
+        cache_key=f"qa:athlete_stats_post:{candidate}",
+        ttl_seconds=CAREER_CACHE_TTL_SECONDS,
+        label="athlete_stats_post",
+    )
+
+
+async def fetch_athlete_bio(athlete_id: Any) -> dict | None:
+    """One athlete's ESPN bio (draft, college, experience). ``None`` on failure."""
+    candidate = _valid_athlete_id(athlete_id)
+    if candidate is None:
+        return None
+    return await _fetch_cached(
+        ATHLETE_BIO_URL.format(athlete_id=candidate),
+        cache_key=f"qa:athlete_bio:{candidate}",
+        ttl_seconds=CAREER_CACHE_TTL_SECONDS,
+        label="athlete_bio",
+    )
+
+
+async def fetch_athlete_overview(athlete_id: Any) -> dict | None:
+    """One athlete's ESPN overview; the career tool reads only its ``awards``."""
+    candidate = _valid_athlete_id(athlete_id)
+    if candidate is None:
+        return None
+    return await _fetch_cached(
+        ATHLETE_OVERVIEW_URL.format(athlete_id=candidate),
+        cache_key=f"qa:athlete_overview:{candidate}",
+        ttl_seconds=CAREER_CACHE_TTL_SECONDS,
+        label="athlete_overview",
+    )
+
+
+def _column_keys(category: dict) -> list[str | None]:
+    """Short labels where they are unique in the category, the long name where not."""
+    labels = category.get("labels")
+    labels = labels if isinstance(labels, list) else []
+    names = category.get("displayNames")
+    names = names if isinstance(names, list) else []
+    keys: list[str | None] = []
+    for index, label in enumerate(labels):
+        long_name = names[index] if index < len(names) else None
+        short = _first_str(label)
+        duplicate = short is not None and labels.count(label) > 1
+        key = _first_str(long_name) if duplicate or short is None else short
+        keys.append(key if key not in keys else None)
+    return keys
+
+
+def _row_facts(keys: list[str | None], values: Any) -> dict[str, str]:
+    facts: dict[str, str] = {}
+    for key, raw in zip(keys, values if isinstance(values, list) else []):
+        value = _stat_value(raw)
+        if key is not None and value is not None:
+            facts[key] = value
+    return facts
+
+
+def parse_athlete_career(payload: Any) -> dict | None:
+    """Every season row and the career totals of each stat category. Pure, never raises.
+
+    Returns ``{categories: {label: {columns, career_totals, seasons}}}``. A season split
+    between clubs keeps ESPN's combined row and names every club. All-zero categories
+    are dropped.
+    """
+    if not isinstance(payload, dict) or not isinstance(payload.get("categories"), list):
+        return None
+    teams = payload.get("teams")
+    categories: dict[str, dict[str, Any]] = {}
+    for category in payload["categories"]:
+        if len(categories) >= CAREER_MAX_CATEGORIES:
+            break
+        if not isinstance(category, dict):
+            continue
+        label = _first_str(category.get("displayName"), category.get("name"))
+        if label is None or label in categories:
+            continue
+        keys = _column_keys(category)
+        totals = _row_facts(keys, category.get("totals"))
+        if not totals or _is_zeroish_category(totals):
+            continue
+        rows = category.get("statistics")
+        rows = [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+        seasons: list[dict[str, Any]] = []
+        for year in sorted({y for y in map(_season_year, rows) if y is not None}):
+            year_rows = [r for r in rows if _season_year(r) == year]
+            row = _select_season_row(year_rows, teams)
+            if row is None:
+                continue
+            clubs = [c for c in (_season_team_name(r, teams) for r in year_rows) if c]
+            seasons.append(
+                {"season": year, "team": " and ".join(clubs) or None}
+                | _row_facts(keys, row.get("stats"))
+            )
+        names = category.get("displayNames")
+        names = names if isinstance(names, list) else []
+        columns = {
+            key: names[i]
+            for i, key in enumerate(keys)
+            if key is not None and i < len(names) and isinstance(names[i], str) and key != names[i]
+        }
+        categories[label] = {"columns": columns, "career_totals": totals, "seasons": seasons}
+    return {"categories": categories}
+
+
+def _int_or_none(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def parse_athlete_bio(payload: Any) -> dict | None:
+    """The bio facts of one athlete. Pure, never raises."""
+    athlete = payload.get("athlete") if isinstance(payload, dict) else None
+    if not isinstance(athlete, dict):
+        return None
+    active = athlete.get("active")
+    return {
+        "player": _first_str(athlete.get("displayName")),
+        "position": _first_str(_dict_at(athlete, "position").get("abbreviation")),
+        "active": active if isinstance(active, bool) else None,
+        "status": _first_str(_dict_at(athlete, "status").get("name")),
+        "team": _first_str(_dict_at(athlete, "team").get("displayName")),
+        "age": _int_or_none(athlete.get("age")),
+        "born": _first_str(athlete.get("displayDOB")),
+        "birthplace": _first_str(athlete.get("displayBirthPlace")),
+        "college": _first_str(_dict_at(athlete, "college").get("name")),
+        "draft": _first_str(athlete.get("displayDraft")),
+        "experience": _first_str(athlete.get("displayExperience")),
+        "first_season": _int_or_none(athlete.get("debutYear")),
+    }
+
+
+def parse_athlete_awards(payload: Any) -> list[dict[str, Any]] | None:
+    """The awards block of an athlete overview. Pure, never raises."""
+    if not isinstance(payload, dict):
+        return None
+    awards = payload.get("awards")
+    if not isinstance(awards, list):
+        return []
+    parsed: list[dict[str, Any]] = []
+    for award in awards:
+        if not isinstance(award, dict):
+            continue
+        name = _first_str(award.get("name"))
+        seasons = award.get("seasons")
+        seasons = [s for s in seasons if isinstance(s, str)] if isinstance(seasons, list) else []
+        if name is not None:
+            parsed.append(
+                {"award": name, "times": len(seasons) or None, "seasons": sorted(seasons)}
+            )
+    return parsed
+
+
+# ---- awards by season ---------------------------------------------------------------
+
+_CORE_URL = "https://sports.core.api.espn.com/v2/sports/football/leagues/nfl"
+SEASON_AWARD_URL = _CORE_URL + "/seasons/{season}/awards/{award_id}"
+SEASON_ATHLETE_URL = _CORE_URL + "/seasons/{season}/athletes/{athlete_id}"
+AWARDS_CACHE_TTL_SECONDS = 86400
+AWARDS_SEASON_MIN = 1960
+
+# ESPN's award ids, measured 2026-09-24. The keys are the model-facing vocabulary.
+SEASON_AWARDS: dict[str, str] = {
+    "mvp": "477",
+    "super bowl mvp": "317",
+    "offensive player of the year": "478",
+    "defensive player of the year": "479",
+    "offensive rookie of the year": "480",
+    "defensive rookie of the year": "481",
+    "coach of the year": "482",
+    "comeback player of the year": "483",
+    "walter payton man of the year": "484",
+}
+_AWARD_ALIASES = {
+    "most valuable player": "mvp",
+    "opoy": "offensive player of the year",
+    "dpoy": "defensive player of the year",
+    "oroy": "offensive rookie of the year",
+    "droy": "defensive rookie of the year",
+    "man of the year": "walter payton man of the year",
+    "comeback player": "comeback player of the year",
+}
+
+# A ref counts only on the core host; any other host yields no id (SSRF guard).
+_CORE_REF_PREFIX = (
+    r"^https?://sports\.core\.api\.espn\.com/v2/sports/football/leagues/nfl/"
+    r"(?:seasons/[0-9]{4}/)?"
+)
+_CORE_REF_ATHLETE_RE = re.compile(_CORE_REF_PREFIX + r"athletes/([0-9]{1,12})(?:[?/]|$)")
+_CORE_REF_TEAM_RE = re.compile(_CORE_REF_PREFIX + r"teams/([0-9]{1,4})(?:[?/]|$)")
+
+AWARDS_CAVEAT = (
+    "Every winner here is from ESPN's awards record. An award season is the NFL season it "
+    "honors: the Super Bowl MVP of the 2012 season won the Super Bowl played in early "
+    "2013. Report each winner exactly as listed and never name a winner who is not listed."
+)
+
+
+def season_award_id(award: Any) -> str | None:
+    """The ESPN id of a named award, or ``None``. Pure."""
+    if not isinstance(award, str):
+        return None
+    key = " ".join(award.lower().replace("'", "").split())
+    for prefix in ("the ", "nfl ", "ap "):
+        key = key.removeprefix(prefix)
+    return SEASON_AWARDS.get(_AWARD_ALIASES.get(key, key))
+
+
+def _valid_season(season: Any, minimum: int) -> bool:
+    return (
+        isinstance(season, int)
+        and not isinstance(season, bool)
+        and minimum <= season <= _SCHEDULE_SEASON_MAX
+    )
+
+
+async def fetch_season_award(season: Any, award_id: Any) -> dict | None:
+    """One award's winners for one season. ``None`` on failure or a bad argument."""
+    if not _valid_season(season, AWARDS_SEASON_MIN) or award_id not in SEASON_AWARDS.values():
+        return None
+    return await _fetch_cached(
+        SEASON_AWARD_URL.format(season=season, award_id=award_id),
+        cache_key=f"qa:award:{season}:{award_id}",
+        ttl_seconds=AWARDS_CACHE_TTL_SECONDS,
+        label="award",
+    )
+
+
+async def fetch_season_athlete(season: Any, athlete_id: Any) -> dict | None:
+    """One season's athlete (or coach) record, for a name. ``None`` on failure."""
+    candidate = _valid_athlete_id(athlete_id)
+    if candidate is None or not _valid_season(season, AWARDS_SEASON_MIN):
+        return None
+    return await _fetch_cached(
+        SEASON_ATHLETE_URL.format(season=season, athlete_id=candidate),
+        cache_key=f"qa:season_athlete:{season}:{candidate}",
+        ttl_seconds=AWARDS_CACHE_TTL_SECONDS,
+        label="season_athlete",
+    )
+
+
+def core_ref_athlete_id(ref: Any) -> str | None:
+    """The athlete id in a core-host ``$ref``, else ``None``. Pure."""
+    found = _CORE_REF_ATHLETE_RE.match(ref) if isinstance(ref, str) else None
+    return found.group(1) if found else None
+
+
+def core_ref_team(ref: Any) -> str | None:
+    """The club display name for a core-host team ``$ref``, else ``None``. Pure."""
+    found = _CORE_REF_TEAM_RE.match(ref) if isinstance(ref, str) else None
+    mapped = NFL_TEAM_BY_ID.get(found.group(1)) if found else None
+    return mapped[1] if mapped else None
+
+
+def parse_season_award(payload: Any) -> dict | None:
+    """``{award, description, winners: [{athlete_id, team}]}``. Pure, never raises."""
+    if not isinstance(payload, dict):
+        return None
+    winners: list[dict[str, str | None]] = []
+    for winner in payload.get("winners") or []:
+        if not isinstance(winner, dict):
+            continue
+        athlete_id = core_ref_athlete_id(_dict_at(winner, "athlete").get("$ref"))
+        team = core_ref_team(_dict_at(winner, "team").get("$ref"))
+        if athlete_id is not None or team is not None:
+            winners.append({"athlete_id": athlete_id, "team": team})
+    return {
+        "award": _first_str(payload.get("name")),
+        "description": _first_str(payload.get("description")),
+        "winners": winners,
+    }
+
+
+def parse_season_athlete(payload: Any) -> dict[str, str | None] | None:
+    """The name and position of a season athlete record. Pure, never raises."""
+    if not isinstance(payload, dict):
+        return None
+    name = _first_str(payload.get("displayName"), payload.get("fullName"))
+    if name is None:
+        return None
+    return {"name": name, "position": _first_str(_dict_at(payload, "position").get("abbreviation"))}
+
+
+# ---- FPI ------------------------------------------------------------------------------
+
+POWER_INDEX_URL = "https://site.api.espn.com/apis/fitt/v3/sports/football/nfl/powerindex"
+POWER_INDEX_CACHE_TTL_SECONDS = 3600
+POWER_INDEX_TOP = 10
+
+POWER_INDEX_CAVEAT = (
+    "These numbers are ESPN's Football Power Index model, not the pick'em league's and not "
+    "yours. A percentage is ESPN's simulated chance, never a certainty. Report each number "
+    "exactly as listed and name ESPN's FPI as the source."
+)
+
+_FPI_FIELDS = {
+    "fpi": "fpi",
+    "fpirank": "fpi_rank",
+    "numwins": "wins",
+    "numlosses": "losses",
+    "numties": "ties",
+    "projectedw": "projected_wins",
+    "projectedl": "projected_losses",
+    "probmakeplayoffs": "playoffs_pct",
+    "probwindiv": "win_division_pct",
+    "probmakedivplayoffs": "reach_divisional_round_pct",
+    "probmakeconfchamp": "reach_conference_title_game_pct",
+    "probmaketitlegame": "reach_super_bowl_pct",
+    "probwintitle": "win_super_bowl_pct",
+    "offefficiency": "offense_efficiency",
+    "defefficiency": "defense_efficiency",
+    "stefficiency": "special_teams_efficiency",
+}
+_FPI_INTEGERS = {"fpi_rank", "wins", "losses", "ties"}
+
+
+async def fetch_power_index() -> dict | None:
+    """ESPN's FPI for all 32 clubs, current season only. ``None`` on failure."""
+    return await _fetch_cached(
+        POWER_INDEX_URL,
+        cache_key="qa:fpi",
+        ttl_seconds=POWER_INDEX_CACHE_TTL_SECONDS,
+        label="fpi",
+    )
+
+
+def _fpi_row(team_entry: dict, names_by_category: dict[str, list[Any]]) -> dict[str, Any]:
+    row: dict[str, Any] = {}
+    for category in team_entry.get("categories") or []:
+        if not isinstance(category, dict):
+            continue
+        names = names_by_category.get(str(category.get("name")), [])
+        values = category.get("values")
+        for name, value in zip(names, values if isinstance(values, list) else []):
+            field = _FPI_FIELDS.get(str(name))
+            if field is None or field in row:
+                continue
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                row[field] = int(value) if field in _FPI_INTEGERS else round(float(value), 1)
+    return row
+
+
+def parse_power_index(payload: Any, team_abbr: Any = None) -> dict | None:
+    """One club's FPI row, or the top clubs by FPI rank. Pure, never raises.
+
+    Returns ``{season, teams}``; ``teams`` is empty when the asked club is not listed.
+    """
+    if not isinstance(payload, dict) or not isinstance(payload.get("teams"), list):
+        return None
+    names_by_category: dict[str, list[Any]] = {}
+    for category in payload.get("categories") or []:
+        if isinstance(category, dict) and isinstance(category.get("names"), list):
+            names_by_category[str(category.get("name"))] = category["names"]
+    needle = team_abbr.strip().upper() if isinstance(team_abbr, str) and team_abbr.strip() else None
+    rows: list[dict[str, Any]] = []
+    for entry in payload["teams"]:
+        if not isinstance(entry, dict):
+            continue
+        mapped = NFL_TEAM_BY_ID.get(str(_dict_at(entry, "team").get("id")))
+        if mapped is None or (needle is not None and mapped[0] != needle):
+            continue
+        rows.append({"team": mapped[1]} | _fpi_row(entry, names_by_category))
+    rows.sort(key=lambda r: r.get("fpi_rank") or 99)
+    return {
+        "season": _int_or_none(_dict_at(payload, "requestedSeason").get("year")),
+        "teams": rows if needle is not None else rows[:POWER_INDEX_TOP],
+    }
+
+
+# ---- QBR ------------------------------------------------------------------------------
+
+QBR_URL = (
+    "https://site.web.api.espn.com/apis/fitt/v3/sports/football/nfl/qbr"
+    "?qbrType={qbr_type}&seasontype=2&isqualified=true&season={season}"
+)
+QBR_CACHE_TTL_SECONDS = 21600
+QBR_SEASON_MIN = 2006
+QBR_TOP = 10
+
+QBR_CAVEAT = (
+    "Total QBR is ESPN's quarterback rating from 0 to 100, adjusted for the defenses "
+    "faced; it is not the NFL passer rating. Only qualified quarterbacks are listed. Report "
+    "each rating exactly as listed and never rank a quarterback who is not listed."
+)
+
+
+async def fetch_qbr(season: Any, week: Any = None) -> dict | None:
+    """ESPN Total QBR for a season, or one week of it. ``None`` on failure."""
+    if not _valid_season(season, QBR_SEASON_MIN):
+        return None
+    if week is None:
+        url = QBR_URL.format(qbr_type="seasons", season=season)
+        key = f"qa:qbr:{season}"
+    elif isinstance(week, int) and not isinstance(week, bool) and 1 <= week <= 18:
+        url = QBR_URL.format(qbr_type="weeks", season=season) + f"&week={week}"
+        key = f"qa:qbr:{season}:{week}"
+    else:
+        return None
+    return await _fetch_cached(url, cache_key=key, ttl_seconds=QBR_CACHE_TTL_SECONDS, label="qbr")
+
+
+def parse_qbr(payload: Any, player: Any = None) -> dict | None:
+    """The ranked QBR list, or the rows whose name contains ``player``. Pure, never raises."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("athletes"), list):
+        return None
+    categories = payload.get("categories")
+    first = categories[0] if isinstance(categories, list) and categories else {}
+    names = first.get("names") if isinstance(first, dict) else None
+    names = names if isinstance(names, list) else []
+    needle = player.strip().casefold() if isinstance(player, str) and player.strip() else None
+    rows: list[dict[str, Any]] = []
+    for entry in payload["athletes"]:
+        if not isinstance(entry, dict):
+            continue
+        athlete = _dict_at(entry, "athlete")
+        name = _first_str(athlete.get("displayName"))
+        if name is None or (needle is not None and needle not in name.casefold()):
+            continue
+        cats = entry.get("categories")
+        general = cats[0] if isinstance(cats, list) and cats and isinstance(cats[0], dict) else {}
+        totals = general.get("totals")
+        ranks = general.get("ranks")
+        values = dict(zip(names, totals if isinstance(totals, list) else []))
+        rank = _first_str(ranks[0]) if isinstance(ranks, list) and ranks else None
+        row: dict[str, Any] = {
+            "rank": int(rank) if rank is not None and rank.isdigit() else None,
+            "player": name,
+            "team": _first_str(athlete.get("teamShortName")),
+            "total_qbr": _stat_value(values.get("schedAdjQBR")),
+            "raw_qbr": _stat_value(values.get("qbr")),
+            "plays": _stat_value(values.get("actionPlays")),
+            "points_added": _stat_value(values.get("qbpaa")),
+        }
+        opponent = _dict_at(_dict_at(entry, "game"), "teamOpponent")
+        if opponent:
+            row["opponent"] = _first_str(opponent.get("displayName"))
+        rows.append(row)
+    rows.sort(key=lambda r: r["rank"] if r["rank"] is not None else 999)
+    return {
+        "season": _int_or_none(_dict_at(payload, "requestedSeason").get("year")),
+        "total": len(rows),
+        "quarterbacks": rows if needle is not None else rows[:QBR_TOP],
+    }
+
+
+# ---- transactions ---------------------------------------------------------------------
+
+TRANSACTIONS_URL = (
+    "https://site.api.espn.com/apis/site/v2/sports/football/nfl/transactions?limit={limit}"
+)
+TRANSACTIONS_CACHE_TTL_SECONDS = 1800
+TRANSACTIONS_LIMIT = 15
+TRANSACTIONS_SEASON_MIN = 2005
+_TRANSACTION_TEXT_MAX = 400
+
+TRANSACTIONS_CAVEAT = (
+    "Each entry is ESPN's own one-line record of a roster move, newest first, with its "
+    "date. Report a move only as its entry words it, give its date, and never add a move "
+    "that is not listed. This list is the most recent moves only, not every move."
+)
+
+
+async def fetch_transactions(team_abbr: Any = None, season: Any = None) -> dict | None:
+    """ESPN's latest roster moves, league-wide or for one club. ``None`` on failure."""
+    url = TRANSACTIONS_URL.format(limit=TRANSACTIONS_LIMIT)
+    key = "qa:tx"
+    if team_abbr is not None:
+        canonical = team_abbr.strip().upper() if isinstance(team_abbr, str) else ""
+        team_id = NFL_TEAM_ID_BY_ABBR.get(canonical)
+        if team_id is None:
+            return None
+        url += f"&team={team_id}"
+        key += f":{canonical}"
+    if season is not None:
+        if not _valid_season(season, TRANSACTIONS_SEASON_MIN):
+            return None
+        url += f"&season={season}"
+        key += f":{season}"
+    return await _fetch_cached(
+        url, cache_key=key, ttl_seconds=TRANSACTIONS_CACHE_TTL_SECONDS, label="transactions"
+    )
+
+
+def parse_transactions(payload: Any, team_abbr: Any = None) -> list[dict[str, str | None]] | None:
+    """The listed moves as ``{date, team, move}``. Pure, never raises."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("transactions"), list):
+        return None
+    asked = team_abbr.strip().upper() if isinstance(team_abbr, str) and team_abbr.strip() else None
+    moves: list[dict[str, str | None]] = []
+    for item in payload["transactions"]:
+        if not isinstance(item, dict):
+            continue
+        text = _first_str(item.get("description"))
+        if text is None:
+            continue
+        date = _first_str(item.get("date"))
+        team = _first_str(_dict_at(item, "team").get("abbreviation")) or asked
+        moves.append(
+            {
+                "date": date[:10] if date else None,
+                "team": team,
+                "move": " ".join(text.split())[:_TRANSACTION_TEXT_MAX],
+            }
+        )
+    return moves[:TRANSACTIONS_LIMIT]

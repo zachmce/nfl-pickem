@@ -1,0 +1,262 @@
+{
+ "requestedSeason": {
+  "year": 2026
+ },
+ "categories": [
+  {
+   "name": "fpi",
+   "labels": [
+    "FPI",
+    "EFF OFF",
+    "EFF DEF",
+    "EFF ST",
+    "FPI",
+    "SOR RNK",
+    "AVGSOSRNK",
+    "REM SOS RNK",
+    "GC",
+    "AVGWP RNK",
+    null,
+    "W",
+    "L",
+    "T"
+   ],
+   "names": [
+    "fpi",
+    "epaoffense",
+    "epadefense",
+    "epaspecialteams",
+    "fpirank",
+    "accomplishmentrank",
+    "avgsosrank",
+    "sosremainingrank",
+    "gamecontrolrank",
+    "avgingamewprank",
+    "rankchange7days",
+    "numwins",
+    "numlosses",
+    "numties"
+   ]
+  },
+  {
+   "name": "projections",
+   "labels": [
+    "PROJ W",
+    "PROJ L",
+    "WIN OUT%",
+    "WIN CONF%",
+    "WIN DIV%",
+    "PLAYOFFS%",
+    "PLAYOFFS%",
+    "MAKE NC%",
+    "WIN NC%",
+    "MAKE CC%"
+   ],
+   "names": [
+    "projectedw",
+    "projectedl",
+    "probwinout",
+    "probwinconf",
+    "probwindiv",
+    "probmakeplayoffs",
+    "probmakedivplayoffs",
+    "probmaketitlegame",
+    "probwintitle",
+    "probmakeconfchamp"
+   ]
+  },
+  {
+   "name": "efficiencies",
+   "labels": [
+    "EFF",
+    "RNK",
+    "EFF",
+    "RNK",
+    "EFF",
+    "RNK",
+    "EFF",
+    "RNK"
+   ],
+   "names": [
+    "totefficiency",
+    "totefficiencyrank",
+    "offefficiency",
+    "offefficiencyrank",
+    "defefficiency",
+    "defefficiencyrank",
+    "stefficiency",
+    "stefficiencyrank"
+   ]
+  }
+ ],
+ "teams": [
+  {
+   "team": {
+    "id": "25",
+    "abbreviation": "SF",
+    "displayName": "San Francisco 49ers"
+   },
+   "categories": [
+    {
+     "name": "fpi",
+     "values": [
+      7.342,
+      6.041,
+      0.803,
+      0.498,
+      1.0,
+      0.0,
+      22.0,
+      14.0,
+      0.0,
+      2.0,
+      0.0,
+      2.0,
+      0.0,
+      0.0
+     ]
+    },
+    {
+     "name": "projections",
+     "values": [
+      13.062,
+      3.905,
+      1.0,
+      null,
+      66.4,
+      97.1,
+      82.69999999999999,
+      38.0,
+      24.2,
+      56.2
+     ]
+    },
+    {
+     "name": "efficiencies",
+     "values": [
+      93.881,
+      1.0,
+      91.827,
+      2.0,
+      71.756,
+      8.0,
+      88.293,
+      2.0
+     ]
+    }
+   ]
+  },
+  {
+   "team": {
+    "id": "2",
+    "abbreviation": "BUF",
+    "displayName": "Buffalo Bills"
+   },
+   "categories": [
+    {
+     "name": "fpi",
+     "values": [
+      5.671,
+      6.314,
+      -0.742,
+      0.098,
+      2.0,
+      0.0,
+      11.0,
+      25.0,
+      0.0,
+      4.0,
+      0.0,
+      2.0,
+      0.0,
+      0.0
+     ]
+    },
+    {
+     "name": "projections",
+     "values": [
+      12.365,
+      4.594,
+      0.2,
+      null,
+      83.2,
+      97.6,
+      78.2,
+      30.5,
+      16.1,
+      49.9
+     ]
+    },
+    {
+     "name": "efficiencies",
+     "values": [
+      68.835,
+      8.0,
+      92.571,
+      1.0,
+      28.765,
+      26.0,
+      48.692,
+      18.0
+     ]
+    }
+   ]
+  },
+  {
+   "team": {
+    "id": "14",
+    "abbreviation": "LAR",
+    "displayName": "Los Angeles Rams"
+   },
+   "categories": [
+    {
+     "name": "fpi",
+     "values": [
+      4.68,
+      2.831,
+      2.182,
+      -0.332,
+      3.0,
+      0.0,
+      8.0,
+      5.0,
+      0.0,
+      14.0,
+      3.0,
+      1.0,
+      1.0,
+      0.0
+     ]
+    },
+    {
+     "name": "projections",
+     "values": [
+      10.392,
+      6.562,
+      0.1,
+      null,
+      9.3,
+      67.2,
+      41.3,
+      10.6,
+      5.5,
+      20.7
+     ]
+    },
+    {
+     "name": "efficiencies",
+     "values": [
+      57.972,
+      13.0,
+      55.668,
+      10.0,
+      64.68,
+      10.0,
+      22.607,
+      29.0
+     ]
+    }
+   ]
+  }
+ ]
+}
