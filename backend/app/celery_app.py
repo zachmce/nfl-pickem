@@ -29,6 +29,8 @@ REFRESH_GAMES_INTERVAL_SECONDS: float = 60.0
 # below is built FROM the registry so the two cannot drift. A float per the
 # Celery beat-schedule contract.
 REFRESH_ODDS_INTERVAL_SECONDS: float = 300.0
+# Issue #248 item 7. Not a PollingJob: it reads ESPN summaries, not the scoreboard port.
+INJURY_WATCH_INTERVAL_SECONDS: float = 900.0
 
 
 def _beat_schedule_from_registry() -> dict[str, dict[str, object]]:
@@ -59,5 +61,11 @@ celery_app.conf.update(
     accept_content=["json"],
     timezone="UTC",
     enable_utc=True,
-    beat_schedule=_beat_schedule_from_registry(),
+    beat_schedule={
+        **_beat_schedule_from_registry(),
+        "injury-watch-poller": {
+            "task": "app.tasks.watch_injuries",
+            "schedule": INJURY_WATCH_INTERVAL_SECONDS,
+        },
+    },
 )

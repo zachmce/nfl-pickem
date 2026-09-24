@@ -324,6 +324,38 @@ def window_closed_event(week: int) -> dict:
     }
 
 
+def injury_change_event(
+    *,
+    week: int,
+    team: str,
+    opponent: str,
+    home: bool,
+    player: str,
+    position: str | None,
+    old_status: str | None,
+    new_status: str,
+    body_part: str | None,
+) -> dict:
+    """Build an ``injury.change`` event (issue #248): a player's status got worse.
+
+    ``old_status`` is ``None`` when the player was not on the previous report.
+    """
+    return {
+        "v": 1,
+        "type": "injury.change",
+        "targets": ["chat"],
+        "week": week,
+        "team": team,
+        "opponent": opponent,
+        "home": home,
+        "player": player,
+        "position": position,
+        "old_status": old_status,
+        "new_status": new_status,
+        "body_part": body_part,
+    }
+
+
 class GameFinalImpact(TypedDict):
     """One per-user impact on a FINAL game — the ``game.final`` event contract.
 

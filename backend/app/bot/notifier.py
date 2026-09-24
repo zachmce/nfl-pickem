@@ -167,6 +167,14 @@ def render_chat(event: dict) -> str | None:
             f'"{event.get("prediction")}" was {event.get("verdict")} '
             f"({event.get('points'):+d})."
         )
+    if etype == "injury.change":
+        where = "vs" if event.get("home") else "at"
+        position = f"{event.get('position')}, " if event.get("position") else ""
+        return (
+            f"Injury update: {event.get('player')} ({position}{event.get('team')}) is now "
+            f"listed {event.get('new_status')} for Week {event.get('week')} {where} "
+            f"{event.get('opponent')}."
+        )
     if etype == "freeze.week":
         # Deterministic body of the LIGHT lines-locked chat card (260705-jo9); also
         # the text fallback when build_freeze_week_embed fails.
@@ -179,7 +187,13 @@ def render_chat(event: dict) -> str | None:
 # for events already read before it drops them.
 _PREPARE_CONCURRENCY = 4
 _DRAIN_SECONDS = 30.0
-_EMBELLISHED_TYPES = ("game.final", "roster.complete", "misc.graded", "misc.picked")
+_EMBELLISHED_TYPES = (
+    "game.final",
+    "roster.complete",
+    "misc.graded",
+    "misc.picked",
+    "injury.change",
+)
 
 
 async def _prepare_chat(event: dict) -> dict:
@@ -210,11 +224,12 @@ async def _prepare_chat(event: dict) -> dict:
         logger.warning("notifier_message_failed", exc_info=True)
         prepared["failed"] = True
         return prepared
-    if etype == "window.closed" and prepared["line"] is not None:
+    week = event.get("week")
+    if etype == "window.closed" and prepared["line"] is not None and isinstance(week, int):
         try:
             from app.bot.commentary import build_lock_commentary
 
-            prepared["extras"] = list(await build_lock_commentary(event.get("week")))
+            prepared["extras"] = list(await build_lock_commentary(week))
         except Exception:
             logger.warning("lock_commentary_failed", exc_info=True)
     return prepared
