@@ -1755,6 +1755,65 @@ class StatsToolTests(_OpenPathTestCase):
         self.assertIn("Ask the member which one", out["note"])
         self.assertNotIn("stats", out)
 
+    def _search_by_query(self, answers: dict):
+        queries: list[str] = []
+
+        async def _fake_search(name):
+            queries.append(name)
+            return answers.get(name, {"results": []})
+
+        return mock.patch.object(espn_extra, "fetch_athlete_search", _fake_search), queries
+
+    @staticmethod
+    def _bowers_search() -> dict:
+        # ESPN's answer for "bowers", measured 2026-09-25 (trimmed to three entries).
+        def _one(uid, name, team):
+            return {
+                "uid": f"s:20~l:28~a:{uid}",
+                "type": "player",
+                "displayName": name,
+                "subtitle": team,
+            }
+
+        return {
+            "results": [
+                {
+                    "type": "player",
+                    "contents": [
+                        _one(4432665, "Brock Bowers", "Las Vegas Raiders"),
+                        _one(1, "Cyncir Bowers", "UConn Huskies"),
+                        _one(2, "Zach Bowers", "VMI Keydets"),
+                    ],
+                }
+            ]
+        }
+
+    def test_a_misspelled_first_name_resolves_through_the_surname(self) -> None:
+        # Issue #281: "brick bowers" finds nothing; "bowers" finds Brock Bowers.
+        patcher, queries = self._search_by_query({"bowers": self._bowers_search()})
+        with patcher:
+            out = _run(qa_open._lookup_player_current_team(player="brick bowers"))
+        assert isinstance(out, dict)
+        self.assertEqual(queries, ["brick bowers", "bowers"])
+        self.assertEqual(out["player"], "Brock Bowers")
+        self.assertEqual(out["current_team"], "Las Vegas Raiders")
+        self.assertIn("you took brick bowers to mean Brock Bowers", str(out["name_note"]))
+
+    def test_a_first_name_too_far_from_any_listed_one_stays_not_found(self) -> None:
+        patcher, _ = self._search_by_query({"bowers": self._bowers_search()})
+        with patcher:
+            out = _run(qa_open._lookup_player_current_team(player="stanley bowers"))
+        assert isinstance(out, dict)
+        self.assertIn("ESPN lists no NFL player named stanley bowers", str(out["note"]))
+
+    def test_the_stats_resolution_takes_the_corrected_name_too(self) -> None:
+        patcher, _ = self._search_by_query({"bowers": self._bowers_search()})
+        with patcher:
+            out = _run(qa_open._resolve_off_roster("brick bowers", ""))
+        self.assertEqual(out["athlete_id"], "4432665")
+        self.assertEqual(out["player"], "Brock Bowers")
+        self.assertIn("Brock Bowers", str(out["name_note"]))
+
     def test_a_failed_search_returns_its_own_note_never_none(self) -> None:
         # "ESPN found nobody" and "the lookup failed" are different facts, and the model
         # must not be told the first one when the second happened (D-5).
