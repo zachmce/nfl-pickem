@@ -19,15 +19,17 @@ updates:
         patterns: ["*"]
         update-types: ["minor", "patch"]
 
-  # Backend Python deps (pyproject) — the pip ecosystem covers it.
-  - package-ecosystem: pip
+  # Backend Python deps (pyproject + uv.lock). Must be `uv`, not `pip`: the pip
+  # block opened zero version-update PRs in its lifetime; only security updates
+  # (which auto-detect the ecosystem) ever arrived, as dependabot/uv/backend/*.
+  - package-ecosystem: uv
     directory: "/backend"
     schedule:
       interval: weekly
     cooldown:
       default-days: 5
     groups:
-      pip-minor-patch:
+      uv-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
 
@@ -48,7 +50,7 @@ updates:
   # did until the Trivy gate caught it. No update-types filter so pure digest
   # refreshes (same tag, new build) are grouped too, not just semver bumps.
   #
-  # Two settings on every docker block below, both forced by issue #189:
+  # Settings on the docker block below (the first two forced by issue #189):
   #
   #   cooldown.exclude ["*"] — Dependabot applies a 3-DAY DEFAULT cooldown even when
   #   no `cooldown:` block exists (dependabot-core #15711, 2026-07-29). Only the
@@ -62,32 +64,20 @@ updates:
   #   interval: daily — a weekly cadence lagged a fresh base-OS advisory by up to
   #   seven days (CVE-2026-14456 needed a hand bump one day after a weekly PR).
   #   Docker PRs are merged by dependabot-automerge.yml once CI is green.
+  #
+  #   directories (one block, one group) — one docker PR per day. Separate
+  #   per-directory blocks opened 2-3 PRs at the same minute; auto-merge landed
+  #   the first and strict branch protection left the rest BEHIND, which
+  #   Dependabot does not rebase (it rebases on conflicts only).
+  #   /.clusterfuzzlite (the fuzz-build env, not shipped) rides along so its
+  #   Pinned-Dependencies digest pin cannot go stale either.
   - package-ecosystem: docker
-    directory: "/backend"
+    directories:
+      - "/backend"
+      - "/frontend"
+      - "/.clusterfuzzlite"
     schedule:
       interval: daily
-    cooldown:
-      exclude: ["*"]
-    groups:
-      docker-images:
-        patterns: ["*"]
-
-  - package-ecosystem: docker
-    directory: "/frontend"
-    schedule:
-      interval: daily
-    cooldown:
-      exclude: ["*"]
-    groups:
-      docker-images:
-        patterns: ["*"]
-
-  # ClusterFuzzLite fuzz-build env (not shipped): keep the digest-pinned OSS-Fuzz
-  # base image fresh so the Pinned-Dependencies pin can't silently go stale.
-  - package-ecosystem: docker
-    directory: "/.clusterfuzzlite"
-    schedule:
-      interval: weekly
     cooldown:
       exclude: ["*"]
     groups:
