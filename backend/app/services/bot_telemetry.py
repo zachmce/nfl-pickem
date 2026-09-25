@@ -232,6 +232,36 @@ async def _push(record: dict) -> None:
                 pass
 
 
+async def find_message(message_id: str) -> dict | None:
+    """The stored entry for Discord message ``message_id``, else ``None``. Never raises."""
+    client = None
+    try:
+        client = _redis_client()
+        raw = await asyncio.wait_for(
+            client.lrange(REDIS_KEY, 0, MAX_ENTRIES - 1), timeout=_REDIS_TIMEOUT_SECONDS
+        )
+    except Exception:
+        logger.warning("bot_transcript_find_failed")
+        return None
+    finally:
+        if client is not None:
+            try:
+                await client.aclose()
+            except Exception:
+                pass
+    needle = f'"message_id": "{message_id}"'.encode()
+    for item in raw or []:
+        if needle not in (item if isinstance(item, bytes) else str(item).encode()):
+            continue
+        try:
+            decoded = json.loads(item)
+        except Exception:
+            continue
+        if isinstance(decoded, dict) and decoded.get("message_id") == message_id:
+            return decoded
+    return None
+
+
 def read_recent(
     limit: int = MAX_ENTRIES, *, since: datetime | None = None, until: datetime | None = None
 ) -> list[dict] | None:
