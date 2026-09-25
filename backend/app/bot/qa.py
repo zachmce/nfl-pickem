@@ -828,8 +828,6 @@ _PREDICTION_INJURIES_DEGRADE_NOTE = (
 _PREDICTION_WEATHER_DEGRADE_NOTE = (
     "Couldn't pull the game-time forecast this time, so this read leaves weather out of it."
 )
-# Live-line-missing relabel: fall back to the frozen pick'em spread, clearly relabelled.
-_PREDICTION_FROZEN_FALLBACK_NOTE = "Working off the line we've got locked here — couldn't reach the live market for a fresh number."
 
 # A material live-vs-frozen divergence (favorite flip OR magnitude delta >= this) fires
 # the conflict callout.
@@ -1365,9 +1363,10 @@ def _prediction_fact(
     out of the LLM's hands — the one-line guard phrases ONLY the lead; the body reaches
     Discord byte-for-byte (T-mpw-02).
 
-    The EFFECTIVE line prefers the live market (labelled "current market"); when the live
-    line is absent it falls back to the FROZEN spread, relabelled. When NEITHER carries a
-    usable spread the read degrades to the model's OWN number only — never an invented line.
+    The EFFECTIVE line is the league's locked line, the one members pick against (issue
+    #279), and the live market is the heads-up beside it. The live market leans only when
+    no line is locked. When NEITHER carries a usable spread the read degrades to the
+    model's OWN number only — never an invented line.
     """
     asked_team = inputs.get("asked_team")
     home = inputs.get("home")
@@ -1394,17 +1393,17 @@ def _prediction_fact(
             live_fav = away
         # spread == 0 is a true pick'em — no favorite from the live line.
 
-    using_live = live_fav is not None and live_mag is not None and live_mag > 0
+    has_live = live_fav is not None and live_mag is not None and live_mag > 0
     has_frozen = frozen_fav is not None and frozen_spread is not None and frozen_spread > 0
 
     eff_fav: str | None
     eff_mag: Decimal | None
-    if using_live:
-        assert live_fav is not None and live_mag is not None
-        eff_fav, eff_mag = live_fav, live_mag
-    elif has_frozen:
+    if has_frozen:
         assert frozen_fav is not None and frozen_spread is not None
         eff_fav, eff_mag = frozen_fav, frozen_spread
+    elif has_live:
+        assert live_fav is not None and live_mag is not None
+        eff_fav, eff_mag = live_fav, live_mag
     else:
         eff_fav, eff_mag = None, None
 
@@ -1423,16 +1422,14 @@ def _prediction_fact(
             )
         else:
             lines.append(f"**My read: I lean {lean_team} here — a cross-check, not a bet.**")
+            line_label = "The league's line is" if has_frozen else "The market has"
             model_line = (
-                f"The market has {eff_fav} -{_fmt_num(eff_mag)}, "
+                f"{line_label} {eff_fav} -{_fmt_num(eff_mag)}, "
                 f"but my model makes it {model_side} by {model_mag}."
             )
             if abs(divergence) >= _SLATE_BIG_DIVERGENCE:
                 model_line += " That's a big gap from the market, so it's a low-confidence read."
             lines.append(model_line)
-        if not using_live:
-            # Fell back to the frozen sheet (no live market) — say so, relabelled.
-            lines.append(_PREDICTION_FROZEN_FALLBACK_NOTE)
     else:
         # No line posted anywhere — a model-only read that STILL states the model's own
         # number (never invents a spread), then keeps the context notes below.
@@ -1444,12 +1441,11 @@ def _prediction_fact(
 
     # Conflict callout — only when the live line is in play AND materially differs from the
     # frozen sheet (favorite flip OR magnitude delta >= threshold).
-    if using_live and has_frozen:
+    if has_live and has_frozen:
         assert live_mag is not None and frozen_spread is not None
         favorite_flip = live_fav != frozen_fav
         mag_delta = abs(live_mag - frozen_spread)
         if favorite_flip or mag_delta >= _PREDICTION_CONFLICT_THRESHOLD:
-            # using_live => the effective line IS the live line (live_fav / live_mag).
             lines.append(
                 f"Heads up: the league locked this line at {frozen_fav} -{_fmt_num(frozen_spread)}, "
                 f"but the current market has {live_fav} -{_fmt_num(live_mag)}."
