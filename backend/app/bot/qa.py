@@ -482,6 +482,18 @@ def _normalize_team(value: object, known_team_tokens: set[str]) -> str | None:
     return None
 
 
+def _matchup_team(question: str, known_team_tokens: set[str]) -> str | None:
+    """The first team of the first two-real-team matchup ("ATL/GB") in ``question``."""
+    for match in _MATCHUP_IN_TEXT_RE.finditer(question):
+        team = _normalize_team(f"{match.group(1)}/{match.group(2)}", known_team_tokens)
+        if team is not None:
+            return team
+    return None
+
+
+_MATCHUP_IN_TEXT_RE = re.compile(
+    r"([A-Za-z0-9']+)\s*(?:/|@|-|\s(?:vs\.?|v\.?|at)\s)\s*([A-Za-z0-9']+)", re.IGNORECASE
+)
 _MATCHUP_SPLIT_RE = re.compile(r"\s*(?:/|@|-|\s(?:vs\.?|v\.?|at)\s)\s*", re.IGNORECASE)
 
 
@@ -2109,6 +2121,11 @@ async def _answer_question(
         bot_telemetry.note_classification(raw)
         known_team_tokens = await db_bridge.get_real_team_tokens_async()
         result = validate_classification(raw, known_team_tokens=known_team_tokens)
+        if result.intent is QaIntent.slate_predictions:
+            # Issue #278, live: the classifier left the team out 2/3 on the ATL/GB question.
+            matchup_team = _matchup_team(question, known_team_tokens)
+            if matchup_team is not None:
+                result = QaResult(intent=QaIntent.prediction, team=matchup_team)
         bot_telemetry.note_intent(result.intent.value)
 
         # The OPEN branch (260820-lw6) is taken BEFORE the slate facet / _build_fact

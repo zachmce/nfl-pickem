@@ -2293,6 +2293,28 @@ class SlatePredictionIntentRoutingTests(unittest.TestCase):
             ],
         }
 
+    def test_a_matchup_in_the_question_becomes_a_one_game_prediction(self) -> None:
+        # Issue #278, live: the classifier left the team out 2/3 on this exact question.
+        inputs_patch, input_calls = _seam("get_prediction_inputs_async", None)
+        slate_patch, slate_calls = _seam("get_slate_predictions_async", self._slate())
+        with (
+            _classify_returns({"intent": "slate_predictions", "team": None}),
+            _tokens("KC", "LAC"),
+            inputs_patch,
+            slate_patch,
+            _voice(),
+            _phrase_returns(None)[0],
+        ):
+            _run(qa.answer_question("do you agree with the KC/LAC line?", discord_id=7))
+        self.assertEqual(input_calls[0]["args"], ("KC",))
+        self.assertEqual(slate_calls, [])
+
+    def test_matchup_team_needs_two_real_teams(self) -> None:
+        tokens = {"KC", "LAC", "CHIEFS"}
+        self.assertEqual(qa._matchup_team("thoughts on Chiefs vs LAC tonight?", tokens), "CHIEFS")
+        self.assertIsNone(qa._matchup_team("look at KC this week", tokens))
+        self.assertIsNone(qa._matchup_team("your picks this week?", tokens))
+
     def test_real_slate_routes_through_under_slate_guard_body_verbatim(self) -> None:
         seam_patch, seam_calls = _seam("get_slate_predictions_async", self._slate())
         phrase_patch, calls = _phrase_returns("Model's slate read 👇")

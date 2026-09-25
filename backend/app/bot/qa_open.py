@@ -4084,6 +4084,9 @@ async def _lookup_game_outlook(team: str = "", week: int | None = None) -> objec
         answer["final_score"] = f"{away} {data['away_score']}, {home} {data['home_score']}"
         answer["note"] = _OUTLOOK_FINAL_NOTE.format(game=answer["game"], week=data["week"])
         return answer
+    if data["status"] == "IN_PROGRESS":
+        answer["note"] = _OUTLOOK_LIVE_NOTE.format(game=answer["game"], team=team_abbr)
+        return answer
 
     margin = float(data["model_home_margin"])
     side, prob = (
@@ -4178,6 +4181,13 @@ _NO_OUTLOOK_GAME_NOTE = (
 _OUTLOOK_FINAL_NOTE = (
     "{game} in week {week} is already over, so there is no outlook to give. Report the "
     "final score as listed."
+)
+# Issue #276, live probe: asked "changed your mind yet?" during a game, the model read
+# this tool's pre-game read as current ("I'm still on GB") 2/3.
+_OUTLOOK_LIVE_NOTE = (
+    "{game} is being played right now, so the pre-game outlook no longer answers "
+    "anything about it. Call lookup_live_game with the team {team} and answer from the "
+    "score and the game state it returns."
 )
 _MODEL_READ_STATEMENT = (
     "The bot's own rating model has the {side} winning by {points} points, and gives the "
