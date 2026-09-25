@@ -1,4 +1,7 @@
 version: 2
+# Each block opens at its own hour (UTC). PRs that open in the same minute race:
+# dependabot-automerge.yml merges one, and strict branch protection leaves the
+# rest BEHIND, which Dependabot does not rebase.
 updates:
   # MUST-HAVE: keeps the workflow SHA pins fresh. Dependabot rewrites the pinned
   # commit SHA and updates the trailing `# vX.Y.Z` comment.
@@ -6,6 +9,8 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+      day: monday
+      time: "06:00"
     # Supply-chain defense-in-depth: hold new releases for 5 days before opening
     # a bump PR, so a malicious or broken release has time to be yanked/flagged
     # (e.g. by osv-scanner's MAL- advisories) before we pull it. Applied to the
@@ -26,6 +31,8 @@ updates:
     directory: "/backend"
     schedule:
       interval: weekly
+      day: monday
+      time: "07:00"
     cooldown:
       default-days: 5
     groups:
@@ -38,6 +45,8 @@ updates:
     directory: "/frontend"
     schedule:
       interval: weekly
+      day: monday
+      time: "08:00"
     cooldown:
       default-days: 5
     groups:
@@ -78,6 +87,7 @@ updates:
       - "/.clusterfuzzlite"
     schedule:
       interval: daily
+      time: "05:00"
     cooldown:
       exclude: ["*"]
     groups:
