@@ -31,6 +31,7 @@ FROM cgr.dev/chainguard/nginx:latest@sha256:f5bfac85024ea2d7c16a28ac21e985c6d19a
 # nginx version. Copying to nginx.default.conf replaces it, leaving exactly one
 # server block (ours) that handles every Host. Distroless-safe: a COPY needs no
 # shell, unlike a `RUN rm` (this base ships none).
+COPY nginx.main.conf /etc/nginx/nginx.conf
 COPY nginx.conf /etc/nginx/conf.d/nginx.default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 # Restate the nonroot user explicitly even though the base already defaults to it:
