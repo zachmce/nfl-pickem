@@ -66,6 +66,9 @@ _USER_AGENT = "nfl-pickem-qa/1.0 (dev tooling; httpx)"
 
 # One source of truth for the timeout — the shared shell owns the value.
 DEFAULT_TIMEOUT = http_cache.DEFAULT_TIMEOUT
+# Issue #283: a first forecast GET took the whole 10 s and the answer said "unavailable";
+# the retry a minute later took 2.8 s. Two 5 s tries keep the same worst case.
+_FORECAST_TIMEOUT_SECONDS = 5.0
 
 # Short Redis cache: forecast improves near kickoff, so a ~30 min TTL cushions repeat
 # asks for the same stadium into ONE upstream call without going stale.
@@ -261,4 +264,6 @@ async def fetch_forecast(lat: float, lon: float) -> dict | None:
         label="weather",
         redis_client=_redis_client,
         headers={"User-Agent": _USER_AGENT},
+        timeout=_FORECAST_TIMEOUT_SECONDS,
+        attempts=2,
     )

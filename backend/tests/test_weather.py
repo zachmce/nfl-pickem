@@ -348,6 +348,44 @@ class FetchForecastTests(unittest.TestCase):
         self.assertIsNone(out)
         self.assertEqual(fake.sets, [])  # nothing cached on a failed fetch
 
+    @staticmethod
+    def _fetch_after(first: object, payload: dict) -> tuple[object, list[object]]:
+        timeouts: list[object] = []
+        answers = [first, _FakeResponse(200, payload)]
+
+        class _FlakyClient(_CapturingAsyncClient):
+            def __init__(self, *args, timeout=None, **kwargs) -> None:
+                timeouts.append(timeout)
+
+            async def get(self, url, *, headers=None):
+                answer = answers.pop(0)
+                if isinstance(answer, Exception):
+                    raise answer
+                return answer
+
+        with _redis_returns(_FakeRedis()), mock.patch.object(httpx, "AsyncClient", _FlakyClient):
+            out = _run(weather.fetch_forecast(1.0, 2.0))
+        return out, timeouts
+
+    def test_a_failed_first_get_is_retried_once(self) -> None:
+        # Issue #283: the first GET timed out and the member got "Forecast unavailable".
+        payload = {"hourly": {"time": []}}
+        for first in (httpx.ReadTimeout("slow"), _FakeResponse(503, {})):
+            with self.subTest(first=type(first).__name__):
+                out, timeouts = self._fetch_after(first, payload)
+                self.assertEqual(out, payload)
+                self.assertEqual(timeouts, [5.0, 5.0])
+
+    def test_a_404_is_not_retried(self) -> None:
+        _CapturingAsyncClient.calls = 0
+        _CapturingAsyncClient._response = _FakeResponse(404, {})
+        with (
+            _redis_returns(_FakeRedis()),
+            mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient),
+        ):
+            self.assertIsNone(_run(weather.fetch_forecast(1.0, 2.0)))
+        self.assertEqual(_CapturingAsyncClient.calls, 1)
+
     def test_non_200_degrades_to_none(self) -> None:
         fake = _FakeRedis()
         _CapturingAsyncClient._response = _FakeResponse(503, {})

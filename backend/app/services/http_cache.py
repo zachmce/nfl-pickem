@@ -72,6 +72,8 @@ async def fetch_cached(
     label: str,
     redis_client: Callable[[], Any],
     headers: dict[str, str] | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    attempts: int = 1,
 ) -> dict | None:
     """Cache-first GET of ``url`` returning the parsed JSON dict, or ``None``.
 
@@ -81,22 +83,33 @@ async def fetch_cached(
     line, never an invented fact) and a Redis outage on the read or the write fails open. A
     payload that is not a dict returns ``None`` and is NOT cached. ``label`` prefixes every
     structlog event, so each caller keeps its own ``<label>_cache_get_failed`` /
-    ``_cache_set_failed`` / ``_fetch_non_200`` / ``_fetch_failed`` names.
+    ``_cache_set_failed`` / ``_fetch_non_200`` / ``_fetch_failed`` names. With
+    ``attempts`` > 1, a timeout, transport error or 5xx is retried; each GET gets
+    ``timeout`` seconds.
     """
     cached = await _cache_read(cache_key, label=label, redis_client=redis_client)
     if cached is not None:
         return cached
 
-    try:
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            response = await client.get(url, headers=headers)
-        if response.status_code != 200:
-            logger.warning(f"{label}_fetch_non_200", status_code=response.status_code)
-            return None
-        payload = response.json()
-    except Exception:
-        logger.warning(f"{label}_fetch_failed", key=cache_key, exc_info=True)
-        return None
+    payload: object = None
+    for attempt in range(1, attempts + 1):
+        retry = attempt < attempts
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.get(url, headers=headers)
+            if response.status_code != 200:
+                logger.warning(
+                    f"{label}_fetch_non_200", status_code=response.status_code, attempt=attempt
+                )
+                if retry and response.status_code >= 500:
+                    continue
+                return None
+            payload = response.json()
+            break
+        except Exception:
+            logger.warning(f"{label}_fetch_failed", key=cache_key, attempt=attempt, exc_info=True)
+            if not retry:
+                return None
 
     if not isinstance(payload, dict):
         return None
