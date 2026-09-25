@@ -182,9 +182,11 @@ def log_message(**fields: Any) -> None:
     """Store one entry that is not an answer: a skipped message or a bot post. Never raises."""
     try:
         entry = {"at": _now(), **fields}
-        for key in ("question", "content"):
-            if key in entry:
-                entry[key] = _clip(entry[key])
+        if "question" in entry:
+            entry["question"] = _clip(entry["question"])
+        if "content" in entry:
+            # Issue #284: a bot post clipped at 1000 read as a slate missing six games.
+            entry["content"] = _clip(entry["content"], ANSWER_LIMIT)
         _store(entry)
     except Exception:
         logger.warning("bot_transcript_log_failed", exc_info=True)

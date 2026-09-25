@@ -271,6 +271,16 @@ class _ListRedis:
         return None
 
 
+class LogMessageTests(unittest.TestCase):
+    def test_a_bot_post_is_kept_to_one_discord_message(self) -> None:
+        stored: list[dict] = []
+        with mock.patch.object(bot_telemetry, "_store", stored.append):
+            bot_telemetry.log_message(kind="bot_post", content="x" * 1900)
+            bot_telemetry.log_message(kind="member", question="y" * 1900)
+        self.assertEqual(len(stored[0]["content"]), 1900)
+        self.assertEqual(len(stored[1]["question"]), bot_telemetry.TEXT_LIMIT)
+
+
 class FindMessageTests(unittest.TestCase):
     def test_finds_the_entry_by_message_id(self) -> None:
         items = [
