@@ -23,7 +23,7 @@ No pytest dependency is required (none is configured for this project).
 from __future__ import annotations
 
 import unittest
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from sqlmodel import Session, SQLModel, create_engine, select
@@ -85,7 +85,7 @@ class RatingEngineTests(unittest.TestCase):
                     home_score=home_score,
                     away_score=away_score,
                     result=home_score - away_score,
-                    spread_line=Decimal("0"),
+                    spread_line=Decimal(0),
                 )
             )
             session.commit()
@@ -249,7 +249,7 @@ class RatingEngineTests(unittest.TestCase):
             week=1,
             home_team_id=self.home_id,
             away_team_id=self.away_id,
-            kickoff_at=datetime(2012, 9, 9, 17, 0, tzinfo=timezone.utc),
+            kickoff_at=datetime(2012, 9, 9, 17, 0, tzinfo=UTC),
             status=GameStatus.FINAL,
             home_score=24,
             away_score=17,
@@ -284,7 +284,7 @@ class RatingEngineTests(unittest.TestCase):
             week=2,
             home_team_id=self.home_id,
             away_team_id=self.third_id,
-            kickoff_at=datetime(2011, 9, 18, 17, 0, tzinfo=timezone.utc),
+            kickoff_at=datetime(2011, 9, 18, 17, 0, tzinfo=UTC),
             status=GameStatus.SCHEDULED,
             home_score=None,
             away_score=None,
@@ -296,7 +296,7 @@ class RatingEngineTests(unittest.TestCase):
             week=3,
             home_team_id=self.away_id,
             away_team_id=self.third_id,
-            kickoff_at=datetime(2011, 9, 25, 17, 0, tzinfo=timezone.utc),
+            kickoff_at=datetime(2011, 9, 25, 17, 0, tzinfo=UTC),
             status=GameStatus.FINAL,
             home_score=None,
             away_score=14,

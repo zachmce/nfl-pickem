@@ -22,7 +22,7 @@ with a fixed {is_demo, season} shape.
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -64,7 +64,7 @@ class ConfigApiTests(unittest.TestCase):
 
     def _seed_season(self, season: int) -> None:
         """Seed two teams + a week + one game so a single distinct season exists."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         with Session(self.engine) as session:
             teams = [
                 Team(espn_team_id=i, abbreviation=f"T{i}", display_name=f"Team {i}")

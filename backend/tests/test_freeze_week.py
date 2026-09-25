@@ -30,7 +30,7 @@ Run from ``backend/``::
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from sqlmodel import Session, SQLModel, create_engine, select
@@ -38,14 +38,14 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from app.models import Game, GameStatus, Team, Week
 from app.scoreboard.port import ScoreboardFetchError
 from app.scoreboard.types import ScoreboardGame, ScoreboardOdds, ScoreboardTeam
+from app.seeds.teams import seed_teams
 from app.services.freeze import FreezeResult, freeze_week
 from app.services.odds import is_odds_frozen
-from app.seeds.teams import seed_teams
 
 # A fixed injected ``now`` so odds_captured_at is deterministic. Picked to be
 # EARLIER than the seeded kickoffs (so the computed freeze_at clock has NOT
 # fired) — the freeze must therefore win ONLY because lines_frozen was flipped.
-FIXED_NOW = datetime(2026, 9, 1, 12, 0, 0, tzinfo=timezone.utc)
+FIXED_NOW = datetime(2026, 9, 1, 12, 0, 0, tzinfo=UTC)
 
 # Seeded espn_team_ids (see app.seeds.teams): 1=ATL, 2=BUF, 4=CIN, 5=CLE, 6=DAL.
 
@@ -107,8 +107,8 @@ class _FakeSource:
 
 # The two seeded games' kickoffs are LATER than FIXED_NOW so the computed
 # freeze_at clock has not fired at FIXED_NOW (freeze must come from the flag).
-_KICKOFF_1 = datetime(2026, 9, 13, 17, 0, tzinfo=timezone.utc)
-_KICKOFF_2 = datetime(2026, 9, 13, 20, 25, tzinfo=timezone.utc)
+_KICKOFF_1 = datetime(2026, 9, 13, 17, 0, tzinfo=UTC)
+_KICKOFF_2 = datetime(2026, 9, 13, 20, 25, tzinfo=UTC)
 
 
 def _odds(
@@ -241,7 +241,7 @@ class FreezeWeekTests(unittest.TestCase):
             self.assertEqual(game1.underdog_team_id, self._team_id(session, 2))
             captured = game1.odds_captured_at
             if captured.tzinfo is None:
-                captured = captured.replace(tzinfo=timezone.utc)
+                captured = captured.replace(tzinfo=UTC)
             self.assertEqual(captured, FIXED_NOW)
 
             week_row = self._week_row(session)

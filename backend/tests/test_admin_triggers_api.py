@@ -42,7 +42,7 @@ class _FakeTask:
         self.task_id = task_id
         self.calls: list[tuple] = []
 
-    def delay(self, *args):  # noqa: ANN002
+    def delay(self, *args):
         self.calls.append(args)
         return SimpleNamespace(id=self.task_id)
 

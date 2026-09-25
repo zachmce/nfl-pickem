@@ -18,9 +18,8 @@ from pydantic import BaseModel, ConfigDict
 from app.demo.oracle import Standings
 from app.models import PickType
 from app.schemas.types import DiscordId
-from app.services.standings import UserIdentity
+from app.services.standings import UserIdentity, WeekResultPick
 from app.services.standings import UserWeekResult as UserWeekResultService
-from app.services.standings import WeekResultPick
 
 
 class WeekResultPickRead(BaseModel):
@@ -38,7 +37,7 @@ class WeekResultPickRead(BaseModel):
     misc_text: str | None = None
 
     @classmethod
-    def from_service(cls, pick: WeekResultPick) -> "WeekResultPickRead":
+    def from_service(cls, pick: WeekResultPick) -> WeekResultPickRead:
         """Build from a service :class:`~app.services.standings.WeekResultPick`."""
         return cls(
             game_id=pick.game_id,
@@ -68,7 +67,7 @@ class UserWeekResult(BaseModel):
     discord_avatar_hash: str | None = None
 
     @classmethod
-    def from_service(cls, result: UserWeekResultService) -> "UserWeekResult":
+    def from_service(cls, result: UserWeekResultService) -> UserWeekResult:
         """Build from a service :class:`~app.services.standings.UserWeekResult`."""
         return cls(
             display_name=result.display_name,
@@ -91,7 +90,7 @@ class WeekResultsResponse(BaseModel):
     @classmethod
     def from_results(
         cls, *, season: int, week: int, results: list[UserWeekResultService]
-    ) -> "WeekResultsResponse":
+    ) -> WeekResultsResponse:
         """Shape the service per-user results into the HTTP response."""
         return cls(
             season=season,
@@ -138,7 +137,7 @@ class SeasonStandingsResponse(BaseModel):
         standings: Standings,
         season_complete: bool,
         identities: dict[str, UserIdentity] | None = None,
-    ) -> "SeasonStandingsResponse":
+    ) -> SeasonStandingsResponse:
         """Shape the service :class:`~app.demo.oracle.Standings` into the response.
 
         Preserves the service's ``(-season_total, display_name)`` ordering (the

@@ -60,7 +60,7 @@ needy filter).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, time, timedelta, timezone
+from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -108,7 +108,7 @@ def _as_aware(dt: datetime | None) -> datetime | None:
     naive value to UTC for the comparison ONLY — mirrors ``refresh._as_aware``.
     """
     if dt is not None and dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -147,7 +147,7 @@ def _noon_et_wednesday_on_or_before(kickoff: datetime) -> datetime:
     days_since_wed = (local.weekday() - _WEDNESDAY) % 7
     wed_date = (local - timedelta(days=days_since_wed)).date()
     noon_local = datetime.combine(wed_date, time(hour=_FREEZE_HOUR), tzinfo=_FREEZE_TZ)
-    return noon_local.astimezone(timezone.utc)
+    return noon_local.astimezone(UTC)
 
 
 def _guard_freeze_at_le_pick_lock(*, freeze: datetime, pick_lock: datetime) -> datetime:
@@ -211,7 +211,7 @@ def is_odds_frozen(
     if week_row.lines_frozen:
         return True
     if now is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
     return now >= freeze_at(week_games, prev_week_games)
 
 
@@ -403,7 +403,7 @@ def reconcile_odds_games(
         ``Team`` table when omitted.
     """
     if now is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
     all_games = list(session.exec(select(Game)).all())
     if not all_games:
@@ -463,8 +463,8 @@ __all__ = [
     "OddsResult",
     "freeze_at",
     "is_odds_frozen",
-    "reconcile_odds",
-    "reconcile_week_odds",
     "odds_needy_weeks",
+    "reconcile_odds",
     "reconcile_odds_games",
+    "reconcile_week_odds",
 ]

@@ -536,7 +536,7 @@ class _CapturingAsyncClient:
     async def __aexit__(self, *exc) -> None:
         return None
 
-    async def post(self, url, *, json=None, headers=None):  # noqa: A002
+    async def post(self, url, *, json=None, headers=None):
         type(self).last_json = json
         return self._response
 
@@ -655,7 +655,7 @@ class OpenChatWireFormatTests(unittest.TestCase):
 
     def test_open_chat_never_raises_on_timeout(self) -> None:
         class _RaisingClient(_CapturingAsyncClient):
-            async def post(self, url, *, json=None, headers=None):  # noqa: A002
+            async def post(self, url, *, json=None, headers=None):
                 raise httpx.TimeoutException("slow")
 
         with _configured(), mock.patch.object(httpx, "AsyncClient", _RaisingClient):

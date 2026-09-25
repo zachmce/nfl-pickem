@@ -48,7 +48,7 @@ class _FakeAsyncClient:
     async def __aexit__(self, *exc) -> None:
         return None
 
-    async def post(self, url, *, json=None, headers=None):  # noqa: A002
+    async def post(self, url, *, json=None, headers=None):
         type(self).last_url = url
         type(self).last_json = json
         type(self).last_headers = headers
@@ -109,7 +109,7 @@ class PhrasePatternTests(unittest.TestCase):
 
     def test_timeout_returns_none_never_raises(self) -> None:
         class _RaisingClient(_FakeAsyncClient):
-            async def post(self, url, *, json=None, headers=None):  # noqa: A002
+            async def post(self, url, *, json=None, headers=None):
                 raise httpx.TimeoutException("slow")
 
         with _configured(), mock.patch.object(httpx, "AsyncClient", _RaisingClient):
@@ -198,7 +198,7 @@ class PhraseTests(unittest.TestCase):
 
     def test_timeout_returns_none_never_raises(self) -> None:
         class _RaisingClient(_FakeAsyncClient):
-            async def post(self, url, *, json=None, headers=None):  # noqa: A002
+            async def post(self, url, *, json=None, headers=None):
                 raise httpx.TimeoutException("slow")
 
         with _configured(), mock.patch.object(httpx, "AsyncClient", _RaisingClient):

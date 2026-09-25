@@ -24,7 +24,7 @@ upper-bound case.
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
@@ -41,7 +41,7 @@ SEASON = 2025
 def _aware(dt: datetime | None) -> datetime | None:
     """Re-attach UTC to a naive datetime read back from SQLite."""
     if dt is not None and dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -172,7 +172,7 @@ class CalendarTests(unittest.TestCase):
             week_id=wk,
             week=1,
             espn_event_id=1,
-            kickoff_at=datetime(2026, 8, 31, 18, 0, tzinfo=timezone.utc),
+            kickoff_at=datetime(2026, 8, 31, 18, 0, tzinfo=UTC),
             home_team_id=self.tid[0],
             away_team_id=self.tid[1],
         )
@@ -181,7 +181,7 @@ class CalendarTests(unittest.TestCase):
             week_id=wk,
             week=1,
             espn_event_id=2,
-            kickoff_at=datetime(2026, 9, 12, 20, 0, tzinfo=timezone.utc),
+            kickoff_at=datetime(2026, 9, 12, 20, 0, tzinfo=UTC),
             home_team_id=self.tid[2],
             away_team_id=self.tid[3],
         )
@@ -189,7 +189,7 @@ class CalendarTests(unittest.TestCase):
             week_id=wk,
             week=1,
             espn_event_id=3,
-            kickoff_at=datetime(2026, 9, 10, 17, 0, tzinfo=timezone.utc),
+            kickoff_at=datetime(2026, 9, 10, 17, 0, tzinfo=UTC),
             home_team_id=self.tid[0],
             away_team_id=self.tid[2],
         )
@@ -198,7 +198,7 @@ class CalendarTests(unittest.TestCase):
             week_id=wk,
             week=1,
             espn_event_id=4,
-            kickoff_at=datetime(2026, 10, 1, 18, 0, tzinfo=timezone.utc),
+            kickoff_at=datetime(2026, 10, 1, 18, 0, tzinfo=UTC),
             home_team_id=self.tid[1],
             away_team_id=self.tid[3],
         )
@@ -215,14 +215,14 @@ class CalendarTests(unittest.TestCase):
         first, second = games
         self.assertEqual(
             _aware(datetime.fromisoformat(first["kickoff_at"])),
-            datetime(2026, 9, 10, 17, 0, tzinfo=timezone.utc),
+            datetime(2026, 9, 10, 17, 0, tzinfo=UTC),
         )
         self.assertEqual(first["home_team"]["abbreviation"], "T1")  # tid[0]
         self.assertEqual(first["away_team"]["abbreviation"], "T3")  # tid[2]
         self.assertEqual(first["status"], "SCHEDULED")
         self.assertEqual(
             _aware(datetime.fromisoformat(second["kickoff_at"])),
-            datetime(2026, 9, 12, 20, 0, tzinfo=timezone.utc),
+            datetime(2026, 9, 12, 20, 0, tzinfo=UTC),
         )
 
     # -- case 2: FINAL score surfaced via the enum -------------------------
@@ -235,7 +235,7 @@ class CalendarTests(unittest.TestCase):
             week_id=wk,
             week=1,
             espn_event_id=10,
-            kickoff_at=datetime(2026, 9, 5, 18, 0, tzinfo=timezone.utc),
+            kickoff_at=datetime(2026, 9, 5, 18, 0, tzinfo=UTC),
             home_team_id=self.tid[0],
             away_team_id=self.tid[1],
             status=GameStatus.FINAL,
@@ -246,7 +246,7 @@ class CalendarTests(unittest.TestCase):
             week_id=wk,
             week=1,
             espn_event_id=11,
-            kickoff_at=datetime(2026, 9, 6, 18, 0, tzinfo=timezone.utc),
+            kickoff_at=datetime(2026, 9, 6, 18, 0, tzinfo=UTC),
             home_team_id=self.tid[2],
             away_team_id=self.tid[3],
             status=GameStatus.SCHEDULED,
@@ -274,7 +274,7 @@ class CalendarTests(unittest.TestCase):
             week_id=wk,
             week=1,
             espn_event_id=20,
-            kickoff_at=datetime(2026, 9, 30, 23, 0, tzinfo=timezone.utc),
+            kickoff_at=datetime(2026, 9, 30, 23, 0, tzinfo=UTC),
             home_team_id=self.tid[0],
             away_team_id=self.tid[1],
         )
@@ -285,7 +285,7 @@ class CalendarTests(unittest.TestCase):
         self.assertEqual(len(games), 1)
         self.assertEqual(
             _aware(datetime.fromisoformat(games[0]["kickoff_at"])),
-            datetime(2026, 9, 30, 23, 0, tzinfo=timezone.utc),
+            datetime(2026, 9, 30, 23, 0, tzinfo=UTC),
         )
 
     # -- case 4: empty window ----------------------------------------------
@@ -297,7 +297,7 @@ class CalendarTests(unittest.TestCase):
             week_id=wk,
             week=1,
             espn_event_id=30,
-            kickoff_at=datetime(2026, 9, 5, 18, 0, tzinfo=timezone.utc),
+            kickoff_at=datetime(2026, 9, 5, 18, 0, tzinfo=UTC),
             home_team_id=self.tid[0],
             away_team_id=self.tid[1],
         )

@@ -51,7 +51,7 @@ failure must never lock a week against stale/missing data.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlmodel import Session, select
 
@@ -144,7 +144,7 @@ def freeze_week(
     :returns: a :class:`FreezeResult` summarizing the run.
     """
     if now is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
     week_row = session.exec(select(Week).where(Week.season == season, Week.week == week)).first()
     if week_row is None:

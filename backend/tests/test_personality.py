@@ -34,7 +34,6 @@ from app.bot.personality import (
 )
 from app.services import app_settings
 
-
 # The per-event (ROLE, GUARD) pairs across the three bot files. Each composed
 # prompt = voice + ROLE + GUARD. The GUARD (and the invariant ROLE clauses) must be
 # byte-identical for every voice.
@@ -99,7 +98,7 @@ class GuardInvariantAcrossPersonalitiesTests(unittest.TestCase):
     def test_guard_tail_byte_identical_across_personalities(self) -> None:
         # The substring AFTER the voice (role + guard) must be identical for every
         # personality — only the leading voice differs.
-        for event, (role, guard) in _EVENT_PARTS.items():
+        for event in _EVENT_PARTS:
             tails = {
                 _composed(pid)[event][len(voice_for(pid)) :] for pid in available_personality_ids()
             }
@@ -151,7 +150,7 @@ class SwapChangesVoiceNotGuardTests(unittest.TestCase):
     def test_guard_text_is_never_inside_any_voice_preamble(self) -> None:
         # No voice preamble may carry guard/clause text — the guard lives only in
         # the composed tail.
-        for pid, voice in PERSONALITIES.items():
+        for voice in PERSONALITIES.values():
             self.assertNotIn(chat_personality._FACTS_FIRST_GUARD, voice)
             self.assertNotIn(_LEAK_CLAUSE, voice)
             self.assertNotIn(_VERDICT_CLAUSE, voice)

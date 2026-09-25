@@ -27,10 +27,10 @@ keeps nflverse's home-perspective sign (positive => home favored).
 from __future__ import annotations
 
 import csv
+from collections.abc import Iterable
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import Iterable
 
 from sqlmodel import Session, select
 

@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import json
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -125,7 +125,7 @@ class RefreshGamesTests(unittest.TestCase):
     @staticmethod
     def _aware(dt: datetime | None) -> datetime | None:
         if dt is not None and dt.tzinfo is None:
-            return dt.replace(tzinfo=timezone.utc)
+            return dt.replace(tzinfo=UTC)
         return dt
 
     # -- tests -------------------------------------------------------------
@@ -319,7 +319,7 @@ class RefreshGamesTests(unittest.TestCase):
             target_id = target.id
             event_id = target.espn_event_id
             # Pin the row to a known tz-aware kickoff and FINAL state.
-            fixed_kickoff = datetime(2025, 9, 7, 17, 0, tzinfo=timezone.utc)
+            fixed_kickoff = datetime(2025, 9, 7, 17, 0, tzinfo=UTC)
             target.kickoff_at = fixed_kickoff
             target.status = GameStatus.FINAL
             target.home_score = 21
@@ -570,10 +570,10 @@ class RefreshWindowEdgeTests(unittest.TestCase):
         Only ``now`` advances (no kickoff move). The edge fires EXACTLY once (the
         persisted latch), and a same-``now`` re-poll re-emits nothing.
         """
-        wk1_kickoff = datetime(2025, 9, 7, 17, 0, tzinfo=timezone.utc)
-        wk2_kickoff = datetime(2025, 9, 14, 17, 0, tzinfo=timezone.utc)
-        before_open = datetime(2025, 9, 7, 19, 0, tzinfo=timezone.utc)  # < wk2.open_at
-        in_window = datetime(2025, 9, 10, 12, 0, tzinfo=timezone.utc)  # in [open, close)
+        wk1_kickoff = datetime(2025, 9, 7, 17, 0, tzinfo=UTC)
+        wk2_kickoff = datetime(2025, 9, 14, 17, 0, tzinfo=UTC)
+        before_open = datetime(2025, 9, 7, 19, 0, tzinfo=UTC)  # < wk2.open_at
+        in_window = datetime(2025, 9, 10, 12, 0, tzinfo=UTC)  # in [open, close)
 
         with Session(self.engine) as session:
             self._seed_week_game(session, week=1, event_id=7001, kickoff=wk1_kickoff)
@@ -615,10 +615,10 @@ class RefreshWindowEdgeTests(unittest.TestCase):
         advances past wk2.close_at -> window.closed fires exactly once; a re-poll
         at the same past-close ``now`` is idempotent (empty).
         """
-        wk1_kickoff = datetime(2025, 9, 7, 17, 0, tzinfo=timezone.utc)
-        wk2_kickoff = datetime(2025, 9, 14, 17, 0, tzinfo=timezone.utc)
-        in_window = datetime(2025, 9, 10, 12, 0, tzinfo=timezone.utc)  # sets open latch
-        after_close = datetime(2025, 9, 14, 18, 0, tzinfo=timezone.utc)  # > wk2.close_at
+        wk1_kickoff = datetime(2025, 9, 7, 17, 0, tzinfo=UTC)
+        wk2_kickoff = datetime(2025, 9, 14, 17, 0, tzinfo=UTC)
+        in_window = datetime(2025, 9, 10, 12, 0, tzinfo=UTC)  # sets open latch
+        after_close = datetime(2025, 9, 14, 18, 0, tzinfo=UTC)  # > wk2.close_at
 
         with Session(self.engine) as session:
             self._seed_week_game(session, week=1, event_id=8001, kickoff=wk1_kickoff)
@@ -720,8 +720,8 @@ class RefreshFreezeEdgeTests(unittest.TestCase):
 
     # Fixed kickoffs shared by the freeze tests. wk1 is the earlier week (its
     # computed freeze is earlier); wk2 is the target whose crossing we straddle.
-    WK1_KICKOFF = datetime(2025, 9, 7, 17, 0, tzinfo=timezone.utc)
-    WK2_KICKOFF = datetime(2025, 9, 14, 17, 0, tzinfo=timezone.utc)
+    WK1_KICKOFF = datetime(2025, 9, 7, 17, 0, tzinfo=UTC)
+    WK2_KICKOFF = datetime(2025, 9, 14, 17, 0, tzinfo=UTC)
 
     def _freeze_at(self, session: Session, week: int) -> datetime:
         """Derive the exact computed freeze instant for ``week`` from its games."""

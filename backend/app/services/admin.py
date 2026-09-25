@@ -126,9 +126,9 @@ def _get_user_or_raise(session: Session, user_id: int) -> User:
 
 
 def _count_admins(session: Session, *, active_only: bool = False) -> int:
-    stmt = select(func.count(User.id)).where(User.is_admin == True)  # noqa: E712
+    stmt = select(func.count(User.id)).where(User.is_admin == True)
     if active_only:
-        stmt = stmt.where(User.is_active == True)  # noqa: E712
+        stmt = stmt.where(User.is_active == True)
     return session.exec(stmt).one()
 
 
@@ -237,4 +237,3 @@ def delete_user(session: Session, caller_id: int, user_id: int) -> None:
     session.delete(user)
     session.commit()
     logger.info("admin_user_deleted", user_id=user_id, caller_id=caller_id)
-    return None

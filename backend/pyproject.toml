@@ -40,6 +40,19 @@ dev = [
 line-length = 100
 target-version = "py314"
 
+[tool.ruff.lint]
+# Broad catches are deliberate best-effort fallbacks (bot, telemetry, Redis
+# side channels): a failure there must degrade, never raise.
+ignore = ["BLE001", "S110", "S112"]
+
+[tool.ruff.lint.per-file-ignores]
+# Test doubles: nested patch/assertRaises blocks, class-level canned data and naive
+# datetimes (the SQLite round-trip cases) are deliberate.
+"tests/**" = ["SIM117", "RUF012", "DTZ001", "PYI034"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]
+
 [tool.basedpyright]
 # Baseline-and-ratchet type gate (see .github/workflows/ci.yml typecheck job).
 # "standard" is close to Pylance's default; strictness is raised later during paydown.

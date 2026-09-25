@@ -51,7 +51,7 @@ SITE_SCOREBOARD_URL = (
     "?dates={year}&seasontype=2&week={week}"
 )
 # Single-line so host + the "odds" path segment stay greppable together.
-CORE_ODDS_URL = "https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/events/{event_id}/competitions/{competition_id}/odds"  # noqa: E501
+CORE_ODDS_URL = "https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/events/{event_id}/competitions/{competition_id}/odds"
 
 # ESPN BET provider id observed in core-API historical odds (id drifts across
 # endpoints, so we resolve by name first and only fall back to this id).
@@ -80,7 +80,7 @@ def http_get_json(url: str, timeout: float = 20.0) -> Any:
     """
     request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             body = response.read()
     except urllib.error.HTTPError as exc:
         raise RuntimeError(f"HTTP {exc.code} fetching {url}: {exc.reason}") from exc

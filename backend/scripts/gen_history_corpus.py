@@ -48,8 +48,10 @@ def _html(title: str) -> str:
     with urllib.request.urlopen(request, timeout=30) as response:
         html = json.load(response)["parse"]["text"]
     # Some pages carry rowspan="“2”"; pandas raises on it. A <br> separates co-winners.
-    html = re.sub(r"<br\s*/?>", f" {BREAK} ", html, flags=re.I)
-    return re.sub(r'(rowspan|colspan)="[^"0-9]*(\d+)[^"0-9]*"', r'\1="\2"', html, flags=re.I)
+    html = re.sub(r"<br\s*/?>", f" {BREAK} ", html, flags=re.IGNORECASE)
+    return re.sub(
+        r'(rowspan|colspan)="[^"0-9]*(\d+)[^"0-9]*"', r'\1="\2"', html, flags=re.IGNORECASE
+    )
 
 
 def _tables(title: str) -> list[pd.DataFrame]:

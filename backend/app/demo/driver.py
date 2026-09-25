@@ -51,9 +51,9 @@ Design — offline-testable core (mirrors the sibling services):
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Callable, Iterable, Mapping, Sequence
+from datetime import UTC, datetime
 
 from sqlmodel import Session, select
 
@@ -138,7 +138,7 @@ def _as_aware(dt: datetime | None) -> datetime | None:
     unaffected.
     """
     if dt is not None and dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -315,7 +315,7 @@ def run_walkthrough(
 
         # (1) Window open for week N: stamp windows, prior weeks reflect FINAL.
         open_offset = compute_offset(
-            datetime.now(timezone.utc),
+            datetime.now(UTC),
             target_week=week,
             phase=DemoPhase.WINDOW_OPEN_FOR_WEEK,
             weeks_kickoffs=weeks_kickoffs,
@@ -328,7 +328,7 @@ def run_walkthrough(
 
         # (3) All week N final: finalize the games with their real scores.
         final_offset = compute_offset(
-            datetime.now(timezone.utc),
+            datetime.now(UTC),
             target_week=week,
             phase=DemoPhase.ALL_WEEK_FINAL,
             weeks_kickoffs=weeks_kickoffs,

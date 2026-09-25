@@ -21,11 +21,11 @@ Run from the ``backend/`` directory::
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlmodel import Session, SQLModel, create_engine
 
-import app.config as config
+from app import config
 from app.config import default_scoreboard_source
 from app.demo.anchor import offset_from_anchor, store_demo_anchor
 from app.scoreboard.demo import Demo2025Source
@@ -71,7 +71,7 @@ class FlagOnTests(_SeamTestBase):
 
     def test_on_with_anchor_returns_demo_source_with_shared_offset(self) -> None:
         config.settings.is_demo_data = True
-        anchor = datetime(2026, 6, 23, 12, 0, 0, tzinfo=timezone.utc)
+        anchor = datetime(2026, 6, 23, 12, 0, 0, tzinfo=UTC)
         with Session(self.engine) as session:
             store_demo_anchor(session, anchor)
             session.commit()
@@ -83,9 +83,8 @@ class FlagOnTests(_SeamTestBase):
 
     def test_on_without_anchor_raises_runtime_error(self) -> None:
         config.settings.is_demo_data = True
-        with Session(self.engine) as session:
-            with self.assertRaises(RuntimeError):
-                default_scoreboard_source(session)
+        with Session(self.engine) as session, self.assertRaises(RuntimeError):
+            default_scoreboard_source(session)
 
 
 if __name__ == "__main__":

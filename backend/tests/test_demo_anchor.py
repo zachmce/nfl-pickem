@@ -18,7 +18,7 @@ Run from the ``backend/`` directory::
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -39,14 +39,14 @@ class OffsetFromAnchorTests(unittest.TestCase):
         self.weeks = load_fixture_kickoffs()
 
     def test_positions_week1_earliest_at_anchor_plus_buffer(self) -> None:
-        anchor = datetime(2026, 6, 23, 12, 0, 0, tzinfo=timezone.utc)
+        anchor = datetime(2026, 6, 23, 12, 0, 0, tzinfo=UTC)
         offset = offset_from_anchor(anchor, self.weeks)
         earliest = min(self.weeks[1])
         # week-1 earliest positioned kickoff == anchor + buffer.
         self.assertEqual(earliest + offset, anchor + DEMO_KICKOFF_BUFFER)
 
     def test_deterministic_across_calls(self) -> None:
-        anchor = datetime(2026, 6, 23, 12, 0, 0, tzinfo=timezone.utc)
+        anchor = datetime(2026, 6, 23, 12, 0, 0, tzinfo=UTC)
         # Same anchor -> byte-identical offset whether or not the fixture is passed
         # (the default loads the same static packaged fixture).
         self.assertEqual(
@@ -55,7 +55,7 @@ class OffsetFromAnchorTests(unittest.TestCase):
         )
 
     def test_custom_buffer_honored(self) -> None:
-        anchor = datetime(2026, 6, 23, 12, 0, 0, tzinfo=timezone.utc)
+        anchor = datetime(2026, 6, 23, 12, 0, 0, tzinfo=UTC)
         offset = offset_from_anchor(anchor, self.weeks, buffer=timedelta(hours=48))
         self.assertEqual(min(self.weeks[1]) + offset, anchor + timedelta(hours=48))
 
@@ -79,7 +79,7 @@ class StoreLoadAnchorTests(unittest.TestCase):
         self.engine.dispose()
 
     def test_round_trips_tz_aware(self) -> None:
-        anchor = datetime(2026, 6, 23, 12, 0, 0, tzinfo=timezone.utc)
+        anchor = datetime(2026, 6, 23, 12, 0, 0, tzinfo=UTC)
         with Session(self.engine) as session:
             store_demo_anchor(session, anchor)
             session.commit()
@@ -93,8 +93,8 @@ class StoreLoadAnchorTests(unittest.TestCase):
             self.assertIsNone(load_demo_anchor(session))
 
     def test_store_is_single_row_idempotent_upsert(self) -> None:
-        first = datetime(2026, 6, 23, 12, 0, 0, tzinfo=timezone.utc)
-        second = datetime(2026, 7, 1, 9, 30, 0, tzinfo=timezone.utc)
+        first = datetime(2026, 6, 23, 12, 0, 0, tzinfo=UTC)
+        second = datetime(2026, 7, 1, 9, 30, 0, tzinfo=UTC)
         with Session(self.engine) as session:
             store_demo_anchor(session, first)
             session.commit()

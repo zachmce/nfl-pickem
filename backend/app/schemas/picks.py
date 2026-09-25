@@ -83,7 +83,7 @@ class PickRead(BaseModel):
     points: int
 
     @classmethod
-    def from_orm_pick(cls, pick: Pick) -> "PickRead":
+    def from_orm_pick(cls, pick: Pick) -> PickRead:
         """Build a read item from an ORM ``Pick`` row (explicit field copy)."""
         assert pick.id is not None  # a persisted/flushed pick always has an id
         return cls(

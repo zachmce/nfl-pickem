@@ -188,7 +188,7 @@ class SeedHistoricalGamesTests(unittest.TestCase):
 
             # Away-favored (negative home spread) alias game.
             alias_game = self._by_id(session, "2011_04_OAK_SD")
-            self.assertEqual(alias_game.spread_line, Decimal("-3"))
+            self.assertEqual(alias_game.spread_line, Decimal(-3))
             self.assertEqual(alias_game.result, 13 - 20)
 
     # --- (d) fail-loud -----------------------------------------------------
@@ -196,9 +196,8 @@ class SeedHistoricalGamesTests(unittest.TestCase):
         bogus = dict(SAMPLE_ROWS[0])
         bogus["nflverse_game_id"] = "2011_99_XXX_KC"
         bogus["away_team"] = "XXX"  # not in NFLVERSE_ABBR_TO_ESPN
-        with Session(self.engine) as session:
-            with self.assertRaises(ValueError):
-                seed_historical_games(session, rows=[bogus])
+        with Session(self.engine) as session, self.assertRaises(ValueError):
+            seed_historical_games(session, rows=[bogus])
 
 
 class ArtifactHeaderTests(unittest.TestCase):

@@ -272,7 +272,7 @@ class PickemAndTotalIneligibilityTests(unittest.TestCase):
         game = _game(
             home_score=24,
             away_score=20,
-            spread=Decimal("0"),
+            spread=Decimal(0),
             favorite_team_id=None,
             underdog_team_id=None,
             total=Decimal("44.5"),
@@ -305,7 +305,7 @@ class PickemAndTotalIneligibilityTests(unittest.TestCase):
         game = _game(
             home_score=24,
             away_score=20,
-            spread=Decimal("0"),
+            spread=Decimal(0),
             favorite_team_id=None,
             underdog_team_id=None,
             total=Decimal("44.5"),
@@ -343,7 +343,7 @@ class PickemAndTotalIneligibilityTests(unittest.TestCase):
         game = _game(
             home_score=24,
             away_score=20,
-            spread=Decimal("0"),
+            spread=Decimal(0),
             favorite_team_id=None,
             underdog_team_id=None,
             total=Decimal("44.5"),
@@ -501,7 +501,7 @@ class GradeMiscPassthroughTests(unittest.TestCase):
             home_score=21,
             away_score=20,
             status=GameStatus.FINAL,
-            spread=Decimal("0"),
+            spread=Decimal(0),
             favorite_team_id=None,
             underdog_team_id=None,
             total=None,
@@ -521,7 +521,7 @@ class GradeMiscPassthroughTests(unittest.TestCase):
             away_score=None,
             status=GameStatus.SCHEDULED,
             total=None,
-            spread=Decimal("0"),
+            spread=Decimal(0),
         )
         res = grade_pick(game, _misc_pick(result=PickResult.WIN, points=5))
         self.assertEqual(res, GradeResult(GradeOutcome.UNGRADEABLE, 0))

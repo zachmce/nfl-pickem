@@ -25,7 +25,7 @@ endpoint does not read picks.
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 from fastapi.testclient import TestClient
@@ -43,7 +43,7 @@ SEASON = 2025
 def _aware(dt: datetime | None) -> datetime | None:
     """Re-attach UTC to a naive datetime read back from SQLite."""
     if dt is not None and dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -173,7 +173,7 @@ class CurrentWeekTests(unittest.TestCase):
 
     def test_state_open(self) -> None:
         """Week 1 (open_at None) with a FUTURE first kickoff -> open."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         first = now + timedelta(days=2)
         self._seed_week(week=1, kickoffs=[first, first + timedelta(hours=3)])
 
@@ -196,7 +196,7 @@ class CurrentWeekTests(unittest.TestCase):
         (that + ~3.5h) has not been reached, while week 2's close (its first
         kickoff, +6 days) is further out.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         # Week 1: closed (first kickoff in the past) but with a FUTURE latest
         # kickoff so it drives week 2's open boundary into the future. Mark FINAL
         # is irrelevant for selection here — week 1's window is already closed.
@@ -220,7 +220,7 @@ class CurrentWeekTests(unittest.TestCase):
     def test_state_locked(self) -> None:
         """Chosen week's first kickoff is PAST (closed) but a game is non-FINAL
         -> locked."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         self._seed_week(
             week=1,
             kickoffs=[now - timedelta(hours=2), now + timedelta(hours=1)],
@@ -236,7 +236,7 @@ class CurrentWeekTests(unittest.TestCase):
     def test_state_closed(self) -> None:
         """The only week's window is closed AND every game FINAL -> closed,
         chosen via the all-closed fallback to the latest week."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         self._seed_week(
             week=1,
             kickoffs=[now - timedelta(days=2), now - timedelta(days=2, hours=-3)],
@@ -253,7 +253,7 @@ class CurrentWeekTests(unittest.TestCase):
 
     def test_current_week_selection_picks_earliest_open(self) -> None:
         """Week 1 fully closed/past, week 2 still future-open -> week 2 chosen."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         self._seed_week(
             week=1,
             kickoffs=[now - timedelta(days=3), now - timedelta(days=3, hours=-3)],
@@ -279,7 +279,7 @@ class CurrentWeekTests(unittest.TestCase):
         upcoming week 2. Before the fix the window-open selector dropped week 1
         (now >= close_at) and jumped to week 2.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         # Week 1: first game already kicked off (past), a later game still to come
         # (future), whole week IN_PROGRESS -> not all FINAL.
         self._seed_week(
@@ -306,7 +306,7 @@ class CurrentWeekTests(unittest.TestCase):
         Week 1 is fully FINAL (played out); week 2 is upcoming. The current week
         must now be week 2.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         # Week 1's last kickoff is far enough in the past that week 2's open
         # boundary (that + ~3.5h) has already passed -> week 2 is open, not
         # merely not_yet_open.
@@ -331,7 +331,7 @@ class CurrentWeekTests(unittest.TestCase):
         Proves no IS_DEMO_DATA branch is needed: the state falls out of
         real-now-vs-persisted-(shifted)-kickoffs.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         wk1_first = now + timedelta(days=1)  # season "starts" ~24h out
         self._seed_week(week=1, kickoffs=[wk1_first, wk1_first + timedelta(hours=3)])
         self._seed_week(
@@ -359,7 +359,7 @@ class CurrentWeekTests(unittest.TestCase):
         all FINAL/past) plus the newer season (2025) holding a future-open week —
         the response must be 200 with ``season == 2025`` and that week open.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         # Older season 2024: a fully past + FINAL week (would otherwise be the
         # "all closed -> latest week" fallback if it leaked into the math).
         self._seed_week(
@@ -396,7 +396,7 @@ class CurrentWeekTests(unittest.TestCase):
 
         Mirrors slate case 9: the computed predicate branch, not the override.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         first = now + timedelta(days=30)  # freeze_at (<= first kickoff) still future
         self._seed_week(week=1, kickoffs=[first, first + timedelta(hours=3)])
 
@@ -412,7 +412,7 @@ class CurrentWeekTests(unittest.TestCase):
 
         Mirrors slate case 10.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         first = now + timedelta(days=2)
         self._seed_week(
             week=1,

@@ -38,10 +38,11 @@ import argparse
 import json
 import sys
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 # Reuse the generator's pure normalization helpers so backfilled odds are
 # byte-shape-identical to the wk1-13 lines. We do NOT modify gen_2025_fixture.

@@ -31,7 +31,7 @@ the FUTURE (window open); the lock-test game's kickoff is in the PAST.
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest import mock
 
@@ -67,7 +67,7 @@ _PAST = timedelta(hours=2)
 def _aware(dt: datetime | None) -> datetime | None:
     """Re-attach UTC to a naive datetime read back from SQLite."""
     if dt is not None and dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -114,7 +114,7 @@ class PicksApiTests(unittest.TestCase):
         )
         SQLModel.metadata.create_all(self.engine)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         with Session(self.engine) as session:
             # --- Teams (FK targets for game home/away/favorite/underdog) ------
             teams = [
@@ -331,7 +331,7 @@ class PicksApiTests(unittest.TestCase):
                 def _raise() -> None:
                     raise _integrity_error(sqlstate)
 
-                setattr(session, "commit", _raise)
+                session.commit = _raise
                 yield session
 
         app.dependency_overrides[get_session] = _override
@@ -408,7 +408,7 @@ class PicksApiTests(unittest.TestCase):
         500. We seed a week whose only games are already past kickoff and assert
         the pick on the locked game is rejected with no row written.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         with self._session() as session:
             wk = Week(season=SEASON, week=99)
             session.add(wk)
@@ -823,7 +823,7 @@ class PicksApiTests(unittest.TestCase):
         envelope and neither deletes the row. We seed a pick on the locked game and
         assert the clear is rejected with the row intact.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         with self._session() as session:
             wk = Week(season=SEASON, week=99)
             session.add(wk)
@@ -1086,7 +1086,7 @@ class PicksApiTests(unittest.TestCase):
         OVER/UNDER conflict on another — so we add an extra spread/total game.
         ``espn_event_id`` is parameterized so callers can add more than one.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         with self._session() as session:
             teams = list(session.exec(select(Team)).all())
             tid = [t.id for t in teams]

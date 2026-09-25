@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import json
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlmodel import Session, SQLModel, create_engine, select
@@ -45,7 +45,7 @@ from app.seeds.teams import seed_teams
 from app.services.ingest import IngestResult, ingest_season
 
 # A fixed injected ``now`` so odds_captured_at is deterministic.
-FIXED_NOW = datetime(2026, 9, 1, 12, 0, 0, tzinfo=timezone.utc)
+FIXED_NOW = datetime(2026, 9, 1, 12, 0, 0, tzinfo=UTC)
 
 # Seeded espn_team_ids (see app.seeds.teams): 1=ATL, 2=BUF, 4=CIN, 5=CLE, 6=DAL.
 
@@ -121,7 +121,7 @@ class IngestSeasonTests(unittest.TestCase):
     # -- (1) create path: Week + Game skeleton with resolved FKs ----------
 
     def test_creates_week_and_game_skeleton_on_empty_db(self) -> None:
-        kickoff = datetime(2026, 9, 11, 0, 20, tzinfo=timezone.utc)
+        kickoff = datetime(2026, 9, 11, 0, 20, tzinfo=UTC)
         source = _FakeSource(
             {
                 1: [
@@ -212,7 +212,7 @@ class IngestSeasonTests(unittest.TestCase):
             # ``now`` re-attached to UTC.
             captured = game.odds_captured_at
             if captured.tzinfo is None:
-                captured = captured.replace(tzinfo=timezone.utc)
+                captured = captured.replace(tzinfo=UTC)
             self.assertEqual(captured, FIXED_NOW)
 
     # -- (3) fallback provider: persisted as-handed (not hardcoded) -------
@@ -257,7 +257,7 @@ class IngestSeasonTests(unittest.TestCase):
     # -- (4) idempotency: no dup rows, None never nulls a present value ---
 
     def test_reingest_is_idempotent_and_none_never_nulls(self) -> None:
-        kickoff = datetime(2026, 9, 11, 0, 20, tzinfo=timezone.utc)
+        kickoff = datetime(2026, 9, 11, 0, 20, tzinfo=UTC)
         odds = ScoreboardOdds(
             provider="DraftKings",
             provider_id="100",

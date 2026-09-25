@@ -25,7 +25,7 @@ are seeded directly (reads need no open window).
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -63,7 +63,7 @@ _PAST = timedelta(days=2)
 def _aware(dt: datetime | None) -> datetime | None:
     """Re-attach UTC to a naive datetime read back from SQLite."""
     if dt is not None and dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -85,7 +85,7 @@ class ResultsTests(unittest.TestCase):
         )
         SQLModel.metadata.create_all(self.engine)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         with Session(self.engine) as session:
             # --- Teams (FK targets) ------------------------------------------
             teams = [
@@ -236,7 +236,7 @@ class ResultsTests(unittest.TestCase):
         kickoffs (the gate reads them via ``compute_window``) and is explicit so
         the window-open tests don't depend on accidental ordering.
         """
-        future = datetime.now(timezone.utc) + timedelta(days=2)
+        future = datetime.now(UTC) + timedelta(days=2)
         with self._session() as session:
             games = list(session.exec(select(Game).where(Game.week_id == self.week_id)).all())
             for offset, game in enumerate(games):
@@ -255,7 +255,7 @@ class ResultsTests(unittest.TestCase):
         total/favorite/underdog like the FINAL games so a pick on it is
         well-formed.
         """
-        future = datetime.now(timezone.utc) + timedelta(days=2)
+        future = datetime.now(UTC) + timedelta(days=2)
         with self._session() as session:
             teams = list(session.exec(select(Team)).all())
             tid = [t.id for t in sorted(teams, key=lambda t: t.id or 0)]
@@ -452,8 +452,9 @@ class ResultsTests(unittest.TestCase):
             from app.services.standings import _season_games_by_pk
 
             games_by_pk = _season_games_by_pk(session, season=SEASON)
-            from app.models import Pick as _Pick
             from sqlmodel import select as _select
+
+            from app.models import Pick as _Pick
 
             picks_a = list(
                 session.exec(

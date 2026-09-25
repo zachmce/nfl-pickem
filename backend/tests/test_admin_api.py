@@ -35,7 +35,7 @@ cascade were broken. The ``@event.listens_for(engine, "connect")`` handler issue
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 from sqlalchemy import event
@@ -53,7 +53,7 @@ SEASON = 2025
 WEEK = 1
 
 
-def _enable_sqlite_fks(dbapi_connection, _connection_record):  # noqa: ANN001
+def _enable_sqlite_fks(dbapi_connection, _connection_record):
     """Connect listener: turn SQLite FK (and cascade) enforcement ON."""
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
@@ -141,7 +141,7 @@ class AdminApiTests(unittest.TestCase):
                 week=WEEK,
                 home_team_id=team_home.id,
                 away_team_id=team_away.id,
-                kickoff_at=datetime.now(timezone.utc),
+                kickoff_at=datetime.now(UTC),
                 status=GameStatus.SCHEDULED,
             )
             session.add(game)

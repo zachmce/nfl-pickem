@@ -29,8 +29,8 @@ import unittest
 
 from app.models import GameStatus
 from app.scoreboard.espn import (
-    EspnScoreboardSource,
     SITE_SCOREBOARD_URL,
+    EspnScoreboardSource,
     normalize_odds,
     normalize_scoreboard,
     select_odds_item,

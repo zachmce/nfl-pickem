@@ -19,6 +19,18 @@ import time
 from datetime import datetime
 
 from app.db import task_session
+from app.services.auth import (
+    deactivate_user_by_discord_id,
+    delete_user_by_id,
+    get_account_by_discord_id,
+    grant_admin_by_discord_id,
+    is_admin_by_discord_id,
+    provision_user,
+    reactivate_user_by_discord_id,
+    reset_password_for_discord,
+    revoke_admin_by_discord_id,
+    upsert_avatar_hash_by_discord_id,
+)
 from app.services.notifications import player_registered_event, publish_event
 from app.services.notifications_read import (
     current_season,
@@ -29,8 +41,8 @@ from app.services.notifications_read import (
     get_head_to_head,
     get_history_pick_keys,
     get_leaders_context,
-    get_league_records,
     get_league_picks,
+    get_league_records,
     get_lines_slate,
     get_member_season,
     get_pick_completion,
@@ -48,18 +60,6 @@ from app.services.notifications_read import (
     get_week_recap_context,
     get_week_scores,
     resolve_current_week,
-)
-from app.services.auth import (
-    deactivate_user_by_discord_id,
-    delete_user_by_id,
-    get_account_by_discord_id,
-    grant_admin_by_discord_id,
-    is_admin_by_discord_id,
-    provision_user,
-    reactivate_user_by_discord_id,
-    reset_password_for_discord,
-    revoke_admin_by_discord_id,
-    upsert_avatar_hash_by_discord_id,
 )
 
 

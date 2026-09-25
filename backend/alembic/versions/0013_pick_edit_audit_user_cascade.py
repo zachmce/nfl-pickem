@@ -32,9 +32,10 @@ under the same names.
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa  # noqa: F401  (kept for parity with 0006/0007)
 import sqlmodel  # noqa: F401  (kept for parity with 0006/0007)
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "0013"

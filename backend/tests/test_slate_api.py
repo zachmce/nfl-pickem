@@ -27,7 +27,7 @@ NEVER routed into the spread-eligibility branch (no ``PICKEM_SPREAD_INELIGIBLE``
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import httpx
@@ -51,7 +51,7 @@ SEASON = 2025
 def _aware(dt: datetime | None) -> datetime | None:
     """Re-attach UTC to a naive datetime read back from SQLite."""
     if dt is not None and dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -187,7 +187,7 @@ class SlateTests(unittest.TestCase):
     def test_games_returned_with_line_fields_and_team_identity(self) -> None:
         """A normal game round-trips its line + home/away identity; games sorted
         by kickoff."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         wk_id = self._seed_week_row(1)
         # Seed two games out of kickoff order to prove the sort.
         later = now + timedelta(days=2)
@@ -243,7 +243,7 @@ class SlateTests(unittest.TestCase):
 
     def test_eligibility_normal_game_all_four_true(self) -> None:
         """A spread+sides+total game -> all four PickType values eligible."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         wk_id = self._seed_week_row(1)
         self._add_game(
             week_id=wk_id,
@@ -268,7 +268,7 @@ class SlateTests(unittest.TestCase):
 
     def test_eligibility_no_total_over_under_false(self) -> None:
         """total=None -> OVER & UNDER false; spread types still true."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         wk_id = self._seed_week_row(1)
         self._add_game(
             week_id=wk_id,
@@ -296,7 +296,7 @@ class SlateTests(unittest.TestCase):
     def test_eligibility_true_pickem_spread_types_false(self) -> None:
         """A true pick'em (spread None) but WITH a total -> spread types false,
         OVER/UNDER true."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         wk_id = self._seed_week_row(1)
         self._add_game(
             week_id=wk_id,
@@ -324,7 +324,7 @@ class SlateTests(unittest.TestCase):
     def test_locked_past_true_future_false(self) -> None:
         """A PAST-kickoff game -> locked True; a FUTURE-kickoff game in the same
         week -> locked False."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         wk_id = self._seed_week_row(1)
         past = now - timedelta(hours=2)
         future = now + timedelta(days=1)
@@ -362,7 +362,7 @@ class SlateTests(unittest.TestCase):
 
     def test_final_game_reports_final_status(self) -> None:
         """A FINAL game surfaces status FINAL on the slate (issue #40)."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         wk_id = self._seed_week_row(1)
         self._add_game(
             week_id=wk_id,
@@ -386,7 +386,7 @@ class SlateTests(unittest.TestCase):
         """A FINAL game surfaces its concrete home/away score; a SCHEDULED game in
         the same week carries null scores end-to-end (no invented 0-0). Mirrors
         the persisted-null pass-through convention (issue #120)."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         wk_id = self._seed_week_row(1)
         # FINAL game with concrete scores; kicked off in the past.
         self._add_game(
@@ -429,7 +429,7 @@ class SlateTests(unittest.TestCase):
     def test_demo_like_shift_all_unlocked(self) -> None:
         """All kickoffs shifted into the FUTURE -> every game locked False,
         computed against real now (no IS_DEMO_DATA branch)."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         wk_id = self._seed_week_row(1)
         self._add_game(
             week_id=wk_id,
@@ -479,7 +479,7 @@ class SlateTests(unittest.TestCase):
     def test_slate_reports_odds_frozen_false_before_freeze(self) -> None:
         """A week whose earliest kickoff is FAR in the future -> freeze_at is in
         the future relative to real now -> top-level odds_frozen is False."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         wk_id = self._seed_week_row(1)  # lines_frozen defaults False
         # Kickoff far in the future so freeze_at (min noon-ET-Wed, earliest
         # kickoff) is still ahead of real now -> not yet frozen.
@@ -509,7 +509,7 @@ class SlateTests(unittest.TestCase):
         Uses a FUTURE kickoff so the game itself is not locked — proving the
         week-level freeze flag is independent of per-game lock.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         wk_id = self._seed_week_row(1, lines_frozen=True)
         self._add_game(
             week_id=wk_id,

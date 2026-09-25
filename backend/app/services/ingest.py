@@ -42,7 +42,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlmodel import Session, select
@@ -194,7 +194,7 @@ def ingest_season(
     :returns: an :class:`IngestResult` summarizing the run.
     """
     if now is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
     team_map = _build_team_map(session)
 

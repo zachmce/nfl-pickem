@@ -20,7 +20,7 @@ Run from the ``backend/`` directory with the standard-library test runner::
 from __future__ import annotations
 
 import unittest
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from sqlmodel import Session, SQLModel, create_engine, select
@@ -90,7 +90,7 @@ class SlatePredictionsReaderTests(unittest.TestCase):
                     home_score=home_score,
                     away_score=away_score,
                     result=home_score - away_score,
-                    spread_line=Decimal("0"),
+                    spread_line=Decimal(0),
                 )
             )
             session.commit()
@@ -157,7 +157,7 @@ class SlatePredictionsReaderTests(unittest.TestCase):
             espn_event_id=5001,
             home_team_id=self.home_fav_id,
             away_team_id=self.away_dog_id,
-            kickoff_at=datetime(2025, 10, 5, 17, 0, tzinfo=timezone.utc),
+            kickoff_at=datetime(2025, 10, 5, 17, 0, tzinfo=UTC),
             spread=Decimal("3.5"),
             favorite_team_id=self.home_fav_id,
             underdog_team_id=self.away_dog_id,
@@ -167,7 +167,7 @@ class SlatePredictionsReaderTests(unittest.TestCase):
             espn_event_id=5002,
             home_team_id=self.home_noline_id,
             away_team_id=self.away_noline_id,
-            kickoff_at=datetime(2025, 10, 5, 20, 0, tzinfo=timezone.utc),
+            kickoff_at=datetime(2025, 10, 5, 20, 0, tzinfo=UTC),
         )
 
     # --- (a) one dict per game with the right favorite/underdog/spread ----

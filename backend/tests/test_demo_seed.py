@@ -26,7 +26,7 @@ Run from the ``backend/`` directory::
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -36,7 +36,7 @@ from app.seeds.data.bot_picks_2025 import BOT_PICKS
 from app.seeds.demo import purge_demo, seed_demo
 from app.services.pick_window import PickWindow, is_pick_open
 
-PINNED_NOW = datetime(2026, 6, 23, 12, 0, 0, tzinfo=timezone.utc)
+PINNED_NOW = datetime(2026, 6, 23, 12, 0, 0, tzinfo=UTC)
 WEEKS = tuple(range(1, 19))
 
 
@@ -69,9 +69,7 @@ class DemoSeedTests(unittest.TestCase):
             ).all()
             self.assertTrue(week1_games)
             kickoffs = [
-                g.kickoff_at.replace(tzinfo=timezone.utc)
-                if g.kickoff_at.tzinfo is None
-                else g.kickoff_at
+                g.kickoff_at.replace(tzinfo=UTC) if g.kickoff_at.tzinfo is None else g.kickoff_at
                 for g in week1_games
             ]
             earliest = min(kickoffs)
@@ -102,9 +100,7 @@ class DemoSeedTests(unittest.TestCase):
                 select(Game).where(Game.season == season, Game.week == 1)
             ).all()
             earliest = min(
-                g.kickoff_at.replace(tzinfo=timezone.utc)
-                if g.kickoff_at.tzinfo is None
-                else g.kickoff_at
+                g.kickoff_at.replace(tzinfo=UTC) if g.kickoff_at.tzinfo is None else g.kickoff_at
                 for g in week1_games
             )
             # The persisted positioning matches offset_from_anchor(stored anchor).
@@ -165,7 +161,7 @@ class DemoSeedTests(unittest.TestCase):
             def week1_earliest() -> datetime:
                 games = session.exec(select(Game).where(Game.season == 2025, Game.week == 1)).all()
                 return min(
-                    g.kickoff_at.replace(tzinfo=timezone.utc)
+                    g.kickoff_at.replace(tzinfo=UTC)
                     if g.kickoff_at.tzinfo is None
                     else g.kickoff_at
                     for g in games
@@ -186,7 +182,7 @@ class DemoSeedTests(unittest.TestCase):
         """Normalize a naive SQLite datetime to tz-aware UTC (file convention)."""
         if dt is None:
             return None
-        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+        return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt
 
     def _is_open_at(self, week: Week, now: datetime) -> bool:
         """Classify a Week's stored window as open at ``now`` (deterministic).

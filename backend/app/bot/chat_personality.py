@@ -372,7 +372,7 @@ def _select_notable_impact(impacts: list[dict]) -> dict | None:
     """
     if not impacts:
         return None
-    return sorted(impacts, key=_impact_priority)[0]
+    return min(impacts, key=_impact_priority)
 
 
 def _select_notable_win(impacts: list[dict]) -> dict | None:
@@ -384,7 +384,7 @@ def _select_notable_win(impacts: list[dict]) -> dict | None:
     wins = [i for i in impacts if i.get("outcome") == "WIN"]
     if not wins:
         return None
-    return sorted(wins, key=_impact_priority)[0]
+    return min(wins, key=_impact_priority)
 
 
 # --------------------------------------------------------------------------- #

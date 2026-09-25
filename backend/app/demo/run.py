@@ -42,7 +42,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from typing import Sequence
+from collections.abc import Sequence
 
 from sqlmodel import Session, SQLModel, create_engine
 

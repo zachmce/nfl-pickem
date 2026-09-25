@@ -150,7 +150,7 @@ class Settings(BaseSettings):
         return vendor
 
     @model_validator(mode="after")
-    def _prod_fail_closed(self) -> "Settings":
+    def _prod_fail_closed(self) -> Settings:
         """Refuse to boot a production deploy that still carries insecure dev defaults.
 
         This is the fail-closed mechanism for the go-live cutover: ``config.py``

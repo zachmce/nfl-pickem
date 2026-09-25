@@ -38,7 +38,7 @@ from app.services import admin as admin_service
 from app.services.auth import is_admin_by_discord_id, revoke_admin_by_discord_id
 
 
-def _enable_sqlite_fks(dbapi_connection, _connection_record):  # noqa: ANN001
+def _enable_sqlite_fks(dbapi_connection, _connection_record):
     """Connect listener: turn SQLite FK (and cascade) enforcement ON."""
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")

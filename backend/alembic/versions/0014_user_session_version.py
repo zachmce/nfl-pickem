@@ -26,9 +26,10 @@ migration only on the live Postgres path.
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 import sqlmodel  # noqa: F401  (kept for parity with 0004..0013)
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "0014"

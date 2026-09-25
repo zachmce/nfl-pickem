@@ -14,7 +14,6 @@ flat service dataclass (not the ORM model), so the hash cannot leak.
 from __future__ import annotations
 
 from datetime import datetime
-
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
@@ -51,7 +50,7 @@ class AdminUserRead(BaseModel):
     pick_count: int
 
     @classmethod
-    def from_row(cls, row: AdminUserRow) -> "AdminUserRead":
+    def from_row(cls, row: AdminUserRow) -> AdminUserRead:
         """Shape one service result row into the response model."""
         return cls(
             id=row.id,
@@ -74,7 +73,7 @@ class AdminUserListResponse(BaseModel):
     users: list[AdminUserRead]
 
     @classmethod
-    def from_rows(cls, rows: list[AdminUserRow]) -> "AdminUserListResponse":
+    def from_rows(cls, rows: list[AdminUserRow]) -> AdminUserListResponse:
         """Shape the service's result rows into the list response."""
         return cls(users=[AdminUserRead.from_row(r) for r in rows])
 

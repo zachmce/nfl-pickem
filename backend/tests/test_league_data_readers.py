@@ -9,7 +9,7 @@ Run with: ``backend/.venv/bin/python -m unittest tests.test_league_data_readers 
 from __future__ import annotations
 
 import unittest
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy.pool import StaticPool
@@ -44,7 +44,7 @@ class _ReaderTestCase(unittest.TestCase):
             "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
         )
         SQLModel.metadata.create_all(self.engine)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         with Session(self.engine) as session:
             teams = [
                 Team(espn_team_id=1, abbreviation="BUF", display_name="Bills"),

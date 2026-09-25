@@ -32,8 +32,8 @@ _SENSITIVE_PATTERN = re.compile(
 
 
 def _redact_processor(
-    logger: Any,  # noqa: ARG001 — structlog processor signature
-    method: str,  # noqa: ARG001 — structlog processor signature
+    logger: Any,
+    method: str,
     event_dict: MutableMapping[str, Any],
 ) -> MutableMapping[str, Any]:
     """Replace values of sensitive keys with '[REDACTED]' before rendering."""

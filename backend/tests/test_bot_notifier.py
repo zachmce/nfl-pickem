@@ -241,14 +241,14 @@ class _SendableChannel:
     ``embeds`` so a test can assert on either. ``send_kwargs`` records every call's
     keyword args (e.g. ``allowed_mentions``)."""
 
-    def __init__(self, id: int, name: str) -> None:  # noqa: A002
+    def __init__(self, id: int, name: str) -> None:
         self.id = id
         self.name = name
         self.sent: list[str] = []
         self.embeds: list = []
         self.send_kwargs: list[dict] = []
 
-    async def send(self, line: str | None = None, *, embed=None, **kwargs) -> None:  # noqa: ANN001
+    async def send(self, line: str | None = None, *, embed=None, **kwargs) -> None:
         if embed is not None:
             self.embeds.append(embed)
         elif line is not None:
@@ -265,7 +265,7 @@ class _FakeClient:
     def __init__(self, guild: _SendableGuild) -> None:
         self._guild = guild
 
-    def get_guild(self, _guild_id):  # noqa: ANN001 - mirrors discord.Client
+    def get_guild(self, _guild_id):
         return self._guild
 
 
@@ -282,7 +282,7 @@ class _FakePubSub:
     list of message frames to yield before raising ``CancelledError`` to end the
     test cleanly (the real bot-shutdown signal)."""
 
-    def __init__(self, script) -> None:  # noqa: ANN001
+    def __init__(self, script) -> None:
         self.script = script
         self.subscribed: list[str] = []
         self.closed = False
@@ -328,7 +328,7 @@ class RunNotifierReconnectTests(unittest.IsolatedAsyncioTestCase):
 
         created: list[_FakeRedis] = []
 
-        def fake_from_url(_url):  # noqa: ANN001
+        def fake_from_url(_url):
             attempt = len(created)
             if attempt == 0:
                 pubsub = _FakePubSub("drop")  # 1st connection: drops mid-listen
@@ -383,7 +383,7 @@ class RunNotifierRoutingTests(unittest.IsolatedAsyncioTestCase):
 
         created: list[_FakeRedis] = []
 
-        def fake_from_url(_url):  # noqa: ANN001
+        def fake_from_url(_url):
             if created:  # pragma: no cover - guards an unbounded reconnect loop
                 raise AssertionError("run_notifier reconnected unexpectedly")
             pubsub = _FakePubSub([subscribe_frame, chat_frame, logger_frame])
@@ -432,7 +432,7 @@ class RunNotifierEmbellishTests(unittest.IsolatedAsyncioTestCase):
 
         created: list[_FakeRedis] = []
 
-        def fake_from_url(_url):  # noqa: ANN001
+        def fake_from_url(_url):
             if created:  # pragma: no cover - guards an unbounded reconnect loop
                 raise AssertionError("run_notifier reconnected unexpectedly")
             pubsub = _FakePubSub([subscribe_frame, *frames])
@@ -535,7 +535,7 @@ class RunNotifierEmbellishTests(unittest.IsolatedAsyncioTestCase):
         subscribe_frame = {"type": "subscribe", "data": 1}
         created: list[_FakeRedis] = []
 
-        def fake_from_url(_url):  # noqa: ANN001
+        def fake_from_url(_url):
             if created:  # pragma: no cover
                 raise AssertionError("reconnected unexpectedly")
             pubsub = _FakePubSub([subscribe_frame, frame])
@@ -582,7 +582,7 @@ class RunNotifierRecapTests(unittest.IsolatedAsyncioTestCase):
 
         created: list[_FakeRedis] = []
 
-        def fake_from_url(_url):  # noqa: ANN001
+        def fake_from_url(_url):
             if created:  # pragma: no cover - guards an unbounded reconnect loop
                 raise AssertionError("run_notifier reconnected unexpectedly")
             pubsub = _FakePubSub([subscribe_frame, *frames])
@@ -700,7 +700,7 @@ class RunNotifierDecorateTests(unittest.IsolatedAsyncioTestCase):
 
         created: list[_FakeRedis] = []
 
-        def fake_from_url(_url):  # noqa: ANN001
+        def fake_from_url(_url):
             if created:  # pragma: no cover - guards an unbounded reconnect loop
                 raise AssertionError("run_notifier reconnected unexpectedly")
             pubsub = _FakePubSub([subscribe_frame, *frames])
@@ -720,7 +720,7 @@ class RunNotifierDecorateTests(unittest.IsolatedAsyncioTestCase):
 
     @staticmethod
     class _FakeEmoji:
-        def __init__(self, name, id):  # noqa: A002
+        def __init__(self, name, id):
             self.name = name
             self.id = id
 
@@ -782,7 +782,7 @@ class RunNotifierDecorateTests(unittest.IsolatedAsyncioTestCase):
             client = _FakeClient(_SendableGuild([logger_channel, chat_channel]))
             created: list[_FakeRedis] = []
 
-            def fake_from_url(_url):  # noqa: ANN001
+            def fake_from_url(_url):
                 if created:  # pragma: no cover
                     raise AssertionError("reconnected unexpectedly")
                 pubsub = _FakePubSub([subscribe_frame, frame])
@@ -822,7 +822,7 @@ class RunNotifierGameFinalFallbackTests(unittest.IsolatedAsyncioTestCase):
         client = _FakeClient(_SendableGuild([logger_channel, chat_channel]))
         created: list[_FakeRedis] = []
 
-        def fake_from_url(_url):  # noqa: ANN001
+        def fake_from_url(_url):
             if created:  # pragma: no cover - guards an unbounded reconnect loop
                 raise AssertionError("reconnected unexpectedly")
             pubsub = _FakePubSub([subscribe_frame, frame])
@@ -873,7 +873,7 @@ class RunNotifierWindowEmbedTests(unittest.IsolatedAsyncioTestCase):
         client = _FakeClient(_SendableGuild([chat_channel]))
         created: list[_FakeRedis] = []
 
-        def fake_from_url(_url):  # noqa: ANN001
+        def fake_from_url(_url):
             if created:  # pragma: no cover - guards an unbounded reconnect loop
                 raise AssertionError("reconnected unexpectedly")
             pubsub = _FakePubSub([subscribe_frame, frame])
@@ -910,7 +910,7 @@ class RunNotifierWindowEmbedTests(unittest.IsolatedAsyncioTestCase):
         client = _FakeClient(_SendableGuild([chat_channel]))
         created: list[_FakeRedis] = []
 
-        def fake_from_url(_url):  # noqa: ANN001
+        def fake_from_url(_url):
             if created:  # pragma: no cover - guards an unbounded reconnect loop
                 raise AssertionError("reconnected unexpectedly")
             pubsub = _FakePubSub([subscribe_frame, frame])
@@ -959,7 +959,7 @@ class RunNotifierFreezeWeekTests(unittest.IsolatedAsyncioTestCase):
         client = _FakeClient(_SendableGuild([logger_channel, chat_channel]))
         created: list[_FakeRedis] = []
 
-        def fake_from_url(_url):  # noqa: ANN001
+        def fake_from_url(_url):
             if created:  # pragma: no cover - guards an unbounded reconnect loop
                 raise AssertionError("reconnected unexpectedly")
             pubsub = _FakePubSub([subscribe_frame, frame])
@@ -997,7 +997,7 @@ class RunNotifierFreezeWeekTests(unittest.IsolatedAsyncioTestCase):
         client = _FakeClient(_SendableGuild([logger_channel, chat_channel]))
         created: list[_FakeRedis] = []
 
-        def fake_from_url(_url):  # noqa: ANN001
+        def fake_from_url(_url):
             if created:  # pragma: no cover - guards an unbounded reconnect loop
                 raise AssertionError("reconnected unexpectedly")
             pubsub = _FakePubSub([subscribe_frame, frame])
@@ -1045,7 +1045,7 @@ class RunNotifierThroughputTests(unittest.IsolatedAsyncioTestCase):
         client = _FakeClient(_SendableGuild([chat_channel]))
         created: list[_FakeRedis] = []
 
-        def fake_from_url(_url):  # noqa: ANN001
+        def fake_from_url(_url):
             if created:  # pragma: no cover
                 raise AssertionError("reconnected unexpectedly")
             redis_client = _FakeRedis(_FakePubSub([subscribe_frame, *frames]))

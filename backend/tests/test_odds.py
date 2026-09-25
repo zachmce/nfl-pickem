@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import json
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -138,9 +138,9 @@ class FreezeMathTests(unittest.TestCase):
     def test_freeze_at_is_noon_et_wednesday_on_or_before_kickoff_edt(self) -> None:
         # A Sunday Sep kickoff (EDT). The Wednesday on/before is Sep 3, 2025;
         # noon ET that day is 16:00 UTC (EDT = UTC-4).
-        kickoff = datetime(2025, 9, 7, 17, 0, tzinfo=timezone.utc)
+        kickoff = datetime(2025, 9, 7, 17, 0, tzinfo=UTC)
         games = [_game(event_id=1, season=2025, week=1, kickoff=kickoff)]
-        expected = datetime(2025, 9, 3, 12, 0, tzinfo=_ET).astimezone(timezone.utc)
+        expected = datetime(2025, 9, 3, 12, 0, tzinfo=_ET).astimezone(UTC)
         self.assertEqual(freeze_at(games), expected)
         # The Wednesday-noon must be on or before the kickoff.
         self.assertLessEqual(freeze_at(games), kickoff)
@@ -148,18 +148,18 @@ class FreezeMathTests(unittest.TestCase):
     def test_freeze_at_handles_est_offset(self) -> None:
         # A January kickoff (EST = UTC-5). Wednesday on/before Jan 11 2026 (Sun)
         # is Jan 7; noon ET that day is 17:00 UTC.
-        kickoff = datetime(2026, 1, 11, 18, 0, tzinfo=timezone.utc)
+        kickoff = datetime(2026, 1, 11, 18, 0, tzinfo=UTC)
         games = [_game(event_id=1, season=2025, week=18, kickoff=kickoff)]
-        expected = datetime(2026, 1, 7, 12, 0, tzinfo=_ET).astimezone(timezone.utc)
+        expected = datetime(2026, 1, 7, 12, 0, tzinfo=_ET).astimezone(UTC)
         self.assertEqual(freeze_at(games), expected)
         # EST is UTC-5 so noon ET == 17:00 UTC (distinct from the EDT case).
-        self.assertEqual(expected, datetime(2026, 1, 7, 17, 0, tzinfo=timezone.utc))
+        self.assertEqual(expected, datetime(2026, 1, 7, 17, 0, tzinfo=UTC))
 
     def test_freeze_at_collapses_to_pick_lock_when_lock_before_noon_wed(self) -> None:
         # A game that kicks off Wednesday MORNING (before noon ET): noon-ET-Wed of
         # that same Wednesday would be AFTER kickoff, so min() must collapse
         # freeze_at to the pick_lock (the earliest kickoff = the close boundary).
-        kickoff = datetime(2025, 9, 3, 14, 0, tzinfo=timezone.utc)  # 10:00 EDT Wed
+        kickoff = datetime(2025, 9, 3, 14, 0, tzinfo=UTC)  # 10:00 EDT Wed
         games = [_game(event_id=1, season=2025, week=1, kickoff=kickoff)]
         pick_lock = kickoff  # only one game -> earliest kickoff is the close
         self.assertEqual(freeze_at(games), pick_lock)
@@ -167,7 +167,7 @@ class FreezeMathTests(unittest.TestCase):
 
     def test_freeze_at_never_exceeds_pick_lock(self) -> None:
         # General invariant across a normal week.
-        kickoff = datetime(2025, 9, 7, 17, 0, tzinfo=timezone.utc)
+        kickoff = datetime(2025, 9, 7, 17, 0, tzinfo=UTC)
         games = [_game(event_id=1, season=2025, week=1, kickoff=kickoff)]
         from app.services.pick_window import compute_window
 
@@ -182,8 +182,8 @@ class FreezeMathTests(unittest.TestCase):
         # the precondition is violated.
         with self.assertRaises(ValueError):
             odds_service._guard_freeze_at_le_pick_lock(
-                freeze=datetime(2025, 9, 4, 0, 0, tzinfo=timezone.utc),
-                pick_lock=datetime(2025, 9, 3, 0, 0, tzinfo=timezone.utc),
+                freeze=datetime(2025, 9, 4, 0, 0, tzinfo=UTC),
+                pick_lock=datetime(2025, 9, 3, 0, 0, tzinfo=UTC),
             )
 
 
@@ -191,7 +191,7 @@ class IsOddsFrozenTests(unittest.TestCase):
     """is_odds_frozen: now vs freeze_at, plus the lines_frozen override."""
 
     def setUp(self) -> None:
-        self.kickoff = datetime(2025, 9, 7, 17, 0, tzinfo=timezone.utc)
+        self.kickoff = datetime(2025, 9, 7, 17, 0, tzinfo=UTC)
         self.games = [_game(event_id=1, season=2025, week=1, kickoff=self.kickoff)]
         self.freeze = freeze_at(self.games)
 
@@ -242,7 +242,7 @@ class ReconcileOddsWriteTests(unittest.TestCase):
                 g.odds_captured_at = None
                 session.add(g)
             session.commit()
-        self.now = datetime(2025, 9, 1, 12, 0, tzinfo=timezone.utc)
+        self.now = datetime(2025, 9, 1, 12, 0, tzinfo=UTC)
 
     def tearDown(self) -> None:
         self.engine.dispose()
@@ -468,7 +468,7 @@ class ReconcileWeekAndNeedyTests(unittest.TestCase):
                 session.add(g)
             session.commit()
         # A `now` well before week 1's freeze so week 1 is odds-active.
-        self.now_open = datetime(2025, 8, 1, 12, 0, tzinfo=timezone.utc)
+        self.now_open = datetime(2025, 8, 1, 12, 0, tzinfo=UTC)
 
     def tearDown(self) -> None:
         self.engine.dispose()
@@ -477,7 +477,7 @@ class ReconcileWeekAndNeedyTests(unittest.TestCase):
         row = session.exec(select(Game).where(Game.season == self.season, Game.week == 1)).first()
         ko = row.kickoff_at
         if ko.tzinfo is None:
-            ko = ko.replace(tzinfo=timezone.utc)
+            ko = ko.replace(tzinfo=UTC)
         return row.espn_event_id, ko
 
     def test_needy_selects_unfrozen_week_excludes_frozen(self) -> None:

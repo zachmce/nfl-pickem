@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest import mock
 
 from app.bot import db_bridge, qa
@@ -553,7 +553,7 @@ class ListAnswerAndFormattingTests(unittest.TestCase):
         # verbatim (the one-line phrasing guard must not summarize the list away).
         slate = {
             "week": 1,
-            "close_at": datetime(2026, 7, 6, 12, 22, tzinfo=timezone.utc),
+            "close_at": datetime(2026, 7, 6, 12, 22, tzinfo=UTC),
             "pick_open": False,
             "games": [
                 {"away": "DAL", "home": "PHI", "favorite": "PHI", "spread": "7.5", "total": "47.5"},
@@ -617,7 +617,7 @@ class ListAnswerAndFormattingTests(unittest.TestCase):
     def test_single_game_slate_formats_close_time_and_open_tense(self) -> None:
         slate = {
             "week": 3,
-            "close_at": datetime(2026, 7, 6, 12, 22, 31, 79408, tzinfo=timezone.utc),
+            "close_at": datetime(2026, 7, 6, 12, 22, 31, 79408, tzinfo=UTC),
             "pick_open": True,
             "games": [
                 {"away": "LAC", "home": "KC", "favorite": "KC", "spread": "3.5", "total": "47.5"}
@@ -691,15 +691,15 @@ class ListAnswerAndFormattingTests(unittest.TestCase):
         self.assertIn("full card", out)
 
     def test_fmt_when_is_clean_and_none_safe(self) -> None:
-        s = qa._fmt_when(datetime(2026, 7, 6, 12, 22, 31, 79408, tzinfo=timezone.utc))
+        s = qa._fmt_when(datetime(2026, 7, 6, 12, 22, 31, 79408, tzinfo=UTC))
         assert s is not None
         self.assertIn("Jul 6", s)
         self.assertIn("12:22 PM UTC", s)
         self.assertNotIn("079408", s)
         self.assertNotIn("+00", s)
         # 12-hour edges.
-        midnight = qa._fmt_when(datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc))
-        afternoon = qa._fmt_when(datetime(2026, 1, 1, 13, 5, tzinfo=timezone.utc))
+        midnight = qa._fmt_when(datetime(2026, 1, 1, 0, 0, tzinfo=UTC))
+        afternoon = qa._fmt_when(datetime(2026, 1, 1, 13, 5, tzinfo=UTC))
         assert midnight is not None and afternoon is not None
         self.assertIn("12:00 AM UTC", midnight)
         self.assertIn("1:05 PM UTC", afternoon)
@@ -798,7 +798,7 @@ class SingleGameAnswerIsProtectedTests(unittest.TestCase):
     def _slate(asked_team: str | None = "DAL") -> dict:
         return {
             "week": 5,
-            "close_at": datetime(2026, 7, 6, 12, 22, tzinfo=timezone.utc),
+            "close_at": datetime(2026, 7, 6, 12, 22, tzinfo=UTC),
             "pick_open": True,
             "asked_team": asked_team,
             "games": [
@@ -1162,7 +1162,7 @@ class WeatherIntentTests(unittest.TestCase):
     forecast on any resolution/fetch/parse failure."""
 
     def _kickoff(self) -> datetime:
-        return datetime(2026, 1, 5, 14, 0, tzinfo=timezone.utc)
+        return datetime(2026, 1, 5, 14, 0, tzinfo=UTC)
 
     def _outdoor(self) -> weather.Stadium:
         return weather.Stadium("Test Field", 42.77, -78.79, False)
@@ -1603,7 +1603,7 @@ def _prediction_inputs(**overrides) -> dict:
         "spread": "3.0",
         "total": "47.5",
         "espn_event_id": 555,
-        "kickoff_at": datetime(2026, 1, 5, 18, 0, tzinfo=timezone.utc),
+        "kickoff_at": datetime(2026, 1, 5, 18, 0, tzinfo=UTC),
         "model_margin": 1.0,
         "season": 2025,
         "week": 5,

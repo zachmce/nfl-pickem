@@ -37,7 +37,7 @@ submit/clear paths or the Discord cog. It never writes the vestigial
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlmodel import Session, select
 
@@ -91,7 +91,7 @@ def admin_set_pick(
     admin path makes NO window/lock decision, so it is unused for gating.
     """
     if now is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
     # Guard a missing/typo'd target user up front: a non-existent target_user_id
     # would otherwise become an FK IntegrityError 500 at commit (the pick/audit
@@ -214,7 +214,7 @@ def admin_clear_pick(
     window/lock decision, so it is unused for gating.
     """
     if now is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
     # Guard a missing/typo'd target user up front: the audit row references it,
     # so a non-existent target_user_id would be an FK IntegrityError 500 at
@@ -262,7 +262,6 @@ def admin_clear_pick(
     session.add(audit)
 
     session.delete(matched)
-    return None
 
 
 def admin_grade_misc(
@@ -298,7 +297,7 @@ def admin_grade_misc(
     or an absent MISC pick (``reason="pick_not_found"``).
     """
     if now is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
     if result is PickResult.PENDING:
         raise ValidationError(

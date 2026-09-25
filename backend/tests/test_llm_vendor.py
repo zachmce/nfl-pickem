@@ -43,7 +43,7 @@ class _ScriptedClient:
     async def __aexit__(self, *exc) -> None:
         return None
 
-    async def post(self, url, *, json=None, headers=None):  # noqa: A002
+    async def post(self, url, *, json=None, headers=None):
         type(self).posted.append(dict(json or {}))
         return type(self).responses[min(len(type(self).posted) - 1, len(type(self).responses) - 1)]
 

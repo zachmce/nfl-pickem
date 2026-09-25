@@ -36,9 +36,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import structlog
-from alembic import command
 from alembic.config import Config
 
+from alembic import command
 from app.config import settings
 from app.logging_config import configure_logging
 from app.seeds import admins, demo, historical_games, teams
