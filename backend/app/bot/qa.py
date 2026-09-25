@@ -30,7 +30,7 @@ import json
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from enum import Enum
 from typing import TYPE_CHECKING
@@ -473,7 +473,28 @@ def _normalize_team(value: object, known_team_tokens: set[str]) -> str | None:
     alias = _TEAM_ALIASES.get(alias_key)
     if alias is not None and alias in real:
         return alias
+    # Issue #278: "ATL/GB" names one game; it resolves to its first team when both are real.
+    halves = _MATCHUP_SPLIT_RE.split(stripped)
+    if len(halves) == 2 and all(halves):
+        first, second = (_normalize_team(half, known_team_tokens) for half in halves)
+        if first is not None and second is not None:
+            return first
     return None
+
+
+def _matchup_team(question: str, known_team_tokens: set[str]) -> str | None:
+    """The first team of the first two-real-team matchup ("ATL/GB") in ``question``."""
+    for match in _MATCHUP_IN_TEXT_RE.finditer(question):
+        team = _normalize_team(f"{match.group(1)}/{match.group(2)}", known_team_tokens)
+        if team is not None:
+            return team
+    return None
+
+
+_MATCHUP_IN_TEXT_RE = re.compile(
+    r"([A-Za-z0-9']+)\s*(?:/|@|-|\s(?:vs\.?|v\.?|at)\s)\s*([A-Za-z0-9']+)", re.IGNORECASE
+)
+_MATCHUP_SPLIT_RE = re.compile(r"\s*(?:/|@|-|\s(?:vs\.?|v\.?|at)\s)\s*", re.IGNORECASE)
 
 
 def _coerce_week(value: object) -> int | None:
@@ -588,6 +609,14 @@ def validate_classification(raw: object, *, known_team_tokens: set[str]) -> QaRe
     # to unknown. On a team-OPTIONAL intent (``_TEAM_OPTIONAL_INTENTS`` — news) it is NOT:
     # the team scrubs to None and the intent falls through to the LEAGUE answer (a real
     # team still resolves + carries through as normal).
+    # Issue #278: "do you agree with the ATL/GB line?" came back slate_predictions with a
+    # team, and the member got all 16 games. A real team makes it a one-game question.
+    if (
+        intent is QaIntent.slate_predictions
+        and _normalize_team(raw.get("team"), known_team_tokens) is not None
+    ):
+        intent = QaIntent.prediction
+
     team: str | None = None
     if intent in _TEAM_INTENTS:
         raw_team = raw.get("team")
@@ -706,14 +735,17 @@ SLATE_PREDICTION_GUARD = (
 _PLACEHOLDER_RE = re.compile(r"\[[^\]]*\]")
 
 
-class _LaterWeek:
-    """``_build_fact``'s answer to a prediction about a week that is not this week."""
+class _OpenHandoff:
+    """``_build_fact``'s answer when the grounded read does not fit: the open path answers."""
 
 
 # Measured 2026-09-21: "who wins the chargers texans game in week 9?" classified
 # ``prediction`` 4/4 against a prompt that sends a later week to open_nfl, and emitted
 # ``week: 9`` 4/4. The read only exists for this week's game, so the week decides in code.
-_LATER_WEEK = _LaterWeek()
+_LATER_WEEK = _OpenHandoff()
+# Issue #276: "have you changed your mind?" asked in the third quarter got the pre-game
+# card, whose live-market read also changes once the odds come down at kickoff.
+_GAME_UNDERWAY = _OpenHandoff()
 
 # Deterministic short-circuit line for an unregistered asker (no LLM call needed).
 _REGISTER_LINE = "You need a pick'em account first — run /register to get set up."
@@ -808,8 +840,6 @@ _PREDICTION_INJURIES_DEGRADE_NOTE = (
 _PREDICTION_WEATHER_DEGRADE_NOTE = (
     "Couldn't pull the game-time forecast this time, so this read leaves weather out of it."
 )
-# Live-line-missing relabel: fall back to the frozen pick'em spread, clearly relabelled.
-_PREDICTION_FROZEN_FALLBACK_NOTE = "Working off the line we've got locked here — couldn't reach the live market for a fresh number."
 
 # A material live-vs-frozen divergence (favorite flip OR magnitude delta >= this) fires
 # the conflict callout.
@@ -1166,12 +1196,15 @@ def _indoor_fact(stadium: Stadium) -> str:
     )
 
 
-def _weather_fact(home_abbr: str, stadium: Stadium, forecast: dict) -> str:
+def _weather_fact(
+    home_abbr: str, stadium: Stadium, forecast: dict, kickoff_at: object = None
+) -> str:
     """Build the deterministic kickoff-time weather fact, ONLY from parsed fields.
 
     Invents nothing: a missing metric is simply OMITTED from the line rather than
-    fabricated (T-29v-01). Anchored by the matched forecast hour so the reader can see
-    the line is a kickoff-hour reading, not an invented current condition. A 0 (or
+    fabricated (T-29v-01). Anchored by the kickoff time so the reader can see the line
+    is a kickoff-hour reading, not an invented current condition. Issue #280: the anchor
+    was the forecast's hour key ("2026-09-25T00:00 GMT") for a 00:15 kickoff. A 0 (or
     absent) precip reads as "no precip expected".
     """
     parts: list[str] = []
@@ -1187,8 +1220,14 @@ def _weather_fact(home_abbr: str, stadium: Stadium, forecast: dict) -> str:
     else:
         parts.append("no precip expected")
 
-    hour = forecast.get("hour")
-    anchor = f" ({hour} GMT)" if hour else ""
+    if isinstance(kickoff_at, datetime):
+        kickoff_at = (
+            kickoff_at.replace(tzinfo=UTC)
+            if kickoff_at.tzinfo is None
+            else kickoff_at.astimezone(UTC)
+        )
+    when = _fmt_when(kickoff_at)
+    anchor = f" ({when})" if when else ""
     return f"{stadium.name} at kickoff{anchor}: {', '.join(parts)}."
 
 
@@ -1311,9 +1350,14 @@ def _prediction_injury_note(injuries: list[dict] | None) -> str:
     * ``None`` (couldn't fetch/parse) -> the fixed degrade note (never invents "healthy").
     * ``[]`` (report present, nobody listed) -> a clean "nobody flagged" line.
     * otherwise names up to three players (with status when known) + a "+N more" tail.
+
+    A Coach's Decision inactive is not an injury and is left out (issue #282).
     """
     if injuries is None:
         return _PREDICTION_INJURIES_DEGRADE_NOTE
+    from app.services.espn_extra import is_coachs_decision
+
+    injuries = [player for player in injuries if not is_coachs_decision(player)]
     if not injuries:
         return "Injury report is clean on that side right now — nobody flagged."
     named: list[str] = []
@@ -1345,9 +1389,10 @@ def _prediction_fact(
     out of the LLM's hands — the one-line guard phrases ONLY the lead; the body reaches
     Discord byte-for-byte (T-mpw-02).
 
-    The EFFECTIVE line prefers the live market (labelled "current market"); when the live
-    line is absent it falls back to the FROZEN spread, relabelled. When NEITHER carries a
-    usable spread the read degrades to the model's OWN number only — never an invented line.
+    The EFFECTIVE line is the league's locked line, the one members pick against (issue
+    #279), and the live market is the heads-up beside it. The live market leans only when
+    no line is locked. When NEITHER carries a usable spread the read degrades to the
+    model's OWN number only — never an invented line.
     """
     asked_team = inputs.get("asked_team")
     home = inputs.get("home")
@@ -1374,17 +1419,17 @@ def _prediction_fact(
             live_fav = away
         # spread == 0 is a true pick'em — no favorite from the live line.
 
-    using_live = live_fav is not None and live_mag is not None and live_mag > 0
+    has_live = live_fav is not None and live_mag is not None and live_mag > 0
     has_frozen = frozen_fav is not None and frozen_spread is not None and frozen_spread > 0
 
     eff_fav: str | None
     eff_mag: Decimal | None
-    if using_live:
-        assert live_fav is not None and live_mag is not None
-        eff_fav, eff_mag = live_fav, live_mag
-    elif has_frozen:
+    if has_frozen:
         assert frozen_fav is not None and frozen_spread is not None
         eff_fav, eff_mag = frozen_fav, frozen_spread
+    elif has_live:
+        assert live_fav is not None and live_mag is not None
+        eff_fav, eff_mag = live_fav, live_mag
     else:
         eff_fav, eff_mag = None, None
 
@@ -1403,16 +1448,14 @@ def _prediction_fact(
             )
         else:
             lines.append(f"**My read: I lean {lean_team} here — a cross-check, not a bet.**")
+            line_label = "The league's line is" if has_frozen else "The market has"
             model_line = (
-                f"The market has {eff_fav} -{_fmt_num(eff_mag)}, "
+                f"{line_label} {eff_fav} -{_fmt_num(eff_mag)}, "
                 f"but my model makes it {model_side} by {model_mag}."
             )
             if abs(divergence) >= _SLATE_BIG_DIVERGENCE:
                 model_line += " That's a big gap from the market, so it's a low-confidence read."
             lines.append(model_line)
-        if not using_live:
-            # Fell back to the frozen sheet (no live market) — say so, relabelled.
-            lines.append(_PREDICTION_FROZEN_FALLBACK_NOTE)
     else:
         # No line posted anywhere — a model-only read that STILL states the model's own
         # number (never invents a spread), then keeps the context notes below.
@@ -1424,12 +1467,11 @@ def _prediction_fact(
 
     # Conflict callout — only when the live line is in play AND materially differs from the
     # frozen sheet (favorite flip OR magnitude delta >= threshold).
-    if using_live and has_frozen:
+    if has_live and has_frozen:
         assert live_mag is not None and frozen_spread is not None
         favorite_flip = live_fav != frozen_fav
         mag_delta = abs(live_mag - frozen_spread)
         if favorite_flip or mag_delta >= _PREDICTION_CONFLICT_THRESHOLD:
-            # using_live => the effective line IS the live line (live_fav / live_mag).
             lines.append(
                 f"Heads up: the league locked this line at {frozen_fav} -{_fmt_num(frozen_spread)}, "
                 f"but the current market has {live_fav} -{_fmt_num(live_mag)}."
@@ -1782,7 +1824,7 @@ def _slate_predictions_fact(slate: dict, *, facet: str | None = None) -> str | _
 
 async def _build_fact(
     result: QaResult, *, discord_id: int, slate_facet: str | None = None
-) -> str | _ListAnswer | _LaterWeek | None:
+) -> str | _ListAnswer | _OpenHandoff | None:
     """Route a validated intent to its deterministic reader and build the FACT.
 
     Returns the fact string to phrase, or ``None`` for the pick_status
@@ -1873,7 +1915,7 @@ async def _build_fact(
         forecast = weather.parse_forecast(payload, kickoff_at)
         if forecast is None:
             return _WEATHER_DEGRADE_FACT  # unusable / hour absent — never invent
-        return _weather_fact(home_abbr, stadium, forecast)
+        return _weather_fact(home_abbr, stadium, forecast, kickoff_at)
 
     if result.intent is QaIntent.news:
         # Team is OPTIONAL: a named team filters the league page client-side; a teamless
@@ -1928,6 +1970,8 @@ async def _build_fact(
             return _PREDICTION_UNRESOLVED_FACT  # no single game this week — never invent
         if result.week is not None and inputs.get("week") not in (None, result.week):
             return _LATER_WEEK
+        if inputs.get("status") in ("IN_PROGRESS", "FINAL"):
+            return _GAME_UNDERWAY
 
         # The independent live factors run CONCURRENTLY; each degrades on its own without
         # aborting the briefing (degrade-never-bail). qa.py imports the seams; it never
@@ -1989,7 +2033,7 @@ async def _build_fact(
             if weather_payload is not None and kickoff_at is not None:
                 forecast = weather.parse_forecast(weather_payload, kickoff_at)
                 if forecast is not None and home_abbr is not None:
-                    weather_note = _weather_fact(home_abbr, stadium, forecast)
+                    weather_note = _weather_fact(home_abbr, stadium, forecast, kickoff_at)
 
         return _prediction_fact(
             inputs, live_odds=live, injuries=injuries, weather_note=weather_note
@@ -2077,6 +2121,11 @@ async def _answer_question(
         bot_telemetry.note_classification(raw)
         known_team_tokens = await db_bridge.get_real_team_tokens_async()
         result = validate_classification(raw, known_team_tokens=known_team_tokens)
+        if result.intent is QaIntent.slate_predictions:
+            # Issue #278, live: the classifier left the team out 2/3 on the ATL/GB question.
+            matchup_team = _matchup_team(question, known_team_tokens)
+            if matchup_team is not None:
+                result = QaResult(intent=QaIntent.prediction, team=matchup_team)
         bot_telemetry.note_intent(result.intent.value)
 
         # The OPEN branch (260820-lw6) is taken BEFORE the slate facet / _build_fact
@@ -2107,7 +2156,7 @@ async def _answer_question(
         if fact is None:
             # pick_status, unregistered asker — deterministic, no phrasing.
             return _REGISTER_LINE
-        if isinstance(fact, _LaterWeek):
+        if isinstance(fact, _OpenHandoff):
             bot_telemetry.note_open_path()
             voice = await db_bridge.resolve_active_voice_async()
             open_answer = await qa_open.answer_open(

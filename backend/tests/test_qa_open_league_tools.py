@@ -228,6 +228,13 @@ class GameOutlookToolTests(unittest.TestCase):
         assert isinstance(started, dict)
         self.assertEqual(started["weather"], qa_open._KICKED_OFF_WEATHER_STATEMENT)
 
+    def test_a_game_in_progress_sends_the_model_to_the_live_game(self) -> None:
+        body = self._call(_outlook(status="IN_PROGRESS"), team="GB")
+        assert isinstance(body, dict)
+        self.assertNotIn("model_read", body)
+        self.assertNotIn("league_line", body)
+        self.assertIn("Call lookup_live_game with the team GB", body["note"])
+
     def test_a_final_game_reports_the_score_and_no_read(self) -> None:
         body = self._call(_outlook(status="FINAL", home_score=24, away_score=20), team="GB", week=3)
         assert isinstance(body, dict)

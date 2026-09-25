@@ -495,12 +495,21 @@ class SlatePredictionsClassificationTests(unittest.TestCase):
         self.assertEqual(out.intent, QaIntent.slate_predictions)
         self.assertIsNone(out.team)
 
-    def test_slate_predictions_drops_a_stray_team(self) -> None:
+    def test_slate_predictions_with_a_real_team_is_a_one_game_prediction(self) -> None:
+        # Issue #278: "do you agree with the lines for the ATL/GB game?" got all 16 games.
+        for team, expected in (("Chiefs", "CHIEFS"), ("KC/SF", "KC")):
+            out = validate_classification(
+                {"intent": "slate_predictions", "team": team}, known_team_tokens=_KNOWN_TEAMS
+            )
+            self.assertEqual(out.intent, QaIntent.prediction)
+            self.assertEqual(out.team, expected)
+
+    def test_slate_predictions_drops_a_team_that_is_not_real(self) -> None:
         out = validate_classification(
-            {"intent": "slate_predictions", "team": "Chiefs"}, known_team_tokens=_KNOWN_TEAMS
+            {"intent": "slate_predictions", "team": "Narnia"}, known_team_tokens=_KNOWN_TEAMS
         )
         self.assertEqual(out.intent, QaIntent.slate_predictions)
-        self.assertIsNone(out.team)  # not team-bearing -> dropped, not an error
+        self.assertIsNone(out.team)
 
     def test_single_team_prediction_still_validates_prediction(self) -> None:
         # Disambiguation: a single-team "will KC cover?" stays the single-game prediction.
@@ -554,6 +563,17 @@ class NormalizeTeamAliasTests(unittest.TestCase):
 
     def test_unknown_garbage_still_none(self) -> None:
         self.assertIsNone(_normalize_team("narnia", _ALIAS_TOKENS))
+
+    def test_a_matchup_resolves_to_its_first_team(self) -> None:
+        # Issue #278: the classifier wrote the team as "ATL/GB".
+        for value in ("KC/SF", "KC @ SF", "kc vs SF", "KC vs. SF", "Chiefs at niners", "KC-SF"):
+            with self.subTest(value=value):
+                self.assertIn(_normalize_team(value, _ALIAS_TOKENS), ("KC", "CHIEFS"))
+
+    def test_a_matchup_with_a_team_that_is_not_real_is_none(self) -> None:
+        for value in ("KC/Narnia", "KC/SF/PHI", "Kansas City at"):
+            with self.subTest(value=value):
+                self.assertIsNone(_normalize_team(value, _ALIAS_TOKENS))
 
     def test_defensive_guard_alias_target_absent_from_set(self) -> None:
         # Even though "donkeys"->DEN is in the map, DEN is NOT in this set (an unseeded

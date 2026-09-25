@@ -1058,6 +1058,7 @@ class PredictionDataLayerTests(unittest.TestCase):
         self.assertIsInstance(out["model_margin"], float)
         self.assertEqual(out["season"], self.SEASON)
         self.assertEqual(out["week"], 5)
+        self.assertEqual(out["status"], "SCHEDULED")
 
     def test_prediction_inputs_unposted_line_is_none(self) -> None:
         with Session(self.engine) as s:

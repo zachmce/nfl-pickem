@@ -258,3 +258,45 @@ class BotAnswersApiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _ListRedis:
+    def __init__(self, items) -> None:
+        self.items = items
+
+    async def lrange(self, key, start, end):
+        return self.items
+
+    async def aclose(self) -> None:
+        return None
+
+
+class LogMessageTests(unittest.TestCase):
+    def test_a_bot_post_is_kept_to_one_discord_message(self) -> None:
+        stored: list[dict] = []
+        with mock.patch.object(bot_telemetry, "_store", stored.append):
+            bot_telemetry.log_message(kind="bot_post", content="x" * 1900)
+            bot_telemetry.log_message(kind="member", question="y" * 1900)
+        self.assertEqual(len(stored[0]["content"]), 1900)
+        self.assertEqual(len(stored[1]["question"]), bot_telemetry.TEXT_LIMIT)
+
+
+class FindMessageTests(unittest.TestCase):
+    def test_finds_the_entry_by_message_id(self) -> None:
+        items = [
+            json.dumps({"message_id": "1", "question": "a"}).encode(),
+            b"junk 555",
+            json.dumps({"message_id": "555", "question": "b"}).encode(),
+        ]
+        with mock.patch.object(bot_telemetry, "_redis_client", lambda: _ListRedis(items)):
+            self.assertEqual(
+                _run(bot_telemetry.find_message("555")), {"message_id": "555", "question": "b"}
+            )
+            self.assertIsNone(_run(bot_telemetry.find_message("9")))
+
+    def test_a_redis_outage_is_a_miss(self) -> None:
+        def _down():
+            raise ConnectionError("down")
+
+        with mock.patch.object(bot_telemetry, "_redis_client", _down):
+            self.assertIsNone(_run(bot_telemetry.find_message("555")))

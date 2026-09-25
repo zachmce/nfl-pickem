@@ -831,3 +831,77 @@ class ChannelTranscriptTests(unittest.TestCase):
             _deliver(cog, _make_message(content="<@999> one"))
             _deliver(cog, _make_message(content="<@999> two"))
         self.assertEqual([e["decision"] for e in self.stored], ["answered", "cooldown"])
+
+
+class LinkedMessageTests(unittest.TestCase):
+    """Issue #277: a linked message reaches the answer as a labeled context turn."""
+
+    _LINK = "https://discord.com/channels/1/77/555"
+
+    def _ask(self, content: str, *, entry=None, guild=None):
+        cog = _cog()
+        answer_patch, calls = _answer_returns("Yes.")
+        finds: list[str] = []
+
+        async def _find(message_id):
+            finds.append(message_id)
+            return entry
+
+        message = _make_message(content=content)
+        if guild is not None:
+            message.guild = guild
+        with answer_patch, mock.patch.object(mention_qa.bot_telemetry, "find_message", _find):
+            _deliver(cog, message)
+        return calls, finds
+
+    def test_a_transcript_hit_carries_the_linked_question_and_the_bots_reply(self) -> None:
+        entry = {
+            "kind": "member",
+            "message_id": "555",
+            "at": "2026-09-24T23:50:46+00:00",
+            "asker": "ohai",
+            "question": "is Michael Penix going to stunt on GB tonight?",
+            "decision": "answered",
+            "answer": "I lean GB here.",
+        }
+        calls, finds = self._ask(
+            f"<@999> the proper answer to this was yes {self._LINK}", entry=entry
+        )
+        self.assertEqual(finds, ["555"])
+        self.assertEqual(calls[0]["question"], "the proper answer to this was yes [linked message]")
+        role, turn = calls[0]["history"][-1]
+        self.assertEqual(role, "user")
+        self.assertIn("Thu Sep 24, 11:50 PM UTC", turn)
+        self.assertIn('ohai wrote: "is Michael Penix going to stunt on GB tonight?"', turn)
+        self.assertIn('You answered: "I lean GB here."', turn)
+
+    def test_a_transcript_miss_falls_back_to_discord(self) -> None:
+        from datetime import UTC, datetime
+
+        fetched: list[int] = []
+
+        async def _fetch(message_id):
+            fetched.append(message_id)
+            return SimpleNamespace(
+                content="who wins tonight?",
+                embeds=[],
+                author=SimpleNamespace(id=5, display_name="Bo"),
+                created_at=datetime(2026, 9, 24, 23, 0, tzinfo=UTC),
+            )
+
+        channel = SimpleNamespace(fetch_message=_fetch)
+        guild = SimpleNamespace(
+            id=1, get_channel_or_thread=lambda cid: channel if cid == 77 else None
+        )
+        calls, _ = self._ask(f"<@999> see {self._LINK}", guild=guild)
+        self.assertEqual(fetched, [555])
+        _role, turn = calls[0]["history"][-1]
+        self.assertIn('Bo wrote: "who wins tonight?"', turn)
+        self.assertNotIn("You answered", turn)
+
+    def test_a_link_to_another_guild_is_left_alone(self) -> None:
+        link = "https://discord.com/channels/2/77/555"
+        calls, finds = self._ask(f"<@999> see {link}")
+        self.assertEqual(finds, [])
+        self.assertEqual(calls[0]["question"], f"see {link}")
+        self.assertEqual(calls[0]["history"], [])

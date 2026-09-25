@@ -100,6 +100,15 @@ class DiffTests(unittest.TestCase):
             [("A", "Questionable"), ("E", None)],
         )
 
+    def test_a_coachs_decision_inactive_is_not_an_alert(self) -> None:
+        # Issue #282: two ATL backup QBs were posted as injuries on 2026-09-24.
+        previous = {"ATL": {}}
+        benched = {**_player("Cooper Rush", "Out"), "body_part": "Coach\u2019s Decision"}
+        current = {
+            "ATL": [benched, {**_player("Jack Strand", "Out"), "body_part": "Coach's Decision"}]
+        }
+        self.assertEqual(injury_watch.diff_reports(previous, current), [])
+
     def test_a_team_new_to_the_snapshot_only_seeds(self) -> None:
         self.assertEqual(injury_watch.diff_reports({}, {"BUF": [_player("A", "Out")]}), [])
 

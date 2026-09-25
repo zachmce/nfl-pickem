@@ -796,6 +796,61 @@ def _note(with_team: str, without_team: str, *, team: str | None, **fields: str)
     return without_team.format(**fields)
 
 
+# Issue #281: ESPN's search does not forgive a misspelled first name ("brick bowers"
+# finds nothing, "bowers" finds Brock Bowers first — measured 2026-09-25).
+_CORRECTED_NAME_NOTE = (
+    "ESPN lists no NFL player named {asked}. The only close NFL name ESPN lists is "
+    "{name}, so this result is about {name}. Tell the member that you took {asked} to "
+    "mean {name}."
+)
+
+
+def _edit_distance(a: str, b: str) -> int:
+    previous = list(range(len(b) + 1))
+    for i, char_a in enumerate(a, 1):
+        current = [i]
+        for j, char_b in enumerate(b, 1):
+            current.append(
+                min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (char_a != char_b))
+            )
+        previous = current
+    return previous[-1]
+
+
+def _close_first_name(written: str, listed: str) -> bool:
+    limit = 1 if len(written) <= 5 else 2
+    return _edit_distance(written.lower(), listed.lower()) <= limit
+
+
+async def _search_nfl_players(player: str) -> tuple[list[dict] | None, str | None]:
+    """ESPN's NFL players matching ``player``, plus the note for a corrected name.
+
+    ``None`` is a failed search, ``[]`` a search that found nobody. When the full name
+    finds nobody, the surname alone is searched, and exactly one NFL player with that
+    surname and a first name a typo away is taken, with a note that says so.
+    """
+    from app.services import espn_extra
+
+    payload = await espn_extra.fetch_athlete_search(player)
+    found = espn_extra.parse_athlete_search(payload) if payload is not None else None
+    words = player.split()
+    if found != [] or len(words) < 2:
+        return found, None
+    retry = await espn_extra.fetch_athlete_search(words[-1])
+    by_surname = espn_extra.parse_athlete_search(retry) if retry is not None else None
+    close = [
+        one
+        for one in by_surname or []
+        if len(listed := str(one["display_name"]).split()) >= 2
+        and listed[-1].lower() == words[-1].lower()
+        and _close_first_name(words[0], listed[0])
+    ]
+    if len(close) != 1:
+        return found, None
+    name = str(close[0]["display_name"])
+    return close, _CORRECTED_NAME_NOTE.format(asked=player, name=name)
+
+
 async def _resolve_off_roster(player: str, team_abbr: str) -> dict[str, object]:
     """Resolve a player through ESPN's player search. ``team_abbr`` may be empty.
 
@@ -811,10 +866,7 @@ async def _resolve_off_roster(player: str, team_abbr: str) -> dict[str, object]:
     where he plays today, which is not the team a past season's figures belong to, and
     narrating it is what produced the live "he played for the Detroit Lions in 2025".
     """
-    from app.services import espn_extra
-
-    payload = await espn_extra.fetch_athlete_search(player)
-    found = espn_extra.parse_athlete_search(payload) if payload is not None else None
+    found, name_note = await _search_nfl_players(player)
     if found is None:
         note = _note(
             _SEARCH_UNAVAILABLE_NOTE, _NAME_SEARCH_FAILED_NOTE, team=team_abbr, player=player
@@ -837,11 +889,14 @@ async def _resolve_off_roster(player: str, team_abbr: str) -> dict[str, object]:
         }
 
     one = found[0]
-    return {
+    resolved: dict[str, object] = {
         "athlete_id": str(one["athlete_id"]),
         "player": str(one["display_name"]),
         "position": None,
     }
+    if name_note is not None:
+        resolved["name_note"] = name_note
+    return resolved
 
 
 # D-1b: the model narrates a year of its own choosing unless it can SEE the one it was
@@ -1070,14 +1125,11 @@ async def _lookup_player_current_team(player: str = "") -> object | None:
     a note, never bare ``None``, because ``None`` becomes :data:`_NO_DATA_PAYLOAD`,
     which sends the model to the stale memory this tool exists to replace (D-5).
     """
-    from app.services import espn_extra
-
     asked_for = player.strip() if isinstance(player, str) else ""
     if not asked_for:
         return None
 
-    payload = await espn_extra.fetch_athlete_search(asked_for)
-    found = espn_extra.parse_athlete_search(payload) if payload is not None else None
+    found, name_note = await _search_nfl_players(asked_for)
     if found is None:
         return {"note": _CURRENT_TEAM_SEARCH_FAILED_NOTE.format(player=asked_for)}
     if not found:
@@ -1095,11 +1147,14 @@ async def _lookup_player_current_team(player: str = "") -> object | None:
 
     one = found[0]
     name, team = str(one["display_name"]), str(one["team_name"])
-    return {
+    result: dict[str, object] = {
         "player": name,
         "current_team": team,
         "current_team_statement": _CURRENT_TEAM_STATEMENT.format(player=name, team=team),
     }
+    if name_note is not None:
+        result["name_note"] = name_note
+    return result
 
 
 # The voiceable form of the two fields above. A dict field is readable but not
@@ -4029,6 +4084,9 @@ async def _lookup_game_outlook(team: str = "", week: int | None = None) -> objec
         answer["final_score"] = f"{away} {data['away_score']}, {home} {data['home_score']}"
         answer["note"] = _OUTLOOK_FINAL_NOTE.format(game=answer["game"], week=data["week"])
         return answer
+    if data["status"] == "IN_PROGRESS":
+        answer["note"] = _OUTLOOK_LIVE_NOTE.format(game=answer["game"], team=team_abbr)
+        return answer
 
     margin = float(data["model_home_margin"])
     side, prob = (
@@ -4123,6 +4181,13 @@ _NO_OUTLOOK_GAME_NOTE = (
 _OUTLOOK_FINAL_NOTE = (
     "{game} in week {week} is already over, so there is no outlook to give. Report the "
     "final score as listed."
+)
+# Issue #276, live probe: asked "changed your mind yet?" during a game, the model read
+# this tool's pre-game read as current ("I'm still on GB") 2/3.
+_OUTLOOK_LIVE_NOTE = (
+    "{game} is being played right now, so the pre-game outlook no longer answers "
+    "anything about it. Call lookup_live_game with the team {team} and answer from the "
+    "score and the game state it returns."
 )
 _MODEL_READ_STATEMENT = (
     "The bot's own rating model has the {side} winning by {points} points, and gives the "

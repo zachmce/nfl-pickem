@@ -31,9 +31,11 @@ Locked posture:
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from collections import OrderedDict, deque
 from collections.abc import Sequence
+from datetime import UTC, datetime
 
 import discord
 import structlog
@@ -94,6 +96,47 @@ def _name_member_mentions(content: str, mentions: Sequence[object]) -> str:
         for token in (f"<@{member_id}>", f"<@!{member_id}>"):
             named = named.replace(token, f"@{name}")
     return named
+
+
+# Issue #277: "the proper answer to this was yes <link>" was answered as if "this" were
+# the latest question, because the model cannot open a link.
+_MESSAGE_LINK_RE = re.compile(
+    r"https?://(?:(?:ptb|canary)\.)?discord(?:app)?\.com/channels/(\d+)/(\d+)/(\d+)\S*"
+)
+_LINK_MARKER = "[linked message]"
+_LINKED_QUESTION_CHARS = 300
+_LINKED_ANSWER_CHARS = 700
+_LINK_FETCH_SECONDS = 3.0
+
+
+def _clip_quote(text: object, limit: int) -> str:
+    value = " ".join(str(text).split())
+    return value if len(value) <= limit else value[: limit - 1] + "…"
+
+
+def _when(value: object) -> str:
+    moment = value if isinstance(value, datetime) else None
+    if moment is None and isinstance(value, str):
+        try:
+            moment = datetime.fromisoformat(value)
+        except ValueError:
+            moment = None
+    if moment is None:
+        return "earlier"
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return qa._fmt_when(moment.astimezone(UTC)) or "earlier"
+
+
+def _linked_turn(author: str, when: str, text: str, reply: str | None, *, own: bool) -> str:
+    """The context turn for a linked message, labeled so it never reads as the latest turn."""
+    lead = f"Linked message: the link in the next message points to an earlier message from {when}."
+    if own:
+        return f'{lead} It is your own post: "{_clip_quote(text, _LINKED_ANSWER_CHARS)}"'
+    turn = f'{lead} {author} wrote: "{_clip_quote(text, _LINKED_QUESTION_CHARS)}"'
+    if reply:
+        turn += f' You answered: "{_clip_quote(reply, _LINKED_ANSWER_CHARS)}"'
+    return turn
 
 
 # Discord rejects any message body over 2000 chars with a 400 (error 50035). The
@@ -315,6 +358,53 @@ class MentionQaCog(commands.Cog):
         """The bot's display name for the transcript (falls back to a fixed label)."""
         return getattr(self.bot.user, "display_name", None) or "the bot"
 
+    async def _resolve_link(
+        self, message: discord.Message, question: str
+    ) -> tuple[str, str | None, str | None]:
+        """``question`` with its first message link swapped for a marker, the context
+        turn for the linked message, and where it was found. Never raises.
+
+        The transcript is read first: its entry also holds the bot's reply to the linked
+        question. A link to another guild is left as it is.
+        """
+        match = _MESSAGE_LINK_RE.search(question)
+        guild = message.guild
+        if match is None or guild is None or int(match.group(1)) != guild.id:
+            return question, None, None
+        marked = question.replace(match.group(0), _LINK_MARKER, 1)
+        channel_id, message_id = int(match.group(2)), match.group(3)
+        bot_user = self.bot.user
+        try:
+            entry = await bot_telemetry.find_message(message_id)
+            if entry is not None:
+                own = entry.get("kind") == "bot_post"
+                text = entry.get("content") if own else entry.get("question")
+                if text:
+                    author = str(entry.get("asker") or entry.get("author") or "a member")
+                    reply = entry.get("answer") if entry.get("decision") == "answered" else None
+                    turn = _linked_turn(author, _when(entry.get("at")), text, reply, own=own)
+                    return marked, turn, "transcript"
+            channel = guild.get_channel_or_thread(channel_id)
+            if channel is None or not hasattr(channel, "fetch_message"):
+                return marked, None, "unresolved"
+            linked = await asyncio.wait_for(
+                channel.fetch_message(int(message_id)),  # type: ignore[union-attr]
+                timeout=_LINK_FETCH_SECONDS,
+            )
+            text = _post_text(linked)
+            if not text:
+                return marked, None, "unresolved"
+            own = bot_user is not None and linked.author.id == bot_user.id
+            author = getattr(linked.author, "display_name", None) or "a member"
+            return (
+                marked,
+                _linked_turn(author, _when(linked.created_at), text, None, own=own),
+                "discord",
+            )
+        except Exception:
+            logger.info("mention_qa_link_unresolved", exc_info=True)
+            return marked, None, "unresolved"
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
         """Answer a message addressed to the bot; ignore everything else. Never raises.
@@ -415,15 +505,21 @@ class MentionQaCog(commands.Cog):
             # the second answer's history held the first question with no reply to it.
             async with self._memory.answer_lock(channel_id), message.channel.typing():
                 history = self._memory.history(channel_id, exclude=turn)
+                asked, linked_turn, linked = await self._resolve_link(message, question)
+                if linked_turn is not None:
+                    history.append(("user", linked_turn))
                 answered = False
+                trace_meta = {**meta, "addressed_by": addressed_by}
+                if linked is not None:
+                    trace_meta["linked"] = linked
                 trace = bot_telemetry.start(
-                    question,
+                    asked,
                     conversation_key=str(channel_id),
                     asker_name=speaker,
-                    message={**meta, "addressed_by": addressed_by},
+                    message=trace_meta,
                 )
                 line = await qa.answer_question(
-                    question,
+                    asked,
                     discord_id=message.author.id,
                     history=history,
                     conversation_key=str(channel_id),

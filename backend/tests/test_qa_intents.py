@@ -1242,7 +1242,8 @@ class WeatherIntentTests(unittest.TestCase):
         self.assertIn("34.0°F", out)
         self.assertIn("wind 12.0 mph", out)
         self.assertIn("0.05 in precip", out)
-        self.assertIn("2026-01-05T14:00 GMT", out)
+        self.assertIn("(Mon Jan 5, 2:00 PM UTC)", out)
+        self.assertNotIn("GMT", out)
         # The fact was the thing phrased (deterministic fallback path).
         self.assertIn("34.0°F", calls[0]["fact"])
 
@@ -1624,7 +1625,7 @@ class PredictionFactTests(unittest.TestCase):
     never re-derives arithmetic. No network — a hand-built inputs dict + optional odds."""
 
     def test_full_signal_briefing_names_lean_model_number_record_ats_injury_weather(self) -> None:
-        weather_note = "Arrowhead at kickoff (18 GMT): 34.0°F, wind 12.0 mph, no precip expected."
+        weather_note = "Arrowhead at kickoff (Mon Jan 5, 6:00 PM UTC): 34.0°F, wind 12.0 mph, no precip expected."
         fact = qa._prediction_fact(
             _prediction_inputs(),  # model_margin +1.0
             live_odds=_live(-6.0),  # KC -6 live (frozen was KC -3)
@@ -1633,11 +1634,12 @@ class PredictionFactTests(unittest.TestCase):
         )
         self.assertIsInstance(fact, qa._ListAnswer)
         assert isinstance(fact, qa._ListAnswer)
-        # The model (KC only +1.0) makes the LIVE KC -6 line too rich, so the shared lean
+        # The model (KC only +1.0) makes the LOCKED KC -3 line too rich, so the shared lean
         # lands on the AWAY/underdog (LAC). The lean + both numbers are BOLD, verbatim body
         # lines (never re-voiced), framed as a cross-check — NOT a bet.
         self.assertIn("**My read: I lean LAC here — a cross-check, not a bet.**", fact.body)
-        self.assertIn("The market has KC -6, but my model makes it KC by 1.", fact.body)
+        self.assertIn("The league's line is KC -3, but my model makes it KC by 1.", fact.body)
+        self.assertIn("but the current market has KC -6", fact.body)
         # The old "My call: {fav} to cover" line-parrot is gone.
         self.assertNotIn("to cover", fact.body)
         # Record + ATS verbatim.
@@ -1672,11 +1674,14 @@ class PredictionFactTests(unittest.TestCase):
             weather_note=None,
         )
         assert isinstance(fact, qa._ListAnswer)
-        # Live line makes LAC -2 (line home margin -2); model (KC +1.0) diverges +3 -> the
-        # shared lean lands on the HOME side (KC). The lean is body-only; the flip fires.
-        self.assertIn("**My read: I lean KC here — a cross-check, not a bet.**", fact.body)
-        self.assertIn("The market has LAC -2, but my model makes it KC by 1.", fact.body)
-        self.assertIn("Heads up: the league locked this line at KC -3", fact.body)
+        # Issue #279: the lean reads the LOCKED KC -3 line, the one members pick against;
+        # the flipped live line is the heads-up only.
+        self.assertIn("**My read: I lean LAC here — a cross-check, not a bet.**", fact.body)
+        self.assertIn("The league's line is KC -3, but my model makes it KC by 1.", fact.body)
+        self.assertIn(
+            "Heads up: the league locked this line at KC -3, but the current market has LAC -2.",
+            fact.body,
+        )
         # The lean lives ONLY in the body — the pick-free lead never carries a lean.
         self.assertNotIn("lean", fact.header_fact)
 
@@ -1691,9 +1696,9 @@ class PredictionFactTests(unittest.TestCase):
         self.assertNotIn("Heads up", fact.body)
         # Model (KC +1.0) vs the KC -3 line diverges -2 -> the shared lean is the AWAY side.
         self.assertIn("**My read: I lean LAC here — a cross-check, not a bet.**", fact.body)
-        self.assertIn("The market has KC -3, but my model makes it KC by 1.", fact.body)
+        self.assertIn("The league's line is KC -3, but my model makes it KC by 1.", fact.body)
 
-    def test_live_line_missing_falls_back_to_frozen_relabelled_still_reads(self) -> None:
+    def test_live_line_missing_reads_the_locked_line_without_a_fallback_note(self) -> None:
         fact = qa._prediction_fact(
             _prediction_inputs(),  # frozen KC -3, model_margin +1.0
             live_odds=None,  # live market unreachable
@@ -1701,12 +1706,23 @@ class PredictionFactTests(unittest.TestCase):
             weather_note=None,
         )
         assert isinstance(fact, qa._ListAnswer)
-        # Still produces the model-vs-line read off the FROZEN line, relabelled.
+        # The locked line is the read's line either way, so there is nothing to explain.
         self.assertIn("**My read: I lean LAC here — a cross-check, not a bet.**", fact.body)
-        self.assertIn("The market has KC -3, but my model makes it KC by 1.", fact.body)
+        self.assertIn("The league's line is KC -3, but my model makes it KC by 1.", fact.body)
         self.assertNotIn("current market", fact.body)
-        self.assertIn(qa._PREDICTION_FROZEN_FALLBACK_NOTE, fact.body)
+        self.assertNotIn("couldn't reach", fact.body)
         # No conflict callout when the live line never landed.
+        self.assertNotIn("Heads up", fact.body)
+
+    def test_no_locked_line_leans_against_the_live_market(self) -> None:
+        fact = qa._prediction_fact(
+            _prediction_inputs(favorite=None, underdog=None, spread=None),
+            live_odds=_live(-6.0),
+            injuries=None,
+            weather_note=None,
+        )
+        assert isinstance(fact, qa._ListAnswer)
+        self.assertIn("The market has KC -6, but my model makes it KC by 1.", fact.body)
         self.assertNotIn("Heads up", fact.body)
 
     def test_injuries_and_weather_missing_degrade_to_concrete_notes(self) -> None:
@@ -1738,6 +1754,16 @@ class PredictionFactTests(unittest.TestCase):
         # Context notes still ride along.
         self.assertIn("4-1 straight up and 3-2 against the spread", fact.body)
         self.assertIn(qa._PREDICTION_INJURIES_DEGRADE_NOTE, fact.body)
+
+    def test_coachs_decision_inactives_are_not_in_the_injury_watch(self) -> None:
+        # Issue #282: all five ATL entries on 2026-09-24 were Coach's Decision.
+        note = qa._prediction_injury_note(
+            [
+                {"display_name": "Cooper Rush", "status": "Out", "body_part": "Coach's Decision"},
+                {"display_name": "Kyle Pitts", "status": "Doubtful", "body_part": "Knee"},
+            ]
+        )
+        self.assertEqual(note, "Injury watch: Kyle Pitts (Doubtful).")
 
     def test_empty_injury_list_reads_as_clean_not_a_degrade(self) -> None:
         fact = qa._prediction_fact(
@@ -1803,9 +1829,9 @@ class PredictionIntentRoutingTests(unittest.TestCase):
         self.assertEqual(seam_calls[0]["args"], ("CHIEFS",))
         self.assertEqual(odds_calls[0]["args"], (2025, 5, 555))
         # A non-empty derived-facts briefing: the model lean + both numbers reach Discord
-        # verbatim (model KC +1.0 vs live KC -6 -> lean the AWAY/underdog LAC).
+        # verbatim (model KC +1.0 vs locked KC -3 -> lean the AWAY/underdog LAC).
         self.assertIn("**My read: I lean LAC here — a cross-check, not a bet.**", out)
-        self.assertIn("The market has KC -6, but my model makes it KC by 1.", out)
+        self.assertIn("The league's line is KC -3, but my model makes it KC by 1.", out)
         self.assertIn("Heads up: the league locked this line at KC -3", out)
 
     def test_prediction_lead_phrases_with_analyst_prompt_not_pick_status_guard(self) -> None:
@@ -1891,6 +1917,33 @@ class PredictionIntentRoutingTests(unittest.TestCase):
         self.assertEqual(
             open_calls, [{"question": "who wins the Chiefs game?", "asker_name": "Ada"}]
         )
+
+    def test_a_prediction_about_a_game_underway_or_final_goes_to_the_open_path(self) -> None:
+        # Issue #276: asked in the third quarter, the bot posted the pre-game card.
+        for status in ("IN_PROGRESS", "FINAL"):
+            with self.subTest(status=status):
+                open_calls: list[str] = []
+
+                async def _fake_open(question, _calls=open_calls, **_kwargs):
+                    _calls.append(question)
+                    return "ATL is up 24-7."
+
+                seam_patch, _ = _seam(
+                    "get_prediction_inputs_async", _prediction_inputs(status=status)
+                )
+                odds_patch, odds_calls = _fetch_live_odds_returns(None)
+                with (
+                    _classify_returns({"intent": "prediction", "team": "Chiefs"}),
+                    _tokens("KC", "CHIEFS"),
+                    seam_patch,
+                    odds_patch,
+                    _voice(),
+                    mock.patch.object(qa.qa_open, "answer_open", _fake_open),
+                ):
+                    out = _run(qa.answer_question("changed your mind yet?", discord_id=7))
+                self.assertEqual(out, "ATL is up 24-7.")
+                self.assertEqual(open_calls, ["changed your mind yet?"])
+                self.assertEqual(odds_calls, [])
 
     def test_a_later_week_prediction_for_a_team_on_its_bye_goes_to_the_open_path(self) -> None:
         async def _fake_open(question, **_kwargs):
@@ -2239,6 +2292,28 @@ class SlatePredictionIntentRoutingTests(unittest.TestCase):
                 },
             ],
         }
+
+    def test_a_matchup_in_the_question_becomes_a_one_game_prediction(self) -> None:
+        # Issue #278, live: the classifier left the team out 2/3 on this exact question.
+        inputs_patch, input_calls = _seam("get_prediction_inputs_async", None)
+        slate_patch, slate_calls = _seam("get_slate_predictions_async", self._slate())
+        with (
+            _classify_returns({"intent": "slate_predictions", "team": None}),
+            _tokens("KC", "LAC"),
+            inputs_patch,
+            slate_patch,
+            _voice(),
+            _phrase_returns(None)[0],
+        ):
+            _run(qa.answer_question("do you agree with the KC/LAC line?", discord_id=7))
+        self.assertEqual(input_calls[0]["args"], ("KC",))
+        self.assertEqual(slate_calls, [])
+
+    def test_matchup_team_needs_two_real_teams(self) -> None:
+        tokens = {"KC", "LAC", "CHIEFS"}
+        self.assertEqual(qa._matchup_team("thoughts on Chiefs vs LAC tonight?", tokens), "CHIEFS")
+        self.assertIsNone(qa._matchup_team("look at KC this week", tokens))
+        self.assertIsNone(qa._matchup_team("your picks this week?", tokens))
 
     def test_real_slate_routes_through_under_slate_guard_body_verbatim(self) -> None:
         seam_patch, seam_calls = _seam("get_slate_predictions_async", self._slate())

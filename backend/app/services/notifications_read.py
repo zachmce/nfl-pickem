@@ -1328,7 +1328,8 @@ def get_prediction_inputs_for_team(
       :func:`app.services.ratings.estimate_for_game`, mirroring
       :func:`get_slate_predictions_for_week`. The bot's OWN number, surfaced as an
       independent cross-check on the frozen line — never a bet signal,
-    * ``season`` / ``week`` — echoed so the caller can build the live-odds URL.
+    * ``season`` / ``week`` — echoed so the caller can build the live-odds URL,
+    * ``status`` — the game's :class:`~app.models.GameStatus` value.
 
     Returns ``None`` on the SAME misses the sibling readers use: the token resolves no
     team, or it does not resolve to EXACTLY ONE game this week. Display-only, pure read
@@ -1376,6 +1377,7 @@ def get_prediction_inputs_for_team(
         "total": str(game.total) if game.total is not None else None,
         "espn_event_id": game.espn_event_id,
         "kickoff_at": _as_aware(game.kickoff_at),
+        "status": game.status.value,
         "model_margin": ratings.estimate_for_game(game, ratings_map).expected_margin,
         "season": season,
         "week": week,
