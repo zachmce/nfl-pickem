@@ -1242,7 +1242,8 @@ class WeatherIntentTests(unittest.TestCase):
         self.assertIn("34.0°F", out)
         self.assertIn("wind 12.0 mph", out)
         self.assertIn("0.05 in precip", out)
-        self.assertIn("2026-01-05T14:00 GMT", out)
+        self.assertIn("(Mon Jan 5, 2:00 PM UTC)", out)
+        self.assertNotIn("GMT", out)
         # The fact was the thing phrased (deterministic fallback path).
         self.assertIn("34.0°F", calls[0]["fact"])
 
@@ -1624,7 +1625,7 @@ class PredictionFactTests(unittest.TestCase):
     never re-derives arithmetic. No network — a hand-built inputs dict + optional odds."""
 
     def test_full_signal_briefing_names_lean_model_number_record_ats_injury_weather(self) -> None:
-        weather_note = "Arrowhead at kickoff (18 GMT): 34.0°F, wind 12.0 mph, no precip expected."
+        weather_note = "Arrowhead at kickoff (Mon Jan 5, 6:00 PM UTC): 34.0°F, wind 12.0 mph, no precip expected."
         fact = qa._prediction_fact(
             _prediction_inputs(),  # model_margin +1.0
             live_odds=_live(-6.0),  # KC -6 live (frozen was KC -3)

@@ -30,7 +30,7 @@ import json
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from enum import Enum
 from typing import TYPE_CHECKING
@@ -1184,12 +1184,15 @@ def _indoor_fact(stadium: Stadium) -> str:
     )
 
 
-def _weather_fact(home_abbr: str, stadium: Stadium, forecast: dict) -> str:
+def _weather_fact(
+    home_abbr: str, stadium: Stadium, forecast: dict, kickoff_at: object = None
+) -> str:
     """Build the deterministic kickoff-time weather fact, ONLY from parsed fields.
 
     Invents nothing: a missing metric is simply OMITTED from the line rather than
-    fabricated (T-29v-01). Anchored by the matched forecast hour so the reader can see
-    the line is a kickoff-hour reading, not an invented current condition. A 0 (or
+    fabricated (T-29v-01). Anchored by the kickoff time so the reader can see the line
+    is a kickoff-hour reading, not an invented current condition. Issue #280: the anchor
+    was the forecast's hour key ("2026-09-25T00:00 GMT") for a 00:15 kickoff. A 0 (or
     absent) precip reads as "no precip expected".
     """
     parts: list[str] = []
@@ -1205,8 +1208,14 @@ def _weather_fact(home_abbr: str, stadium: Stadium, forecast: dict) -> str:
     else:
         parts.append("no precip expected")
 
-    hour = forecast.get("hour")
-    anchor = f" ({hour} GMT)" if hour else ""
+    if isinstance(kickoff_at, datetime):
+        kickoff_at = (
+            kickoff_at.replace(tzinfo=UTC)
+            if kickoff_at.tzinfo is None
+            else kickoff_at.astimezone(UTC)
+        )
+    when = _fmt_when(kickoff_at)
+    anchor = f" ({when})" if when else ""
     return f"{stadium.name} at kickoff{anchor}: {', '.join(parts)}."
 
 
@@ -1889,7 +1898,7 @@ async def _build_fact(
         forecast = weather.parse_forecast(payload, kickoff_at)
         if forecast is None:
             return _WEATHER_DEGRADE_FACT  # unusable / hour absent — never invent
-        return _weather_fact(home_abbr, stadium, forecast)
+        return _weather_fact(home_abbr, stadium, forecast, kickoff_at)
 
     if result.intent is QaIntent.news:
         # Team is OPTIONAL: a named team filters the league page client-side; a teamless
@@ -2007,7 +2016,7 @@ async def _build_fact(
             if weather_payload is not None and kickoff_at is not None:
                 forecast = weather.parse_forecast(weather_payload, kickoff_at)
                 if forecast is not None and home_abbr is not None:
-                    weather_note = _weather_fact(home_abbr, stadium, forecast)
+                    weather_note = _weather_fact(home_abbr, stadium, forecast, kickoff_at)
 
         return _prediction_fact(
             inputs, live_odds=live, injuries=injuries, weather_note=weather_note
