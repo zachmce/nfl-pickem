@@ -473,7 +473,16 @@ def _normalize_team(value: object, known_team_tokens: set[str]) -> str | None:
     alias = _TEAM_ALIASES.get(alias_key)
     if alias is not None and alias in real:
         return alias
+    # Issue #278: "ATL/GB" names one game; it resolves to its first team when both are real.
+    halves = _MATCHUP_SPLIT_RE.split(stripped)
+    if len(halves) == 2 and all(halves):
+        first, second = (_normalize_team(half, known_team_tokens) for half in halves)
+        if first is not None and second is not None:
+            return first
     return None
+
+
+_MATCHUP_SPLIT_RE = re.compile(r"\s*(?:/|@|-|\s(?:vs\.?|v\.?|at)\s)\s*", re.IGNORECASE)
 
 
 def _coerce_week(value: object) -> int | None:
@@ -588,6 +597,14 @@ def validate_classification(raw: object, *, known_team_tokens: set[str]) -> QaRe
     # to unknown. On a team-OPTIONAL intent (``_TEAM_OPTIONAL_INTENTS`` — news) it is NOT:
     # the team scrubs to None and the intent falls through to the LEAGUE answer (a real
     # team still resolves + carries through as normal).
+    # Issue #278: "do you agree with the ATL/GB line?" came back slate_predictions with a
+    # team, and the member got all 16 games. A real team makes it a one-game question.
+    if (
+        intent is QaIntent.slate_predictions
+        and _normalize_team(raw.get("team"), known_team_tokens) is not None
+    ):
+        intent = QaIntent.prediction
+
     team: str | None = None
     if intent in _TEAM_INTENTS:
         raw_team = raw.get("team")
