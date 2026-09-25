@@ -430,9 +430,7 @@ def revoke_admin_by_discord_id(
     # mirroring the web admin._count_admins default. Replicated inline (not
     # imported from app.services.admin) to keep the auth->admin boundary
     # one-directional and avoid a circular import.
-    admin_count = session.exec(
-        select(func.count(User.id)).where(User.is_admin == True)  # noqa: E712
-    ).one()
+    admin_count = session.exec(select(func.count(User.id)).where(User.is_admin == True)).one()
     if admin_count == 1:
         raise ValueError("last_admin: cannot remove the only remaining admin")
 

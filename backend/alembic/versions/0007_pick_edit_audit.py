@@ -25,11 +25,11 @@ enum, which predates this migration (0004 owns it).
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
+import sqlmodel
 from sqlalchemy.dialects import postgresql
-import sqlmodel  # noqa: F401  (kept for parity with 0004/0005/0006)
 
+from alembic import op
 from app.models import PickType
 
 # revision identifiers, used by Alembic.

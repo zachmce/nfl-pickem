@@ -78,8 +78,10 @@ def _render_transcript(turns: Sequence[tuple[str, str]], *, bot_name: str) -> st
     """
     safe_bot = chat_personality._fence_untrusted(bot_name, limit=_MAX_TURN_CHARS) or "the bot"
     lines = [
-        f'The bot in this channel is named "{safe_bot}". '
-        "Here are the most recent messages in the channel, oldest first:"
+        (
+            f'The bot in this channel is named "{safe_bot}". '
+            "Here are the most recent messages in the channel, oldest first:"
+        )
     ]
     for speaker, body in list(turns)[-_MAX_TURNS:]:
         safe_speaker = (

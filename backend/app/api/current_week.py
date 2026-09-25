@@ -31,7 +31,7 @@ therefore does NOT import :mod:`app.config`, ``settings.is_demo_data``, or any
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 from sqlmodel import Session, select
@@ -57,7 +57,7 @@ def _as_aware(dt: datetime | None) -> datetime | None:
     persisted back (mirrors :func:`app.services.refresh._as_aware`).
     """
     if dt is not None and dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -101,7 +101,7 @@ def read_current_week(
     derived from real ``now`` vs the persisted (possibly demo time-shifted)
     kickoffs — no demo branch.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     all_games = list(session.exec(select(Game)).all())
     if not all_games:

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import importlib.util
 import unittest
+from datetime import UTC
 from pathlib import Path
 
 from sqlalchemy.pool import StaticPool
@@ -129,17 +130,14 @@ class Migration0011AvatarHashTest(unittest.TestCase):
         real_drop_column = Operations.drop_column
         real_execute = Operations.execute
 
-        def capture_add_column(self, table_name, column, *a, **kw):  # noqa: ANN001
+        def capture_add_column(self, table_name, column, *a, **kw):
             add_columns.append((table_name, column))
-            return None
 
-        def capture_drop_column(self, table_name, column_name, *a, **kw):  # noqa: ANN001
+        def capture_drop_column(self, table_name, column_name, *a, **kw):
             drop_columns.append((table_name, column_name))
-            return None
 
-        def capture_execute(self, sqltext, *a, **kw):  # noqa: ANN001
+        def capture_execute(self, sqltext, *a, **kw):
             executes.append(str(sqltext))
-            return None
 
         ctx = MigrationContext.configure(dialect_name="postgresql", opts={"as_sql": True})
         Operations.add_column = capture_add_column  # type: ignore[assignment]
@@ -271,7 +269,7 @@ class DiscordIdSnowflakePrecisionTests(unittest.TestCase):
         self.assertGreater(self.SNOWFLAKE, 2**53)
 
     def test_user_read_serializes_snowflake_to_exact_string(self) -> None:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         read = UserRead(
             id=1,
@@ -280,14 +278,14 @@ class DiscordIdSnowflakePrecisionTests(unittest.TestCase):
             display_name="snowflake_user",
             is_admin=False,
             is_active=True,
-            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
         )
         dumped = read.model_dump(mode="json")
         self.assertEqual(dumped["discord_id"], self.SNOWFLAKE_STR)
         self.assertIsInstance(dumped["discord_id"], str)
 
     def test_admin_user_read_serializes_snowflake_to_exact_string(self) -> None:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         read = AdminUserRead(
             id=1,
@@ -297,7 +295,7 @@ class DiscordIdSnowflakePrecisionTests(unittest.TestCase):
             is_admin=True,
             is_active=True,
             is_protected=False,
-            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
             pick_count=0,
         )
         dumped = read.model_dump(mode="json")
@@ -330,7 +328,7 @@ class DiscordIdSnowflakePrecisionTests(unittest.TestCase):
 
     def test_none_discord_id_serializes_to_null(self) -> None:
         # The web-bootstrap admin / web-origin accounts carry no snowflake.
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         read = UserRead(
             id=1,
@@ -339,7 +337,7 @@ class DiscordIdSnowflakePrecisionTests(unittest.TestCase):
             display_name="web_admin",
             is_admin=True,
             is_active=True,
-            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
         )
         self.assertIsNone(read.model_dump(mode="json")["discord_id"])
 

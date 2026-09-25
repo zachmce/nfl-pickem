@@ -26,12 +26,9 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from app.models import Game, GameStatus, HistoricalGame, PickType, Team, Week
 from app.services import notifications
-from app.services.notifications_read import (
-    get_prediction_inputs_for_team,
-    get_season_record_and_ats_for_team,
-)
 from app.services.notifications import (
     EVENTS_CHANNEL,
+    GameFinalImpact,
     admin_pick_cleared_event,
     admin_pick_set_event,
     claim_cooldown,
@@ -43,7 +40,6 @@ from app.services.notifications import (
     misc_picked_event,
     pick_cleared_event,
     pick_event,
-    GameFinalImpact,
     pick_log_detail,
     player_registered_event,
     publish_event,
@@ -52,6 +48,10 @@ from app.services.notifications import (
     week_recap_event,
     window_closed_event,
     window_opened_event,
+)
+from app.services.notifications_read import (
+    get_prediction_inputs_for_team,
+    get_season_record_and_ats_for_team,
 )
 
 
@@ -577,7 +577,7 @@ class _NxFakeRedis:
         self._keys: set[str] = set()
         self.calls: list[tuple] = []
 
-    def set(self, key, value, nx=False, ex=None):  # noqa: A002
+    def set(self, key, value, nx=False, ex=None):
         self.calls.append((key, value, nx, ex))
         if nx and key in self._keys:
             return None
@@ -640,7 +640,7 @@ class _CountingFakeRedis:
         self.published.append((channel, payload))
         return 1
 
-    def set(self, key, value, nx=False, ex=None):  # noqa: A002
+    def set(self, key, value, nx=False, ex=None):
         self.set_calls.append((key, value, nx, ex))
         return True
 
@@ -826,7 +826,7 @@ class PredictionDataLayerTests(unittest.TestCase):
                     home_score=31,
                     away_score=10,
                     result=21,
-                    spread_line=Decimal("0"),
+                    spread_line=Decimal(0),
                 )
             )
         s.commit()

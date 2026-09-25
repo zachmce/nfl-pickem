@@ -11,10 +11,11 @@ so the three native enum types are created/dropped deterministically.
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 import sqlmodel
 from sqlalchemy.dialects import postgresql  # noqa: F401  (kept for parity with 0003)
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "0004"

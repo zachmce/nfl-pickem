@@ -52,7 +52,7 @@ class Migration0007EnumTest(unittest.TestCase):
         captured = {}
         real_create_table = Operations.create_table
 
-        def capture_create_table(self, name, *columns, **kw):  # noqa: ANN001
+        def capture_create_table(self, name, *columns, **kw):
             captured["table"] = sa.Table(name, sa.MetaData(), *columns)
             # Do not actually emit DDL — we only want the constructed columns.
             return captured["table"]

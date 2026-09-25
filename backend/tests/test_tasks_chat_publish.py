@@ -141,13 +141,15 @@ class PublishRefreshChatEdgesTests(unittest.TestCase):
             finalized_games=((2, "WSH", "GB", 18, 27),),
             windows_closed=(2,),
         )
-        with mock.patch("app.tasks.publish_event", side_effect=recorded.append):
-            with mock.patch(
+        with (
+            mock.patch("app.tasks.publish_event", side_effect=recorded.append),
+            mock.patch(
                 "app.tasks.get_game_final_context",
                 side_effect=RuntimeError("grading blew up"),
-            ):
-                with Session(self.engine) as s:
-                    _publish_refresh_chat_edges(s, result)
+            ),
+            Session(self.engine) as s,
+        ):
+            _publish_refresh_chat_edges(s, result)
 
         types = [e.get("type") for e in recorded]
         self.assertEqual(types, ["game.final", "window.closed"])

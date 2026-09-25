@@ -20,7 +20,7 @@ engine = create_engine(
 )
 
 
-def get_session() -> Generator[Session, None, None]:
+def get_session() -> Generator[Session]:
     """FastAPI dependency that yields a database session (one per request)."""
     with Session(engine) as session:
         yield session
@@ -54,7 +54,7 @@ def commit_or_conflict(session: Session, *, reason: str = "concurrent_pick_confl
 
 
 @contextmanager
-def task_session() -> Generator[Session, None, None]:
+def task_session() -> Generator[Session]:
     """Session context manager for non-HTTP callers (Celery tasks, the bot).
 
     Do NOT share a request-scoped session into a task or the bot thread — open

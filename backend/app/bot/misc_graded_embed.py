@@ -95,7 +95,7 @@ def build_verdict_value(event: dict) -> str:
 
 # Zero-width space — used as the name of the quip field so ONLY the quip text renders
 # (Discord requires a non-empty field name, but this shows as nothing).
-_ZERO_WIDTH_SPACE = "​"
+_ZERO_WIDTH_SPACE = "\u200b"
 
 
 def build_misc_graded_embed(event: dict, quip: str) -> discord.Embed:

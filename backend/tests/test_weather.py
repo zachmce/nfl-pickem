@@ -30,7 +30,7 @@ import asyncio
 import json
 import os
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -200,7 +200,7 @@ class StadiumTableTests(unittest.TestCase):
 class ParseForecastTests(unittest.TestCase):
     def test_kickoff_hour_selects_the_matching_index_not_index_zero(self) -> None:
         # Kickoff at 14:00 UTC -> index 2 in the fixture (times start at 12:00).
-        kickoff = datetime(2026, 1, 5, 14, 0, tzinfo=timezone.utc)
+        kickoff = datetime(2026, 1, 5, 14, 0, tzinfo=UTC)
         out = weather.parse_forecast(_load_fixture(), kickoff)
         assert out is not None
         # The values must be the index-2 values, NOT index 0 (30.1 / 10.1 / 0.0).
@@ -211,7 +211,7 @@ class ParseForecastTests(unittest.TestCase):
 
     def test_kickoff_minutes_floor_to_the_hour(self) -> None:
         # 15:47 floors to the 15:00 key -> index 3.
-        kickoff = datetime(2026, 1, 5, 15, 47, tzinfo=timezone.utc)
+        kickoff = datetime(2026, 1, 5, 15, 47, tzinfo=UTC)
         out = weather.parse_forecast(_load_fixture(), kickoff)
         assert out is not None
         self.assertEqual(out["hour"], "2026-01-05T15:00")
@@ -220,7 +220,7 @@ class ParseForecastTests(unittest.TestCase):
 
     def test_naive_kickoff_is_treated_as_utc(self) -> None:
         naive = datetime(2026, 1, 5, 14, 0)  # no tzinfo -> assumed UTC
-        aware = datetime(2026, 1, 5, 14, 0, tzinfo=timezone.utc)
+        aware = datetime(2026, 1, 5, 14, 0, tzinfo=UTC)
         self.assertEqual(
             weather.parse_forecast(_load_fixture(), naive),
             weather.parse_forecast(_load_fixture(), aware),
@@ -238,16 +238,16 @@ class ParseForecastTests(unittest.TestCase):
 
     def test_hour_not_present_returns_none(self) -> None:
         # A kickoff whose hour is not in the fixture -> None (never a neighbor guess).
-        kickoff = datetime(2026, 1, 5, 23, 0, tzinfo=timezone.utc)
+        kickoff = datetime(2026, 1, 5, 23, 0, tzinfo=UTC)
         self.assertIsNone(weather.parse_forecast(_load_fixture(), kickoff))
 
     def test_non_dict_payload_returns_none(self) -> None:
-        kickoff = datetime(2026, 1, 5, 14, 0, tzinfo=timezone.utc)
+        kickoff = datetime(2026, 1, 5, 14, 0, tzinfo=UTC)
         for bad in (None, "garbage", 42, ["hourly"]):
             self.assertIsNone(weather.parse_forecast(bad, kickoff))
 
     def test_missing_or_malformed_hourly_returns_none(self) -> None:
-        kickoff = datetime(2026, 1, 5, 14, 0, tzinfo=timezone.utc)
+        kickoff = datetime(2026, 1, 5, 14, 0, tzinfo=UTC)
         self.assertIsNone(weather.parse_forecast({}, kickoff))
         self.assertIsNone(weather.parse_forecast({"hourly": "nope"}, kickoff))
         self.assertIsNone(weather.parse_forecast({"hourly": {"time": "nope"}}, kickoff))
@@ -265,7 +265,7 @@ class ParseForecastTests(unittest.TestCase):
                 "precipitation": ["oops"],  # non-numeric -> None
             }
         }
-        kickoff = datetime(2026, 1, 5, 14, 0, tzinfo=timezone.utc)
+        kickoff = datetime(2026, 1, 5, 14, 0, tzinfo=UTC)
         out = weather.parse_forecast(payload, kickoff)
         assert out is not None
         self.assertEqual(out["temperature_f"], 40.0)
@@ -282,7 +282,7 @@ class ParseForecastTests(unittest.TestCase):
                 "precipitation": [None],
             }
         }
-        kickoff = datetime(2026, 1, 5, 14, 0, tzinfo=timezone.utc)
+        kickoff = datetime(2026, 1, 5, 14, 0, tzinfo=UTC)
         self.assertIsNone(weather.parse_forecast(payload, kickoff))
 
     def test_bool_is_not_a_valid_metric(self) -> None:
@@ -295,7 +295,7 @@ class ParseForecastTests(unittest.TestCase):
                 "precipitation": [True],
             }
         }
-        kickoff = datetime(2026, 1, 5, 14, 0, tzinfo=timezone.utc)
+        kickoff = datetime(2026, 1, 5, 14, 0, tzinfo=UTC)
         self.assertIsNone(weather.parse_forecast(payload, kickoff))
 
 

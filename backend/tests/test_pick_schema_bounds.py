@@ -28,10 +28,10 @@ from pydantic import ValidationError
 from app.models import PickResult, PickType
 from app.schemas.admin_picks import AdminMiscGradeRequest, AdminPickSetRequest
 from app.schemas.picks import (
-    PICKS_BATCH_MAX,
     MISC_POINTS_MAX,
     MISC_POINTS_MIN,
     MISC_TEXT_MAX,
+    PICKS_BATCH_MAX,
     PickItem,
     PickSubmitRequest,
 )

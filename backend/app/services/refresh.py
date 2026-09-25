@@ -61,7 +61,7 @@ result and never aborts or corrupts the other weeks.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlmodel import Session, select
 
@@ -156,7 +156,7 @@ def _as_aware(dt: datetime | None) -> datetime | None:
     persisted back, leaving production-on-Postgres unaffected.
     """
     if dt is not None and dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -255,7 +255,7 @@ def refresh_games(
     :returns: a :class:`RefreshResult` summarizing the run.
     """
     if now is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
     # Deferred import to avoid an import cycle: app.services.odds imports
     # group_games_by_week FROM this module at top level, so a top-level
@@ -364,12 +364,14 @@ def refresh_games(
                 # No kickoff to close on — nothing to stamp for this week.
                 continue
 
-            if week_row.window_closes_at != window.close_at:
-                # Compare tz-normalized to avoid a spurious rewrite on SQLite.
-                if _as_aware(week_row.window_closes_at) != window.close_at:
-                    week_row.window_closes_at = window.close_at
-                    session.add(week_row)
-                    windows_stamped += 1
+            # Compare tz-normalized to avoid a spurious rewrite on SQLite.
+            if (
+                week_row.window_closes_at != window.close_at
+                and _as_aware(week_row.window_closes_at) != window.close_at
+            ):
+                week_row.window_closes_at = window.close_at
+                session.add(week_row)
+                windows_stamped += 1
 
             # opens_at for THIS week is stamped only once the PREVIOUS week is
             # fully FINAL. Week 1 (idx 0) has no predecessor -> stays None.

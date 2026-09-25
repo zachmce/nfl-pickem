@@ -46,9 +46,9 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
-from typing import Mapping
 
 from sqlmodel import Session, select
 

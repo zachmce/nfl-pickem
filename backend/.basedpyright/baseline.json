@@ -520,8 +520,8 @@
             {
                 "code": "reportArgumentType",
                 "range": {
-                    "startColumn": 26,
-                    "endColumn": 33,
+                    "startColumn": 49,
+                    "endColumn": 56,
                     "lineCount": 1
                 }
             }
@@ -2528,8 +2528,8 @@
             {
                 "code": "reportOptionalMemberAccess",
                 "range": {
-                    "startColumn": 32,
-                    "endColumn": 38,
+                    "startColumn": 65,
+                    "endColumn": 71,
                     "lineCount": 1
                 }
             },
@@ -2554,7 +2554,7 @@
                 "range": {
                     "startColumn": 16,
                     "endColumn": 36,
-                    "lineCount": 4
+                    "lineCount": 2
                 }
             },
             {
@@ -2568,8 +2568,8 @@
             {
                 "code": "reportOptionalMemberAccess",
                 "range": {
-                    "startColumn": 32,
-                    "endColumn": 38,
+                    "startColumn": 65,
+                    "endColumn": 71,
                     "lineCount": 1
                 }
             },

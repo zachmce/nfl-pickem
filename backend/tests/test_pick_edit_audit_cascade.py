@@ -29,7 +29,7 @@ Fully offline: in-memory SQLite, no Postgres, no network.
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import event
 from sqlalchemy.pool import StaticPool
@@ -71,14 +71,14 @@ class PickEditAuditCascadeTests(unittest.TestCase):
         # create_all — otherwise SQLite ignores the cascade and these tests would
         # falsely pass with no cascade declared.
         @event.listens_for(self.engine, "connect")
-        def _enable_sqlite_fks(dbapi_connection, _connection_record):  # noqa: ANN001
+        def _enable_sqlite_fks(dbapi_connection, _connection_record):
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")
             cursor.close()
 
         SQLModel.metadata.create_all(self.engine)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         with Session(self.engine) as session:
             # Two teams (FK targets for game home/away).
             team_home = Team(espn_team_id=1, abbreviation="HOM", display_name="Home")

@@ -39,7 +39,7 @@ comparison is automatically demo-correct — the pattern ``refresh_games`` /
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 from sqlmodel import Session, select
@@ -64,7 +64,7 @@ def _as_aware(dt: datetime | None) -> datetime | None:
     persisted back (mirrors :func:`app.api.current_week._as_aware`).
     """
     if dt is not None and dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -84,7 +84,7 @@ def read_slate(
     week}`` yields an empty ``games`` list (a pure read, never a 404), matching
     ``/api/results/week``. No picks are read.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     games = list(session.exec(select(Game).where(Game.season == season, Game.week == week)).all())
 
@@ -124,7 +124,7 @@ def read_slate(
         )
 
     # Stable order: kickoff then game_id (null kickoffs sort last).
-    _MAX_KO = datetime.max.replace(tzinfo=timezone.utc)
+    _MAX_KO = datetime.max.replace(tzinfo=UTC)
     games.sort(key=lambda g: (_as_aware(g.kickoff_at) or _MAX_KO, g.id or 0))
 
     slate_games: list[SlateGame] = []

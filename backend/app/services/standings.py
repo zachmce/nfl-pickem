@@ -39,7 +39,7 @@ unaffected.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlmodel import Session, select
 
@@ -130,7 +130,7 @@ def _as_aware(dt: datetime | None) -> datetime | None:
     unaffected.
     """
     if dt is not None and dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -309,7 +309,7 @@ def week_results(
     if week_id is None:
         return []
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     games_by_pk = _season_games_by_pk(session, season=season)
 
     # Single WEEK-LEVEL visibility boundary: the week's pick window closes at the

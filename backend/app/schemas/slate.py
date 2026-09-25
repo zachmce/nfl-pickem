@@ -91,7 +91,7 @@ class SlateResponse(BaseModel):
     @classmethod
     def from_games(
         cls, *, season: int, week: int, games: list[SlateGame], odds_frozen: bool
-    ) -> "SlateResponse":
+    ) -> SlateResponse:
         """Shape the router's already-built per-game rows into the response.
 
         The router resolves team identity, the per-game ``locked`` bool and the

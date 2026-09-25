@@ -54,7 +54,7 @@ ARTIFACT_HEADER: tuple[str, ...] = (
 def _fetch_rows(url: str = RAW_URL) -> list[dict[str, str]]:
     """Fetch and parse the nflverse games.csv over HTTPS into string-dict rows."""
     sys.stderr.write(f"fetching {url}\n")
-    with urllib.request.urlopen(url) as resp:  # noqa: S310 (pinned HTTPS nflverse URL)
+    with urllib.request.urlopen(url) as resp:
         text = resp.read().decode("utf-8")
     return list(csv.DictReader(text.splitlines()))
 

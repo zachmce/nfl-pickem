@@ -15,7 +15,7 @@ crashing input reproduces exactly.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -26,7 +26,7 @@ _PICK_TYPES = list(PickType)
 _RESULTS = list(PickResult)
 
 # Fixed tz-aware anchor — window math is all relative deltas off this.
-_EPOCH = datetime(2025, 9, 1, tzinfo=timezone.utc)
+_EPOCH = datetime(2025, 9, 1, tzinfo=UTC)
 
 
 def _opt_int(fdp, lo: int, hi: int):

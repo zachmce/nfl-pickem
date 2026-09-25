@@ -79,7 +79,7 @@ class CalendarResponse(BaseModel):
         from_date: str,
         to_date: str,
         games: list[CalendarGame],
-    ) -> "CalendarResponse":
+    ) -> CalendarResponse:
         """Shape the router's already-built per-game rows into the response.
 
         The router resolves team identity and maps the persisted game fields,

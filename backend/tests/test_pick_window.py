@@ -31,7 +31,7 @@ No pytest dependency is required (none is configured for this project).
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -54,7 +54,7 @@ AWAY = 2
 
 def _dt(*args: int) -> datetime:
     """Build a tz-aware UTC datetime, e.g. ``_dt(2025, 9, 7, 17, 0)``."""
-    return datetime(*args, tzinfo=timezone.utc)
+    return datetime(*args, tzinfo=UTC)
 
 
 def _game(*, kickoff_at: datetime | None = None, game_id: int = 100) -> Game:
@@ -254,7 +254,7 @@ class GroundTruthRealSeasonTests(unittest.TestCase):
             # to mirror what production hands the (correctly tz-strict) service.
             for g in (*week1, *week2):
                 if g.kickoff_at is not None and g.kickoff_at.tzinfo is None:
-                    g.kickoff_at = g.kickoff_at.replace(tzinfo=timezone.utc)
+                    g.kickoff_at = g.kickoff_at.replace(tzinfo=UTC)
 
             window = compute_window(week2, week1)
 

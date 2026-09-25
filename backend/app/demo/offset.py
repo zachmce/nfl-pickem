@@ -57,10 +57,11 @@ week while still dwarfing any sub-second clock drift during a test or run.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from app.scoreboard.demo import GAME_DURATION
 from app.seeds.fixture_2025 import FIXTURE_PATH

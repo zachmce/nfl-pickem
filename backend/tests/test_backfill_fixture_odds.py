@@ -209,14 +209,14 @@ class MergeOddsIntoFixtureTests(unittest.TestCase):
             ],
         }
 
-    def _fake_fetch(self) -> "object":
+    def _fake_fetch(self) -> object:
         # event 1001 -> usable DraftKings line; event 1003 -> nothing usable.
         responses = {
             "1001": {"items": [_draftkings_item(spread=-3.5, total=44.5)]},
             "1003": {"items": [{"provider": {"id": "200", "name": "Caesars"}}]},
         }
 
-        def fetch(event_id: str, competition_id: str):  # noqa: ANN202
+        def fetch(event_id: str, competition_id: str):
             return responses.get(event_id)
 
         return fetch

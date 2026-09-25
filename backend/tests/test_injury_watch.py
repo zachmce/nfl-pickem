@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest import mock
 
@@ -182,7 +182,7 @@ class WatchTargetTests(unittest.TestCase):
             "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
         )
         SQLModel.metadata.create_all(self.engine)
-        self.now = datetime(2026, 9, 24, 12, tzinfo=timezone.utc)
+        self.now = datetime(2026, 9, 24, 12, tzinfo=UTC)
         with Session(self.engine) as session:
             teams = [
                 Team(espn_team_id=i, abbreviation=a, display_name=a)

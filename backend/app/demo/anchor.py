@@ -27,8 +27,8 @@ passed-in session (the caller commits), exactly like ``refresh_games``.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-from typing import Mapping
+from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
 
 from sqlmodel import Session, select
 
@@ -60,7 +60,7 @@ def _as_aware(dt: datetime | None) -> datetime | None:
     is never persisted back, leaving production-on-Postgres unaffected.
     """
     if dt is not None and dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt
 
 

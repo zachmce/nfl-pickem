@@ -38,9 +38,10 @@ deliberately not spelled out literally anywhere below.)
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 from sqlmodel import Session
 
@@ -216,10 +217,10 @@ POLLING_JOBS: tuple[PollingJob, ...] = (SCORES_JOB, ODDS_JOB)
 
 
 __all__ = [
-    "PollingJob",
+    "ODDS_JOB",
     "POLLING_JOBS",
     "SCORES_JOB",
-    "ODDS_JOB",
+    "PollingJob",
     "fetch_needy_weeks",
     "group_games_by_week",
 ]

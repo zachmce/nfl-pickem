@@ -28,11 +28,11 @@ Run from the ``backend/`` directory::
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from app.demo.offset import (
-    DemoPhase,
     DEFAULT_MARGIN,
+    DemoPhase,
     compute_offset,
     load_fixture_kickoffs,
 )
@@ -73,7 +73,7 @@ class ComputeOffsetGuardTests(unittest.TestCase):
             )
 
     def test_empty_target_week_raises(self) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         with self.assertRaises(ValueError):
             compute_offset(
                 now,
@@ -83,7 +83,7 @@ class ComputeOffsetGuardTests(unittest.TestCase):
             )
 
     def test_naive_kickoff_in_week_raises(self) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         bad = dict(self.weeks)
         bad[1] = [datetime(2025, 9, 5, 0, 20, 0)]  # naive
         with self.assertRaises(ValueError):
@@ -102,7 +102,7 @@ class WindowOpenPositioningTests(unittest.TestCase):
         self.weeks = load_fixture_kickoffs()
 
     def _assert_window_open(self, target_week: int) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         offset = compute_offset(
             now,
             target_week=target_week,
@@ -118,7 +118,7 @@ class WindowOpenPositioningTests(unittest.TestCase):
 
         # Every target-week game is SCHEDULED (its earliest kickoff is future).
         for g in target_games:
-            status, _ = derive_status(g.kickoff_at, datetime.now(timezone.utc))
+            status, _ = derive_status(g.kickoff_at, datetime.now(UTC))
             self.assertEqual(
                 status,
                 GameStatus.SCHEDULED,
@@ -130,7 +130,7 @@ class WindowOpenPositioningTests(unittest.TestCase):
             prev_games = source.fetch_week(SEASON, target_week - 1)
             self.assertTrue(prev_games)
             for g in prev_games:
-                status, _ = derive_status(g.kickoff_at, datetime.now(timezone.utc))
+                status, _ = derive_status(g.kickoff_at, datetime.now(UTC))
                 self.assertEqual(
                     status,
                     GameStatus.FINAL,
@@ -158,7 +158,7 @@ class WindowOpenPositioningTests(unittest.TestCase):
         prev = _to_games(source.fetch_week(SEASON, target_week - 1)) if target_week > 1 else None
         window = compute_window(_to_games(target_games), prev)
         self.assertTrue(
-            is_pick_open(window, datetime.now(timezone.utc)),
+            is_pick_open(window, datetime.now(UTC)),
             f"window for week {target_week} should be open",
         )
 
@@ -179,7 +179,7 @@ class AllFinalPositioningTests(unittest.TestCase):
         self.weeks = load_fixture_kickoffs()
 
     def _assert_all_final(self, target_week: int) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         offset = compute_offset(
             now,
             target_week=target_week,
@@ -190,7 +190,7 @@ class AllFinalPositioningTests(unittest.TestCase):
         games = source.fetch_week(SEASON, target_week)
         self.assertTrue(games)
         for g in games:
-            status, reveal = derive_status(g.kickoff_at, datetime.now(timezone.utc))
+            status, reveal = derive_status(g.kickoff_at, datetime.now(UTC))
             self.assertEqual(
                 status,
                 GameStatus.FINAL,

@@ -32,28 +32,29 @@ refreshed ``pick_count``); DELETE returns 204 with no body.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlmodel import Session
 
 from app.api.deps import require_admin
+from app.bot.personality import available_personality_ids
 from app.db import commit_or_conflict, get_session
 from app.exceptions import ConflictError, NotFoundError
 from app.models import Game, PickResult, PickType, Team, User
 from app.schemas.admin import (
     AdminUserListResponse,
-    BotTranscriptEntry,
-    BotTranscriptResponse,
     AdminUserRead,
     BotPersonalityRead,
+    BotTranscriptEntry,
+    BotTranscriptResponse,
     FreezeWeekRequest,
     IngestSeasonRequest,
     SetBotPersonalityRequest,
 )
 from app.schemas.admin_picks import AdminMiscGradeRequest, AdminPickSetRequest
 from app.schemas.picks import PickRead
-from app.tasks import freeze_week_task, ingest_season_task
+from app.services import bot_telemetry
 from app.services.admin import (
     AdminUserRow,
     deactivate_user,
@@ -68,6 +69,10 @@ from app.services.admin_picks import (
     admin_grade_misc,
     admin_set_pick,
 )
+from app.services.app_settings import (
+    get_bot_personality,
+    set_bot_personality,
+)
 from app.services.notifications import (
     admin_pick_cleared_event,
     admin_pick_set_event,
@@ -75,18 +80,13 @@ from app.services.notifications import (
     pick_log_detail,
     publish_event,
 )
-from app.services.app_settings import (
-    get_bot_personality,
-    set_bot_personality,
-)
-from app.bot.personality import available_personality_ids
-from app.services import bot_telemetry
 from app.services.pick_submission import (
     _load_week_games,
     _normalized_game,
     read_picks,
 )
 from app.services.pick_window import compute_window, is_pick_open
+from app.tasks import freeze_week_task, ingest_season_task
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -123,7 +123,7 @@ def _week_window_closed(session: Session, season: int, week: int) -> bool:
         prev_games = _load_week_games(session, season, week - 1) if week > 1 else []
         prev_norm = [_normalized_game(g) for g in prev_games] or None
         window = compute_window(norm, prev_norm)
-        return not is_pick_open(window, datetime.now(timezone.utc))
+        return not is_pick_open(window, datetime.now(UTC))
     except Exception:
         return False
 
@@ -225,7 +225,6 @@ def delete(
         delete_user(session, caller_id=admin.id, user_id=user_id)
     except ValueError as exc:
         _raise_for_service_error(exc)
-    return None
 
 
 # --------------------------------------------------------------------------- #
@@ -393,7 +392,6 @@ def clear_user_pick(
             slot=pick_type.value,
         )
     )
-    return None
 
 
 # --------------------------------------------------------------------------- #
@@ -516,7 +514,7 @@ def export_bot_transcript(
     if records is None:
         raise HTTPException(status_code=503, detail="transcript_unavailable")
     body = "".join(json.dumps(r, default=str) + "\n" for r in reversed(records))
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%MZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%MZ")
     return Response(
         content=body,
         media_type="application/x-ndjson",
@@ -527,4 +525,4 @@ def export_bot_transcript(
 def _aware(moment: datetime | None) -> datetime | None:
     if moment is None or moment.tzinfo is not None:
         return moment
-    return moment.replace(tzinfo=timezone.utc)
+    return moment.replace(tzinfo=UTC)

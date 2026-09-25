@@ -767,7 +767,7 @@ class _CapturingAsyncClient:
     async def __aexit__(self, *exc) -> None:
         return None
 
-    async def post(self, url, *, json=None, headers=None):  # noqa: A002
+    async def post(self, url, *, json=None, headers=None):
         type(self).last_json = json
         return self._response
 

@@ -22,7 +22,7 @@ Run with: ``backend/.venv/bin/python -m unittest tests.test_recap_context -v``
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy.pool import StaticPool
@@ -67,7 +67,7 @@ class GetRecapContextTests(unittest.TestCase):
         )
         SQLModel.metadata.create_all(self.engine)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         with Session(self.engine) as session:
             teams = [
                 Team(espn_team_id=i, abbreviation=f"T{i}", display_name=f"Team {i}")

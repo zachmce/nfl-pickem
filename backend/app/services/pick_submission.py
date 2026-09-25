@@ -53,7 +53,7 @@ ESPN adapter, or any network layer, and does NOT modify ``scoring.py`` /
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlmodel import Session, select
 
@@ -100,7 +100,7 @@ def _as_aware(dt: datetime | None) -> datetime | None:
     :func:`app.services.refresh._as_aware`.
     """
     if dt is not None and dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -230,7 +230,7 @@ def clear_pick(
     owns the commit, matching this module's caller-commits contract.
     """
     if now is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
     week_row = _resolve_week(session, season, week)
     assert week_row.id is not None  # a persisted week always has an id
@@ -275,7 +275,6 @@ def clear_pick(
         )
 
     session.delete(matched_pick)
-    return None
 
 
 def submit_picks(
@@ -303,7 +302,7 @@ def submit_picks(
     Returns the persisted (added/updated) Pick rows, in submission order.
     """
     if now is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
     week_row = _resolve_week(session, season, week)
     assert week_row.id is not None  # a persisted week always has an id

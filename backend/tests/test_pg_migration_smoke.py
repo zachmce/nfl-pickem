@@ -227,9 +227,8 @@ class PgMigrationSmokeTest(unittest.TestCase):
             self.conn.commit()
 
         # A second NULL-discord_id row must violate the partial unique index.
-        with self.assertRaises(psycopg.errors.UniqueViolation):
-            with self.conn.cursor() as cur:
-                self._insert_user(cur, display_name="null-admin-2", discord_id=None)
+        with self.assertRaises(psycopg.errors.UniqueViolation), self.conn.cursor() as cur:
+            self._insert_user(cur, display_name="null-admin-2", discord_id=None)
         self.conn.rollback()
 
         # Sanity: distinct NON-null discord_ids are fine.

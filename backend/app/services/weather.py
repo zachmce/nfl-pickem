@@ -34,7 +34,7 @@ imports THIS seam for the coordinate lookup + HTTP + cache, staying itself HTTP-
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -153,8 +153,8 @@ def _as_utc(dt: datetime) -> datetime:
     is treated as UTC; a tz-aware kickoff is converted to UTC.
     """
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 def _numeric_at(values: Any, index: int) -> float | int | None:

@@ -61,8 +61,8 @@ from datetime import UTC, datetime
 import structlog
 
 from app.bot import chat_personality, llm_client
-from app.config import settings
 from app.bot.personality import compose_prompt
+from app.config import settings
 from app.services import bot_telemetry
 
 logger = structlog.get_logger(__name__)
@@ -3175,7 +3175,7 @@ def _fmt_espn_date(raw: object) -> str | None:
     if not isinstance(raw, str) or not raw.strip():
         return None
     try:
-        when = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+        when = datetime.fromisoformat(raw.strip())
     except ValueError:
         return None
     if when.tzinfo is None:
@@ -5861,7 +5861,7 @@ def _coerce_str(value: object) -> str:
 def _coerce_int(value: object) -> int:
     """Coerce a JSON scalar to ``int``; a bool is deliberately NOT an int here."""
     if isinstance(value, bool):
-        raise ValueError("a boolean is not an integer")
+        raise TypeError("a boolean is not an integer")
     if isinstance(value, (int, float, str)):
         return int(value)
     raise ValueError("not an integer")
@@ -5870,7 +5870,7 @@ def _coerce_int(value: object) -> int:
 def _coerce_float(value: object) -> float:
     """Coerce a JSON scalar to ``float``; a bool is deliberately NOT a number here."""
     if isinstance(value, bool):
-        raise ValueError("a boolean is not a number")
+        raise TypeError("a boolean is not a number")
     if isinstance(value, (int, float, str)):
         return float(value)
     raise ValueError("not a number")

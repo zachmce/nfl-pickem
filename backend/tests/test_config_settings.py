@@ -20,14 +20,14 @@ from app.config import Settings
 
 # A real-looking secure production baseline reused by the "otherwise secure"
 # negative cases so each test isolates the ONE setting it is exercising.
-_SECURE_PROD = dict(
-    app_env="production",
-    secret_key="x" * 40,
-    session_cookie_secure=True,
-    is_demo_data=False,
-    cors_allowed_origins=["https://picks.example.com"],
-    _env_file=None,
-)
+_SECURE_PROD = {
+    "app_env": "production",
+    "secret_key": "x" * 40,
+    "session_cookie_secure": True,
+    "is_demo_data": False,
+    "cors_allowed_origins": ["https://picks.example.com"],
+    "_env_file": None,
+}
 
 
 class ConfigFailClosedTests(unittest.TestCase):

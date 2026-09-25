@@ -231,4 +231,3 @@ def clear(
         away_abbr=None,
     )
     publish_event(pick_cleared_event(actor=user.display_name, week=week, detail=detail))
-    return None

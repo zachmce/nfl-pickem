@@ -55,13 +55,11 @@ class Migration0008MiscTest(unittest.TestCase):
         real_execute = Operations.execute
         real_add_column = Operations.add_column
 
-        def capture_execute(self, sqltext, *a, **kw):  # noqa: ANN001
+        def capture_execute(self, sqltext, *a, **kw):
             executes.append(str(sqltext))
-            return None
 
-        def capture_add_column(self, table_name, column, *a, **kw):  # noqa: ANN001
+        def capture_add_column(self, table_name, column, *a, **kw):
             add_columns.append((table_name, column))
-            return None
 
         ctx = MigrationContext.configure(dialect_name="postgresql", opts={"as_sql": True})
         Operations.execute = capture_execute  # type: ignore[assignment]

@@ -34,7 +34,7 @@ revealed only once the game derives as FINAL.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -179,7 +179,7 @@ class Demo2025Source:
         if season != fixture_season:
             return []
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         games: list[ScoreboardGame] = []
         for raw in fixture.get("games", []):
             if int(raw.get("week")) != week:

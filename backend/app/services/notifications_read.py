@@ -30,7 +30,7 @@ survives a changing opponent.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import structlog
@@ -55,7 +55,7 @@ def _as_aware(dt: datetime | None) -> datetime | None:
     normalized copy is never persisted, leaving production-on-Postgres unaffected.
     """
     if dt is not None and dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -937,7 +937,7 @@ def get_pick_status_for_user(session: Session, season: int, week: int, *, discor
         session.exec(select(Game).where(Game.season == season, Game.week == week)).all()
     )
     close_at = _slate_close_at(week_games)
-    pick_open = close_at is not None and datetime.now(timezone.utc) < close_at
+    pick_open = close_at is not None and datetime.now(UTC) < close_at
 
     return {
         "registered": True,
@@ -1020,7 +1020,7 @@ def get_lines_slate(
 
     close_at = _slate_close_at(games)
     # Window open/closed for tense-correct "picks close/closed <when>" phrasing.
-    pick_open = close_at is not None and datetime.now(timezone.utc) < close_at
+    pick_open = close_at is not None and datetime.now(UTC) < close_at
 
     asked_team: str | None = None
     if team_abbr is not None:
@@ -1097,7 +1097,7 @@ def get_slate_predictions_for_week(session: Session, season: int, week: int) -> 
 
     close_at = _slate_close_at(games)
     # Window open/closed for tense-correct "picks close/closed <when>" phrasing.
-    pick_open = close_at is not None and datetime.now(timezone.utc) < close_at
+    pick_open = close_at is not None and datetime.now(UTC) < close_at
 
     game_dicts = []
     for g in games:
@@ -1630,7 +1630,7 @@ def get_league_picks(session: Session, season: int, week: int) -> dict:
     games_by_id = {g.id: g for g in games if g.id is not None}
 
     close_at = _slate_close_at(games)
-    picks_locked = close_at is not None and datetime.now(timezone.utc) >= close_at
+    picks_locked = close_at is not None and datetime.now(UTC) >= close_at
 
     members: list[dict] = []
     for result in week_results(session, season=season, week=week, caller_user_id=None):
@@ -1807,7 +1807,7 @@ def get_pick_completion(session: Session, season: int, week: int) -> dict:
     """
     games = list(session.exec(select(Game).where(Game.season == season, Game.week == week)).all())
     close_at = _slate_close_at(games)
-    pick_open = close_at is not None and datetime.now(timezone.utc) < close_at
+    pick_open = close_at is not None and datetime.now(UTC) < close_at
     week_row = session.exec(
         select(Week).where(Week.season == season, Week.week == week)
     ).one_or_none()
@@ -2114,7 +2114,7 @@ def get_injury_watch_targets(
     once the week's pick window has closed and at least a third of the members who
     picked that week (and never fewer than two) have a non-misc pick on the game.
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     games = list(session.exec(select(Game).where(Game.season == season, Game.week == week)).all())
     abbr = {t.id: t.abbreviation for t in session.exec(select(Team)).all() if t.id is not None}
     close_at = _slate_close_at(games)

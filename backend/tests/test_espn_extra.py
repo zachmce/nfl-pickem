@@ -1021,12 +1021,12 @@ class FetchTeamRosterTests(unittest.TestCase):
         # formats first and validates second fails here, loudly.
         fake = _FakeRedis()
         for bogus in ("", "ZZZ", "../../etc/passwd", "CHI/../DAL", "chi;rm -rf /"):
-            with self.subTest(team=bogus):
-                with (
-                    _redis_returns(fake),
-                    mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient),
-                ):
-                    self.assertIsNone(_run(espn_extra.fetch_team_roster(bogus)))
+            with (
+                self.subTest(team=bogus),
+                _redis_returns(fake),
+                mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient),
+            ):
+                self.assertIsNone(_run(espn_extra.fetch_team_roster(bogus)))
         self.assertEqual(fake.gets, [])  # Redis is not touched either
         self.assertEqual(fake.sets, [])
 
@@ -1463,24 +1463,24 @@ class FetchAthleteStatsTests(unittest.TestCase):
         # first and validates second fails here, loudly.
         fake = _FakeRedis()
         for bogus in ("", "   ", "../../etc/passwd", "12483/../99", "12483;rm -rf /", "abc"):
-            with self.subTest(athlete_id=bogus):
-                with (
-                    _redis_returns(fake),
-                    mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient),
-                ):
-                    self.assertIsNone(_run(espn_extra.fetch_athlete_stats(bogus)))
+            with (
+                self.subTest(athlete_id=bogus),
+                _redis_returns(fake),
+                mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient),
+            ):
+                self.assertIsNone(_run(espn_extra.fetch_athlete_stats(bogus)))
         self.assertEqual(fake.gets, [])  # Redis is not touched either
         self.assertEqual(fake.sets, [])
 
     def test_a_non_string_argument_does_not_raise(self) -> None:
         fake = _FakeRedis()
         for bogus in (None, 12483, ["12483"]):
-            with self.subTest(athlete_id=bogus):
-                with (
-                    _redis_returns(fake),
-                    mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient),
-                ):
-                    self.assertIsNone(_run(espn_extra.fetch_athlete_stats(bogus)))
+            with (
+                self.subTest(athlete_id=bogus),
+                _redis_returns(fake),
+                mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient),
+            ):
+                self.assertIsNone(_run(espn_extra.fetch_athlete_stats(bogus)))
         self.assertEqual(fake.gets, [])
 
     def test_an_over_long_digit_string_is_rejected(self) -> None:
@@ -1636,12 +1636,12 @@ class FetchAthleteSearchTests(unittest.TestCase):
         fake = _FakeRedis()
         bogus: tuple[Any, ...] = ("", "   ", "x" * 41, None, 12483, ["josh allen"])
         for query in bogus:
-            with self.subTest(query=query):
-                with (
-                    _redis_returns(fake),
-                    mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient),
-                ):
-                    self.assertIsNone(_run(espn_extra.fetch_athlete_search(query)))
+            with (
+                self.subTest(query=query),
+                _redis_returns(fake),
+                mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient),
+            ):
+                self.assertIsNone(_run(espn_extra.fetch_athlete_search(query)))
         self.assertEqual(fake.gets, [])
         self.assertEqual(fake.sets, [])
 
@@ -2666,12 +2666,12 @@ class FetchTeamScheduleTests(unittest.TestCase):
         # formats first and validates second fails here, loudly.
         fake = _FakeRedis()
         for bogus in ("", "   ", "zzz", "ZZZ", "../../etc/passwd", "KC/../DAL", "kc;rm -rf /"):
-            with self.subTest(team=bogus):
-                with (
-                    _redis_returns(fake),
-                    mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient),
-                ):
-                    self.assertIsNone(_run(espn_extra.fetch_team_schedule(bogus)))
+            with (
+                self.subTest(team=bogus),
+                _redis_returns(fake),
+                mock.patch.object(httpx, "AsyncClient", _RaisingAsyncClient),
+            ):
+                self.assertIsNone(_run(espn_extra.fetch_team_schedule(bogus)))
         for bogus_any in (None, 42, ["KC"]):
             with self.subTest(team=bogus_any):
                 bad: Any = bogus_any
@@ -3475,8 +3475,10 @@ class ParseArticleSearchTests(unittest.TestCase):
             [story["headline"] for story in stories],
             [
                 "Chiefs set to use undrafted rookie with LT Josh Simmons out",
-                "A primetime AFC West grudge match as the Broncos visit the Chiefs in Week 1 "
-                "on Monday night",
+                (
+                    "A primetime AFC West grudge match as the Broncos visit the Chiefs in Week 1 "
+                    "on Monday night"
+                ),
                 "Chiefs' Mahomes expects to play with no limitations in opener",
             ],
         )

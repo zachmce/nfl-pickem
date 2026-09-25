@@ -24,7 +24,7 @@ What these tests pin (the QT-1 spec):
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest import mock
 
@@ -57,7 +57,7 @@ _FUTURE = timedelta(days=2)
 _PAST = timedelta(hours=2)
 
 
-def _enable_sqlite_fks(dbapi_connection, _connection_record):  # noqa: ANN001
+def _enable_sqlite_fks(dbapi_connection, _connection_record):
     """Connect listener: turn SQLite FK (and cascade) enforcement ON."""
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
@@ -105,7 +105,7 @@ class AdminPicksApiTests(unittest.TestCase):
         event.listen(self.engine, "connect", _enable_sqlite_fks)
         SQLModel.metadata.create_all(self.engine)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         pw = hash_password("correct horse battery staple")
         with Session(self.engine) as session:
             # Distinct discord_ids: the one-null-discord_id invariant (260629-n59)
@@ -295,7 +295,7 @@ class AdminPicksApiTests(unittest.TestCase):
                 def _raise() -> None:
                     raise _integrity_error(sqlstate)
 
-                setattr(session, "commit", _raise)
+                session.commit = _raise
                 yield session
 
         app.dependency_overrides[get_session] = _override

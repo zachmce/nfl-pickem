@@ -32,7 +32,7 @@ the passed-in session, so the offline tests drive them against in-memory SQLite.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlmodel import Session, delete, select
 
@@ -84,7 +84,7 @@ def seed_demo(session: Session, *, now: datetime | None = None) -> dict:
     Returns a small summary dict (counts + anchor iso) for the CLI banner.
     """
     if now is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
     # (1) Reference/data seeds (idempotent on natural keys).
     seed_teams(session)

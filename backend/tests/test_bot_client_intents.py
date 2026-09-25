@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest import mock
 
 from app.bot import db_bridge, qa
@@ -60,7 +60,7 @@ class PredictionIntentRoutingTests(unittest.TestCase):
         "spread": "3.0",
         "total": "47.5",
         "espn_event_id": 555,
-        "kickoff_at": datetime(2026, 1, 5, 18, 0, tzinfo=timezone.utc),
+        "kickoff_at": datetime(2026, 1, 5, 18, 0, tzinfo=UTC),
         "model_margin": 1.0,
         "season": 2025,
         "week": 5,

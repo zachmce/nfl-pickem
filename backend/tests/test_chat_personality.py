@@ -23,7 +23,6 @@ from unittest import mock
 
 from app.bot import chat_personality
 from app.bot.notifier import render_chat
-from app.services.notifications_read import _game_narrative
 from app.services.notifications import (
     game_final_event,
     misc_graded_event,
@@ -32,6 +31,7 @@ from app.services.notifications import (
     window_closed_event,
     window_opened_event,
 )
+from app.services.notifications_read import _game_narrative
 
 
 def _run(coro):
@@ -314,7 +314,7 @@ class GameNarrativeHelperTests(unittest.TestCase):
             favorite_abbr="KC",
             away_score=0,
             home_score=21,
-            spread=Decimal("7"),
+            spread=Decimal(7),
             favorite_is_home=True,
         )
         self.assertTrue(n["shutout"])
@@ -323,7 +323,7 @@ class GameNarrativeHelperTests(unittest.TestCase):
             favorite_abbr="KC",
             away_score=0,
             home_score=0,
-            spread=Decimal("7"),
+            spread=Decimal(7),
             favorite_is_home=True,
         )
         self.assertFalse(n2["shutout"])
@@ -334,7 +334,7 @@ class GameNarrativeHelperTests(unittest.TestCase):
             favorite_abbr="KC",
             away_score=24,
             home_score=14,
-            spread=Decimal("7"),
+            spread=Decimal(7),
             favorite_is_home=True,
         )
         self.assertTrue(n["expectation_swing"])
@@ -353,7 +353,7 @@ class GameNarrativeHelperTests(unittest.TestCase):
             favorite_abbr="KC",
             away_score=None,
             home_score=21,
-            spread=Decimal("7"),
+            spread=Decimal(7),
             favorite_is_home=True,
         )
         self.assertEqual(n, {"upset": False, "shutout": False, "expectation_swing": False})

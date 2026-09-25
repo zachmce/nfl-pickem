@@ -95,7 +95,7 @@ def _http_get_json(url: str, timeout: float = DEFAULT_TIMEOUT) -> Any:
     """
     request = urllib.request.Request(url)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             body = response.read()
     except urllib.error.HTTPError as exc:
         raise ScoreboardFetchError(f"HTTP {exc.code} fetching {url}: {exc.reason}") from exc

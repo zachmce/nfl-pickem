@@ -20,7 +20,7 @@ No pytest dependency is required (none is configured for this project).
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from app.models import GameStatus
 from app.scoreboard.demo import (
@@ -31,7 +31,7 @@ from app.scoreboard.demo import (
 from app.scoreboard.espn import EspnScoreboardSource
 from app.scoreboard.port import ScoreboardSource
 
-KICKOFF = datetime(2025, 9, 5, 0, 20, tzinfo=timezone.utc)
+KICKOFF = datetime(2025, 9, 5, 0, 20, tzinfo=UTC)
 DURATION = timedelta(hours=3, minutes=30)
 
 
@@ -117,7 +117,7 @@ class Demo2025SourceTest(unittest.TestCase):
         source = Demo2025Source(offset=offset)
         games = {g.espn_event_id: g for g in source.fetch_week(2025, 1)}
         opener = games["401772510"]
-        expected = datetime(2025, 9, 5, 0, 20, tzinfo=timezone.utc) + offset
+        expected = datetime(2025, 9, 5, 0, 20, tzinfo=UTC) + offset
         self.assertEqual(opener.kickoff_at, expected)
 
     def test_large_positive_offset_scheduled_scores_withheld(self) -> None:

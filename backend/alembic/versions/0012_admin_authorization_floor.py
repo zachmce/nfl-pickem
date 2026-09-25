@@ -46,9 +46,10 @@ irreversible-by-design.
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 import sqlmodel  # noqa: F401  (kept for parity with 0004..0011)
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "0012"

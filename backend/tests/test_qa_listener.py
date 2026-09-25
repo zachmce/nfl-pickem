@@ -49,16 +49,16 @@ class _FakeTyping:
     message.channel.typing():``). Added to the fake rather than loosening production code.
     """
 
-    def __init__(self, channel: "_FakeChannel") -> None:
+    def __init__(self, channel: _FakeChannel) -> None:
         self._channel = channel
 
-    async def __aenter__(self) -> "_FakeTyping":
+    async def __aenter__(self) -> _FakeTyping:
         self._channel.typing_entered = True
         # The send must happen while typing is active — nothing sent yet at enter.
         self._channel.sent_at_typing_enter = len(self._channel.sent)
         return self
 
-    async def __aexit__(self, *exc) -> None:  # noqa: ANN002
+    async def __aexit__(self, *exc) -> None:
         self._channel.typing_exited = True
 
 
@@ -70,10 +70,10 @@ class _FakeChannel:
         self.typing_exited = False
         self.sent_at_typing_enter: int | None = None
 
-    def typing(self) -> "_FakeTyping":
+    def typing(self) -> _FakeTyping:
         return _FakeTyping(self)
 
-    async def send(self, content, *, allowed_mentions=None, suppress_embeds=False):  # noqa: ANN001
+    async def send(self, content, *, allowed_mentions=None, suppress_embeds=False):
         self.sent.append(
             {
                 "content": content,

@@ -76,7 +76,7 @@ def _game(
 def _pickem_game(*, game_id: int = 100) -> Game:
     """A true pick'em: no gradeable spread side (zero spread, sides unknown)."""
     return _game(
-        spread=Decimal("0"),
+        spread=Decimal(0),
         favorite_team_id=None,
         underdog_team_id=None,
         game_id=game_id,

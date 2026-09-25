@@ -37,7 +37,7 @@ module.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session, select
@@ -60,7 +60,7 @@ def _as_aware(dt: datetime | None) -> datetime | None:
     back (mirrors :func:`app.api.slate._as_aware`).
     """
     if dt is not None and dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -72,13 +72,13 @@ def _parse_day(value: str, *, field: str) -> datetime:
     500 (mirrors how the other routers surface bad input).
     """
     try:
-        d = datetime.strptime(value, "%Y-%m-%d").date()
+        d = datetime.strptime(value, "%Y-%m-%d").date()  # noqa: DTZ007 - only the date is kept
     except ValueError as exc:
         raise ValidationError(
             f"Invalid date for '{field}': expected YYYY-MM-DD.",
             fields={field: ["Expected a YYYY-MM-DD date."]},
         ) from exc
-    return datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
+    return datetime(d.year, d.month, d.day, tzinfo=UTC)
 
 
 @router.get("", response_model=CalendarResponse)
@@ -119,7 +119,7 @@ def read_calendar(
 
     # Stable order: kickoff then game_id (null kickoffs sort last — though the
     # range filter already excludes them).
-    _MAX_KO = datetime.max.replace(tzinfo=timezone.utc)
+    _MAX_KO = datetime.max.replace(tzinfo=UTC)
     games.sort(key=lambda g: (_as_aware(g.kickoff_at) or _MAX_KO, g.id or 0))
 
     calendar_games: list[CalendarGame] = []
