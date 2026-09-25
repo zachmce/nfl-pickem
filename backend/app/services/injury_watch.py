@@ -54,7 +54,7 @@ def diff_reports(
             continue
         for player in players:
             name, status = player.get("display_name"), player.get("status")
-            if not name or not isinstance(status, str):
+            if not name or not isinstance(status, str) or espn_extra.is_coachs_decision(player):
                 continue
             old = before.get(name)
             if _severity(status) >= _ALERT_SEVERITY and _severity(status) > _severity(old):

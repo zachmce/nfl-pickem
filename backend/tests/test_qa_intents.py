@@ -1755,6 +1755,16 @@ class PredictionFactTests(unittest.TestCase):
         self.assertIn("4-1 straight up and 3-2 against the spread", fact.body)
         self.assertIn(qa._PREDICTION_INJURIES_DEGRADE_NOTE, fact.body)
 
+    def test_coachs_decision_inactives_are_not_in_the_injury_watch(self) -> None:
+        # Issue #282: all five ATL entries on 2026-09-24 were Coach's Decision.
+        note = qa._prediction_injury_note(
+            [
+                {"display_name": "Cooper Rush", "status": "Out", "body_part": "Coach's Decision"},
+                {"display_name": "Kyle Pitts", "status": "Doubtful", "body_part": "Knee"},
+            ]
+        )
+        self.assertEqual(note, "Injury watch: Kyle Pitts (Doubtful).")
+
     def test_empty_injury_list_reads_as_clean_not_a_degrade(self) -> None:
         fact = qa._prediction_fact(
             _prediction_inputs(),

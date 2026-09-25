@@ -964,6 +964,17 @@ def _parse_one_injury(injury: Any) -> dict[str, str | None] | None:
     }
 
 
+def is_coachs_decision(player: dict) -> bool:
+    """Whether an injury-report entry is a game-day inactive, not an injury (issue #282).
+
+    ESPN lists inactives on the report with ``details.type == "Coach's Decision"``.
+    """
+    body_part = player.get("body_part")
+    if not isinstance(body_part, str):
+        return False
+    return body_part.replace("\u2019", "'").strip().casefold() == "coach's decision"
+
+
 def parse_injuries(payload: Any, team_abbr: str) -> list[dict[str, str | None]] | None:
     """Extract ONLY ``team_abbr``'s per-player injury facts from a ``summary`` payload.
 

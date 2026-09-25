@@ -1338,9 +1338,14 @@ def _prediction_injury_note(injuries: list[dict] | None) -> str:
     * ``None`` (couldn't fetch/parse) -> the fixed degrade note (never invents "healthy").
     * ``[]`` (report present, nobody listed) -> a clean "nobody flagged" line.
     * otherwise names up to three players (with status when known) + a "+N more" tail.
+
+    A Coach's Decision inactive is not an injury and is left out (issue #282).
     """
     if injuries is None:
         return _PREDICTION_INJURIES_DEGRADE_NOTE
+    from app.services.espn_extra import is_coachs_decision
+
+    injuries = [player for player in injuries if not is_coachs_decision(player)]
     if not injuries:
         return "Injury report is clean on that side right now — nobody flagged."
     named: list[str] = []
