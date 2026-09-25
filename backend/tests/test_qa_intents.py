@@ -1892,6 +1892,33 @@ class PredictionIntentRoutingTests(unittest.TestCase):
             open_calls, [{"question": "who wins the Chiefs game?", "asker_name": "Ada"}]
         )
 
+    def test_a_prediction_about_a_game_underway_or_final_goes_to_the_open_path(self) -> None:
+        # Issue #276: asked in the third quarter, the bot posted the pre-game card.
+        for status in ("IN_PROGRESS", "FINAL"):
+            with self.subTest(status=status):
+                open_calls: list[str] = []
+
+                async def _fake_open(question, _calls=open_calls, **_kwargs):
+                    _calls.append(question)
+                    return "ATL is up 24-7."
+
+                seam_patch, _ = _seam(
+                    "get_prediction_inputs_async", _prediction_inputs(status=status)
+                )
+                odds_patch, odds_calls = _fetch_live_odds_returns(None)
+                with (
+                    _classify_returns({"intent": "prediction", "team": "Chiefs"}),
+                    _tokens("KC", "CHIEFS"),
+                    seam_patch,
+                    odds_patch,
+                    _voice(),
+                    mock.patch.object(qa.qa_open, "answer_open", _fake_open),
+                ):
+                    out = _run(qa.answer_question("changed your mind yet?", discord_id=7))
+                self.assertEqual(out, "ATL is up 24-7.")
+                self.assertEqual(open_calls, ["changed your mind yet?"])
+                self.assertEqual(odds_calls, [])
+
     def test_a_later_week_prediction_for_a_team_on_its_bye_goes_to_the_open_path(self) -> None:
         async def _fake_open(question, **_kwargs):
             return "Week 9 is a long way off."

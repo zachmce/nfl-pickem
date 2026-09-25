@@ -706,14 +706,17 @@ SLATE_PREDICTION_GUARD = (
 _PLACEHOLDER_RE = re.compile(r"\[[^\]]*\]")
 
 
-class _LaterWeek:
-    """``_build_fact``'s answer to a prediction about a week that is not this week."""
+class _OpenHandoff:
+    """``_build_fact``'s answer when the grounded read does not fit: the open path answers."""
 
 
 # Measured 2026-09-21: "who wins the chargers texans game in week 9?" classified
 # ``prediction`` 4/4 against a prompt that sends a later week to open_nfl, and emitted
 # ``week: 9`` 4/4. The read only exists for this week's game, so the week decides in code.
-_LATER_WEEK = _LaterWeek()
+_LATER_WEEK = _OpenHandoff()
+# Issue #276: "have you changed your mind?" asked in the third quarter got the pre-game
+# card, whose live-market read also changes once the odds come down at kickoff.
+_GAME_UNDERWAY = _OpenHandoff()
 
 # Deterministic short-circuit line for an unregistered asker (no LLM call needed).
 _REGISTER_LINE = "You need a pick'em account first — run /register to get set up."
@@ -1782,7 +1785,7 @@ def _slate_predictions_fact(slate: dict, *, facet: str | None = None) -> str | _
 
 async def _build_fact(
     result: QaResult, *, discord_id: int, slate_facet: str | None = None
-) -> str | _ListAnswer | _LaterWeek | None:
+) -> str | _ListAnswer | _OpenHandoff | None:
     """Route a validated intent to its deterministic reader and build the FACT.
 
     Returns the fact string to phrase, or ``None`` for the pick_status
@@ -1928,6 +1931,8 @@ async def _build_fact(
             return _PREDICTION_UNRESOLVED_FACT  # no single game this week — never invent
         if result.week is not None and inputs.get("week") not in (None, result.week):
             return _LATER_WEEK
+        if inputs.get("status") in ("IN_PROGRESS", "FINAL"):
+            return _GAME_UNDERWAY
 
         # The independent live factors run CONCURRENTLY; each degrades on its own without
         # aborting the briefing (degrade-never-bail). qa.py imports the seams; it never
@@ -2107,7 +2112,7 @@ async def _answer_question(
         if fact is None:
             # pick_status, unregistered asker — deterministic, no phrasing.
             return _REGISTER_LINE
-        if isinstance(fact, _LaterWeek):
+        if isinstance(fact, _OpenHandoff):
             bot_telemetry.note_open_path()
             voice = await db_bridge.resolve_active_voice_async()
             open_answer = await qa_open.answer_open(
