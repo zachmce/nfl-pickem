@@ -56,7 +56,7 @@ logger = structlog.get_logger(__name__)
 FORECAST_URL = (
     "https://api.open-meteo.com/v1/forecast"
     "?latitude={lat}&longitude={lon}"
-    "&hourly=temperature_2m,precipitation,wind_speed_10m"
+    "&hourly=temperature_2m,precipitation,wind_speed_10m,wind_gusts_10m,precipitation_probability"
     "&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch"
     "&timezone=GMT&forecast_days=16"
 )
@@ -182,8 +182,8 @@ def parse_forecast(payload: Any, kickoff_dt: datetime) -> dict | None:
 
     Pure and never-raising (mirrors ``espn_extra.parse_injuries``):
 
-    * Returns ``{temperature_f, wind_mph, precip_in, hour}`` with each metric read at
-      the index whose ``hourly.time[]`` entry equals the kickoff hour key (the kickoff
+    * Returns ``{temperature_f, wind_mph, precip_in, wind_gust_mph, precip_chance_pct,
+      hour}`` with each metric read at the index whose ``hourly.time[]`` entry equals the kickoff hour key (the kickoff
       normalized to UTC, floored to the hour, formatted ``"%Y-%m-%dT%H:00"`` to match
       Open-Meteo's ``timezone=GMT`` output). A single missing/short/non-numeric metric
       degrades to ``None`` (never invented) as long as at least one metric is present.
@@ -219,6 +219,9 @@ def parse_forecast(payload: Any, kickoff_dt: datetime) -> dict | None:
         "temperature_f": temperature_f,
         "wind_mph": wind_mph,
         "precip_in": precip_in,
+        # Issue #286: a storm question needs the gusts and the chance, not only the amount.
+        "wind_gust_mph": _numeric_at(hourly.get("wind_gusts_10m"), index),
+        "precip_chance_pct": _numeric_at(hourly.get("precipitation_probability"), index),
         "hour": hour_key,
     }
 

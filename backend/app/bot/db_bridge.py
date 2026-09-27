@@ -59,6 +59,7 @@ from app.services.notifications_read import (
     get_week_pick_keys,
     get_week_recap_context,
     get_week_scores,
+    get_week_weather_games,
     resolve_current_week,
 )
 
@@ -622,6 +623,22 @@ async def get_weather_target_async(team_abbr: str) -> tuple[str, datetime] | Non
             return get_current_week_weather_target_for_team(
                 session, season, week, team_abbr=team_abbr
             )
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_week_weather_games_async(week: int | None = None) -> dict:
+    """Async wrapper: every game of a week (this week by default) for a slate forecast."""
+
+    def _sync() -> dict:
+        with task_session() as session:
+            season = current_season(session)
+            if season is None:
+                return {"week": None, "games": []}
+            target = week if week is not None else resolve_current_week(session, season)
+            if target is None:
+                return {"week": None, "games": []}
+            return get_week_weather_games(session, season, target)
 
     return await asyncio.to_thread(_sync)
 

@@ -62,6 +62,8 @@
     {"id": "knowledge.web_search", "question": "how much is Baker Mayfield's contract worth per year?", "open_path": true, "tools_any": "search_web", "requires": "SEARXNG_URL"},
 
     {"id": "routing.weather_later_week", "question": "what's the weather forecast for the Packers game in week {later_week}?", "expect_intent": "weather", "open_path": true, "tools_any": "lookup_game_outlook"},
+    {"id": "routing.weather_league_storm", "question": "How many games are affected by the Noreaster storm today?", "open_path": true, "tools_any": "lookup_slate_weather"},
+    {"id": "routing.weather_league_pattern", "question": "any el nino related weather problems for the league?", "open_path": true, "tools_any": "lookup_slate_weather"},
     {"id": "routing.prediction_later_week", "question": "who does your model like in the Chiefs game in week {later_week}?", "open_path": true, "tools_any": "lookup_game_outlook"},
     {"id": "routing.moneyline", "question": "what's the moneyline on the Chiefs this week?", "open_path": true, "tools_any": "lookup_game_outlook"},
     {"id": "routing.line_movement", "question": "has the line moved on the Chiefs game this week?", "open_path": true, "tools_any": "lookup_game_outlook"},
