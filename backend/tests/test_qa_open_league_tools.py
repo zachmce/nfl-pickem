@@ -16,6 +16,20 @@ from unittest import mock
 from app.bot import db_bridge, qa_open
 from app.services import live_odds, weather
 
+# Issue #288: the venue lookup reads the ESPN summary; these tests stay offline.
+_NOT_NEUTRAL = mock.patch.object(
+    weather, "_neutral_venue", mock.AsyncMock(return_value=(False, None))
+)
+
+
+def setUpModule() -> None:
+    _NOT_NEUTRAL.start()
+
+
+def tearDownModule() -> None:
+    _NOT_NEUTRAL.stop()
+
+
 _ODDS_FIXTURE = Path(__file__).parent / "fixtures" / "espn_core_odds_atl_gb.json"
 
 

@@ -33,9 +33,12 @@ imports THIS seam for the coordinate lookup + HTTP + cache, staying itself HTTP-
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import quote
 
 import structlog
 
@@ -270,3 +273,135 @@ async def fetch_forecast(lat: float, lon: float) -> dict | None:
         timeout=_FORECAST_TIMEOUT_SECONDS,
         attempts=2,
     )
+
+
+# ---------------------------------------------------------------------------
+# Neutral sites (issue #288): BAL vs DAL in Rio got AT&T Stadium's dome line.
+# ---------------------------------------------------------------------------
+
+VENUE_URL = "https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/venues/{venue_id}"
+GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search?name={name}&count=10"
+# A venue's roof and a city's coordinates do not change within a season.
+VENUE_CACHE_TTL_SECONDS = 30 * 86400
+_VENUE_ID_RE = re.compile(r"[0-9]{1,9}")
+# ESPN writes the country its own way; Open-Meteo writes the full English name.
+_COUNTRY_ALIASES = {
+    "usa": "united states",
+    "us": "united states",
+    "uk": "united kingdom",
+    "england": "united kingdom",
+    "scotland": "united kingdom",
+    "wales": "united kingdom",
+}
+
+
+def _fold(text: str) -> str:
+    """Lower-case with accents removed, so "Sao Paulo" matches "São Paulo"."""
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).strip().casefold()
+
+
+def parse_neutral_venue(summary: Any) -> dict | None:
+    """The venue of a neutral-site game from an ESPN ``summary``, else ``None``.
+
+    ``None`` means the game is NOT marked neutral (or the payload is unusable), so the
+    home team's stadium applies. A neutral game always returns a dict; a missing field is
+    ``None`` and the caller then gives no forecast rather than the home stadium's.
+    """
+    if not isinstance(summary, dict):
+        return None
+    header = summary.get("header")
+    competitions = header.get("competitions") if isinstance(header, dict) else None
+    first = competitions[0] if isinstance(competitions, list) and competitions else None
+    if not isinstance(first, dict) or first.get("neutralSite") is not True:
+        return None
+    info = summary.get("gameInfo")
+    venue = info.get("venue") if isinstance(info, dict) else None
+    venue = venue if isinstance(venue, dict) else {}
+    address = venue.get("address")
+    address = address if isinstance(address, dict) else {}
+
+    def _text(value: Any) -> str | None:
+        return value.strip() if isinstance(value, str) and value.strip() else None
+
+    venue_id = _text(venue.get("id"))
+    return {
+        "id": venue_id if venue_id and _VENUE_ID_RE.fullmatch(venue_id) else None,
+        "name": _text(venue.get("fullName")),
+        "city": _text(address.get("city")),
+        "country": _text(address.get("country")),
+    }
+
+
+def pick_geocode(payload: Any, country: str | None) -> tuple[float, float] | None:
+    """The first geocoding result in ``country``; ``None`` when none matches."""
+    results = payload.get("results") if isinstance(payload, dict) else None
+    if not isinstance(results, list) or not country:
+        return None
+    wanted = _COUNTRY_ALIASES.get(_fold(country), _fold(country))
+    for result in results:
+        if not isinstance(result, dict) or not isinstance(result.get("country"), str):
+            continue
+        if _fold(result["country"]) != wanted:
+            continue
+        lat, lon = result.get("latitude"), result.get("longitude")
+        if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
+            return float(lat), float(lon)
+    return None
+
+
+async def _fetch_long(url: str, cache_key: str) -> dict | None:
+    return await http_cache.fetch_cached(
+        url,
+        cache_key=cache_key,
+        ttl_seconds=VENUE_CACHE_TTL_SECONDS,
+        label="weather_venue",
+        redis_client=_redis_client,
+        headers={"User-Agent": _USER_AGENT},
+        timeout=_FORECAST_TIMEOUT_SECONDS,
+    )
+
+
+async def _neutral_venue(espn_event_id: Any) -> tuple[bool, Stadium | None]:
+    """``(is_neutral, stadium)``; a neutral venue that cannot be placed is ``(True, None)``."""
+    if espn_event_id is None:
+        return False, None
+    from app.services import espn_extra
+
+    venue = parse_neutral_venue(await espn_extra.fetch_game_summary(espn_event_id))
+    if venue is None:
+        return False, None
+    name = venue["name"]
+    # The Super Bowl is usually at an NFL stadium the table already holds.
+    for stadium in STADIUMS.values():
+        if name and _fold(stadium.name) == _fold(name):
+            return True, stadium
+    if not (name and venue["id"] and venue["city"]):
+        return True, None
+    detail = await _fetch_long(
+        VENUE_URL.format(venue_id=venue["id"]), f"qa:weather:venue:{venue['id']}"
+    )
+    indoor = detail.get("indoor") if isinstance(detail, dict) else None
+    if not isinstance(indoor, bool):
+        return True, None
+    city = _fold(venue["city"])
+    geocode = await _fetch_long(
+        GEOCODE_URL.format(name=quote(venue["city"])), f"qa:weather:geocode:{city}"
+    )
+    place = pick_geocode(geocode, venue["country"])
+    if place is None:
+        return True, None
+    return True, Stadium(name, place[0], place[1], indoor)
+
+
+async def resolve_stadium(home_abbr: str | None, espn_event_id: Any = None) -> Stadium | None:
+    """The stadium a game is played at: a neutral site's venue, else the home team's.
+
+    ``None`` means no forecast: an unknown home team, or a neutral venue that could not be
+    placed. A neutral game never falls back to the home team's stadium. When the ESPN
+    summary cannot be read, the home stadium applies, as it did before issue #288.
+    """
+    is_neutral, venue = await _neutral_venue(espn_event_id)
+    if is_neutral:
+        return venue
+    return lookup_stadium(home_abbr or "")

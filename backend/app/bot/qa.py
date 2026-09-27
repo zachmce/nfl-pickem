@@ -1892,11 +1892,11 @@ async def _build_fact(
         resolved = await db_bridge.get_weather_target_async(result.team)
         if resolved is None:
             return _WEATHER_DEGRADE_FACT
-        home_abbr, kickoff_at = resolved
+        home_abbr, kickoff_at, event_id = resolved
         # weather owns the stadium table + ALL HTTP + Redis; qa.py imports the seam.
         from app.services import weather
 
-        stadium = weather.lookup_stadium(home_abbr)
+        stadium = await weather.resolve_stadium(home_abbr, event_id)
         if stadium is None:
             return _WEATHER_DEGRADE_FACT  # no table row — never invent
         if stadium.indoor:
@@ -1979,9 +1979,9 @@ async def _build_fact(
         asked_abbr = inputs.get("asked_team")
         kickoff_at = inputs.get("kickoff_at")
 
-        # Resolve the home stadium synchronously so a DOME short-circuits the forecast
-        # fetch (weather is a non-factor indoors — reuse the existing indoor line).
-        stadium = weather.lookup_stadium(home_abbr) if home_abbr else None
+        # Resolve the venue first so a DOME short-circuits the forecast fetch. Issue #288:
+        # a neutral site (Rio) is not the home team's stadium.
+        stadium = await weather.resolve_stadium(home_abbr, event_id) if home_abbr else None
         fetch_weather = stadium is not None and not stadium.indoor
 
         async def _none_result() -> None:

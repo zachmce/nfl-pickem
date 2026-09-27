@@ -4871,6 +4871,10 @@ class WeekScoreboardToolTests(_OpenPathTestCase):
         self.assertEqual(final["state"], "post")
         self.assertEqual(upcoming["network"], "FOX")
         self.assertEqual(upcoming["state"], "pre")
+        # Issue #289: a Sunday 1 PM ET FOX game is regional; Thursday's Prime game is not.
+        self.assertEqual(upcoming["coverage"], "regional")
+        self.assertNotIn("coverage", final)
+        self.assertIn("never say that a city, a market or a local station", body["caveat"])
         self.assertNotIn("score", upcoming)
         self.assertIn(
             "lists 4 games in week 2 of the 2026 NFL season", body["scoreboard_statement"]

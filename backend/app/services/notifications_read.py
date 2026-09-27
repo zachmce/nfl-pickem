@@ -1212,8 +1212,8 @@ def get_current_week_event_id_for_team(
 
 def get_current_week_weather_target_for_team(
     session: Session, season: int, week: int, *, team_abbr: str
-) -> tuple[str, datetime] | None:
-    """Resolve a real-team token to its game's ``(home_abbreviation, kickoff_at)``.
+) -> tuple[str, datetime, int] | None:
+    """Resolve a real-team token to its game's ``(home_abbreviation, kickoff_at, event_id)``.
 
     The read seam behind the Path-B weather intent (260710-29v). Reuses
     :func:`_team_ids_for_token` (abbreviation OR display-name word) to map the
@@ -1252,7 +1252,8 @@ def get_current_week_weather_target_for_team(
     if kickoff_at is None:
         return None
 
-    return (home_abbr, kickoff_at)
+    # Issue #288: the event id finds a neutral site's venue.
+    return (home_abbr, kickoff_at, game.espn_event_id)
 
 
 def get_week_weather_games(session: Session, season: int, week: int) -> dict:
@@ -1272,6 +1273,7 @@ def get_week_weather_games(session: Session, season: int, week: int) -> dict:
                 "home": abbr_by_team_id.get(g.home_team_id),
                 "kickoff_at": _as_aware(g.kickoff_at),
                 "status": g.status.value,
+                "espn_event_id": g.espn_event_id,
             }
             for g in games
         ],

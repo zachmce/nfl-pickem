@@ -599,20 +599,20 @@ async def get_injuries_event_id_async(team_abbr: str) -> tuple[int, str] | None:
     return await asyncio.to_thread(_sync)
 
 
-async def get_weather_target_async(team_abbr: str) -> tuple[str, datetime] | None:
-    """Async seam: resolve ``team_abbr`` to its current-week ``(home_abbr, kickoff_at)``.
+async def get_weather_target_async(team_abbr: str) -> tuple[str, datetime, int] | None:
+    """Async seam: ``team_abbr``'s current-week ``(home_abbr, kickoff_at, event_id)``.
 
     Same posture as :func:`get_injuries_event_id_async` (asyncio.to_thread +
     task_session() + current_season + resolve_current_week inside the worker thread).
     Delegates to
     :func:`app.services.notifications_read.get_current_week_weather_target_for_team` and
-    returns the ``(home_team_abbreviation, kickoff_at)`` tuple, or ``None`` on an
+    returns the ``(home_team_abbreviation, kickoff_at, espn_event_id)`` tuple, or ``None`` on an
     ambiguous/empty season, an unresolved current week, or a team that does not resolve
     to exactly one game with a known home abbr + kickoff. Plain values out only;
     Discord-free.
     """
 
-    def _sync() -> tuple[str, datetime] | None:
+    def _sync() -> tuple[str, datetime, int] | None:
         with task_session() as session:
             season = current_season(session)
             if season is None:

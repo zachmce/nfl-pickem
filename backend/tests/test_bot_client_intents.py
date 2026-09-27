@@ -21,6 +21,19 @@ from app.bot.client import build_intents
 from app.scoreboard.types import ScoreboardOdds
 from app.services import espn_extra, live_odds, weather
 
+# Issue #288: the venue lookup reads the ESPN summary; these tests stay offline.
+_NOT_NEUTRAL = mock.patch.object(
+    weather, "_neutral_venue", mock.AsyncMock(return_value=(False, None))
+)
+
+
+def setUpModule() -> None:
+    _NOT_NEUTRAL.start()
+
+
+def tearDownModule() -> None:
+    _NOT_NEUTRAL.stop()
+
 
 class BuildIntentsTests(unittest.TestCase):
     def test_guild_messages_enabled_so_on_message_fires_in_servers(self) -> None:
