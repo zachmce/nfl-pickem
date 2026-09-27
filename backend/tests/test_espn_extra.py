@@ -3922,3 +3922,24 @@ class LiveFetchGuardTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RegionalCoverageTests(unittest.TestCase):
+    """Issue #289: "Augusta is in the CBS market" — its CBS showed Bengals-Steelers."""
+
+    def test_only_a_sunday_afternoon_cbs_or_fox_game_is_regional(self) -> None:
+        cases = (
+            ("2026-09-27T17:00Z", ["CBS"], True),  # Sunday 1 PM ET
+            ("2026-09-27T20:25Z", ["FOX"], True),  # Sunday 4:25 PM ET
+            ("2026-09-27T13:30Z", ["CBS"], False),  # 9:30 AM ET international game
+            ("2026-09-28T00:20Z", ["NBC"], False),  # Sunday night
+            ("2026-09-27T17:00Z", ["CBS", "NFL Network"], False),
+            ("2026-09-25T00:15Z", ["Prime Video"], False),
+            ("2026-12-26T18:00Z", ["FOX"], False),  # a Saturday
+            ("not a date", ["CBS"], False),
+            (None, ["CBS"], False),
+            ("2026-09-27T17:00Z", [], False),
+        )
+        for date, broadcasts, expected in cases:
+            with self.subTest(date=date, broadcasts=broadcasts):
+                self.assertIs(espn_extra.is_regional(date, broadcasts), expected)

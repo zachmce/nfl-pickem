@@ -42,8 +42,10 @@ imports THIS seam for the HTTP+cache, staying itself HTTP-free.
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime, time
 from typing import Any
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 import structlog
 
@@ -3382,10 +3384,35 @@ SCOREBOARD_CAVEAT = (
     "This is the NFL scoreboard for the current week only. A game whose state is pre has "
     "not kicked off yet and carries no score, a game whose state is in is being played "
     "right now and its score will change, and a game whose state is post is final. The "
-    "network named for each game is where it is televised or streamed nationally in the "
-    "United States. Every kick-off time here is given in UTC, so never state one of them "
-    "as a local time. This scoreboard carries no point spread and no over/under total."
+    "network named for each game is where it is televised or streamed in the United "
+    "States. A game marked regional is a Sunday afternoon CBS or FOX game: each local "
+    "CBS or FOX station shows only some of those games, and this data does not say which "
+    "markets get which game, so never say that a city, a market or a local station gets "
+    "it, not even from a web search: a coverage map snippet lists stations but never "
+    "shows which game each one carries. Say that it is a regional game, that the local station decides, that the 506 "
+    "Sports coverage maps show which markets get it, and that NFL Sunday Ticket carries "
+    "every out-of-market Sunday afternoon game. Every kick-off time here is given in UTC, "
+    "so never state one of them as a local time. This scoreboard carries no point spread "
+    "and no over/under total."
 )
+
+# Issue #289: "Augusta is in the CBS market" — its CBS station showed Bengals-Steelers.
+_REGIONAL_NETWORKS = frozenset({"CBS", "FOX"})
+_EASTERN = ZoneInfo("America/New_York")
+
+
+def is_regional(date: Any, broadcasts: list[str]) -> bool:
+    """A CBS or FOX game in the Sunday 1 PM to 4:25 PM ET windows. Pure, never raises."""
+    if not broadcasts or not set(broadcasts) <= _REGIONAL_NETWORKS or not isinstance(date, str):
+        return False
+    try:
+        kickoff = datetime.fromisoformat(date.strip())
+    except ValueError:
+        return False
+    if kickoff.tzinfo is None:
+        kickoff = kickoff.replace(tzinfo=UTC)
+    local = kickoff.astimezone(_EASTERN)
+    return local.weekday() == 6 and time(12, 55) <= local.time() <= time(16, 30)
 
 
 def _first_competition(source: Any) -> dict:

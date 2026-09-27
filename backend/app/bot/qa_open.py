@@ -3040,17 +3040,20 @@ async def _lookup_live_game(team: str = "") -> object | None:
 
     fixture = game["name"] or f"the {team_abbr} game"
     if game["state"] == "pre" or game["event_id"] is None:
+        statement = _LIVE_PRE_STATEMENT.format(
+            game=fixture,
+            date=_fmt_espn_date(game["date"]) or "a time ESPN does not give",
+            network=_network_clause(game["broadcasts"]),
+        )
+        if espn_extra.is_regional(game["date"], game["broadcasts"]):
+            statement += _REGIONAL_CLAUSE
         return {
             "game": fixture,
             "status": "not started",
             "kickoff": _fmt_espn_date(game["date"]),
             "venue": game["venue"],
             "broadcasts": game["broadcasts"],
-            "game_statement": _LIVE_PRE_STATEMENT.format(
-                game=fixture,
-                date=_fmt_espn_date(game["date"]) or "a time ESPN does not give",
-                network=_network_clause(game["broadcasts"]),
-            ),
+            "game_statement": statement,
             "caveat": espn_extra.SCOREBOARD_CAVEAT,
         }
 
@@ -3094,6 +3097,9 @@ async def _lookup_live_game(team: str = "") -> object | None:
 _LIVE_PRE_STATEMENT = (
     "{game} has not kicked off yet. It kicks off at {date} UTC and it is on {network}. "
     "There are no statistics and no score for it yet, so never describe how it is going."
+)
+_REGIONAL_CLAUSE = (
+    " It is a regional game: only some CBS or FOX markets show it, and ESPN does not say which."
 )
 _LIVE_IN_STATEMENT = (
     "{game} is being played right now. The status is {detail} and the score right now is "
@@ -3158,6 +3164,8 @@ async def _lookup_week_scoreboard() -> object | None:
             "venue": game["venue"],
             "network": _network_clause(game["broadcasts"]),
         }
+        if espn_extra.is_regional(game["date"], game["broadcasts"]):
+            entry["coverage"] = "regional"
         score = _score_clause(game)
         if score:
             entry["score"] = score

@@ -30,6 +30,7 @@ import asyncio
 import json
 import os
 import unittest
+from collections.abc import Mapping
 from datetime import UTC, datetime, timezone
 from pathlib import Path
 from unittest import mock
@@ -479,7 +480,7 @@ _RIO_GEOCODE = {
 
 
 class NeutralVenueTests(unittest.TestCase):
-    def _resolve(self, summary: object, long_fetches: dict[str, object] | None = None):
+    def _resolve(self, summary: object, long_fetches: Mapping[str, object] | None = None):
         urls: list[str] = []
 
         async def _summary_fetch(event_id):
