@@ -451,3 +451,98 @@ class WeatherLiveSmokeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# --------------------------------------------------------------------------- #
+# Issue #288: a neutral-site game (BAL vs DAL in Rio) is not at the home stadium.
+# --------------------------------------------------------------------------- #
+
+
+def _summary(neutral: bool, venue: dict | None = None) -> dict:
+    return {
+        "header": {"competitions": [{"neutralSite": neutral}]},
+        "gameInfo": {"venue": venue or {}},
+    }
+
+
+_MARACANA = {
+    "id": "11931",
+    "fullName": "Maracanã Stadium",
+    "address": {"city": "Rio De Janeiro", "country": "Brazil"},
+}
+_RIO_GEOCODE = {
+    "results": [
+        {"name": "Rio de Janeiro", "country": "Mexico", "latitude": 16.1, "longitude": -91.5},
+        {"name": "Rio de Janeiro", "country": "Brazil", "latitude": -22.9, "longitude": -43.2},
+    ]
+}
+
+
+class NeutralVenueTests(unittest.TestCase):
+    def _resolve(self, summary: object, long_fetches: dict[str, object] | None = None):
+        urls: list[str] = []
+
+        async def _summary_fetch(event_id):
+            return summary
+
+        async def _long(url, cache_key):
+            urls.append(url)
+            for key, value in (long_fetches or {}).items():
+                if key in url:
+                    return value
+            return None
+
+        with (
+            mock.patch("app.services.espn_extra.fetch_game_summary", _summary_fetch),
+            mock.patch.object(weather, "_fetch_long", _long),
+        ):
+            return _run(weather.resolve_stadium("DAL", 401872960)), urls
+
+    def test_a_home_game_keeps_the_home_stadium(self) -> None:
+        stadium, urls = self._resolve(_summary(False, _MARACANA))
+        self.assertEqual(stadium, weather.STADIUMS["DAL"])
+        self.assertEqual(urls, [])
+
+    def test_an_unread_summary_keeps_the_home_stadium(self) -> None:
+        stadium, _ = self._resolve(None)
+        self.assertEqual(stadium, weather.STADIUMS["DAL"])
+
+    def test_rio_is_placed_in_brazil_with_espns_roof_flag(self) -> None:
+        stadium, urls = self._resolve(
+            _summary(True, _MARACANA),
+            {"venues/11931": {"indoor": False}, "geocoding": _RIO_GEOCODE},
+        )
+        self.assertEqual(stadium, weather.Stadium("Maracanã Stadium", -22.9, -43.2, False))
+        self.assertIn("name=Rio%20De%20Janeiro", urls[1])
+
+    def test_a_neutral_nfl_stadium_uses_the_table(self) -> None:
+        venue = {"id": "3", "fullName": "Levi's Stadium", "address": {"city": "Santa Clara"}}
+        stadium, urls = self._resolve(_summary(True, venue))
+        self.assertEqual(stadium, weather.STADIUMS["SF"])
+        self.assertEqual(urls, [])
+
+    def test_a_neutral_venue_that_cannot_be_placed_never_falls_back_home(self) -> None:
+        for fetches in ({}, {"venues/11931": {"indoor": False}}):
+            with self.subTest(fetches=list(fetches)):
+                stadium, _ = self._resolve(_summary(True, _MARACANA), fetches)
+                self.assertIsNone(stadium)
+        stadium, _ = self._resolve(_summary(True, {"fullName": "Somewhere"}))
+        self.assertIsNone(stadium)
+
+    def test_the_geocode_matches_espns_country_spelling(self) -> None:
+        payload = {
+            "results": [
+                {"country": "United States", "latitude": 1.0, "longitude": 2.0},
+                {"country": "United Kingdom", "latitude": 51.5, "longitude": -0.1},
+            ]
+        }
+        self.assertEqual(weather.pick_geocode(payload, "England"), (51.5, -0.1))
+        self.assertEqual(weather.pick_geocode(payload, "USA"), (1.0, 2.0))
+        self.assertIsNone(weather.pick_geocode(payload, "Brazil"))
+        self.assertIsNone(weather.pick_geocode(payload, None))
+
+    def test_a_non_digit_venue_id_is_dropped(self) -> None:
+        venue = dict(_MARACANA, id="../x")
+        parsed = weather.parse_neutral_venue(_summary(True, venue))
+        assert parsed is not None
+        self.assertIsNone(parsed["id"])

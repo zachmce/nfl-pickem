@@ -4111,7 +4111,7 @@ async def _lookup_game_outlook(team: str = "", week: int | None = None) -> objec
         answer["league_line"] = _NO_LEAGUE_LINE_STATEMENT
 
     kickoff = data.get("kickoff_at")
-    stadium = weather.lookup_stadium(home or "")
+    stadium = await weather.resolve_stadium(home, data.get("espn_event_id"))
 
     async def _movement() -> dict | None:
         event_id = data.get("espn_event_id")
@@ -4258,15 +4258,20 @@ async def _lookup_slate_weather(week: int | None = None) -> object | None:
     async def _one(game: dict) -> dict:
         home, away, kickoff = game.get("home"), game.get("away"), game.get("kickoff_at")
         entry: dict = {"game": f"{away} at {home}", "kickoff": _fmt_close(kickoff)}
-        stadium = weather.lookup_stadium(home or "")
-        if stadium is not None:
-            entry["stadium"] = stadium.name
-        if game.get("status") == "FINAL":
+        # A game under way reads the current hour; the kickoff hour is already past.
+        started = isinstance(kickoff, datetime) and (
+            game.get("status") == "IN_PROGRESS" or kickoff <= now
+        )
+        if game.get("status") == "FINAL" or (
+            started and isinstance(kickoff, datetime) and now - kickoff > _SLATE_GAME_LENGTH
+        ):
             entry["weather"] = _SLATE_FINAL_STATEMENT
             return entry
+        stadium = await weather.resolve_stadium(home, game.get("espn_event_id"))
         if stadium is None:
             entry["weather"] = _NO_WEATHER_STATEMENT
             return entry
+        entry["stadium"] = stadium.name
         if stadium.indoor:
             entry["weather"] = _INDOOR_WEATHER_STATEMENT.format(stadium=stadium.name)
             return entry
@@ -4274,11 +4279,6 @@ async def _lookup_slate_weather(week: int | None = None) -> object | None:
             entry["weather"] = _NO_FORECAST_STATEMENT.format(
                 stadium=stadium.name, days=_FORECAST_DAYS
             )
-            return entry
-        # A game under way reads the current hour; the kickoff hour is already past.
-        started = game.get("status") == "IN_PROGRESS" or kickoff <= now
-        if started and now - kickoff > _SLATE_GAME_LENGTH:
-            entry["weather"] = _SLATE_FINAL_STATEMENT
             return entry
         at = now if started else kickoff
         forecast = None

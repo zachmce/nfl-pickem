@@ -25,6 +25,19 @@ from app.bot import db_bridge, qa
 from app.scoreboard.types import ScoreboardOdds
 from app.services import espn_extra, live_odds, weather
 
+# Issue #288: the venue lookup reads the ESPN summary; these tests stay offline.
+_NOT_NEUTRAL = mock.patch.object(
+    weather, "_neutral_venue", mock.AsyncMock(return_value=(False, None))
+)
+
+
+def setUpModule() -> None:
+    _NOT_NEUTRAL.start()
+
+
+def tearDownModule() -> None:
+    _NOT_NEUTRAL.stop()
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -1173,7 +1186,7 @@ class WeatherIntentTests(unittest.TestCase):
     def test_teamless_weather_goes_to_the_open_path(self) -> None:
         # Issue #286: "how many games are affected by the Noreaster storm today?" got
         # "name a team" in prod; the open path reads every stadium.
-        seam_patch, seam_calls = _seam("get_weather_target_async", ("BUF", self._kickoff()))
+        seam_patch, seam_calls = _seam("get_weather_target_async", ("BUF", self._kickoff(), 401))
         fetch_patch, fetch_calls = _fetch_forecast_returns({"unused": True})
         phrase_patch, _ = _phrase_returns(None)
         open_calls: list[str] = []
@@ -1198,7 +1211,7 @@ class WeatherIntentTests(unittest.TestCase):
         self.assertEqual(fetch_calls, [])
 
     def test_indoor_stadium_short_circuits_with_no_fetch(self) -> None:
-        seam_patch, seam_calls = _seam("get_weather_target_async", ("NO", self._kickoff()))
+        seam_patch, seam_calls = _seam("get_weather_target_async", ("NO", self._kickoff(), 401))
         lookup_patch, lookup_calls = _lookup_returns(self._indoor())
         fetch_patch, fetch_calls = _fetch_forecast_returns({"should": "not be used"})
         phrase_patch, _ = _phrase_returns(None)  # fall back to the deterministic fact
@@ -1220,7 +1233,7 @@ class WeatherIntentTests(unittest.TestCase):
         self.assertEqual(fetch_calls, [])  # dome short-circuit — never fetched
 
     def test_outdoor_good_forecast_builds_fact_with_values(self) -> None:
-        seam_patch, seam_calls = _seam("get_weather_target_async", ("BUF", self._kickoff()))
+        seam_patch, seam_calls = _seam("get_weather_target_async", ("BUF", self._kickoff(), 401))
         lookup_patch, _ = _lookup_returns(self._outdoor())
         fetch_patch, fetch_calls = _fetch_forecast_returns({"hourly": {"time": []}})
         parse_patch, _ = _parse_forecast_returns(
@@ -1257,8 +1270,35 @@ class WeatherIntentTests(unittest.TestCase):
         # The fact was the thing phrased (deterministic fallback path).
         self.assertIn("34.0°F", calls[0]["fact"])
 
+    def test_the_venue_resolver_gets_the_games_event_id(self) -> None:
+        # Issue #288: BAL vs DAL in Rio read as AT&T Stadium's dome.
+        seam_patch, _ = _seam("get_weather_target_async", ("DAL", self._kickoff(), 401872960))
+        resolve_calls: list[tuple] = []
+
+        async def _resolve(home, event_id=None):
+            resolve_calls.append((home, event_id))
+            return weather.Stadium("Maracanã Stadium", -22.9, -43.2, False)
+
+        parse_patch, _ = _parse_forecast_returns({"temperature_f": 77.0, "hour": "x"})
+        fetch_patch, fetch_calls = _fetch_forecast_returns({"hourly": {}})
+        phrase_patch, _ = _phrase_returns(None)
+        with (
+            _classify_returns({"intent": "weather", "team": "Cowboys"}),
+            _tokens("DAL", "COWBOYS"),
+            seam_patch,
+            mock.patch.object(weather, "resolve_stadium", _resolve),
+            fetch_patch,
+            parse_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(qa.answer_question("weather for the Cowboys game?", discord_id=7))
+        self.assertEqual(resolve_calls, [("DAL", 401872960)])
+        self.assertEqual(fetch_calls[0]["args"], (-22.9, -43.2))
+        self.assertIn("Maracanã Stadium at kickoff", out)
+
     def test_zero_precip_reads_as_no_precip_expected(self) -> None:
-        seam_patch, _ = _seam("get_weather_target_async", ("BUF", self._kickoff()))
+        seam_patch, _ = _seam("get_weather_target_async", ("BUF", self._kickoff(), 401))
         lookup_patch, _ = _lookup_returns(self._outdoor())
         fetch_patch, _ = _fetch_forecast_returns({"hourly": {"time": []}})
         parse_patch, _ = _parse_forecast_returns(
@@ -1299,7 +1339,7 @@ class WeatherIntentTests(unittest.TestCase):
         self.assertEqual(fetch_calls, [])  # and no HTTP
 
     def test_missing_stadium_row_degrades_without_fetch(self) -> None:
-        seam_patch, _ = _seam("get_weather_target_async", ("BUF", self._kickoff()))
+        seam_patch, _ = _seam("get_weather_target_async", ("BUF", self._kickoff(), 401))
         lookup_patch, _ = _lookup_returns(None)  # no table row
         fetch_patch, fetch_calls = _fetch_forecast_returns({"should": "not be used"})
         phrase_patch, _ = _phrase_returns(None)
@@ -1317,7 +1357,7 @@ class WeatherIntentTests(unittest.TestCase):
         self.assertEqual(fetch_calls, [])  # no fetch when the stadium is unknown
 
     def test_fetch_none_degrades_without_inventing(self) -> None:
-        seam_patch, _ = _seam("get_weather_target_async", ("BUF", self._kickoff()))
+        seam_patch, _ = _seam("get_weather_target_async", ("BUF", self._kickoff(), 401))
         lookup_patch, _ = _lookup_returns(self._outdoor())
         fetch_patch, fetch_calls = _fetch_forecast_returns(None)  # Open-Meteo down
         phrase_patch, _ = _phrase_returns(None)
@@ -1335,7 +1375,7 @@ class WeatherIntentTests(unittest.TestCase):
         self.assertEqual(fetch_calls[0]["args"], (42.77, -78.79))  # fetch was attempted
 
     def test_parse_none_degrades_without_inventing(self) -> None:
-        seam_patch, _ = _seam("get_weather_target_async", ("BUF", self._kickoff()))
+        seam_patch, _ = _seam("get_weather_target_async", ("BUF", self._kickoff(), 401))
         lookup_patch, _ = _lookup_returns(self._outdoor())
         fetch_patch, _ = _fetch_forecast_returns({"hourly": {"time": []}})
         parse_patch, parse_calls = _parse_forecast_returns(None)  # kickoff hour absent
