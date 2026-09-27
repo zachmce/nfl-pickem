@@ -258,6 +258,93 @@ class GameOutlookToolTests(unittest.TestCase):
         self.assertEqual(body, {"note": qa_open._NO_OUTLOOK_GAME_NOTE.format(team="KC", week=7)})
 
 
+class SlateWeatherToolTests(unittest.TestCase):
+    """Issue #286: a league-wide weather question reads every stadium of the week."""
+
+    def _game(self, home: str, status: str = "SCHEDULED", hours: float = 3) -> dict:
+        return {
+            "away": "ATL",
+            "home": home,
+            "kickoff_at": datetime.now(UTC) + timedelta(hours=hours),
+            "status": status,
+        }
+
+    def _call(self, games: list[dict], forecast: object = None, **kwargs):
+        fetches: list = []
+        parse_hours: list = []
+
+        def _parse(payload, at):
+            parse_hours.append(at)
+            return forecast
+
+        with (
+            _db("get_week_weather_games_async", {"week": 3, "games": games}),
+            mock.patch.object(weather, "fetch_forecast", _async_returning({"hourly": {}}, fetches)),
+            mock.patch.object(weather, "parse_forecast", _parse),
+        ):
+            body = _run(qa_open._lookup_slate_weather(**kwargs))
+        return body, fetches, parse_hours
+
+    def test_every_game_gets_its_own_weather_line(self) -> None:
+        forecast = {
+            "temperature_f": 58,
+            "wind_mph": 21,
+            "wind_gust_mph": 38,
+            "precip_in": 0.4,
+            "precip_chance_pct": 90,
+        }
+        body, fetches, _ = self._call(
+            [self._game("NE"), self._game("DET"), self._game("BUF", status="FINAL")],
+            forecast=forecast,
+        )
+        assert isinstance(body, dict)
+        self.assertEqual(body["week"], 3)
+        ne, det, buf = body["games"]
+        self.assertEqual(ne["game"], "ATL at NE")
+        self.assertIn("wind 21 mph with gusts to 38 mph", ne["weather"])
+        self.assertIn("a 90 percent chance of precipitation", ne["weather"])
+        self.assertIn("Ford Field, which has a roof", det["weather"])
+        self.assertEqual(buf["weather"], qa_open._SLATE_FINAL_STATEMENT)
+        # Only the outdoor game that is still to be played fetches a forecast.
+        self.assertEqual(len(fetches), 1)
+        self.assertIn("search_web", body["caveat"])
+
+    def test_a_game_under_way_reads_the_current_hour(self) -> None:
+        before = datetime.now(UTC)
+        body, _, parse_hours = self._call(
+            [self._game("NE", status="IN_PROGRESS", hours=-1)], forecast={"temperature_f": 50}
+        )
+        assert isinstance(body, dict)
+        self.assertIn("The game has started", body["games"][0]["weather"])
+        self.assertGreaterEqual(parse_hours[0], before)
+
+    def test_a_stale_status_long_after_kickoff_reads_as_over(self) -> None:
+        # Probe 2026-09-27: SCHEDULED games from days before read as "has started".
+        body, fetches, _ = self._call([self._game("NE", hours=-30)], forecast={"temperature_f": 1})
+        assert isinstance(body, dict)
+        self.assertEqual(body["games"][0]["weather"], qa_open._SLATE_FINAL_STATEMENT)
+        self.assertEqual(fetches, [])
+
+    def test_a_missing_forecast_is_said_plainly(self) -> None:
+        body, _, _ = self._call([self._game("NE")], forecast=None)
+        assert isinstance(body, dict)
+        self.assertEqual(
+            body["games"][0]["weather"],
+            qa_open._NO_FORECAST_STATEMENT.format(stadium="Gillette Stadium", days=15),
+        )
+
+    def test_every_miss_is_a_note(self) -> None:
+        self.assertEqual(
+            _run(qa_open._lookup_slate_weather(week=40)), {"note": qa_open._BAD_WEEK_NOTE}
+        )
+        with _db("get_week_weather_games_async", {"week": None, "games": []}):
+            self.assertEqual(
+                _run(qa_open._lookup_slate_weather()), {"note": qa_open._NO_SEASON_NOTE}
+            )
+        body, _, _ = self._call([])
+        self.assertEqual(body, {"note": qa_open._NO_SLATE_GAMES_NOTE.format(week=3)})
+
+
 class RegistryDescriptionTests(unittest.TestCase):
     """Each new description tells the model WHEN to call, not only what it holds."""
 
@@ -270,6 +357,7 @@ class RegistryDescriptionTests(unittest.TestCase):
             ("lookup_head_to_head", "the last time two teams met"),
             ("lookup_league_records", "who has the longest lock streak"),
             ("lookup_game_outlook", "whether a line has moved"),
+            ("lookup_slate_weather", "whether a storm or a weather pattern affects"),
             ("lookup_team_ats", "over/under record"),
             ("lookup_member_season", "always takes the underdog"),
         ):

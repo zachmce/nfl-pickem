@@ -56,7 +56,7 @@ import time
 from collections import OrderedDict, deque
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import structlog
 
@@ -4242,6 +4242,108 @@ _GAME_OUTLOOK_TOOL_DESCRIPTION = (
 )
 
 
+async def _lookup_slate_weather(week: int | None = None) -> object | None:
+    """Issue #286: the forecast at every stadium of a week, for a league-wide question."""
+    from app.bot import db_bridge
+    from app.services import weather
+
+    asked_week = _coerce_week_arg(week)
+    if week is not None and asked_week is None:
+        return {"note": _BAD_WEEK_NOTE}
+    data = await db_bridge.get_week_weather_games_async(asked_week)
+    if data.get("week") is None:
+        return {"note": _NO_SEASON_NOTE}
+    now = datetime.now(UTC)
+
+    async def _one(game: dict) -> dict:
+        home, away, kickoff = game.get("home"), game.get("away"), game.get("kickoff_at")
+        entry: dict = {"game": f"{away} at {home}", "kickoff": _fmt_close(kickoff)}
+        stadium = weather.lookup_stadium(home or "")
+        if stadium is not None:
+            entry["stadium"] = stadium.name
+        if game.get("status") == "FINAL":
+            entry["weather"] = _SLATE_FINAL_STATEMENT
+            return entry
+        if stadium is None:
+            entry["weather"] = _NO_WEATHER_STATEMENT
+            return entry
+        if stadium.indoor:
+            entry["weather"] = _INDOOR_WEATHER_STATEMENT.format(stadium=stadium.name)
+            return entry
+        if not isinstance(kickoff, datetime):
+            entry["weather"] = _NO_FORECAST_STATEMENT.format(
+                stadium=stadium.name, days=_FORECAST_DAYS
+            )
+            return entry
+        # A game under way reads the current hour; the kickoff hour is already past.
+        started = game.get("status") == "IN_PROGRESS" or kickoff <= now
+        if started and now - kickoff > _SLATE_GAME_LENGTH:
+            entry["weather"] = _SLATE_FINAL_STATEMENT
+            return entry
+        at = now if started else kickoff
+        forecast = None
+        if (at - now).total_seconds() / 86400 <= _FORECAST_DAYS:
+            payload = await weather.fetch_forecast(stadium.lat, stadium.lon)
+            forecast = weather.parse_forecast(payload, at) if payload is not None else None
+        if forecast is None:
+            entry["weather"] = _NO_FORECAST_STATEMENT.format(
+                stadium=stadium.name, days=_FORECAST_DAYS
+            )
+            return entry
+        entry["weather"] = (_SLATE_NOW_STATEMENT if started else _SLATE_KICKOFF_STATEMENT).format(
+            stadium=stadium.name,
+            temperature=_or_unknown(forecast.get("temperature_f"), "°F"),
+            wind=_or_unknown(forecast.get("wind_mph"), " mph"),
+            gusts=_or_unknown(forecast.get("wind_gust_mph"), " mph"),
+            precip=_or_unknown(forecast.get("precip_in"), " inches"),
+            chance=_or_unknown(forecast.get("precip_chance_pct"), " percent"),
+        )
+        return entry
+
+    games = await asyncio.gather(*(_one(g) for g in data.get("games") or []))
+    if not games:
+        return {"note": _NO_SLATE_GAMES_NOTE.format(week=data["week"])}
+    return {
+        "week": data["week"],
+        "now": _fmt_close(now),
+        "games": list(games),
+        "caveat": _SLATE_WEATHER_CAVEAT,
+    }
+
+
+# A status the poller has not set to FINAL yet must not read as a game under way.
+_SLATE_GAME_LENGTH = timedelta(hours=5)
+_SLATE_FINAL_STATEMENT = "The game is over, so there is no forecast to give."
+_SLATE_KICKOFF_STATEMENT = (
+    "The forecast at {stadium} for the kickoff hour is {temperature}, wind {wind} with "
+    "gusts to {gusts}, {precip} of precipitation and a {chance} chance of precipitation."
+)
+_SLATE_NOW_STATEMENT = (
+    "The game has started. The forecast at {stadium} for this hour is {temperature}, wind "
+    "{wind} with gusts to {gusts}, {precip} of precipitation and a {chance} chance of "
+    "precipitation."
+)
+_NO_SLATE_GAMES_NOTE = "The app has no games in week {week}. Tell the member that plainly."
+# Issue #286, prod 2026-09-27: "how many games are affected by the Nor'easter storm today?"
+_SLATE_WEATHER_CAVEAT = (
+    "Each game's weather is listed exactly as the forecast gives it; report the numbers "
+    "exactly as listed. The forecast names no storm and no region. To say where a named "
+    "storm or a weather pattern is, use search_web, and count a game as affected only "
+    "when its own listed forecast shows the wind, the gusts or the precipitation. A game "
+    "under a roof is never affected. 'Today' means the games whose kickoff is on the "
+    "date given in 'now'."
+)
+_SLATE_WEATHER_TOOL_DESCRIPTION = (
+    "Look up the weather at every game of a week in one call: each game's stadium, "
+    "whether it has a roof, and the forecast temperature, wind, gusts and precipitation "
+    "at kickoff, or at this hour for a game already under way. Call this tool when the "
+    "member asks about the weather across the league or on a day's games, which games "
+    "have rain, snow or wind, or whether a storm or a weather pattern affects any games. "
+    "Leave the week argument out for this week. For one team's game, lookup_game_outlook "
+    "is the tool."
+)
+
+
 # --------------------------------------------------------------------------- #
 # Issue #248: general football knowledge from ESPN — careers, awards, FPI, QBR and
 # roster moves. Each one replaces an answer the model used to give from memory.
@@ -5672,6 +5774,28 @@ _BASE_TOOLS: tuple[_Tool, ...] = (
             },
         },
         run=_lookup_game_outlook,
+        volatile=True,
+    ),
+    _Tool(
+        name="lookup_slate_weather",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_slate_weather",
+                "description": _SLATE_WEATHER_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "week": {
+                            "type": "integer",
+                            "description": "Optional week number. Leave it out for this week.",
+                        },
+                    },
+                    "required": [],
+                },
+            },
+        },
+        run=_lookup_slate_weather,
         volatile=True,
     ),
     _Tool(

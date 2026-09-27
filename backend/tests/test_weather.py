@@ -209,6 +209,22 @@ class ParseForecastTests(unittest.TestCase):
         self.assertEqual(out["precip_in"], 0.05)
         self.assertEqual(out["hour"], "2026-01-05T14:00")
 
+    def test_gusts_and_the_chance_are_read_when_given_and_none_when_absent(self) -> None:
+        # Issue #286: the fixture predates the two fields, so both read as None.
+        kickoff = datetime(2026, 1, 5, 14, 0, tzinfo=UTC)
+        payload = _load_fixture()
+        out = weather.parse_forecast(payload, kickoff)
+        assert out is not None
+        self.assertIsNone(out["wind_gust_mph"])
+        self.assertIsNone(out["precip_chance_pct"])
+        count = len(payload["hourly"]["time"])
+        payload["hourly"]["wind_gusts_10m"] = [30.0 + i for i in range(count)]
+        payload["hourly"]["precipitation_probability"] = [10 * i for i in range(count)]
+        out = weather.parse_forecast(payload, kickoff)
+        assert out is not None
+        self.assertEqual(out["wind_gust_mph"], 32.0)
+        self.assertEqual(out["precip_chance_pct"], 20)
+
     def test_kickoff_minutes_floor_to_the_hour(self) -> None:
         # 15:47 floors to the 15:00 key -> index 3.
         kickoff = datetime(2026, 1, 5, 15, 47, tzinfo=UTC)

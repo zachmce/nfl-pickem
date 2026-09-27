@@ -746,6 +746,9 @@ _LATER_WEEK = _OpenHandoff()
 # Issue #276: "have you changed your mind?" asked in the third quarter got the pre-game
 # card, whose live-market read also changes once the odds come down at kickoff.
 _GAME_UNDERWAY = _OpenHandoff()
+# Issue #286: "how many games does the Nor'easter affect today?" got "name a team" in
+# prod; the open path reads every stadium with lookup_slate_weather.
+_LEAGUE_WEATHER = _OpenHandoff()
 
 # Deterministic short-circuit line for an unregistered asker (no LLM call needed).
 _REGISTER_LINE = "You need a pick'em account first — run /register to get set up."
@@ -775,15 +778,6 @@ _INJURIES_NO_TEAM_FACT = "No team in that question — name one and ask again."
 _INJURIES_DEGRADE_FACT = (
     "Couldn't pull the injury report right now — give it another shot in a bit."
 )
-
-# Stateless soft-decline for a teamless weather question — the forecast is always
-# game-scoped (a specific stadium), so there is no whole-league answer. No HTTP, no DB.
-# REUSES the proven-neutral injuries wording VERBATIM (PHRASING-INVERSION lesson): the
-# small local phrasing model inverts terse topic-flavored declines, so a neutral
-# "you didn't name a team, ask again" line phrases faithfully where a weather-flavored
-# terse line would flip to "not supported". The weather context is obvious from the
-# member's own question.
-_WEATHER_NO_TEAM_FACT = "No team in that question — name one and ask again."
 
 # Best-effort degrade line when the team's game can't be resolved, the stadium is
 # missing from the table, OR the Open-Meteo fetch/parse fails. NEVER an invented
@@ -1886,10 +1880,8 @@ async def _build_fact(
         return _injuries_fact(canonical_abbr, players)
 
     if result.intent is QaIntent.weather:
-        # Team-scoped by construction: a teamless weather question stateless-soft-
-        # declines (no HTTP, no DB lookup) — the forecast is always game-scoped.
         if result.team is None:
-            return _WEATHER_NO_TEAM_FACT
+            return _LEAGUE_WEATHER
         # Issue #248: the week 8 forecast used to come back for this week's game.
         if result.week is not None:
             current = (await db_bridge.get_lines_slate_async()).get("week")

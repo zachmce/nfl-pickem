@@ -1170,10 +1170,18 @@ class WeatherIntentTests(unittest.TestCase):
     def _indoor(self) -> weather.Stadium:
         return weather.Stadium("Test Dome", 30.0, -90.0, True)
 
-    def test_teamless_weather_soft_declines_no_seam_no_fetch(self) -> None:
+    def test_teamless_weather_goes_to_the_open_path(self) -> None:
+        # Issue #286: "how many games are affected by the Noreaster storm today?" got
+        # "name a team" in prod; the open path reads every stadium.
         seam_patch, seam_calls = _seam("get_weather_target_async", ("BUF", self._kickoff()))
         fetch_patch, fetch_calls = _fetch_forecast_returns({"unused": True})
         phrase_patch, _ = _phrase_returns(None)
+        open_calls: list[str] = []
+
+        async def _fake_open(question, **_kwargs):
+            open_calls.append(question)
+            return "Three outdoor games sit under the storm."
+
         with (
             _classify_returns({"intent": "weather", "team": None}),
             _tokens("KC", "CHIEFS"),
@@ -1181,11 +1189,13 @@ class WeatherIntentTests(unittest.TestCase):
             fetch_patch,
             _voice(),
             phrase_patch,
+            mock.patch.object(qa.qa_open, "answer_open", _fake_open),
         ):
-            out = _run(qa.answer_question("what's the weather this week?", discord_id=7))
-        self.assertEqual(out, qa._WEATHER_NO_TEAM_FACT)
-        self.assertEqual(seam_calls, [])  # stateless: no weather-target lookup
-        self.assertEqual(fetch_calls, [])  # and no HTTP
+            out = _run(qa.answer_question("any storms hitting games today?", discord_id=7))
+        self.assertEqual(out, "Three outdoor games sit under the storm.")
+        self.assertEqual(open_calls, ["any storms hitting games today?"])
+        self.assertEqual(seam_calls, [])
+        self.assertEqual(fetch_calls, [])
 
     def test_indoor_stadium_short_circuits_with_no_fetch(self) -> None:
         seam_patch, seam_calls = _seam("get_weather_target_async", ("NO", self._kickoff()))

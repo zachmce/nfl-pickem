@@ -1255,6 +1255,29 @@ def get_current_week_weather_target_for_team(
     return (home_abbr, kickoff_at)
 
 
+def get_week_weather_games(session: Session, season: int, week: int) -> dict:
+    """Every game of ``{season, week}`` with its kickoff and status, for a slate forecast.
+
+    Issue #286: a league-wide weather question needs every home stadium of the week.
+    Games come back in kickoff order; display-only, pure read.
+    """
+    games = list(session.exec(select(Game).where(Game.season == season, Game.week == week)).all())
+    abbr_by_team_id = {t.id: t.abbreviation for t in session.exec(select(Team)).all()}
+    games.sort(key=lambda g: _as_aware(g.kickoff_at) or datetime.max.replace(tzinfo=UTC))
+    return {
+        "week": week,
+        "games": [
+            {
+                "away": abbr_by_team_id.get(g.away_team_id),
+                "home": abbr_by_team_id.get(g.home_team_id),
+                "kickoff_at": _as_aware(g.kickoff_at),
+                "status": g.status.value,
+            }
+            for g in games
+        ],
+    }
+
+
 def get_team_topic_for_token(session: Session, *, team_abbr: str) -> tuple[str, str] | None:
     """Resolve a real-team token to its canonical ``(abbreviation, display_name)``.
 
