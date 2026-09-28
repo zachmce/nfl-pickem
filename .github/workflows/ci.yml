@@ -79,7 +79,7 @@ jobs:
       # buildx cache), so a poisoned uv cache cannot reach a published artifact; dropping the
       # cache would slow every CI run. Low-confidence finding; documented accept (mirrors the
       # pip-audit --ignore-vuln allowlist posture).
-      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0  # zizmor: ignore[cache-poisoning]
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.1.0  # zizmor: ignore[cache-poisoning]
       - name: Install Python 3.14
         run: uv python install 3.14
       - name: Verify uv.lock is in sync with pyproject.toml
@@ -111,7 +111,7 @@ jobs:
       # buildx cache), so a poisoned uv cache cannot reach a published artifact; dropping the
       # cache would slow every CI run. Low-confidence finding; documented accept (mirrors the
       # pip-audit --ignore-vuln allowlist posture).
-      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0  # zizmor: ignore[cache-poisoning]
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.1.0  # zizmor: ignore[cache-poisoning]
       - name: Install Python 3.14
         run: uv python install 3.14
       - name: Install basedpyright (dev group)
@@ -145,7 +145,7 @@ jobs:
       # buildx cache), so a poisoned uv cache cannot reach a published artifact; dropping the
       # cache would slow every CI run. Low-confidence finding; documented accept (mirrors the
       # pip-audit --ignore-vuln allowlist posture).
-      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0  # zizmor: ignore[cache-poisoning]
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.1.0  # zizmor: ignore[cache-poisoning]
       - name: Install Python 3.14
         run: uv python install 3.14
       - name: Install pip-audit (dev group)
@@ -212,7 +212,7 @@ jobs:
       # buildx cache), so a poisoned uv cache cannot reach a published artifact; dropping the
       # cache would slow every CI run. Low-confidence finding; documented accept (mirrors the
       # pip-audit --ignore-vuln allowlist posture).
-      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0  # zizmor: ignore[cache-poisoning]
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.1.0  # zizmor: ignore[cache-poisoning]
       - name: Install Python 3.14
         run: uv python install 3.14
       - name: Install backend into a uv venv (project + deps)
