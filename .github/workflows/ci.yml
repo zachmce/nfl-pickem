@@ -27,7 +27,7 @@ jobs:
   # itself). Top-level `contents: read` + the checkout below is sufficient for the
   # git-diff comparison (pull_request diffs the base, push diffs `before`).
   changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       # On a v* tag push, paths-filter has no diff base and reports every path
       # unchanged, which skips lint/test/frontend/image-scan and cascades to skip
@@ -69,7 +69,7 @@ jobs:
   lint:
     needs: [changes]
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.ci == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -101,7 +101,7 @@ jobs:
   typecheck:
     needs: [changes]
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.ci == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -135,7 +135,7 @@ jobs:
     # job-level permissions are added.
     needs: [changes]
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.ci == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -186,7 +186,7 @@ jobs:
   test:
     needs: [changes]
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.ci == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:17-alpine
@@ -216,7 +216,7 @@ jobs:
       - name: Install Python 3.14
         run: uv python install 3.14
       - name: Install backend into a uv venv (project + deps)
-        # NOT `uv pip install --system` — ubuntu-latest's /usr interpreter is
+        # NOT `uv pip install --system` — the runner's /usr interpreter is
         # externally managed (PEP 668), which that rejects. `uv sync` builds an
         # isolated .venv; steps below run through `uv run`. Mirrors the lint job.
         working-directory: backend
@@ -237,7 +237,7 @@ jobs:
   frontend:
     needs: [changes]
     if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.ci == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -280,7 +280,7 @@ jobs:
         run: npm audit --audit-level=high
 
   secrets:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read          # gitleaks reads local git history
       security-events: write  # upload the gitleaks SARIF to code scanning (mirrors the image-scan-* / iac-scan / zizmor jobs)
@@ -314,7 +314,7 @@ jobs:
     # PR-only: the action diffs the dependency graph against the PR base — on a push it
     # has nothing to compare, so pull_request is the correct/expected trigger.
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Least-privilege: contents: read ONLY. We deliberately do NOT enable the PR-comment
     # summary (that would require pull-requests: write) — skipping it preserves least
     # privilege, notably for fork PRs that don't receive write tokens.
@@ -355,7 +355,7 @@ jobs:
   image-scan-backend:
     needs: [changes]
     if: github.event_name == 'pull_request' && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.docker == 'true' || needs.changes.outputs.ci == 'true')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       security-events: write  # upload Trivy image SARIF to code scanning (mirrors codeql.yml)
@@ -408,7 +408,7 @@ jobs:
   image-scan-frontend:
     needs: [changes]
     if: github.event_name == 'pull_request' && (needs.changes.outputs.frontend == 'true' || needs.changes.outputs.docker == 'true' || needs.changes.outputs.ci == 'true')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       security-events: write  # upload Trivy image SARIF to code scanning (mirrors codeql.yml)
@@ -491,7 +491,7 @@ jobs:
   osv-scan:
     needs: [changes]
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true' || needs.changes.outputs.ci == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       security-events: write  # upload the osv-scanner SARIF to code scanning (mirrors image-scan-* / iac-scan / zizmor)
@@ -541,7 +541,7 @@ jobs:
     # rescan it. Runs on both pull_request and push (default on:).
     needs: [changes]
     if: needs.changes.outputs.docker == 'true' || needs.changes.outputs.ci == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       security-events: write  # upload Trivy config SARIF to code scanning
@@ -591,7 +591,7 @@ jobs:
     # so the blocking step is green today and will fail on any NEW workflow-security finding.
     needs: [changes]
     if: needs.changes.outputs.ci == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       security-events: write  # upload zizmor SARIF to code scanning (advanced-security step)
@@ -637,7 +637,7 @@ jobs:
     # via `uvx --python 3.12 semgrep==1.145.0 scan ...` on the runner (version pin == engine pin).
     needs: [changes]
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true' || needs.changes.outputs.ci == 'true' || needs.changes.outputs.semgrep == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       security-events: write  # upload the semgrep SARIF to code scanning (mirrors zizmor / trivy / gitleaks)
@@ -706,7 +706,7 @@ jobs:
       && needs.semgrep.result != 'failure' && needs.semgrep.result != 'cancelled'
       && needs.osv-scan.result != 'failure' && needs.osv-scan.result != 'cancelled'
       && needs.secrets.result != 'failure' && needs.secrets.result != 'cancelled' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
@@ -842,7 +842,7 @@ jobs:
       && needs.semgrep.result != 'failure' && needs.semgrep.result != 'cancelled'
       && needs.osv-scan.result != 'failure' && needs.osv-scan.result != 'cancelled'
       && needs.secrets.result != 'failure' && needs.secrets.result != 'cancelled' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
@@ -986,7 +986,7 @@ jobs:
       - semgrep
       - osv-scan
     if: ${{ always() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Verify no needed job failed or was cancelled
         env:
