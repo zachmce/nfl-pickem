@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write  # create the GitHub Release + upload assets
       id-token: write  # cosign keyless (Fulcio/Rekor) — same trust model as ci.yml publish
