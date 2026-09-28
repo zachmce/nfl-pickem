@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   analyze:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       actions: read           # read workflow run metadata during analysis
       contents: read          # checkout
