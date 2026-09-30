@@ -4,7 +4,7 @@
 # never `pip install .`). Digest-pinned (Scorecard Pinned-Dependencies); the
 # image has no semver tag, so Dependabot (docker ecosystem, /.clusterfuzzlite)
 # refreshes the digest.
-FROM gcr.io/oss-fuzz-base/base-builder-python@sha256:ea2c86745d082ab30d6717ede1492fbe488af681cf5b70586510d4ada8766024
+FROM gcr.io/oss-fuzz-base/base-builder-python@sha256:79cc75a68ab65120da54f35d53f10c7536554ffe684eea5bae078a9a5ff82923
 
 # The harnesses (backend/fuzz/*_fuzzer.py) import the pure modules under test
 # (app.services.*) plus the real enums (app.models), so the whole backend tree
