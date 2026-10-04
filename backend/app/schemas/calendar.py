@@ -7,11 +7,11 @@ built explicitly from already-shaped row objects via a ``from_*`` classmethod
 coupling to ORM rows — the router shapes each game (resolving team identity) and
 hands the schema the finished values.
 
-Privacy posture: this is a DISPLAY-ONLY public schedule view. It carries no
-picks and no per-user data — just the season's games (matchup abbreviations,
-raw UTC kickoff, status, and home/away score) over a requested date range. No
-``user_id`` is surfaced; the shared-read posture mirrors :mod:`app.schemas.slate`
-/ :mod:`app.schemas.results` (authenticated, but the same view for every member).
+Privacy posture: a DISPLAY-ONLY schedule view — the season's games (matchup
+abbreviations, raw UTC kickoff, status, and home/away score) over a requested
+date range. The ONE per-user field is ``my_pick_result``: the outcome of the
+CALLER'S OWN picks on the game (issue #301). No other member's picks and no
+``user_id`` are surfaced.
 
 The CLIENT buckets each game onto its US Eastern (``America/New_York``) calendar
 day; the server stays a pure date-range filter and returns the raw UTC
@@ -21,10 +21,15 @@ day; the server stays a pure date-range filter and returns the raw UTC
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
 from app.models import GameStatus
+
+# The caller's picks on one game, folded to one value: PENDING = none graded
+# yet; WIN / LOSS = every graded pick agrees; SPLIT = graded picks disagree.
+CalendarPickOutcome = Literal["PENDING", "WIN", "LOSS", "SPLIT"]
 
 
 class CalendarTeam(BaseModel):
@@ -43,7 +48,8 @@ class CalendarGame(BaseModel):
     ``Intl.DateTimeFormat`` and renders the ET kickoff time. ``home_score`` /
     ``away_score`` carry the persisted values unchanged; they are only meaningful
     when ``status`` is FINAL (the client renders the score only when FINAL), but
-    the schema ships whatever is persisted regardless.
+    the schema ships whatever is persisted regardless. ``my_pick_result`` is
+    ``None`` when the caller has no pick on the game.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -55,13 +61,13 @@ class CalendarGame(BaseModel):
     status: GameStatus
     home_score: int | None
     away_score: int | None
+    my_pick_result: CalendarPickOutcome | None = None
 
 
 class CalendarResponse(BaseModel):
     """The season's games whose kickoff falls in ``[from_date, to_date]``.
 
-    ``user_id`` is deliberately absent — this is a display-only public schedule
-    view, shared among all members (see :mod:`app.api.calendar`). ``from_date`` /
+    ``user_id`` is deliberately absent (see :mod:`app.api.calendar`). ``from_date`` /
     ``to_date`` echo the requested window (``YYYY-MM-DD``) so the client can
     correlate the response with the grid it asked for.
     """

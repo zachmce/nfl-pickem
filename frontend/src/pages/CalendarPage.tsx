@@ -20,13 +20,15 @@
  *   - Each game renders a compact informational chip (NO click-through): the
  *     matchup `AWAY @ HOME` by abbreviation, the ET kickoff time, and — only
  *     when `status === "FINAL"` — the final score `AWAY n @ HOME n`.
+ *   - A game the current user has a pick on stands out (issue #301): bold
+ *     while ungraded, green after a win, red after a loss (`pickChipClasses`).
  *   - Loading / error / empty states render clean gray messages (none throw),
- *     mirroring the existing pages. Public-schedule view: no picks, no user data.
+ *     mirroring the existing pages.
  */
 import { useEffect, useMemo, useState } from "react";
 
 import type { CalendarGame, CalendarResponse } from "../lib/calendar";
-import { getCalendar } from "../lib/calendar";
+import { getCalendar, pickChipClasses } from "../lib/calendar";
 import { formatLocalDateTime } from "../lib/datetime";
 import { EMPTY_CALENDAR, ERROR_CALENDAR, LOADING_CALENDAR } from "../lib/strings";
 
@@ -285,19 +287,21 @@ export default function CalendarPage() {
                     const away = g.away_team.abbreviation;
                     const home = g.home_team.abbreviation;
                     const isFinal = g.status === "FINAL";
+                    const pick = pickChipClasses(g.my_pick_result);
                     return (
                       <div
                         key={g.game_id}
-                        className="rounded border border-border bg-surface-raised px-1 py-0.5 text-[11px] leading-tight"
+                        data-pick={g.my_pick_result ?? undefined}
+                        className={`rounded border px-1 py-0.5 text-[11px] leading-tight ${pick.chip}`}
                       >
                         {isFinal ? (
-                          <div className="font-medium text-fg">
+                          <div className={pick.text}>
                             {away} {g.away_score ?? 0} @ {home}{" "}
                             {g.home_score ?? 0}
                           </div>
                         ) : (
                           <>
-                            <div className="font-medium text-fg">
+                            <div className={pick.text}>
                               {away} @ {home}
                             </div>
                             {g.kickoff_at && (
