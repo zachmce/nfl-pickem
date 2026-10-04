@@ -17,11 +17,12 @@ Security — deliberate shared-read posture
 ------------------------------------------
 
 The endpoint requires authentication (``get_current_user`` -> 401 envelope when
-unauthenticated) but is intentionally **NOT user-scoped**: the schedule is the
-same for every member (the season's public games — no per-user data). This is a
-reviewed, deliberate choice (same posture as :mod:`app.api.slate` /
-:mod:`app.api.results`), not an IDOR oversight. The response carries no
-``user_id``; the only identity surfaced is public Team reference data.
+unauthenticated). The schedule itself is the same for every member (same
+posture as :mod:`app.api.slate` / :mod:`app.api.results`). The one per-user
+field is ``my_pick_result`` (issue #301), read ONLY from the caller's own
+:class:`~app.models.Pick` rows — the pick query is always filtered by the
+authenticated ``user.id``, so no other member's picks can leak. The response
+carries no ``user_id``.
 
 Demo correctness — no ``IS_DEMO_DATA`` branch
 ---------------------------------------------
@@ -40,13 +41,18 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.api.deps import get_current_user
 from app.db import get_session
 from app.exceptions import ValidationError
-from app.models import Game, Team, User
-from app.schemas.calendar import CalendarGame, CalendarResponse, CalendarTeam
+from app.models import Game, Pick, PickResult, Team, User
+from app.schemas.calendar import (
+    CalendarGame,
+    CalendarPickOutcome,
+    CalendarResponse,
+    CalendarTeam,
+)
 
 router = APIRouter(prefix="/api/calendar", tags=["calendar"])
 
@@ -81,6 +87,24 @@ def _parse_day(value: str, *, field: str) -> datetime:
     return datetime(d.year, d.month, d.day, tzinfo=UTC)
 
 
+def _pick_outcome(results: list[PickResult]) -> CalendarPickOutcome | None:
+    """Fold the caller's pick results on one game into a single outcome.
+
+    A member can hold several picks on one game (cover, total, mortal lock).
+    PENDING picks are ignored once any pick on the game is graded.
+    """
+    if not results:
+        return None
+    graded = {r for r in results if r != PickResult.PENDING}
+    if not graded:
+        return "PENDING"
+    if graded == {PickResult.WIN}:
+        return "WIN"
+    if graded == {PickResult.LOSS}:
+        return "LOSS"
+    return "SPLIT"
+
+
 @router.get("", response_model=CalendarResponse)
 def read_calendar(
     from_: str = Query(..., alias="from"),
@@ -90,7 +114,7 @@ def read_calendar(
 ) -> CalendarResponse:
     """The season's games whose kickoff falls in the ``[from, to]`` window.
 
-    Shared read: authenticated but NOT user-scoped (see module docstring).
+    Shared schedule plus the caller's own pick outcome (see module docstring).
     ``from``/``to`` are ``YYYY-MM-DD`` (the ``from`` query param is aliased
     because ``from`` is a Python keyword). The upper bound is INCLUSIVE of the
     whole ``to`` day — the filter uses an exclusive ``end = to + 1 day`` so a
@@ -114,6 +138,15 @@ def read_calendar(
             assert t.id is not None
             teams_by_id[t.id] = t
 
+    # The caller's OWN picks on these games, grouped by game (one query).
+    results_by_game: dict[int, list[PickResult]] = {}
+    game_ids = [g.id for g in games if g.id is not None]
+    if game_ids:
+        for p in session.exec(
+            select(Pick).where(Pick.user_id == user.id, col(Pick.game_id).in_(game_ids))
+        ).all():
+            results_by_game.setdefault(p.game_id, []).append(p.result)
+
     def _team(team_id: int) -> CalendarTeam:
         return CalendarTeam(abbreviation=teams_by_id[team_id].abbreviation)
 
@@ -136,6 +169,7 @@ def read_calendar(
                 status=g.status,
                 home_score=g.home_score,
                 away_score=g.away_score,
+                my_pick_result=_pick_outcome(results_by_game.get(g.id, [])),
             )
         )
 

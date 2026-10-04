@@ -27,12 +27,13 @@ import unittest
 from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
+from httpx import Response
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.db import get_session
 from app.main import app
-from app.models import Game, GameStatus, Team, User, Week
+from app.models import Game, GameStatus, Pick, PickResult, PickType, Team, User, Week
 from app.services.auth import create_session_cookie, hash_password
 
 SEASON = 2025
@@ -68,7 +69,7 @@ class CalendarTests(unittest.TestCase):
             session.commit()
             for t in teams:
                 session.refresh(t)
-            self.tid = [t.id for t in teams]
+            self.tid = [t.id for t in teams if t.id is not None]
 
             # One active user to authenticate the shared read.
             user = User(
@@ -141,6 +142,29 @@ class CalendarTests(unittest.TestCase):
             assert g.id is not None
             return g.id
 
+    def _add_pick(
+        self,
+        *,
+        user_id: int,
+        game_id: int,
+        week_id: int,
+        pick_type: PickType,
+        result: PickResult = PickResult.PENDING,
+        is_mortal_lock: bool = False,
+    ) -> None:
+        with self._session() as session:
+            session.add(
+                Pick(
+                    user_id=user_id,
+                    game_id=game_id,
+                    week_id=week_id,
+                    pick_type=pick_type,
+                    result=result,
+                    is_mortal_lock=is_mortal_lock,
+                )
+            )
+            session.commit()
+
     def _bearer_headers(self, user_id: int) -> dict[str, str]:
         """Bearer auth for reads (CSRF-exempt)."""
         return {"Authorization": f"Bearer {create_session_cookie(user_id)}"}
@@ -155,7 +179,7 @@ class CalendarTests(unittest.TestCase):
         assert "code" in err, f"envelope missing 'code': {err}"
         return err
 
-    def _get(self, from_date: str, to_date: str) -> object:
+    def _get(self, from_date: str, to_date: str) -> Response:
         return self.client.get(
             f"/api/calendar?from={from_date}&to={to_date}",
             headers=self._bearer_headers(self.user_id),
@@ -322,6 +346,101 @@ class CalendarTests(unittest.TestCase):
         resp = self._get("not-a-date", "2026-09-30")
         self.assertEqual(resp.status_code, 422, resp.text)
         self._assert_envelope(resp.json())
+
+    # -- case 7: the caller's own pick outcome (issue #301) ----------------
+
+    def test_my_pick_result_per_game(self) -> None:
+        """Each game carries the caller's folded pick outcome; null with no pick."""
+        wk = self._seed_week_row(1)
+        ids = [
+            self._add_game(
+                week_id=wk,
+                week=1,
+                espn_event_id=40 + i,
+                kickoff_at=datetime(2026, 9, 5 + i, 18, 0, tzinfo=UTC),
+                home_team_id=self.tid[0],
+                away_team_id=self.tid[1],
+            )
+            for i in range(5)
+        ]
+        none_id, pending_id, win_id, loss_id, split_id = ids
+        me = self.user_id
+        self._add_pick(user_id=me, game_id=pending_id, week_id=wk, pick_type=PickType.OVER)
+        # A graded pick outranks a still-PENDING one on the same game.
+        self._add_pick(
+            user_id=me,
+            game_id=win_id,
+            week_id=wk,
+            pick_type=PickType.UNDER,
+            result=PickResult.WIN,
+        )
+        self._add_pick(user_id=me, game_id=win_id, week_id=wk, pick_type=PickType.MISC)
+        self._add_pick(
+            user_id=me,
+            game_id=loss_id,
+            week_id=wk,
+            pick_type=PickType.FAVORITE_COVER,
+            result=PickResult.LOSS,
+        )
+        self._add_pick(
+            user_id=me,
+            game_id=split_id,
+            week_id=wk,
+            pick_type=PickType.UNDERDOG_COVER,
+            result=PickResult.WIN,
+        )
+        self._add_pick(
+            user_id=me,
+            game_id=split_id,
+            week_id=wk,
+            pick_type=PickType.OVER,
+            result=PickResult.LOSS,
+            is_mortal_lock=True,
+        )
+
+        resp = self._get("2026-09-01", "2026-09-30")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        got = {g["game_id"]: g["my_pick_result"] for g in resp.json()["games"]}
+        self.assertEqual(
+            got,
+            {
+                none_id: None,
+                pending_id: "PENDING",
+                win_id: "WIN",
+                loss_id: "LOSS",
+                split_id: "SPLIT",
+            },
+        )
+
+    def test_my_pick_result_ignores_other_members(self) -> None:
+        """Another member's pick never shows on the caller's calendar."""
+        wk = self._seed_week_row(1)
+        game_id = self._add_game(
+            week_id=wk,
+            week=1,
+            espn_event_id=50,
+            kickoff_at=datetime(2026, 9, 5, 18, 0, tzinfo=UTC),
+            home_team_id=self.tid[0],
+            away_team_id=self.tid[1],
+        )
+        with self._session() as session:
+            other = User(display_name="bob", discord_id=2, password_hash="x", is_active=True)
+            session.add(other)
+            session.commit()
+            session.refresh(other)
+            assert other.id is not None
+            other_id = other.id
+        self._add_pick(
+            user_id=other_id,
+            game_id=game_id,
+            week_id=wk,
+            pick_type=PickType.OVER,
+            result=PickResult.WIN,
+        )
+
+        resp = self._get("2026-09-01", "2026-09-30")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertIsNone(resp.json()["games"][0]["my_pick_result"])
 
 
 if __name__ == "__main__":
