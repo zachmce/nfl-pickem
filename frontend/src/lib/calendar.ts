@@ -22,10 +22,10 @@ export interface CalendarTeam {
 
 /**
  * The current user's picks on one game, folded to one value (null = no pick):
- * PENDING = none graded yet; WIN / LOSS = every graded pick agrees; SPLIT =
- * graded picks disagree.
+ * PENDING = not graded yet; WIN / LOSS = the picks agree, or net points decide
+ * when they disagree; EVEN = graded with no net win or loss.
  */
-export type CalendarPickOutcome = "PENDING" | "WIN" | "LOSS" | "SPLIT";
+export type CalendarPickOutcome = "PENDING" | "WIN" | "LOSS" | "EVEN";
 
 /**
  * One game's display-only calendar entry. `kickoff_at` is a RAW UTC ISO string
@@ -64,7 +64,7 @@ export function pickChipClasses(outcome: CalendarPickOutcome | null): {
         text: "font-bold text-danger-fg",
       };
     case "PENDING":
-    case "SPLIT":
+    case "EVEN":
       return { chip: "border-border bg-surface-raised", text: "font-bold text-fg" };
     default:
       return { chip: "border-border bg-surface-raised", text: "font-medium text-fg" };
