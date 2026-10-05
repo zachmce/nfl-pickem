@@ -1,0 +1,368 @@
+{
+ "header": {
+  "competitions": [
+   {
+    "status": {
+     "type": {
+      "state": "post",
+      "completed": true
+     }
+    },
+    "competitors": [
+     {
+      "homeAway": "home",
+      "score": "27",
+      "winner": false,
+      "team": {
+       "abbreviation": "LV",
+       "displayName": "Las Vegas Raiders"
+      }
+     },
+     {
+      "homeAway": "away",
+      "score": "30",
+      "winner": true,
+      "team": {
+       "abbreviation": "KC",
+       "displayName": "Kansas City Chiefs"
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "boxscore": {
+  "players": [
+   {
+    "team": {
+     "abbreviation": "KC",
+     "displayName": "Kansas City Chiefs"
+    },
+    "statistics": [
+     {
+      "name": "receiving",
+      "keys": [
+       "receptions",
+       "receivingYards",
+       "yardsPerReception",
+       "receivingTouchdowns",
+       "longReception",
+       "receivingTargets"
+      ],
+      "athletes": [
+       {
+        "athlete": {
+         "id": "4362921",
+         "displayName": "Tyquan Thornton"
+        },
+        "stats": [
+         "5",
+         "111",
+         "22.2",
+         "2",
+         "55",
+         "8"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4683062",
+         "displayName": "Xavier Worthy"
+        },
+        "stats": [
+         "4",
+         "70",
+         "17.5",
+         "0",
+         "41",
+         "7"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4240472",
+         "displayName": "Noah Gray"
+        },
+        "stats": [
+         "2",
+         "17",
+         "8.5",
+         "0",
+         "11",
+         "3"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "15847",
+         "displayName": "Travis Kelce"
+        },
+        "stats": [
+         "2",
+         "15",
+         "7.5",
+         "0",
+         "10",
+         "4"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4832955",
+         "displayName": "Emmett Johnson"
+        },
+        "stats": [
+         "1",
+         "10",
+         "10.0",
+         "0",
+         "10",
+         "1"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4567048",
+         "displayName": "Kenneth Walker III"
+        },
+        "stats": [
+         "1",
+         "2",
+         "2.0",
+         "0",
+         "2",
+         "1"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4912218",
+         "displayName": "Cyrus Allen"
+        },
+        "stats": [
+         "0",
+         "0",
+         "0.0",
+         "0",
+         "0",
+         "1"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "5082630",
+         "displayName": "Jalen Royals"
+        },
+        "stats": [
+         "0",
+         "0",
+         "0.0",
+         "0",
+         "0",
+         "2"
+        ]
+       }
+      ]
+     },
+     {
+      "name": "kicking",
+      "keys": [
+       "fieldGoalsMade/fieldGoalAttempts",
+       "fieldGoalPct",
+       "longFieldGoalMade",
+       "extraPointsMade/extraPointAttempts",
+       "totalKickingPoints"
+      ],
+      "athletes": [
+       {
+        "athlete": {
+         "id": "3055899",
+         "displayName": "Harrison Butker"
+        },
+        "stats": [
+         "1/1",
+         "100.0",
+         "28",
+         "3/3",
+         "6"
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "team": {
+     "abbreviation": "LV",
+     "displayName": "Las Vegas Raiders"
+    },
+    "statistics": [
+     {
+      "name": "receiving",
+      "keys": [
+       "receptions",
+       "receivingYards",
+       "yardsPerReception",
+       "receivingTouchdowns",
+       "longReception",
+       "receivingTargets"
+      ],
+      "athletes": [
+       {
+        "athlete": {
+         "id": "4432665",
+         "displayName": "Brock Bowers"
+        },
+        "stats": [
+         "6",
+         "86",
+         "14.3",
+         "1",
+         "21",
+         "11"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4429086",
+         "displayName": "Michael Mayer"
+        },
+        "stats": [
+         "8",
+         "82",
+         "10.3",
+         "0",
+         "17",
+         "10"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4890973",
+         "displayName": "Ashton Jeanty"
+        },
+        "stats": [
+         "6",
+         "68",
+         "11.3",
+         "0",
+         "28",
+         "8"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4428718",
+         "displayName": "Tre Tucker"
+        },
+        "stats": [
+         "4",
+         "44",
+         "11.0",
+         "0",
+         "23",
+         "8"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4241983",
+         "displayName": "Cody White"
+        },
+        "stats": [
+         "2",
+         "36",
+         "18.0",
+         "0",
+         "27",
+         "4"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4045305",
+         "displayName": "Ian Thomas"
+        },
+        "stats": [
+         "2",
+         "32",
+         "16.0",
+         "1",
+         "27",
+         "2"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4241961",
+         "displayName": "Connor Heyward"
+        },
+        "stats": [
+         "1",
+         "9",
+         "9.0",
+         "0",
+         "9",
+         "1"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4401805",
+         "displayName": "Dareke Young"
+        },
+        "stats": [
+         "1",
+         "9",
+         "9.0",
+         "0",
+         "9",
+         "2"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4686658",
+         "displayName": "Mike Washington Jr."
+        },
+        "stats": [
+         "1",
+         "-1",
+         "-1.0",
+         "0",
+         "-1",
+         "2"
+        ]
+       }
+      ]
+     },
+     {
+      "name": "kicking",
+      "keys": [
+       "fieldGoalsMade/fieldGoalAttempts",
+       "fieldGoalPct",
+       "longFieldGoalMade",
+       "extraPointsMade/extraPointAttempts",
+       "totalKickingPoints"
+      ],
+      "athletes": [
+       {
+        "athlete": {
+         "id": "4249087",
+         "displayName": "Matt Gay"
+        },
+        "stats": [
+         "4/4",
+         "100.0",
+         "48",
+         "1/1",
+         "13"
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

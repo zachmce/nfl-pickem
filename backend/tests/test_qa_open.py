@@ -893,6 +893,7 @@ class ShippedRegistryTests(_OpenPathTestCase):
                 "search_nfl_news",
                 "lookup_live_game",
                 "lookup_week_scoreboard",
+                "lookup_game_player_stats",
                 "lookup_my_pick_status",
                 "lookup_league_picks",
                 "lookup_pick_completion",
@@ -1188,9 +1189,10 @@ class ShippedRegistryTests(_OpenPathTestCase):
         # totals and pick-type halves of team ATS and member season (issue #248); 43,255
         # with career, awards, FPI, QBR and transactions (33 tools); 45,121 with the
         # championships and Hall of Fame corpus tools and the awards player argument;
-        # 45,873 with the slate weather tool (issue #286).
+        # 45,873 with the slate weather tool (issue #286); 47,561 with the game player
+        # stats tool and the misc wording on the league picks tool (2026-10-05).
         total = sum(len(json.dumps(tool.spec)) for tool in qa_open.TOOLS)
-        self.assertLess(total, 45900, f"the shipped tool specs now total {total} bytes")
+        self.assertLess(total, 47600, f"the shipped tool specs now total {total} bytes")
         for tool in qa_open.TOOLS[5:]:
             with self.subTest(tool=tool.name):
                 self.assertLess(len(json.dumps(tool.spec)), 1700)
@@ -4199,6 +4201,7 @@ class GroundingReplayTests(_OpenPathTestCase):
             {
                 "lookup_live_game",
                 "lookup_week_scoreboard",
+                "lookup_game_player_stats",
                 "lookup_my_pick_status",
                 "lookup_league_picks",
                 "lookup_pick_completion",
@@ -5555,6 +5558,160 @@ class SpeedTests(_OpenPathTestCase):
             mock.patch.object(qa_open.llm_client, "open_chat", _slow),
         ):
             self.assertIsNone(_run(qa_open.answer_open("q", voice=_VOICE)))
+
+
+_BOX_SCORE_FIXTURE = Path(__file__).parent / "fixtures" / "espn_box_score_kc_lv.json"
+# ESPN athlete ids of the five tight ends with a catch in the fixture game.
+_TIGHT_END_IDS = {"KC": ("4240472", "15847"), "LV": ("4432665", "4429086", "4045305")}
+
+
+class GamePlayerStatsToolTests(_OpenPathTestCase):
+    """2026-10-05: both clubs' tight ends were totalled 113, 200 and 232 in three answers.
+    The tool adds the total up itself from the whole box score."""
+
+    def _espn(self, *, state: str = "post", rosters: bool = True):
+        scoreboard = {
+            "season": {"year": 2026, "type": 2},
+            "week": {"number": 4},
+            "events": [
+                {
+                    "id": "401872976",
+                    "name": "Kansas City Chiefs at Las Vegas Raiders",
+                    "competitions": [
+                        {
+                            "status": {"type": {"state": state}},
+                            "competitors": [
+                                {"homeAway": "home", "team": {"abbreviation": "LV"}},
+                                {"homeAway": "away", "team": {"abbreviation": "KC"}},
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+
+        async def _fake_scoreboard():
+            return scoreboard
+
+        async def _fake_summary(event_id):
+            return json.loads(_BOX_SCORE_FIXTURE.read_text())
+
+        async def _fake_roster(team):
+            if not rosters:
+                return None
+            items = [{"id": i, "position": {"abbreviation": "TE"}} for i in _TIGHT_END_IDS[team]]
+            return {"athletes": [{"position": "offense", "items": items}]}
+
+        async def _fake_schedule(team, *, season=None):
+            return None
+
+        return mock.patch.multiple(
+            espn_extra,
+            fetch_scoreboard=_fake_scoreboard,
+            fetch_live_game_summary=_fake_summary,
+            fetch_game_summary=_fake_summary,
+            fetch_team_roster=_fake_roster,
+            fetch_team_schedule=_fake_schedule,
+        )
+
+    def test_a_position_total_is_added_up_from_the_whole_box_score(self) -> None:
+        with self._espn():
+            body = _run(
+                qa_open._lookup_game_player_stats(team="LV", category="receiving", position="te")
+            )
+        assert isinstance(body, dict)
+        self.assertEqual(list(body["categories"]), ["receiving"])
+        receiving = body["categories"]["receiving"]
+        self.assertEqual(receiving["combined_totals"]["receiving yards"], 232)
+        self.assertEqual(receiving["combined_totals"]["receptions"], 20)
+        clubs = receiving["clubs"]
+        self.assertEqual(clubs["Kansas City Chiefs"]["totals"]["receiving yards"], 32)
+        self.assertEqual(clubs["Las Vegas Raiders"]["totals"]["receiving yards"], 200)
+        names = [p["player"] for p in clubs["Las Vegas Raiders"]["players"]]
+        self.assertEqual(names, ["Brock Bowers", "Michael Mayer", "Ian Thomas"])
+        self.assertEqual(body["score"], "KC 30, LV 27")
+        self.assertIn(
+            "The final score was KC 30, LV 27, so the Kansas City Chiefs won that game.",
+            body["stats_statement"],
+        )
+        self.assertIn("It covers players at TE, for both clubs", body["stats_statement"])
+        self.assertIn("In receiving, 5 players total: 20 receptions", body["stats_statement"])
+        self.assertIn("232 receiving yards", body["stats_statement"])
+        self.assertIn("That game is final.", body["stats_statement"])
+        # A longest reception is never summed, and no athlete id reaches the model.
+        self.assertNotIn("longest reception", receiving["combined_totals"])
+        self.assertNotIn("athlete_id", _all_keys(body))
+        # A player with no roster position is named, never silently dropped.
+        self.assertIn("Tyquan Thornton", body["players_with_no_listed_position"])
+        self.assertIn("not counted as TE", body["stats_statement"])
+
+    def test_no_category_returns_every_category_in_one_call(self) -> None:
+        with self._espn(state="in"):
+            body = _run(qa_open._lookup_game_player_stats(team="KC"))
+        assert isinstance(body, dict)
+        # The fixture carries receiving and kicking only; an absent category stays empty.
+        self.assertEqual(list(body["categories"]), ["passing", "rushing", "receiving", "kicking"])
+        receiving = body["categories"]["receiving"]["combined_totals"]
+        self.assertEqual(receiving["receiving yards"], 225 + 365)
+        kicking = body["categories"]["kicking"]["combined_totals"]
+        self.assertRegex(str(kicking["field goals made and attempted"]), r"^\d+/\d+$")
+        self.assertEqual(body["status"], "in progress")
+        self.assertIn("as of right now", body["stats_statement"])
+        self.assertNotIn("players_with_no_listed_position", body)
+
+    def test_every_miss_is_a_note_never_none(self) -> None:
+        self.assertEqual(
+            _run(qa_open._lookup_game_player_stats(category="receiving")),
+            {"note": qa_open._NO_TEAM_FOR_BOX_SCORE_NOTE},
+        )
+        out = _run(qa_open._lookup_game_player_stats(team="KC", category="tackles"))
+        assert isinstance(out, dict)
+        self.assertIn("passing, rushing, receiving, kicking", out["note"])
+        with self._espn(state="pre"):
+            # A game that has not started falls to the schedule, which fails here.
+            self.assertEqual(
+                _run(qa_open._lookup_game_player_stats(team="KC", category="receiving")),
+                {"note": qa_open._BOX_SCORE_FAILED_NOTE.format(team="KC")},
+            )
+
+    def test_the_description_instructs_the_call_before_it_constrains(self) -> None:
+        text = qa_open._GAME_PLAYER_STATS_TOOL_DESCRIPTION
+        self.assertIn("Call this tool every time the member asks for a combined or total", text)
+        self.assertIn("check whether a member's misc call hit", text)
+        self.assertIn("lookup_game_player_stats", [tool.name for tool in qa_open.TOOLS])
+
+
+class MiscAwaitingGradeTests(_OpenPathTestCase):
+    """2026-10-05: the admin asked four times before the bot checked a misc call."""
+
+    def _picks(self, outcome: str) -> dict:
+        pick = {
+            "game": "KC at LV",
+            "pick": "misc call on KC at LV: Tightends get combined 250+ yards receiving",
+            "pick_type": "MISC",
+            "mortal_lock": False,
+            "outcome": outcome,
+            "points": 0,
+            "game_status": "final",
+        }
+        member = {"display_name": "alice", "weekly_score": 2, "picks": [pick]}
+        return {"week": 4, "picks_locked": True, "close_at": _CLOSE_AT, "members": [member]}
+
+    def test_an_ungraded_misc_on_a_final_game_tells_the_model_to_check_it(self) -> None:
+        with _db("get_league_picks_async", self._picks("AWAITING_ADMIN_GRADE"), []):
+            body = _run(qa_open._lookup_league_picks())
+        assert isinstance(body, dict)
+        self.assertIn(
+            "1 misc calls below have the outcome AWAITING_ADMIN_GRADE", body["picks_statement"]
+        )
+        self.assertIn("call lookup_game_player_stats once for each game", body["picks_statement"])
+        self.assertIn("never call one ungradeable", body["picks_statement"])
+
+    def test_a_graded_misc_adds_no_clause(self) -> None:
+        with _db("get_league_picks_async", self._picks("LOSS"), []):
+            body = _run(qa_open._lookup_league_picks())
+        assert isinstance(body, dict)
+        self.assertNotIn("AWAITING_ADMIN_GRADE", body["picks_statement"])
 
 
 if __name__ == "__main__":

@@ -237,6 +237,26 @@ class LeaguePicksWindowClosedTests(_ReaderTestCase):
         self.assertEqual([m["display_name"] for m in out["members"]], ["alice", "bob"])
         self.assertNotIn("user_id", str(out))
 
+    def test_an_ungraded_misc_on_a_final_game_awaits_the_admin(self) -> None:
+        with self._session() as session:
+            before = get_league_picks(session, SEASON, WEEK)
+            later = session.exec(select(Game).where(Game.espn_event_id == 2)).one()
+            later.status, later.home_score, later.away_score = GameStatus.FINAL, 27, 20
+            session.add(later)
+            session.commit()
+            after = get_league_picks(session, SEASON, WEEK)
+
+        def misc(out: dict) -> dict:
+            alice = next(m for m in out["members"] if m["display_name"] == "alice")
+            return next(p for p in alice["picks"] if p["pick_type"] == "MISC")
+
+        self.assertEqual(
+            (misc(before)["outcome"], misc(before)["game_status"]), ("UNGRADEABLE", "not started")
+        )
+        self.assertEqual(
+            (misc(after)["outcome"], misc(after)["game_status"]), ("AWAITING_ADMIN_GRADE", "final")
+        )
+
     def test_completion_after_the_close_reads_as_missed_deadline(self) -> None:
         with self._session() as session:
             out = get_pick_completion(session, SEASON, WEEK)

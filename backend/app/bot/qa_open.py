@@ -3206,6 +3206,220 @@ _WEEK_SCOREBOARD_TOOL_DESCRIPTION = (
 
 
 # --------------------------------------------------------------------------- #
+# The GAME PLAYER STATS tool (2026-10-05). A member asked for both clubs' tight ends'
+# combined receiving yards and got 113, 200 and 232 in three answers: no tool carried
+# more than one leader per club, so the model built a total from a scoring play and
+# then from per-player game logs. The total is added up HERE, never by the model.
+# --------------------------------------------------------------------------- #
+
+
+async def _box_score_game(team_abbr: str, week: int | None) -> dict:
+    """Resolve which game is meant: ``{event_id, game, week, live}`` or ``{note}``."""
+    from app.services import espn_extra
+
+    payload = await espn_extra.fetch_scoreboard()
+    scoreboard = espn_extra.parse_scoreboard(payload) if payload is not None else None
+    if scoreboard is not None and week in (None, scoreboard["week"]):
+        current = _find_scoreboard_game(scoreboard["games"], team_abbr)
+        if current is not None and current["state"] != "pre" and current["event_id"]:
+            return {
+                "event_id": current["event_id"],
+                "game": current["name"] or f"the {team_abbr} game",
+                "week": scoreboard["week"],
+                "live": current["state"] == "in",
+            }
+
+    schedule_payload = await espn_extra.fetch_team_schedule(team_abbr)
+    schedule = (
+        espn_extra.parse_team_schedule(schedule_payload, week=week)
+        if schedule_payload is not None
+        else None
+    )
+    if schedule is None:
+        return {"note": _BOX_SCORE_FAILED_NOTE.format(team=team_abbr)}
+    club, year, game = schedule["team"] or team_abbr, schedule["season"], schedule["game"]
+    if game is None and week is not None:
+        return {"note": _NO_GAME_THAT_WEEK_NOTE.format(team=club, week=week, season=year)}
+    if game is None:
+        return {"note": _NO_COMPLETED_GAMES_NOTE.format(team=club, season=year)}
+    fixture = game["name"] if isinstance(game["name"], str) else f"the {club} game"
+    if not game["completed"]:
+        when = _fmt_espn_date(game["date"]) or "a date ESPN does not give"
+        return {
+            "note": _NOT_YET_PLAYED_NOTE.format(
+                game=fixture, date=when, week=game["week"], season=year
+            )
+        }
+    return {"event_id": game["event_id"], "game": fixture, "week": game["week"], "live": False}
+
+
+async def _lookup_game_player_stats(
+    team: str = "", category: str = "", position: str | None = None, week: int | None = None
+) -> object | None:
+    """Every player's line in ONE category of ONE game, with the totals added up here."""
+    from app.services import espn_extra
+
+    team_abbr = team.strip().upper() if isinstance(team, str) else ""
+    if team_abbr not in espn_extra.NFL_TEAM_ABBRS:
+        return {"note": _NO_TEAM_FOR_BOX_SCORE_NOTE}
+    key = category.strip().lower() if isinstance(category, str) else ""
+    if key and key not in espn_extra.BOX_SCORE_CATEGORIES:
+        return {
+            "note": _BAD_BOX_SCORE_CATEGORY_NOTE.format(
+                categories=", ".join(espn_extra.BOX_SCORE_CATEGORIES)
+            )
+        }
+    if week is not None and _coerce_week_arg(week) is None:
+        return {"note": _BAD_WEEK_NOTE}
+
+    resolved = await _box_score_game(team_abbr, week)
+    if "note" in resolved:
+        return resolved
+    fixture, live = resolved["game"], resolved["live"]
+    fetch = espn_extra.fetch_live_game_summary if live else espn_extra.fetch_game_summary
+    summary = await fetch(resolved["event_id"])
+    parsed = {
+        name: espn_extra.parse_box_score_players(summary, name)
+        for name in ([key] if key else espn_extra.BOX_SCORE_CATEGORIES)
+    }
+    first = next(iter(parsed.values()))
+    if not first:
+        return {"note": _NO_BOX_SCORE_NOTE.format(game=fixture)}
+
+    wanted = position.strip().upper() if isinstance(position, str) and position.strip() else None
+    rosters = await asyncio.gather(
+        *(espn_extra.fetch_team_roster(club["abbreviation"]) for club in first)
+    )
+    positions: dict[str, str] = {}
+    for roster in rosters:
+        positions.update(espn_extra.roster_positions(roster))
+
+    categories: dict[str, dict] = {}
+    unplaced: list[str] = []
+    clauses: list[str] = []
+    for name, clubs in parsed.items():
+        by_club: dict[str, dict] = {}
+        kept_all: list[dict] = []
+        for club in clubs or []:
+            kept: list[dict] = []
+            for line in club["players"]:
+                listed = positions.get(line["athlete_id"] or "")
+                if wanted is not None and listed is None and line["player"] not in unplaced:
+                    unplaced.append(line["player"])
+                if wanted is None or listed == wanted:
+                    kept.append(
+                        {
+                            "player": line["player"],
+                            "position": listed or "not on ESPN's current roster",
+                            "stats": line["stats"],
+                        }
+                    )
+            kept_all.extend(kept)
+            by_club[club["team"]] = {
+                "players": kept,
+                "totals": espn_extra.sum_box_score_lines(kept),
+            }
+        combined = espn_extra.sum_box_score_lines(kept_all)
+        categories[name] = {"clubs": by_club, "combined_totals": combined}
+        clauses.append(
+            _BOX_SCORE_CATEGORY_CLAUSE.format(
+                category=name, count=len(kept_all), totals=_totals_phrase(combined)
+            )
+        )
+
+    statement = _BOX_SCORE_STATEMENT.format(
+        game=fixture,
+        week=resolved["week"],
+        status="still being played, so every figure is as of right now" if live else "final",
+        who=f"players at {wanted}" if wanted else "players at every position",
+        clauses=" ".join(clauses),
+    )
+    game_facts = espn_extra.parse_live_game(summary) or {}
+    score = _score_clause(game_facts)
+    if score:
+        winner = next(
+            (
+                side["name"]
+                for side in (game_facts["home"], game_facts["away"])
+                if side.get("winner")
+            ),
+            None,
+        )
+        statement += (
+            _BOX_SCORE_LIVE_SCORE_CLAUSE.format(score=score)
+            if live or winner is None
+            else _BOX_SCORE_FINAL_SCORE_CLAUSE.format(score=score, winner=winner)
+        )
+    answer: dict[str, object] = {
+        "game": fixture,
+        "week": resolved["week"],
+        "status": "in progress" if live else "final",
+        "score": score or "not available",
+        "position": wanted or "every position",
+        "categories": categories,
+        "stats_statement": statement,
+        "caveat": espn_extra.BOX_SCORE_CAVEAT,
+    }
+    if unplaced:
+        answer["players_with_no_listed_position"] = unplaced
+        answer["stats_statement"] = statement + _BOX_SCORE_UNPLACED_CLAUSE.format(
+            position=wanted, players=", ".join(unplaced)
+        )
+    return answer
+
+
+def _totals_phrase(totals: dict) -> str:
+    return ", ".join(f"{value} {label}" for label, value in totals.items()) or "no figures"
+
+
+_BOX_SCORE_STATEMENT = (
+    "This is ESPN's box score for {game}, week {week}. That game is {status}. It covers "
+    "{who}, for both clubs combined. {clauses} Each combined total and each club's total "
+    "below is already added up, so state them exactly as given."
+)
+_BOX_SCORE_FINAL_SCORE_CLAUSE = " The final score was {score}, so the {winner} won that game."
+_BOX_SCORE_LIVE_SCORE_CLAUSE = " The score is {score}."
+_BOX_SCORE_CATEGORY_CLAUSE = "In {category}, {count} players total: {totals}."
+_BOX_SCORE_UNPLACED_CLAUSE = (
+    " These players have a line in that game and are not on ESPN's current roster, so "
+    "their position is not known and they are not counted as {position}: {players}."
+)
+_NO_TEAM_FOR_BOX_SCORE_NOTE = (
+    "No NFL team abbreviation was given, so this tool looked nothing up. Call it again "
+    "with the team argument set to the standard abbreviation of either team in the game."
+)
+_BAD_BOX_SCORE_CATEGORY_NOTE = (
+    "That category is not one this tool reads, so it looked nothing up. Call it again "
+    "with the category argument set to one of: {categories}."
+)
+_BOX_SCORE_FAILED_NOTE = (
+    "The lookup of the {team} schedule failed just now, so this tool could not find the "
+    "game. Tell the member plainly that you could not read the box score this time, and "
+    "never give a figure from your own memory instead."
+)
+_NO_BOX_SCORE_NOTE = (
+    "This tool found {game} and ESPN's box score for it carries no player lines right "
+    "now. Tell the member plainly that the box score was not available, and never give a "
+    "figure from your own memory instead."
+)
+
+_GAME_PLAYER_STATS_TOOL_DESCRIPTION = (
+    "Look up every player's box-score line in one NFL game, for both teams, with the "
+    "totals already added up: passing, rushing, receiving and kicking. Call this tool "
+    "every time the member asks for a combined or total figure across several players in "
+    "a game, what a position group did in a game such as both teams' tight ends, who "
+    "else had a catch or a carry, or how many field goals were made in a game, and every "
+    "time you check whether a member's misc call hit. Never add a total up from player "
+    "game logs, game leaders or scoring plays, because those miss players. The team "
+    "argument is the abbreviation of either team in the game. Pass category to get one "
+    "category, or leave it out for all four at once. Pass position, such as TE, WR or "
+    "RB, to keep only that position; the totals then cover that position only. Leave "
+    "week out for the team's game this week or its most recent game. It reads this "
+    "season only. For one named player's game, lookup_player_game_log is the tool."
+)
+
+
+# --------------------------------------------------------------------------- #
 # The APP-DATA tools (2026-09-18, PR 2 of the scope loosening). The classifier's
 # fixed intents stay for the plain cases; these let the open path answer "who has
 # picks on the Bills game", "who hasn't picked yet", and any question that mixes
@@ -3312,8 +3526,9 @@ _MY_PICK_STATUS_TOOL_DESCRIPTION = (
     "this week, and which slots they still have to fill. Call this tool when the member "
     "asks whether their picks are in, whether they are all set, what they still need to "
     "pick, or whether they are locked in. It takes no arguments, because it always reads "
-    "the asking member's own card. It never returns what anyone picked; for every "
-    "member's picks after the week locks, lookup_league_picks is the tool, and for who "
+    "the asking member's own card. It never returns what anyone picked and never says "
+    "whether a pick hit: when the member asks what they picked, or whether they got, hit "
+    "or won a pick or their misc call, lookup_league_picks is the tool, and for who "
     "has and has not finished their card, lookup_pick_completion is the tool."
 )
 
@@ -3340,13 +3555,43 @@ async def _lookup_league_picks(week: int | None = None) -> object | None:
     members = data.get("members") or []
     if not members:
         return {"note": _NO_PICKS_THAT_WEEK_NOTE.format(week=data["week"])}
+    statement = _LEAGUE_PICKS_STATEMENT.format(week=data["week"], count=len(members))
+    waiting = sum(
+        1
+        for member in members
+        for pick in member.get("picks") or []
+        if pick.get("outcome") == _MISC_AWAITING_GRADE
+    )
+    if waiting:
+        statement += _MISC_AWAITING_GRADE_CLAUSE.format(count=waiting)
     return {
         "week": data["week"],
         "picks_hidden": False,
         "members": members,
-        "picks_statement": _LEAGUE_PICKS_STATEMENT.format(week=data["week"], count=len(members)),
+        "picks_statement": statement,
         "caveat": _LEAGUE_PICKS_CAVEAT,
     }
+
+
+# Mirrors notifications_read.MISC_AWAITING_GRADE; the bot module imports no service here.
+_MISC_AWAITING_GRADE = "AWAITING_ADMIN_GRADE"
+# 2026-10-05: the admin asked four times before the bot checked a misc call against the
+# game. "Marked ungradeable" was the answer three times, for games that were final.
+_MISC_AWAITING_GRADE_CLAUSE = (
+    " {count} misc calls below have the outcome AWAITING_ADMIN_GRADE: the game is final "
+    "and the admin, who grades every misc call by hand, has not entered a grade yet. The "
+    "admin uses your answer to decide that grade. So whenever the member asks about a "
+    "misc call, how the misc calls did, or whether one hit, check each of those calls "
+    "now, before you answer: call lookup_game_player_stats once for each game, all in "
+    "the same turn and with no category so that one call covers the whole game, then "
+    "say whether the call hit or missed by the real figure and give that figure. Read "
+    "a named player's figure from that player's own line, and a passing touchdown is "
+    "never a rushing or a receiving touchdown. Write each call in this order: the "
+    "member, the real figure, what the call needed, then hit or missed. Write the "
+    "figure before the verdict every time, never open with a verdict or with a count "
+    "of how many hit, and never write a verdict and then correct it. Say once that the official grade is not entered yet. Never answer only that "
+    "a misc call is not graded, and never call one ungradeable."
+)
 
 
 _BAD_WEEK_NOTE = (
@@ -3375,7 +3620,7 @@ _LEAGUE_PICKS_STATEMENT = (
     "The week {week} pick window has closed, so every member's picks for that week are "
     "public. {count} members have picks listed below, ordered by their score for the "
     "week. A pick's outcome is WIN, LOSS or PUSH once its game is final, and UNGRADEABLE "
-    "while the game has not finished."
+    "while the game has not finished. Each pick says whether its game is final."
 )
 _LEAGUE_PICKS_CAVEAT = (
     "Report each pick exactly as listed under the member it belongs to, and never move a "
@@ -3392,7 +3637,8 @@ _LEAGUE_PICKS_TOOL_DESCRIPTION = (
     "final, and the member's score for the week. Call this tool when the member asks who "
     "picked a given team or game, who has money on tonight's game, what someone else "
     "picked, who took the over or the underdog somewhere, whose mortal lock hit or "
-    "busted, or how the league did in a week. Leave the week argument out for the "
+    "busted, what a member's misc call was, whether a misc call hit, or how the league "
+    "did in a week. Leave the week argument out for the "
     "current week and pass it only when the member names a week number. Picks are hidden "
     "until the week's pick window closes at its first kickoff, and when they are hidden "
     "this tool says so and says when they unlock, so call it anyway and relay that. For "
@@ -5507,6 +5753,41 @@ _BASE_TOOLS: tuple[_Tool, ...] = (
             },
         },
         run=_lookup_week_scoreboard,
+        volatile=True,
+    ),
+    _Tool(
+        name="lookup_game_player_stats",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_game_player_stats",
+                "description": _GAME_PLAYER_STATS_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {
+                            "type": "string",
+                            "description": "Either team's abbreviation, such as LV.",
+                        },
+                        "category": {
+                            "type": "string",
+                            "enum": ["passing", "rushing", "receiving", "kicking"],
+                            "description": "Optional. Leave it out for every category.",
+                        },
+                        "position": {
+                            "type": "string",
+                            "description": "Optional position abbreviation, such as TE.",
+                        },
+                        "week": {
+                            "type": "integer",
+                            "description": "Optional week number, ONLY when the member named one.",
+                        },
+                    },
+                    "required": ["team"],
+                },
+            },
+        },
+        run=_lookup_game_player_stats,
         volatile=True,
     ),
     _Tool(

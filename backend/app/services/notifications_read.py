@@ -1642,6 +1642,21 @@ def _pick_side_label(
     return f"misc call on {away} at {home}: {misc_text or 'no text'}"
 
 
+MISC_AWAITING_GRADE = "AWAITING_ADMIN_GRADE"
+_GAME_STATUS_WORDS = {
+    GameStatus.SCHEDULED: "not started",
+    GameStatus.IN_PROGRESS: "in progress",
+    GameStatus.FINAL: "final",
+}
+
+
+def _public_outcome(pick_type: PickType, outcome: str, game: Game) -> str:
+    """A misc call on a FINAL game with no admin grade is not "ungradeable": it waits."""
+    if pick_type is PickType.MISC and outcome == "UNGRADEABLE" and game.status is GameStatus.FINAL:
+        return MISC_AWAITING_GRADE
+    return outcome
+
+
 def get_league_picks(session: Session, season: int, week: int) -> dict:
     """Every member's picks for ``{season, week}``, ONLY once the week's window has closed.
 
@@ -1675,8 +1690,9 @@ def get_league_picks(session: Session, season: int, week: int) -> dict:
                     "pick": _pick_side_label(pick.pick_type, game, abbr_by_team_id, pick.misc_text),
                     "pick_type": pick.pick_type.value,
                     "mortal_lock": pick.is_mortal_lock,
-                    "outcome": pick.outcome,
+                    "outcome": _public_outcome(pick.pick_type, pick.outcome, game),
                     "points": pick.points,
+                    "game_status": _GAME_STATUS_WORDS[game.status],
                 }
             )
         members.append(

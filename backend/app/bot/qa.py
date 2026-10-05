@@ -165,7 +165,8 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "fence, no explanation. The object has exactly these keys: "
     '"intent", "team", "week", "subject", "nfl". '
     '"intent" MUST be one of: pick_status (whether the asker\'s OWN card is complete or '
-    "locked, and nothing about anyone else), standings "
+    "locked, and nothing about anyone else; WHAT the asker picked, what their misc pick "
+    "was, and whether one of their picks hit are each open_nfl, NOT pick_status), standings "
     "(the pick'em LEADERBOARD — league members' points and ranks; an NFL team's or "
     "division's win-loss record is open_nfl, NOT standings), lines_slate (the spread, total, this "
     "week's games, or when the window closes), "

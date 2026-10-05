@@ -3599,6 +3599,134 @@ def _kicking_lines(payload: dict) -> dict[str, list[dict[str, Any]]]:
     return lines
 
 
+# The per-player box score (2026-10-05). The leaders carry ONE player per club and
+# category, so a "tight ends combined" question was answered 113, then 200, then 232.
+BOX_SCORE_CATEGORIES: dict[str, tuple[tuple[str, str], ...]] = {
+    "passing": (
+        ("completions/passingAttempts", "completions and attempts"),
+        ("passingYards", "passing yards"),
+        ("passingTouchdowns", "passing touchdowns"),
+        ("interceptions", "interceptions thrown"),
+    ),
+    "rushing": (
+        ("rushingAttempts", "carries"),
+        ("rushingYards", "rushing yards"),
+        ("rushingTouchdowns", "rushing touchdowns"),
+        ("longRushing", "longest run"),
+    ),
+    "receiving": (
+        ("receptions", "receptions"),
+        ("receivingYards", "receiving yards"),
+        ("receivingTouchdowns", "receiving touchdowns"),
+        ("receivingTargets", "targets"),
+        ("longReception", "longest reception"),
+    ),
+    "kicking": (
+        ("fieldGoalsMade/fieldGoalAttempts", "field goals made and attempted"),
+        ("extraPointsMade/extraPointAttempts", "extra points made and attempted"),
+        ("longFieldGoalMade", "longest field goal made"),
+    ),
+}
+_BOX_SCORE_NEVER_SUMMED = frozenset({"longest run", "longest reception", "longest field goal made"})
+
+BOX_SCORE_CAVEAT = (
+    "Every figure here is from ESPN's box score for this one game and none of them is a "
+    "season total. Each player's position is the one ESPN's current roster lists for him. "
+    "The totals are already added up from every player listed, so report them as given "
+    "and never add the players' figures up again."
+)
+
+
+def parse_box_score_players(payload: Any, category: str) -> list[dict[str, Any]] | None:
+    """Every player's line in one box-score ``category``, club by club. Pure, never raises.
+
+    Returns ``None`` when the summary carries no ``boxscore.players`` list, which is the
+    shape of a game that has not started. Each line keeps the athlete id so the caller can
+    join a roster position; the caller drops it before the model sees the line.
+    """
+    fields = BOX_SCORE_CATEGORIES.get(category)
+    boxscore = payload.get("boxscore") if isinstance(payload, dict) else None
+    blocks = boxscore.get("players") if isinstance(boxscore, dict) else None
+    if fields is None or not isinstance(blocks, list):
+        return None
+    clubs: list[dict[str, Any]] = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        team = block.get("team")
+        team = team if isinstance(team, dict) else {}
+        club = _first_str(team.get("displayName"))
+        abbreviation = _first_str(team.get("abbreviation"))
+        groups = block.get("statistics")
+        if club is None or abbreviation is None or not isinstance(groups, list):
+            continue
+        lines: list[dict[str, Any]] = []
+        for group in groups:
+            if not isinstance(group, dict) or group.get("name") != category:
+                continue
+            keys = group.get("keys")
+            keys = [str(key) for key in keys] if isinstance(keys, list) else []
+            athletes = group.get("athletes")
+            for athlete in athletes if isinstance(athletes, list) else []:
+                if not isinstance(athlete, dict):
+                    continue
+                person = athlete.get("athlete")
+                person = person if isinstance(person, dict) else {}
+                name = _first_str(person.get("displayName"))
+                stats = athlete.get("stats")
+                if name is None or not isinstance(stats, list):
+                    continue
+                by_key = {key: _stat_value(value) for key, value in zip(keys, stats, strict=False)}
+                lines.append(
+                    {
+                        "athlete_id": _first_str(person.get("id")),
+                        "player": name,
+                        "stats": {label: by_key[key] for key, label in fields if by_key.get(key)},
+                    }
+                )
+        clubs.append({"team": club, "abbreviation": abbreviation.upper(), "players": lines})
+    return clubs
+
+
+def sum_box_score_lines(lines: list[dict[str, Any]]) -> dict[str, int | str]:
+    """Add up every summable figure across ``lines``. A ``made/attempted`` pair stays a pair."""
+    totals: dict[str, list[int]] = {}
+    for line in lines:
+        for label, value in line["stats"].items():
+            if label in _BOX_SCORE_NEVER_SUMMED:
+                continue
+            try:
+                parts = [int(part.strip()) for part in str(value).split("/")]
+            except ValueError:
+                continue
+            running = totals.setdefault(label, [0] * len(parts))
+            if len(running) == len(parts):
+                for index, part in enumerate(parts):
+                    running[index] += part
+    return {
+        label: parts[0] if len(parts) == 1 else "/".join(str(part) for part in parts)
+        for label, parts in totals.items()
+    }
+
+
+def roster_positions(payload: Any) -> dict[str, str]:
+    """``{athlete id: position abbreviation}`` from a team ``roster`` payload. Never raises."""
+    positions: dict[str, str] = {}
+    groups = payload.get("athletes") if isinstance(payload, dict) else None
+    for group in groups if isinstance(groups, list) else []:
+        items = group.get("items") if isinstance(group, dict) else None
+        for athlete in items if isinstance(items, list) else []:
+            if not isinstance(athlete, dict):
+                continue
+            position = athlete.get("position")
+            position = position if isinstance(position, dict) else {}
+            athlete_id = _first_str(athlete.get("id"))
+            abbreviation = _first_str(position.get("abbreviation"))
+            if athlete_id is not None and abbreviation is not None:
+                positions[athlete_id] = abbreviation.upper()
+    return positions
+
+
 def _scoring_plays(payload: dict, sides: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     """The last :data:`LIVE_SCORING_PLAYS_MAX` scoring plays, each with the score after it."""
     plays = payload.get("scoringPlays")
