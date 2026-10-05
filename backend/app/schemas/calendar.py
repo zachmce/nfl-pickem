@@ -27,9 +27,10 @@ from pydantic import BaseModel, ConfigDict
 
 from app.models import GameStatus
 
-# The caller's picks on one game, folded to one value: PENDING = none graded
-# yet; WIN / LOSS = every graded pick agrees; SPLIT = graded picks disagree.
-CalendarPickOutcome = Literal["PENDING", "WIN", "LOSS", "SPLIT"]
+# The caller's picks on one game, folded to one value: PENDING = not graded
+# yet; WIN / LOSS = the picks agree, or net points decide when they disagree;
+# EVEN = graded with no net win or loss (a push, or net points of zero).
+CalendarPickOutcome = Literal["PENDING", "WIN", "LOSS", "EVEN"]
 
 
 class CalendarTeam(BaseModel):

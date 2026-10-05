@@ -46,13 +46,14 @@ from sqlmodel import Session, col, select
 from app.api.deps import get_current_user
 from app.db import get_session
 from app.exceptions import ValidationError
-from app.models import Game, Pick, PickResult, Team, User
+from app.models import Game, GameStatus, Pick, Team, User
 from app.schemas.calendar import (
     CalendarGame,
     CalendarPickOutcome,
     CalendarResponse,
     CalendarTeam,
 )
+from app.services.scoring import GradeOutcome, grade_pick
 
 router = APIRouter(prefix="/api/calendar", tags=["calendar"])
 
@@ -87,22 +88,26 @@ def _parse_day(value: str, *, field: str) -> datetime:
     return datetime(d.year, d.month, d.day, tzinfo=UTC)
 
 
-def _pick_outcome(results: list[PickResult]) -> CalendarPickOutcome | None:
-    """Fold the caller's pick results on one game into a single outcome.
+def _pick_outcome(game: Game, picks: list[Pick]) -> CalendarPickOutcome | None:
+    """Fold the caller's picks on one game into a single outcome.
 
-    A member can hold several picks on one game (cover, total, mortal lock).
-    PENDING picks are ignored once any pick on the game is graded.
+    Grades with :func:`~app.services.scoring.grade_pick`, NOT the stored
+    ``Pick.result``: that column is vestigial (always PENDING) for every type
+    but MISC. When picks on a game disagree, the net points decide.
     """
-    if not results:
+    if not picks:
         return None
-    graded = {r for r in results if r != PickResult.PENDING}
-    if not graded:
-        return "PENDING"
-    if graded == {PickResult.WIN}:
+    grades = [grade_pick(game, p) for p in picks]
+    decided = {g.outcome for g in grades} & {GradeOutcome.WIN, GradeOutcome.LOSS}
+    if not decided:
+        # A push / ineligible pick on a FINAL game is graded, with no win or loss.
+        return "EVEN" if game.status == GameStatus.FINAL else "PENDING"
+    if decided == {GradeOutcome.WIN}:
         return "WIN"
-    if graded == {PickResult.LOSS}:
+    if decided == {GradeOutcome.LOSS}:
         return "LOSS"
-    return "SPLIT"
+    net = sum(g.points for g in grades)
+    return "WIN" if net > 0 else "LOSS" if net < 0 else "EVEN"
 
 
 @router.get("", response_model=CalendarResponse)
@@ -139,13 +144,13 @@ def read_calendar(
             teams_by_id[t.id] = t
 
     # The caller's OWN picks on these games, grouped by game (one query).
-    results_by_game: dict[int, list[PickResult]] = {}
+    picks_by_game: dict[int, list[Pick]] = {}
     game_ids = [g.id for g in games if g.id is not None]
     if game_ids:
         for p in session.exec(
             select(Pick).where(Pick.user_id == user.id, col(Pick.game_id).in_(game_ids))
         ).all():
-            results_by_game.setdefault(p.game_id, []).append(p.result)
+            picks_by_game.setdefault(p.game_id, []).append(p)
 
     def _team(team_id: int) -> CalendarTeam:
         return CalendarTeam(abbreviation=teams_by_id[team_id].abbreviation)
@@ -169,7 +174,7 @@ def read_calendar(
                 status=g.status,
                 home_score=g.home_score,
                 away_score=g.away_score,
-                my_pick_result=_pick_outcome(results_by_game.get(g.id, [])),
+                my_pick_result=_pick_outcome(g, picks_by_game.get(g.id, [])),
             )
         )
 

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import unittest
 from datetime import UTC, datetime
+from decimal import Decimal
 
 from fastapi.testclient import TestClient
 from httpx import Response
@@ -121,6 +122,7 @@ class CalendarTests(unittest.TestCase):
         status: GameStatus = GameStatus.SCHEDULED,
         home_score: int | None = None,
         away_score: int | None = None,
+        total: Decimal | None = None,
     ) -> int:
         """Add a single game with an explicit kickoff; returns its id."""
         with self._session() as session:
@@ -135,6 +137,7 @@ class CalendarTests(unittest.TestCase):
                 status=status,
                 home_score=home_score,
                 away_score=away_score,
+                total=total,
             )
             session.add(g)
             session.commit()
@@ -151,6 +154,7 @@ class CalendarTests(unittest.TestCase):
         pick_type: PickType,
         result: PickResult = PickResult.PENDING,
         is_mortal_lock: bool = False,
+        points: int = 0,
     ) -> None:
         with self._session() as session:
             session.add(
@@ -161,6 +165,7 @@ class CalendarTests(unittest.TestCase):
                     pick_type=pick_type,
                     result=result,
                     is_mortal_lock=is_mortal_lock,
+                    points=points,
                 )
             )
             session.commit()
@@ -349,80 +354,93 @@ class CalendarTests(unittest.TestCase):
 
     # -- case 7: the caller's own pick outcome (issue #301) ----------------
 
+    def _final_game(self, week: int, *, total: str | None = "40.5") -> tuple[int, int]:
+        """A FINAL 20-10 game (30 points: UNDER wins vs 40.5) in its own week."""
+        wk = self._seed_week_row(week)
+        game_id = self._add_game(
+            week_id=wk,
+            week=week,
+            espn_event_id=100 + week,
+            kickoff_at=datetime(2026, 9, week, 18, 0, tzinfo=UTC),
+            home_team_id=self.tid[0],
+            away_team_id=self.tid[1],
+            status=GameStatus.FINAL,
+            home_score=20,
+            away_score=10,
+            total=Decimal(total) if total else None,
+        )
+        return wk, game_id
+
     def test_my_pick_result_per_game(self) -> None:
-        """Each game carries the caller's folded pick outcome; null with no pick."""
-        wk = self._seed_week_row(1)
-        ids = [
-            self._add_game(
-                week_id=wk,
-                week=1,
-                espn_event_id=40 + i,
-                kickoff_at=datetime(2026, 9, 5 + i, 18, 0, tzinfo=UTC),
-                home_team_id=self.tid[0],
-                away_team_id=self.tid[1],
-            )
-            for i in range(5)
-        ]
-        none_id, pending_id, win_id, loss_id, split_id = ids
+        """Outcomes come from the scoring engine; the stored Pick.result of an
+        auto-graded pick stays PENDING and must not be read."""
         me = self.user_id
-        self._add_pick(user_id=me, game_id=pending_id, week_id=wk, pick_type=PickType.OVER)
-        # A graded pick outranks a still-PENDING one on the same game.
-        self._add_pick(
-            user_id=me,
-            game_id=win_id,
+        expected: dict[int, str | None] = {}
+
+        wk, gid = self._final_game(1)
+        expected[gid] = None
+
+        wk = self._seed_week_row(2)
+        gid = self._add_game(
             week_id=wk,
-            pick_type=PickType.UNDER,
-            result=PickResult.WIN,
+            week=2,
+            espn_event_id=102,
+            kickoff_at=datetime(2026, 9, 2, 18, 0, tzinfo=UTC),
+            home_team_id=self.tid[0],
+            away_team_id=self.tid[1],
+            total=Decimal("40.5"),
         )
-        self._add_pick(user_id=me, game_id=win_id, week_id=wk, pick_type=PickType.MISC)
+        self._add_pick(user_id=me, game_id=gid, week_id=wk, pick_type=PickType.OVER)
+        expected[gid] = "PENDING"
+
+        wk, gid = self._final_game(3)
+        self._add_pick(user_id=me, game_id=gid, week_id=wk, pick_type=PickType.UNDER)
+        expected[gid] = "WIN"
+
+        wk, gid = self._final_game(4)
+        self._add_pick(user_id=me, game_id=gid, week_id=wk, pick_type=PickType.OVER)
+        expected[gid] = "LOSS"
+
+        # Split, base win (+1) + base loss (0): net +1.
+        wk, gid = self._final_game(5)
+        self._add_pick(user_id=me, game_id=gid, week_id=wk, pick_type=PickType.UNDER)
+        self._add_pick(user_id=me, game_id=gid, week_id=wk, pick_type=PickType.OVER)
+        expected[gid] = "WIN"
+
+        # Split, base win (+1) + mortal-lock loss (-1): net 0.
+        wk, gid = self._final_game(6)
+        self._add_pick(user_id=me, game_id=gid, week_id=wk, pick_type=PickType.UNDER)
+        self._add_pick(
+            user_id=me, game_id=gid, week_id=wk, pick_type=PickType.OVER, is_mortal_lock=True
+        )
+        expected[gid] = "EVEN"
+
+        # Split, base win (+1) + admin-graded MISC loss (-3): net -2.
+        wk, gid = self._final_game(7)
+        self._add_pick(user_id=me, game_id=gid, week_id=wk, pick_type=PickType.UNDER)
         self._add_pick(
             user_id=me,
-            game_id=loss_id,
+            game_id=gid,
             week_id=wk,
-            pick_type=PickType.FAVORITE_COVER,
+            pick_type=PickType.MISC,
             result=PickResult.LOSS,
+            points=-3,
         )
-        self._add_pick(
-            user_id=me,
-            game_id=split_id,
-            week_id=wk,
-            pick_type=PickType.UNDERDOG_COVER,
-            result=PickResult.WIN,
-        )
-        self._add_pick(
-            user_id=me,
-            game_id=split_id,
-            week_id=wk,
-            pick_type=PickType.OVER,
-            result=PickResult.LOSS,
-            is_mortal_lock=True,
-        )
+        expected[gid] = "LOSS"
+
+        # Push on a FINAL game: graded, no win or loss.
+        wk, gid = self._final_game(8, total="30")
+        self._add_pick(user_id=me, game_id=gid, week_id=wk, pick_type=PickType.OVER)
+        expected[gid] = "EVEN"
 
         resp = self._get("2026-09-01", "2026-09-30")
         self.assertEqual(resp.status_code, 200, resp.text)
         got = {g["game_id"]: g["my_pick_result"] for g in resp.json()["games"]}
-        self.assertEqual(
-            got,
-            {
-                none_id: None,
-                pending_id: "PENDING",
-                win_id: "WIN",
-                loss_id: "LOSS",
-                split_id: "SPLIT",
-            },
-        )
+        self.assertEqual(got, expected)
 
     def test_my_pick_result_ignores_other_members(self) -> None:
-        """Another member's pick never shows on the caller's calendar."""
-        wk = self._seed_week_row(1)
-        game_id = self._add_game(
-            week_id=wk,
-            week=1,
-            espn_event_id=50,
-            kickoff_at=datetime(2026, 9, 5, 18, 0, tzinfo=UTC),
-            home_team_id=self.tid[0],
-            away_team_id=self.tid[1],
-        )
+        """Another member's winning pick never shows on the caller's calendar."""
+        wk, game_id = self._final_game(1)
         with self._session() as session:
             other = User(display_name="bob", discord_id=2, password_hash="x", is_active=True)
             session.add(other)
@@ -434,8 +452,7 @@ class CalendarTests(unittest.TestCase):
             user_id=other_id,
             game_id=game_id,
             week_id=wk,
-            pick_type=PickType.OVER,
-            result=PickResult.WIN,
+            pick_type=PickType.UNDER,
         )
 
         resp = self._get("2026-09-01", "2026-09-30")
