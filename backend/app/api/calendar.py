@@ -79,7 +79,7 @@ def _parse_day(value: str, *, field: str) -> datetime:
     500 (mirrors how the other routers surface bad input).
     """
     try:
-        d = datetime.strptime(value, "%Y-%m-%d").date()  # noqa: DTZ007 - only the date is kept
+        d = datetime.strptime(value, "%Y-%m-%d").date()
     except ValueError as exc:
         raise ValidationError(
             f"Invalid date for '{field}': expected YYYY-MM-DD.",
