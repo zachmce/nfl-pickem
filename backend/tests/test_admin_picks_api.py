@@ -90,6 +90,7 @@ class AdminPicksApiTests(unittest.TestCase):
     member_id: int
     target_id: int
     week_id: int
+    final_week_id: int
     game_open_id: int  # future kickoff, spread+total (open window)
     game_total_id: int  # future kickoff, totals (open window)
     game_pickem_id: int  # future kickoff, true pick'em (spread ineligible)
@@ -225,6 +226,7 @@ class AdminPicksApiTests(unittest.TestCase):
             session.add(final_week)
             session.commit()
             session.refresh(final_week)
+            assert final_week.id is not None
             self.final_week_id = final_week.id
             game_final = Game(
                 espn_event_id=3001,
@@ -1092,6 +1094,128 @@ class AdminPicksApiTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 401, resp.text)
         self._assert_envelope(resp.json())
+
+    # -- weekly MISC grading list (#319) -------------------------------------
+
+    def _seed_misc(self, *, user_id: int, game_id: int, week_id: int, text: str) -> None:
+        with self._session() as session:
+            session.add(
+                Pick(
+                    user_id=user_id,
+                    game_id=game_id,
+                    week_id=week_id,
+                    pick_type=PickType.MISC,
+                    misc_text=text,
+                )
+            )
+            session.commit()
+
+    def _misc_list(self, *, as_user: int, **params: int):
+        return self.client.get(
+            "/api/admin/misc-picks", params=params, headers=self._cookie_auth_headers(as_user)
+        )
+
+    def test_misc_list_defaults_to_latest_complete_week(self) -> None:
+        """No params -> the latest all-FINAL week (WEEK+2), rows sorted by name."""
+        with self._session() as session:
+            game = session.get(Game, self.game_final_id)
+            assert game is not None
+            game.home_score, game.away_score = 24, 17
+            session.add(game)
+            session.commit()
+        self._seed_misc(
+            user_id=self.target_id, game_id=self.game_final_id, week_id=self.final_week_id, text="t"
+        )
+        self._seed_misc(
+            user_id=self.member_id, game_id=self.game_final_id, week_id=self.final_week_id, text="m"
+        )
+        # A base pick in the same week must not appear.
+        self._seed_pick(
+            user_id=self.admin_id,
+            game_id=self.game_final_id,
+            week_id=self.final_week_id,
+            pick_type=PickType.OVER,
+        )
+
+        resp = self._misc_list(as_user=self.admin_id)
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual((body["season"], body["week"]), (SEASON, WEEK + 2))
+        self.assertEqual([r["display_name"] for r in body["picks"]], ["member", "target"])
+        row = body["picks"][1]
+        self.assertEqual(row["user_id"], self.target_id)
+        self.assertEqual(row["misc_text"], "t")
+        self.assertEqual(row["result"], "PENDING")
+        self.assertEqual((row["away_abbr"], row["home_abbr"]), ("T10", "T9"))
+        self.assertEqual(row["game_status"], "FINAL")
+        self.assertEqual((row["away_score"], row["home_score"]), (17, 24))
+
+    def test_misc_list_reflects_a_grade(self) -> None:
+        """After a grade, the list row carries the new result and points."""
+        self._seed_misc(
+            user_id=self.target_id, game_id=self.game_final_id, week_id=self.final_week_id, text="t"
+        )
+        with mock.patch("app.api.admin.publish_event"):
+            self._grade(
+                self.target_id,
+                season=SEASON,
+                week=WEEK + 2,
+                body={"result": "LOSS", "points": -2},
+                as_user=self.admin_id,
+            )
+        body = self._misc_list(as_user=self.admin_id, season=SEASON, week=WEEK + 2).json()
+        row = body["picks"][0]
+        self.assertEqual((row["result"], row["points"]), ("LOSS", -2))
+
+    def test_misc_list_explicit_week_scopes_rows(self) -> None:
+        """An explicit week returns only that week's MISC picks."""
+        self._seed_misc(
+            user_id=self.target_id, game_id=self.game_open_id, week_id=self.week_id, text="w1"
+        )
+        self._seed_misc(
+            user_id=self.target_id,
+            game_id=self.game_final_id,
+            week_id=self.final_week_id,
+            text="w3",
+        )
+        body = self._misc_list(as_user=self.admin_id, season=SEASON, week=WEEK).json()
+        self.assertEqual((body["season"], body["week"]), (SEASON, WEEK))
+        self.assertEqual([r["misc_text"] for r in body["picks"]], ["w1"])
+
+    def test_misc_list_default_with_no_complete_week_is_first_week(self) -> None:
+        """No all-FINAL week in the latest season -> that season's first week."""
+        with self._session() as session:
+            game = session.get(Game, self.game_final_id)
+            assert game is not None
+            game.status = GameStatus.IN_PROGRESS
+            session.add(game)
+            session.commit()
+        body = self._misc_list(as_user=self.admin_id).json()
+        self.assertEqual((body["season"], body["week"]), (SEASON, WEEK))
+        self.assertEqual(body["picks"], [])
+
+    def test_misc_list_default_ignores_an_older_season(self) -> None:
+        """A new season with nothing FINAL does not fall back to last season's week."""
+        with self._session() as session:
+            session.add(Week(season=SEASON + 1, week=1))
+            session.commit()
+        body = self._misc_list(as_user=self.admin_id).json()
+        self.assertEqual((body["season"], body["week"]), (SEASON + 1, 1))
+
+    def test_misc_list_unknown_week_404(self) -> None:
+        resp = self._misc_list(as_user=self.admin_id, season=SEASON, week=17)
+        self.assertEqual(resp.status_code, 404, resp.text)
+        self.assertEqual(self._assert_envelope(resp.json()).get("reason"), "week_not_found")
+
+    def test_misc_list_half_params_422(self) -> None:
+        resp = self._misc_list(as_user=self.admin_id, season=SEASON)
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertEqual(self._assert_envelope(resp.json()).get("reason"), "season_week_pair")
+
+    def test_misc_list_non_admin_403_and_anon_401(self) -> None:
+        self.assertEqual(self._misc_list(as_user=self.member_id).status_code, 403)
+        self._clear_auth()
+        self.assertEqual(self.client.get("/api/admin/misc-picks").status_code, 401)
 
 
 if __name__ == "__main__":

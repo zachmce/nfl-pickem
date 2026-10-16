@@ -48,6 +48,7 @@ import type { AdminMiscGrade } from "../lib/admin";
 import { useAuth } from "../auth/useAuth";
 import Avatar from "../components/Avatar";
 import BotTranscriptPanel from "./BotTranscriptPanel";
+import MiscGradingPanel from "./MiscGradingPanel";
 import { useAdminPickEditor } from "./useAdminPickEditor";
 import type { PicksBySlot } from "./useMyPicks";
 
@@ -314,6 +315,8 @@ export default function AdminPage() {
       <IngestionPanel />
 
       <BotPersonalityPanel />
+
+      <MiscGradingPanel />
 
       {editorTarget && (
         <PickOverrideEditor

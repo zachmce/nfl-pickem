@@ -40,7 +40,7 @@ from sqlmodel import Session
 from app.api.deps import require_admin
 from app.bot.personality import available_personality_ids
 from app.db import commit_or_conflict, get_session
-from app.exceptions import ConflictError, NotFoundError
+from app.exceptions import ConflictError, NotFoundError, ValidationError
 from app.models import Game, PickResult, PickType, Team, User
 from app.schemas.admin import (
     AdminUserListResponse,
@@ -52,7 +52,12 @@ from app.schemas.admin import (
     IngestSeasonRequest,
     SetBotPersonalityRequest,
 )
-from app.schemas.admin_picks import AdminMiscGradeRequest, AdminPickSetRequest
+from app.schemas.admin_picks import (
+    AdminMiscGradeRequest,
+    AdminMiscPickRow,
+    AdminMiscPicksResponse,
+    AdminPickSetRequest,
+)
 from app.schemas.picks import PickRead
 from app.services import bot_telemetry
 from app.services.admin import (
@@ -68,6 +73,8 @@ from app.services.admin_picks import (
     admin_clear_pick,
     admin_grade_misc,
     admin_set_pick,
+    default_misc_grading_week,
+    list_week_misc_picks,
 )
 from app.services.app_settings import (
     get_bot_personality,
@@ -305,6 +312,48 @@ def set_user_pick(
         )
     )
     return PickRead.from_orm_pick(pick)
+
+
+@router.get("/misc-picks", response_model=AdminMiscPicksResponse)
+def get_week_misc_picks(
+    season: int | None = None,
+    week: int | None = None,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> AdminMiscPicksResponse:
+    """Every MISC pick for ``{season, week}`` (admin only), for the grading panel.
+
+    With neither param, resolve the most recent complete week
+    (:func:`default_misc_grading_week`); the response echoes the week used.
+    """
+    if (season is None) != (week is None):
+        raise ValidationError("Pass both season and week, or neither.", reason="season_week_pair")
+    if season is None or week is None:
+        resolved = default_misc_grading_week(session)
+        if resolved is None:
+            raise NotFoundError("No weeks exist yet.", reason="week_not_found")
+        season, week = resolved
+    rows = list_week_misc_picks(session, season=season, week=week)
+    return AdminMiscPicksResponse(
+        season=season,
+        week=week,
+        picks=[
+            AdminMiscPickRow(
+                user_id=r.pick.user_id,
+                display_name=r.display_name,
+                game_id=r.pick.game_id,
+                misc_text=r.pick.misc_text,
+                result=r.pick.result,
+                points=r.pick.points,
+                away_abbr=r.away_abbr,
+                home_abbr=r.home_abbr,
+                game_status=r.game.status,
+                away_score=r.game.away_score,
+                home_score=r.game.home_score,
+            )
+            for r in rows
+        ],
+    )
 
 
 @router.put("/users/{user_id}/picks/misc-grade", response_model=PickRead)
