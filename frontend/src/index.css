@@ -41,6 +41,9 @@
   --color-success-bg: #f0fdf4; /* green-50 */
   --color-warning-fg: #b45309; /* amber-700 */
   --color-warning-bg: #fffbeb; /* amber-50 */
+  /* A calendar game the user has an ungraded pick on (#323). */
+  --color-picked-fg: #7e22ce; /* purple-700 */
+  --color-picked-bg: #faf5ff; /* purple-50 */
 
   /*
    * Solid fills (Task 2 extension). The base -fg/-bg roles cover text + soft
@@ -87,6 +90,8 @@
   --color-success-bg: #0f2a1a; /* deep desaturated green */
   --color-warning-fg: #fcd34d; /* amber-300 */
   --color-warning-bg: #2e2410; /* deep desaturated amber */
+  --color-picked-fg: #d8b4fe; /* purple-300 */
+  --color-picked-bg: #26173a; /* deep desaturated purple */
 
   /*
    * Solid fills on a dark page — hand-picked (decision 5), NOT a mechanical

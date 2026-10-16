@@ -35,7 +35,7 @@ function game(
 describe("CalendarPage pick highlights (issue #301)", () => {
   afterEach(() => cleanup());
 
-  it("bolds a picked upcoming game, greens a win, reds a loss", async () => {
+  it("purples a picked upcoming game, greens a win, reds a loss", async () => {
     getCalendar.mockResolvedValue({
       from_date: "",
       to_date: "",
@@ -53,8 +53,8 @@ describe("CalendarPage pick highlights (issue #301)", () => {
     expect(plain.className).not.toContain("font-bold");
 
     const pending = screen.getByText("PEN @ HOM");
-    expect(pending.className).toContain("font-bold");
-    expect(pending.className).toContain("text-fg");
+    expect(pending.className).toContain("text-picked-fg");
+    expect(pending.parentElement?.className).toContain("bg-picked-bg");
 
     const won = screen.getByText("WIN 10 @ HOM 20");
     expect(won.className).toContain("text-success-fg");

@@ -20,8 +20,9 @@
  *   - Each game renders a compact informational chip (NO click-through): the
  *     matchup `AWAY @ HOME` by abbreviation, the ET kickoff time, and — only
  *     when `status === "FINAL"` — the final score `AWAY n @ HOME n`.
- *   - A game the current user has a pick on stands out (issue #301): bold
- *     while ungraded, green after a win, red after a loss (`pickChipClasses`).
+ *   - A game the current user has a pick on stands out (issues #301, #323):
+ *     purple while ungraded, green after a win, red after a loss
+ *     (`pickChipClasses`).
  *   - Loading / error / empty states render clean gray messages (none throw),
  *     mirroring the existing pages.
  */
