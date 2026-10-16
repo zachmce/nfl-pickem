@@ -37,9 +37,10 @@ submit/clear paths or the Discord cog. It never writes the vestigial
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, func, select
 
 from app.exceptions import NotFoundError, ValidationError
 from app.models import (
@@ -49,7 +50,9 @@ from app.models import (
     PickEditAudit,
     PickResult,
     PickType,
+    Team,
     User,
+    Week,
 )
 from app.services.pick_submission import (
     _load_week_games,
@@ -356,3 +359,65 @@ def admin_grade_misc(
     session.add(audit)
 
     return pick
+
+
+@dataclass(frozen=True)
+class MiscPickRow:
+    """One MISC pick for the admin grading panel, with its game for context."""
+
+    pick: Pick
+    display_name: str
+    game: Game
+    away_abbr: str
+    home_abbr: str
+
+
+def default_misc_grading_week(session: Session) -> tuple[int, int] | None:
+    """The latest season's most recent week whose games are ALL FINAL.
+
+    Only the latest season is considered, so a new season does not fall back to
+    last season's week 18. If no week of that season is complete yet, return its
+    first week. ``None`` when there are no weeks at all.
+    """
+    latest_season = session.exec(select(func.max(Week.season))).one()
+    if latest_season is None:
+        return None
+    games = session.exec(select(Game.week, Game.status).where(Game.season == latest_season)).all()
+    weeks: dict[int, bool] = {}
+    for week, status in games:
+        weeks[week] = weeks.get(week, True) and status is GameStatus.FINAL
+    complete = [w for w, done in weeks.items() if done]
+    if complete:
+        return latest_season, max(complete)
+    first = session.exec(select(func.min(Week.week)).where(Week.season == latest_season)).one()
+    return latest_season, first if first is not None else 1
+
+
+def list_week_misc_picks(session: Session, *, season: int, week: int) -> list[MiscPickRow]:
+    """Every user's MISC pick for ``{season, week}``, ordered by display name.
+
+    Raises :class:`NotFoundError` (``reason="week_not_found"``) for an unknown week.
+    """
+    week_row = _resolve_week(session, season, week)
+    rows = session.exec(
+        select(Pick, User, Game)
+        .join(User, col(Pick.user_id) == col(User.id))
+        .join(Game, col(Pick.game_id) == col(Game.id))
+        .where(Pick.week_id == week_row.id, Pick.pick_type == PickType.MISC)
+    ).all()
+    team_ids = {t for _, _, g in rows for t in (g.home_team_id, g.away_team_id)}
+    abbr = {
+        t.id: t.abbreviation
+        for t in session.exec(select(Team).where(col(Team.id).in_(team_ids))).all()
+    }
+    out = [
+        MiscPickRow(
+            pick=pick,
+            display_name=user.display_name,
+            game=game,
+            away_abbr=abbr.get(game.away_team_id, "?"),
+            home_abbr=abbr.get(game.home_team_id, "?"),
+        )
+        for pick, user, game in rows
+    ]
+    return sorted(out, key=lambda r: r.display_name.casefold())

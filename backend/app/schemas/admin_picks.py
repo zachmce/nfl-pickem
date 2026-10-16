@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models import PickResult, PickType
+from app.models import GameStatus, PickResult, PickType
 from app.schemas.picks import MISC_POINTS_MAX, MISC_POINTS_MIN, MISC_TEXT_MAX
 
 
@@ -61,3 +61,27 @@ class AdminMiscGradeRequest(BaseModel):
     # range is chosen generously enough to cover every real grade while rejecting
     # absurd/abusive values as a 422 before the DB write.
     points: int = Field(ge=MISC_POINTS_MIN, le=MISC_POINTS_MAX)
+
+
+class AdminMiscPickRow(BaseModel):
+    """One MISC pick in the weekly grading panel, with its game for context."""
+
+    user_id: int
+    display_name: str
+    game_id: int
+    misc_text: str | None
+    result: PickResult
+    points: int
+    away_abbr: str
+    home_abbr: str
+    game_status: GameStatus
+    away_score: int | None
+    home_score: int | None
+
+
+class AdminMiscPicksResponse(BaseModel):
+    """The week's MISC picks; ``season``/``week`` echo the resolved week."""
+
+    season: int
+    week: int
+    picks: list[AdminMiscPickRow]

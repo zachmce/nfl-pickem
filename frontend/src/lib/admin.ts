@@ -204,6 +204,56 @@ export function gradeMisc(
   );
 }
 
+/** One MISC pick in the weekly grading panel (mirrors backend AdminMiscPickRow). */
+export interface AdminMiscPickRow {
+  user_id: number;
+  display_name: string;
+  game_id: number;
+  misc_text: string | null;
+  result: PickResult;
+  points: number;
+  away_abbr: string;
+  home_abbr: string;
+  game_status: "SCHEDULED" | "IN_PROGRESS" | "FINAL";
+  away_score: number | null;
+  home_score: number | null;
+}
+
+/** The week's MISC picks; `season`/`week` echo the week the server used. */
+export interface AdminMiscPicks {
+  season: number;
+  week: number;
+  picks: AdminMiscPickRow[];
+}
+
+/**
+ * Every MISC pick for a week (#319). With no week, the server picks the most
+ * recent complete week and echoes it back.
+ */
+export function getWeekMiscPicks(
+  week?: { season: number; week: number },
+): Promise<AdminMiscPicks> {
+  const query = week ? `?season=${week.season}&week=${week.week}` : "";
+  return api<AdminMiscPicks>(`/api/admin/misc-picks${query}`);
+}
+
+/** Matchup, score and status of a MISC pick's game, for grading context. */
+export function gameLabel(row: AdminMiscPickRow): string {
+  const matchup = `${row.away_abbr} @ ${row.home_abbr}`;
+  if (row.game_status === "SCHEDULED") return `${matchup} · not started`;
+  const score =
+    row.away_score !== null && row.home_score !== null
+      ? ` ${row.away_score}–${row.home_score}`
+      : "";
+  return `${matchup}${score} · ${row.game_status === "FINAL" ? "final" : "in progress"}`;
+}
+
+/** How many of the week's MISC picks are graded / still PENDING. */
+export function gradeCounts(rows: AdminMiscPickRow[]): { graded: number; ungraded: number } {
+  const graded = rows.filter((r) => r.result !== "PENDING").length;
+  return { graded, ungraded: rows.length - graded };
+}
+
 // --------------------------------------------------------------------------- //
 // Admin worker-trigger API (QT-3 — frontend half of the live-ingest-worker thread)
 //
