@@ -72,6 +72,7 @@
  * legible status text.
  */
 .dark {
+  color-scheme: dark;
   --color-surface: #0b0f17; /* near-black page */
   --color-surface-raised: #151b26; /* a touch lighter for raised chrome */
   --color-fg: #e5e7eb; /* gray-200 */
@@ -116,6 +117,21 @@
  * with the rest of the body copy.)
  */
 html {
+  color-scheme: light;
   background-color: var(--color-surface);
   color: var(--color-fg);
+}
+
+/*
+ * #321: preflight makes a select transparent with inherited (light, in dark mode)
+ * text, and Chrome on Windows ignores color-scheme for the open option list —
+ * so paint both from the tokens. In @layer base so bg-* / text-* utilities win.
+ */
+@layer base {
+  select,
+  option,
+  optgroup {
+    background-color: var(--color-surface);
+    color: var(--color-fg);
+  }
 }
