@@ -45,8 +45,8 @@ export interface CalendarGame {
 
 /**
  * Chip classes for a game by the current user's pick outcome (issue #301):
- * a won pick is green, a lost pick is red, any other pick is bold, and a game
- * with no pick keeps the plain chip.
+ * a won pick is green, a lost pick is red, an ungraded pick is purple (#323), a
+ * push (EVEN) is bold, and a game with no pick keeps the plain chip.
  */
 export function pickChipClasses(outcome: CalendarPickOutcome | null): {
   chip: string;
@@ -64,6 +64,10 @@ export function pickChipClasses(outcome: CalendarPickOutcome | null): {
         text: "font-bold text-danger-fg",
       };
     case "PENDING":
+      return {
+        chip: "border-picked-fg bg-picked-bg",
+        text: "font-bold text-picked-fg",
+      };
     case "EVEN":
       return { chip: "border-border bg-surface-raised", text: "font-bold text-fg" };
     default:
