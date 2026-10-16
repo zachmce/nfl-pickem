@@ -315,8 +315,6 @@ export default function AdminPage() {
 
       <BotPersonalityPanel />
 
-      <BotTranscriptPanel />
-
       {editorTarget && (
         <PickOverrideEditor
           key={editorTarget.id}
@@ -324,6 +322,9 @@ export default function AdminPage() {
           onClose={closeEditor}
         />
       )}
+
+      {/* #314: below the editor — the transcript is tall enough to bury it. */}
+      <BotTranscriptPanel />
     </div>
   );
 }
