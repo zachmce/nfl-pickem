@@ -80,8 +80,8 @@ jobs:
       # cache would slow every CI run. Low-confidence finding; documented accept (mirrors the
       # pip-audit --ignore-vuln allowlist posture).
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.1.0  # zizmor: ignore[cache-poisoning]
-      - name: Install Python 3.14
-        run: uv python install 3.14
+      - name: Install Python 3.15
+        run: uv python install 3.15
       - name: Verify uv.lock is in sync with pyproject.toml
         # Fails if the committed lock would change when re-resolved (e.g. a dep
         # moved between [project.dependencies] and [dependency-groups]). Prevents
@@ -112,8 +112,8 @@ jobs:
       # cache would slow every CI run. Low-confidence finding; documented accept (mirrors the
       # pip-audit --ignore-vuln allowlist posture).
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.1.0  # zizmor: ignore[cache-poisoning]
-      - name: Install Python 3.14
-        run: uv python install 3.14
+      - name: Install Python 3.15
+        run: uv python install 3.15
       - name: Install basedpyright (dev group)
         working-directory: backend
         run: uv sync --group dev
@@ -146,8 +146,8 @@ jobs:
       # cache would slow every CI run. Low-confidence finding; documented accept (mirrors the
       # pip-audit --ignore-vuln allowlist posture).
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.1.0  # zizmor: ignore[cache-poisoning]
-      - name: Install Python 3.14
-        run: uv python install 3.14
+      - name: Install Python 3.15
+        run: uv python install 3.15
       - name: Install pip-audit (dev group)
         working-directory: backend
         run: uv sync --group dev
@@ -213,8 +213,8 @@ jobs:
       # cache would slow every CI run. Low-confidence finding; documented accept (mirrors the
       # pip-audit --ignore-vuln allowlist posture).
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.1.0  # zizmor: ignore[cache-poisoning]
-      - name: Install Python 3.14
-        run: uv python install 3.14
+      - name: Install Python 3.15
+        run: uv python install 3.15
       - name: Install backend into a uv venv (project + deps)
         # NOT `uv pip install --system` — the runner's /usr interpreter is
         # externally managed (PEP 668), which that rejects. `uv sync` builds an
@@ -338,10 +338,13 @@ jobs:
           # misdetected, add it to `allow-dependencies-licenses` (PURL) rather than widening
           # this list. allow-licenses and deny-licenses are mutually exclusive.
           allow-licenses: >-
-            MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, 0BSD, ISC, Zlib,
+            MIT, MIT-0, Apache-2.0, BSD-2-Clause, BSD-3-Clause, 0BSD, ISC, Zlib,
             Unlicense, CC0-1.0, CC-BY-4.0, Python-2.0, PSF-2.0, HPND,
             Artistic-2.0, BlueOak-1.0.0, MPL-2.0,
             LGPL-2.1-only, LGPL-2.1-or-later, LGPL-3.0-only, LGPL-3.0-or-later
+          # typing-extensions declares PSF-2.0 on PyPI; GitHub detects a GPL-1.0-or-later
+          # compound from the historical PSF license text.
+          allow-dependencies-licenses: pkg:pypi/typing-extensions
 
   # image-scan is the PR-ONLY pre-merge CVE gate: it blocks a fixable HIGH/CRITICAL image
   # from reaching main. It is NOT release certification — publish-backend/-frontend now build
