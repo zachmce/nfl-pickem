@@ -80,8 +80,8 @@ jobs:
       # cache would slow every CI run. Low-confidence finding; documented accept (mirrors the
       # pip-audit --ignore-vuln allowlist posture).
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.1.0  # zizmor: ignore[cache-poisoning]
-      - name: Install Python 3.14
-        run: uv python install 3.14
+      - name: Install Python 3.15
+        run: uv python install 3.15
       - name: Verify uv.lock is in sync with pyproject.toml
         # Fails if the committed lock would change when re-resolved (e.g. a dep
         # moved between [project.dependencies] and [dependency-groups]). Prevents
@@ -112,8 +112,8 @@ jobs:
       # cache would slow every CI run. Low-confidence finding; documented accept (mirrors the
       # pip-audit --ignore-vuln allowlist posture).
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.1.0  # zizmor: ignore[cache-poisoning]
-      - name: Install Python 3.14
-        run: uv python install 3.14
+      - name: Install Python 3.15
+        run: uv python install 3.15
       - name: Install basedpyright (dev group)
         working-directory: backend
         run: uv sync --group dev
@@ -146,8 +146,8 @@ jobs:
       # cache would slow every CI run. Low-confidence finding; documented accept (mirrors the
       # pip-audit --ignore-vuln allowlist posture).
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.1.0  # zizmor: ignore[cache-poisoning]
-      - name: Install Python 3.14
-        run: uv python install 3.14
+      - name: Install Python 3.15
+        run: uv python install 3.15
       - name: Install pip-audit (dev group)
         working-directory: backend
         run: uv sync --group dev
@@ -213,8 +213,8 @@ jobs:
       # cache would slow every CI run. Low-confidence finding; documented accept (mirrors the
       # pip-audit --ignore-vuln allowlist posture).
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.1.0  # zizmor: ignore[cache-poisoning]
-      - name: Install Python 3.14
-        run: uv python install 3.14
+      - name: Install Python 3.15
+        run: uv python install 3.15
       - name: Install backend into a uv venv (project + deps)
         # NOT `uv pip install --system` — the runner's /usr interpreter is
         # externally managed (PEP 668), which that rejects. `uv sync` builds an

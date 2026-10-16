@@ -57,7 +57,7 @@ weeks play out.
 
 | Service    | Stack                                              | Dev port |
 | ---------- | -------------------------------------------------- | -------- |
-| `backend`  | FastAPI (Python 3.14) + SQLModel                   | 8000     |
+| `backend`  | FastAPI (Python 3.15) + SQLModel                   | 8000     |
 | `worker`   | Celery worker with **embedded beat** (refresh poller) | —     |
 | `db`       | Postgres 17                                        | 5432     |
 | `redis`    | Redis 7 (Celery broker + result store)             | 6379     |
