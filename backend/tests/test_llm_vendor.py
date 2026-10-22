@@ -184,6 +184,12 @@ class OpenModelOverrideTests(unittest.TestCase):
             _run(llm_client.open_chat([{"role": "user", "content": "q"}], system_prompt="s"))
         self.assertEqual(_ScriptedClient.posted[0]["model"], "gemma")
 
+    def test_classify_takes_a_per_call_model(self) -> None:
+        with _configured(), _script(_OK):
+            _run(llm_client.classify("q", system_prompt="sys", model="big"))
+            _run(llm_client.classify("q", system_prompt="sys", model=None))
+        self.assertEqual([b["model"] for b in _ScriptedClient.posted], ["big", "gemma"])
+
     def test_phrase_and_classify_ignore_the_open_model(self) -> None:
         with _configured(llm_api_open_model="gpt-5.6-terra"), _script(_OK):
             _run(llm_client.phrase("fact", system_prompt="sys"))

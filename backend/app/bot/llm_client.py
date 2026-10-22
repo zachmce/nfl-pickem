@@ -279,6 +279,7 @@ async def _chat_completion(
     temperature: float,
     top_p: float,
     log_prefix: str,
+    model: str | None = None,
 ) -> str | None:
     """Shared best-effort POST/parse for the ONE-SHOT chat-completions call.
 
@@ -304,7 +305,7 @@ async def _chat_completion(
         "temperature": temperature,
         "top_p": top_p,
     }
-    payload = await _post_chat(body, log_prefix=log_prefix)
+    payload = await _post_chat(body, log_prefix=log_prefix, model=model)
     if payload is None:
         return None
 
@@ -422,7 +423,9 @@ async def phrase(fact_text: str, *, system_prompt: str) -> str | None:
     )
 
 
-async def classify(user_content: str, *, system_prompt: str) -> str | None:
+async def classify(
+    user_content: str, *, system_prompt: str, model: str | None = None
+) -> str | None:
     """Extract a compact JSON object from ``user_content`` under ``system_prompt``.
 
     The deterministic EXTRACTION seam for the @mention Q&A classifier (260709-k5w).
@@ -434,7 +437,8 @@ async def classify(user_content: str, *, system_prompt: str) -> str | None:
     contract as :func:`phrase` (returns ``None`` on missing config / any exception /
     non-200 / empty content, NEVER raises) and the SAME mandatory
     ``chat_template_kwargs.enable_thinking = False``. Returns the raw stripped
-    content string (the caller parses the JSON), or ``None``.
+    content string (the caller parses the JSON), or ``None``. ``model`` overrides
+    ``llm_api_model`` for this call, as in :func:`_post_chat`.
     """
     return await _chat_completion(
         system_content=system_prompt,
@@ -443,6 +447,7 @@ async def classify(user_content: str, *, system_prompt: str) -> str | None:
         temperature=_CLASSIFY_TEMPERATURE,
         top_p=_CLASSIFY_TOP_P,
         log_prefix="llm_classify",
+        model=model,
     )
 
 

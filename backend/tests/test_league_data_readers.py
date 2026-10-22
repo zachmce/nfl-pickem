@@ -498,6 +498,33 @@ class LeagueRecordsAndTendencyTests(_ReaderTestCase):
         self.assertEqual((bye["found"], bye["known_team"]), (False, True))
         self.assertEqual((nobody["found"], nobody["known_team"]), (False, False))
 
+    def test_game_outlook_is_frozen_after_the_freeze_clock(self) -> None:
+        # Issue #339: the stored per-game flag stays False; the week clock decides.
+        with self._session() as session:
+            game = session.exec(select(Game).where(Game.week == WEEK)).first()
+            assert game is not None
+            self.assertFalse(game.odds_frozen)
+            out = get_game_outlook_inputs(session, SEASON, WEEK, team_abbr="BUF")
+        self.assertTrue(out["frozen"])
+
+
+class GameOutlookBeforeFreezeTests(_ReaderTestCase):
+    kickoff_offset = timedelta(days=10)
+
+    def test_not_frozen_before_the_wednesday_freeze(self) -> None:
+        with self._session() as session:
+            out = get_game_outlook_inputs(session, SEASON, WEEK, team_abbr="BUF")
+        self.assertFalse(out["frozen"])
+
+    def test_the_admin_freeze_override_freezes_early(self) -> None:
+        with self._session() as session:
+            week = session.exec(select(Week).where(Week.week == WEEK)).one()
+            week.lines_frozen = True
+            session.add(week)
+            session.commit()
+            out = get_game_outlook_inputs(session, SEASON, WEEK, team_abbr="BUF")
+        self.assertTrue(out["frozen"])
+
 
 if __name__ == "__main__":
     unittest.main()

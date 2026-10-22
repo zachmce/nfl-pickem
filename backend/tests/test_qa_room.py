@@ -27,18 +27,18 @@ def _run(coro):
 
 
 def _classify_returns(value):
-    """Patch qa_room.llm_client.classify, recording (user_content, system_prompt)."""
+    """Patch qa_room.llm_client.classify, recording (user_content, system_prompt, model)."""
     calls: list[dict] = []
 
-    async def _fake(user_content, *, system_prompt):
-        calls.append({"user_content": user_content, "system_prompt": system_prompt})
+    async def _fake(user_content, *, system_prompt, model=None):
+        calls.append({"user_content": user_content, "system_prompt": system_prompt, "model": model})
         return value
 
     return mock.patch.object(qa_room.llm_client, "classify", _fake), calls
 
 
 def _classify_raises():
-    async def _fake(user_content, *, system_prompt):
+    async def _fake(user_content, *, system_prompt, model=None):
         raise RuntimeError("boom")
 
     return mock.patch.object(qa_room.llm_client, "classify", _fake)
@@ -142,6 +142,13 @@ class RenderTranscriptTests(unittest.TestCase):
         self.assertEqual(
             calls[0]["user_content"], qa_room._render_transcript(_TURNS, bot_name="Pick'em Bot")
         )
+
+    def test_the_gate_runs_on_the_open_model(self) -> None:
+        # Issue #339: the Haiku classifier model said yes to a comment about the bot.
+        patcher, calls = _classify_returns('{"addressed": false}')
+        with patcher, mock.patch.object(qa_room.settings, "llm_api_open_model", "big"):
+            _run(qa_room.is_addressed(_TURNS, bot_name="Pick'em Bot"))
+        self.assertEqual(calls[0]["model"], "big")
 
 
 class RoomGatePromptTests(unittest.TestCase):

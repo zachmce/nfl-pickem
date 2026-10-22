@@ -38,6 +38,7 @@ from sqlmodel import Session, col, select
 
 from app.models import Game, GameStatus, HistoricalGame, Pick, PickType, Team, User, Week
 from app.services import ratings
+from app.services.odds import is_odds_frozen
 from app.services.pick_submission import main_picks_complete
 from app.services.pick_window import compute_window
 from app.services.scoring import GradeOutcome, grade_pick
@@ -2122,6 +2123,15 @@ def get_game_outlook_inputs(session: Session, season: int, week: int, *, team_ab
     game = matching[0]
     abbr = {t.id: t.abbreviation for t in teams if t.id is not None}
     estimate = ratings.estimate_for_game(game, ratings.compute_ratings(session))
+    # Issue #339: ``Game.odds_frozen`` is never flipped in production (see freeze.py), so
+    # it read "not frozen yet" after the Wednesday freeze. Same predicate as slate.py.
+    week_row = session.exec(
+        select(Week).where(Week.season == season, Week.week == week)
+    ).one_or_none()
+    try:
+        frozen = week_row is not None and is_odds_frozen(week_row, games)
+    except ValueError:
+        frozen = False
     return {
         "found": True,
         "season": season,
@@ -2134,7 +2144,7 @@ def get_game_outlook_inputs(session: Session, season: int, week: int, *, team_ab
         "kickoff_at": _as_aware(game.kickoff_at),
         "espn_event_id": game.espn_event_id,
         "espn_competition_id": game.espn_competition_id,
-        "frozen": game.odds_frozen,
+        "frozen": frozen,
         "favorite": abbr.get(game.favorite_team_id) if game.favorite_team_id else None,
         "spread": str(game.spread) if game.spread is not None else None,
         "total": str(game.total) if game.total is not None else None,
