@@ -1,0 +1,109 @@
+name: Security audit
+
+# Daily audit of the locked deps on main. A new advisory makes main vulnerable
+# with no commit, and the next PR (usually a daily Dependabot docker PR) went red
+# for it first. Dependabot alerts can lag the advisory (GHSA-6q48-6c7w-9gw2 had
+# none 40h after review) and version updates wait out the cooldown, so this job
+# bumps every package with a fixed version on its own, pushes the fix to the
+# `security/audit-fix` branch, and keeps one issue open with a 1-click PR link.
+# The PR is opened by a person, so the full pull_request CI runs on it:
+# GITHUB_TOKEN can not open PRs here, and its PRs start no workflows.
+# The issue closes and the branch is deleted when the audit is clean again.
+#
+# Base-image (OS) CVEs are not covered: the daily docker Dependabot block has no
+# cooldown and bumps the digests.
+
+on:
+  schedule:
+    - cron: '30 4 * * *'  # before the 05:00 docker Dependabot run
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: security-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write  # push the security/audit-fix branch
+      issues: write    # open, update and close the tracking issue
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BRANCH: security/audit-fix
+      TITLE: 'Security audit: fixable advisories on main'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false  # artipacked: the push below passes the token explicitly
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.1.0
+        with:
+          enable-cache: false  # this job pushes a branch; no shared cache
+      - name: Install Python 3.15
+        run: uv python install 3.15
+      - name: Install pip-audit (dev group)
+        working-directory: backend
+        run: uv sync --group dev
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.0.0
+        with:
+          node-version: '26'
+      - name: Audit and bump fixable packages
+        id: audit
+        env:
+          OUT: ${{ runner.temp }}/audit
+        run: bash .github/scripts/security-audit.sh
+      - name: Push the fix branch
+        if: steps.audit.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$BRANCH"
+          git commit -q -a -m 'fix(deps): bump packages with fixed advisories' \
+            -m "Opened by the daily security-audit workflow; see the tracking issue for the advisories."
+          # Re-push only when the fix differs, so an open PR does not rerun CI every day.
+          if git fetch -q "$remote" "$BRANCH" 2>/dev/null && git diff --quiet FETCH_HEAD HEAD; then
+            echo "$BRANCH already holds this fix."
+          else
+            git push -q --force "$remote" "HEAD:refs/heads/$BRANCH"
+          fi
+      - name: Open, update or close the tracking issue
+        env:
+          FINDINGS: ${{ steps.audit.outputs.findings }}
+          CHANGED: ${{ steps.audit.outputs.changed }}
+          REPORT: ${{ runner.temp }}/audit/report.md
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          number=$(gh issue list --state open --label security --json number,title \
+                     --jq 'map(select(.title == env.TITLE))[0].number // empty')
+          if [ "$FINDINGS" != 'true' ]; then
+            if [ -n "$number" ]; then
+              gh issue close "$number" --comment "The audit is clean on main ($GITHUB_SHA). $RUN_URL"
+            fi
+            gh api -X DELETE "repos/$GH_REPO/git/refs/heads/$BRANCH" >/dev/null 2>&1 || true
+            exit 0
+          fi
+          {
+            echo 'Every PR fails `deps-audit` / `osv-scan` until these advisories are fixed on main.'
+            echo
+            if [ "$CHANGED" = 'true' ]; then
+              echo "**Fix ready:** [open the PR from \`$BRANCH\`]($GITHUB_SERVER_URL/$GH_REPO/compare/main...$BRANCH?expand=1) (skip if it is already open). Merge it before the Dependabot PRs."
+            else
+              echo '**No automatic fix.** See the table below.'
+            fi
+            echo
+            cat "$REPORT"
+            echo
+            echo "Last run: $RUN_URL"
+          } >"$RUNNER_TEMP/body.md"
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh issue create --title "$TITLE" --label security,dependencies --body-file "$RUNNER_TEMP/body.md"
+          fi
