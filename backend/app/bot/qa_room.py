@@ -37,6 +37,7 @@ from collections.abc import Sequence
 import structlog
 
 from app.bot import chat_personality, llm_client
+from app.config import settings
 
 logger = structlog.get_logger(__name__)
 
@@ -103,7 +104,14 @@ async def is_addressed(turns: Sequence[tuple[str, str]], *, bot_name: str) -> bo
     """
     try:
         transcript = _render_transcript(turns, bot_name=bot_name)
-        raw = await llm_client.classify(transcript, system_prompt=ROOM_GATE_SYSTEM_PROMPT)
+        # Issue #339: claude-haiku-5-5 said true 20/20 on a comment ABOUT the bot after
+        # a run of poor answers; claude-sonnet-5-5 said false 10/10. So the gate runs on
+        # the open model (unset = llm_api_model, as before).
+        raw = await llm_client.classify(
+            transcript,
+            system_prompt=ROOM_GATE_SYSTEM_PROMPT,
+            model=settings.llm_api_open_model,
+        )
         if raw is None:
             return False
         parsed = json.loads(raw)
