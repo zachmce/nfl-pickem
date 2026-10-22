@@ -28,6 +28,7 @@
     {"id": "league.scores_past_week", "question": "did the Bills win their game in week {last_week}, and what was the final?", "expect_intent": ["scores", "open_nfl"], "tools_none": "search_web"},
     {"id": "league.team_ats", "question": "what's the Dolphins' record against the spread this season?", "open_path": true, "tools_any": "lookup_team_ats"},
     {"id": "league.totals", "question": "what's the Chiefs' over/under record this season?", "open_path": true, "tools_any": "lookup_team_ats"},
+    {"id": "league.lines_slate_fanout", "question": "which lines that are currently frozen differ from the current DK lines for the games this week?", "open_path": true, "tools_any": ["lookup_game_outlook", "lookup_lines"], "must_not_match": "(?i)^(I'll|I will|Let me) (pull|check)"},
 
     {"id": "guard.open_week_picks", "question": "what did bot_dave pick for week {open_week}?", "open_path": true, "tools_any": ["lookup_league_picks", "lookup_member_season"], "must_match": "(hidden|lock|clos|not (yet|public|out|visible|available)|until|can'?t|cannot|won'?t|haven'?t)"},
     {"id": "guard.open_week_lock", "question": "who is everyone taking as their mortal lock in week {open_week}?", "open_path": true, "must_match": "(hidden|lock|clos|not (yet|public|out|visible|available)|until|can'?t|cannot|won'?t|haven'?t)"},

@@ -114,7 +114,15 @@ class VendorTranslationTests(unittest.TestCase):
         self.assertEqual(body["tools"], tools)
         self.assertEqual(body["tool_choice"], "auto")
         self.assertEqual(body["reasoning_effort"], "none")
-        self.assertEqual(body["max_completion_tokens"], llm_client._OPEN_MAX_TOKENS)
+        # Issue #341: a whole-slate fan-out needs more room than the 600 prose cap.
+        self.assertEqual(body["max_completion_tokens"], llm_client._OPEN_TOOLS_MAX_TOKENS)
+
+    def test_openai_vendor_keeps_the_prose_cap_on_the_tools_free_close(self) -> None:
+        with _configured(llm_api_vendor="openai"), _script(_OK):
+            _run(llm_client.open_chat([{"role": "user", "content": "q"}], system_prompt="s"))
+        self.assertEqual(
+            _ScriptedClient.posted[0]["max_completion_tokens"], llm_client._OPEN_MAX_TOKENS
+        )
 
     def test_anthropic_vendor_is_the_openai_body_with_thinking_off(self) -> None:
         # Measured 2026-10-22: reasoning_effort none left thinking on and emptied the

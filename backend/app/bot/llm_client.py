@@ -87,6 +87,11 @@ _CLASSIFY_MAX_TOKENS = 256
 # tool-grounded answer mid-sentence, and one Discord message holds ~500 tokens anyway
 # (the cog splits longer ones). ``open_chat`` logs a ``length`` finish so a cut is visible.
 _OPEN_MAX_TOKENS = 600
+# The cap for a tools-attached round on a hosted vendor (issue #341): a whole-slate
+# question fans out ~15 parallel calls, plus Sonnet's between_tools thinking, and 600 cut
+# the calls off so only the preamble came back (3/3 in prod, 2026-10-22). The local
+# vendor keeps 600 so its body stays byte-identical.
+_OPEN_TOOLS_MAX_TOKENS = 4096
 # Below the 1.0 chat-quip temperature because the open path STATES things rather
 # than quipping (a wrong-but-lively invention is the failure mode here), but still
 # well above greedy so the swapped voice survives into the answer.
@@ -101,6 +106,8 @@ _OPEN_TOP_P = 0.95
 # and the visible text is empty or a one-line "I'll pull up ..." stub; the token count is
 # the only trace of the stripped block.
 COMPLETION_TOKENS_KEY = "_completion_tokens"
+# Set to True on the message ``open_chat`` returns when the cap cut it (issue #341).
+TRUNCATED_KEY = "_truncated"
 
 # Style-only anti-repetition directive appended to EVERY phrasing call, AFTER the
 # caller's facts-first guard (so facts-first still leads). It fights the stock-closer
@@ -346,8 +353,8 @@ async def open_chat(
     empty-registry path emits a body with no tool keys at all.
 
     The returned message also carries :data:`COMPLETION_TOKENS_KEY` (the server's
-    ``usage.completion_tokens``) when the payload reports it; the caller strips that key
-    before the message is replayed.
+    ``usage.completion_tokens``) when the payload reports it, and :data:`TRUNCATED_KEY`
+    when the cap cut it; the caller strips those keys before the message is replayed.
 
     Best-effort by contract: returns ``None`` on missing config, a non-200, a
     timeout, a malformed payload, or an unusable message shape. NEVER raises.
@@ -363,6 +370,8 @@ async def open_chat(
     if tools:
         body["tools"] = tools
         body["tool_choice"] = "auto"
+        if settings.llm_api_vendor != "local":
+            body["max_tokens"] = _OPEN_TOOLS_MAX_TOKENS
 
     try:
         payload = await _post_chat(
@@ -389,8 +398,10 @@ async def open_chat(
             return None
         if first.get("finish_reason") == "length":
             # The cap cut the answer (issue #220); the text is still returned, but the
-            # cut is logged so it never passes for a finished answer.
-            logger.warning("llm_open_truncated", max_tokens=_OPEN_MAX_TOKENS)
+            # cut is logged and marked so it never passes for a finished answer. The
+            # log key must not contain "token": the redaction would hide the value.
+            logger.warning("llm_open_truncated", cap=body["max_tokens"])
+            message = {**message, TRUNCATED_KEY: True}
         usage = payload.get("usage")
         completion_tokens = usage.get("completion_tokens") if isinstance(usage, dict) else None
         if isinstance(completion_tokens, int):

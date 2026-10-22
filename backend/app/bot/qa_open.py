@@ -6521,7 +6521,8 @@ async def _run_tool_loop(
     A text-only message that :func:`_carries_a_tool_call` is never the answer: in a
     tool round it sends the loop to the close, and in the close it earns exactly one
     retry over :func:`_fold_tool_turns`. Returns ``(None, [])`` if any round's call
-    returns ``None`` or the retried close still carries a tool call.
+    returns ``None``, the retried close still carries a tool call, or (hosted vendors,
+    issue #341) the cap cut a tools-attached round that came back without tool calls.
     """
     deadline = time.monotonic() + _TOOL_BUDGET_SECONDS
 
@@ -6542,6 +6543,12 @@ async def _run_tool_loop(
             return None, []
         tool_calls = message.get("tool_calls")
         if not isinstance(tool_calls, list) or not tool_calls:
+            if settings.llm_api_vendor != "local" and message.get(llm_client.TRUNCATED_KEY):
+                # Issue #341: the cap cut a tool fan-out and only its preamble came back
+                # ("I'll pull the outlook for every game…"). A close here has no data.
+                logger.warning("qa_open_tool_round_truncated", round=round_index)
+                bot_telemetry.note_fallback("tool_round_truncated")
+                return None, []
             if not _has_tool_turn(working) and not _carries_a_tool_call(message):
                 return _message_content(message), []  # answered from memory — done
             # The doubling below is the served Qwen's; terra wrote the round text once in
