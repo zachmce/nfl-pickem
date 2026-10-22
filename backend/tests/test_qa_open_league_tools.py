@@ -86,6 +86,23 @@ class LineMovementParserTests(unittest.TestCase):
         self.assertEqual((line["home_spread_open"], line["home_spread_now"]), ("-4.5", "-7.5"))
         self.assertIsNone(line["total_now"])
 
+    def test_draftkings_answers_ahead_of_an_earlier_book(self) -> None:
+        # Issue #343: the label must stay DraftKings if ESPN lists another book first.
+        other = {
+            "provider": {"name": "ESPN BET"},
+            "homeTeamOdds": {"current": {"pointSpread": {"american": "-2.5"}}},
+        }
+        dk = {
+            "provider": {"name": "DraftKings"},
+            "homeTeamOdds": {"current": {"pointSpread": {"american": "-3"}}},
+        }
+        line = live_odds.parse_line_movement({"items": [other, dk]})
+        assert line is not None
+        self.assertEqual((line["provider"], line["home_spread_now"]), ("DraftKings", "-3"))
+        line = live_odds.parse_line_movement({"items": [other]})
+        assert line is not None
+        self.assertEqual(line["provider"], "ESPN BET")
+
     def test_junk_is_none_not_a_raise(self) -> None:
         for payload in (None, [], {"items": "x"}, {"items": [{"provider": "x"}]}):
             self.assertIsNone(live_odds.parse_line_movement(payload))
@@ -272,6 +289,112 @@ class GameOutlookToolTests(unittest.TestCase):
         self.assertEqual(body, {"note": qa_open._NO_OUTLOOK_GAME_NOTE.format(team="KC", week=7)})
 
 
+def _slate_game(home: str, away: str, **fields: object) -> dict:
+    game = {
+        "home": home,
+        "away": away,
+        "status": "SCHEDULED",
+        "kickoff_at": datetime(2026, 10, 25, 17, 0, tzinfo=UTC),
+        "espn_event_id": 401,
+        "espn_competition_id": None,
+        "favorite": home,
+        "spread": "3",
+        "total": "44.5",
+    }
+    return {**game, **fields}
+
+
+def _dk(home_spread: str, total: str) -> dict:
+    return {
+        "provider": "DraftKings",
+        "home_spread_open": None,
+        "home_spread_now": home_spread,
+        "total_open": None,
+        "total_now": total,
+        "home_moneyline_open": None,
+        "home_moneyline_now": "-155",
+        "away_moneyline_open": None,
+        "away_moneyline_now": "+130",
+    }
+
+
+class SlateOddsToolTests(unittest.TestCase):
+    """Issue #343: the slate's current DraftKings line next to the league line, one call."""
+
+    def _call(self, games: list, movements: dict, **kwargs) -> tuple[dict, list]:
+        fetched: list = []
+
+        async def _movement(event_id, competition_id=None):
+            fetched.append(event_id)
+            return movements.get(event_id)
+
+        with (
+            _db("get_slate_odds_async", {"week": 7, "frozen": True, "games": games}),
+            mock.patch.object(live_odds, "fetch_line_movement", _movement),
+        ):
+            body = _run(qa_open._lookup_slate_odds(**kwargs))
+        assert isinstance(body, dict)
+        return body, fetched
+
+    def test_each_game_gets_both_lines_and_the_differences_are_named(self) -> None:
+        games = [
+            _slate_game("SEA", "KC", espn_event_id=1, spread="2.5", total="42.5"),
+            _slate_game("CHI", "NE", espn_event_id=2, spread="3", total="50.5"),
+            _slate_game("PHI", "DAL", espn_event_id=3, favorite="DAL", spread="4.5"),
+        ]
+        movements = {1: _dk("-3", "42.5"), 2: _dk("-3", "50.5"), 3: _dk("+4.5", "46.5")}
+        body, fetched = self._call(games, movements)
+        self.assertEqual(sorted(fetched), [1, 2, 3])
+        kc, ne, dal = body["games"]
+        self.assertEqual(kc["league_line"], "SEA -2.5, total 42.5")
+        self.assertEqual(
+            kc["current_line"], "DraftKings now: SEA -3, total 42.5; moneyline SEA -155, KC +130"
+        )
+        self.assertEqual(kc["comparison"], "Spread: differs by 0.5 points. Total: the same.")
+        self.assertEqual(ne["comparison"], "Spread: the same. Total: the same.")
+        self.assertEqual(dal["league_line"], "DAL -4.5, total 44.5")
+        self.assertEqual(dal["comparison"], "Spread: the same. Total: differs by 2 points.")
+        self.assertEqual({row["state"] for row in body["games"]}, {"not kicked off yet"})
+        self.assertIn("now", body)
+        self.assertIn("frozen for picks", body["statement"])
+        self.assertIn("differs: KC at SEA, DAL at PHI.", body["statement"])
+        self.assertFalse(any("_differs" in row for row in body["games"]))
+
+    def test_played_and_unread_games_say_so_and_never_count_as_different(self) -> None:
+        games = [
+            _slate_game("SEA", "KC", espn_event_id=1, status="FINAL"),
+            _slate_game("CHI", "NE", espn_event_id=2, status="IN_PROGRESS"),
+            _slate_game("PHI", "DAL", espn_event_id=3),
+            _slate_game("DET", "GB", espn_event_id=None, favorite=None, spread=None),
+        ]
+        body, fetched = self._call(games, {})
+        self.assertEqual(fetched, [3])
+        self.assertEqual(
+            [row["state"] for row in body["games"]][:3],
+            ["over", "being played now", "not kicked off yet"],
+        )
+        lines = [row["current_line"] for row in body["games"]]
+        self.assertIn("over", lines[0])
+        self.assertIn("being played now", lines[1])
+        self.assertIn("could be read", lines[2])
+        self.assertEqual(body["games"][3]["league_line"], "no league line yet")
+        self.assertIn("differs: none.", body["statement"])
+
+    def test_a_pick_em_line_is_written_without_a_favorite(self) -> None:
+        body, _ = self._call([_slate_game("SEA", "KC", espn_event_id=1)], {1: _dk("PK", "44.5")})
+        self.assertIn("a pick'em with no favorite", body["games"][0]["current_line"])
+        self.assertIn("Spread: differs by 3 points", body["games"][0]["comparison"])
+
+    def test_no_season_bad_week_and_empty_week_are_notes(self) -> None:
+        self.assertEqual(
+            _run(qa_open._lookup_slate_odds(week=40)), {"note": qa_open._BAD_WEEK_NOTE}
+        )
+        with _db("get_slate_odds_async", {"week": None, "frozen": False, "games": []}):
+            self.assertEqual(_run(qa_open._lookup_slate_odds()), {"note": qa_open._NO_SEASON_NOTE})
+        body, _ = self._call([], {})
+        self.assertEqual(body, {"note": qa_open._NO_LINES_POSTED_NOTE.format(week=7)})
+
+
 class SlateWeatherToolTests(unittest.TestCase):
     """Issue #286: a league-wide weather question reads every stadium of the week."""
 
@@ -374,10 +497,22 @@ class RegistryDescriptionTests(unittest.TestCase):
             ("lookup_slate_weather", "whether a storm or a weather pattern affects"),
             ("lookup_team_ats", "over/under record"),
             ("lookup_member_season", "always takes the underdog"),
+            ("lookup_slate_odds", "DraftKings or DK lines"),
         ):
             with self.subTest(tool=name):
                 self.assertIn("Call this tool when", self._description(name))
                 self.assertIn(phrase, self._description(name))
+
+    def test_the_line_tools_say_where_the_current_draftkings_line_is(self) -> None:
+        # Issue #343: "not a live sportsbook" alone made the model deny it had DK lines.
+        self.assertIn(
+            "for DraftKings' current lines, lookup_slate_odds is the tool",
+            self._description("lookup_lines"),
+        )
+        self.assertIn("lookup_slate_odds has DraftKings' current lines", qa_open._LINES_CAVEAT)
+        outlook = self._description("lookup_game_outlook")
+        self.assertIn("DraftKings' opening and current line", outlook)
+        self.assertIn("lookup_slate_odds is the tool", outlook)
 
     def test_the_outlook_takes_a_team_and_an_optional_week(self) -> None:
         tool = next(t for t in qa_open.TOOLS if t.name == "lookup_game_outlook")

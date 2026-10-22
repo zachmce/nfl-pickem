@@ -28,6 +28,8 @@
     {"id": "league.scores_past_week", "question": "did the Bills win their game in week {last_week}, and what was the final?", "expect_intent": ["scores", "open_nfl"], "tools_none": "search_web"},
     {"id": "league.team_ats", "question": "what's the Dolphins' record against the spread this season?", "open_path": true, "tools_any": "lookup_team_ats"},
     {"id": "league.totals", "question": "what's the Chiefs' over/under record this season?", "open_path": true, "tools_any": "lookup_team_ats"},
+    {"id": "league.slate_dk_lines", "question": "pull the current DK lines for all of the games this week", "open_path": true, "tools_all": "lookup_slate_odds", "must_match": "(?i)draftkings"},
+    {"id": "league.slate_dk_followup", "setup": ["what are the lines this week?"], "question": "no, i want the current DK lines, not the frozen lines", "open_path": true, "tools_any": ["lookup_slate_odds", "lookup_game_outlook"], "must_not_match": "(?i)(can'?t|cannot|unable to|don'?t have)[^.]{0,40}(draftkings|dk|sportsbook|live)"},
     {"id": "league.lines_slate_fanout", "question": "which lines that are currently frozen differ from the current DK lines for the games this week?", "open_path": true, "tools_any": ["lookup_game_outlook", "lookup_lines"], "must_not_match": "(?i)^(I'll|I will|Let me) (pull|check)"},
 
     {"id": "guard.open_week_picks", "question": "what did bot_dave pick for week {open_week}?", "open_path": true, "tools_any": ["lookup_league_picks", "lookup_member_season"], "must_match": "(hidden|lock|clos|not (yet|public|out|visible|available)|until|can'?t|cannot|won'?t|haven'?t)"},

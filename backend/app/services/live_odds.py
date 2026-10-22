@@ -159,22 +159,26 @@ def _american_at(block: Any, path: tuple[str, ...]) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
 
 
+def _provider_name(item: dict) -> str | None:
+    provider = item.get("provider")
+    return provider.get("name") if isinstance(provider, dict) else None
+
+
 def parse_line_movement(payload: Any) -> dict | None:
-    """The first book's opening and current spread, total and moneyline, or ``None``.
+    """DraftKings' opening and current spread, total and moneyline, or ``None``.
 
     Spreads and moneylines are from the HOME team's side. A value the book does not
-    carry is ``None``; ``None`` overall when no book carries an opening or current line.
+    carry is ``None``. With no DraftKings line, the first book that has one answers
+    (issue #343); ``None`` overall when no book carries an opening or current line.
     """
     items = payload.get("items") if isinstance(payload, dict) else None
-    for item in items if isinstance(items, list) else []:
-        if not isinstance(item, dict):
-            continue
+    items = [i for i in items if isinstance(i, dict)] if isinstance(items, list) else []
+    items.sort(key=lambda i: _provider_name(i) != "DraftKings")
+    for item in items:
         home = item.get("homeTeamOdds")
         away = item.get("awayTeamOdds")
         line = {
-            "provider": (item.get("provider") or {}).get("name")
-            if isinstance(item.get("provider"), dict)
-            else None,
+            "provider": _provider_name(item),
             "home_spread_open": _american(home, "open", "pointSpread"),
             "home_spread_now": _american(home, "current", "pointSpread"),
             "total_open": _american(item, "open", "total"),

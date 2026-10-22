@@ -25,6 +25,7 @@ from app.services.notifications_read import (
     get_league_records,
     get_member_season,
     get_pick_completion,
+    get_slate_odds_inputs,
     get_standings_table,
     get_team_ats_by_game,
     get_week_scores,
@@ -506,6 +507,23 @@ class LeagueRecordsAndTendencyTests(_ReaderTestCase):
             self.assertFalse(game.odds_frozen)
             out = get_game_outlook_inputs(session, SEASON, WEEK, team_abbr="BUF")
         self.assertTrue(out["frozen"])
+
+    def test_slate_odds_lists_every_game_with_its_line_and_espn_ids(self) -> None:
+        # Issue #343: the live-odds join needs the ids; no pick or user data rides along.
+        with self._session() as session:
+            out = get_slate_odds_inputs(session, SEASON, WEEK)
+            empty = get_slate_odds_inputs(session, SEASON, WEEK + 1)
+        self.assertEqual(out["week"], WEEK)
+        self.assertTrue(out["frozen"])
+        self.assertEqual(len(out["games"]), 2)
+        kc = next(g for g in out["games"] if g["home"] == "KC")
+        self.assertEqual((kc["away"], kc["favorite"], kc["spread"]), ("IND", "KC", "7.0"))
+        self.assertEqual(kc["status"], "SCHEDULED")
+        self.assertIn("espn_event_id", kc)
+        self.assertIn("espn_competition_id", kc)
+        for game in out["games"]:
+            self.assertFalse({"pick", "user", "member"} & set(game))
+        self.assertEqual(empty["games"], [])
 
 
 class GameOutlookBeforeFreezeTests(_ReaderTestCase):
