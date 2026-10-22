@@ -604,6 +604,33 @@ class OpenChatWireFormatTests(unittest.TestCase):
         assert body is not None
         self.assertEqual(body["tools"], [spec])
         self.assertEqual(body["tool_choice"], "auto")
+        # The local vendor keeps the prose cap even with tools (issue #341).
+        self.assertEqual(body["max_tokens"], llm_client._OPEN_MAX_TOKENS)
+
+    def test_open_chat_marks_a_cut_message(self) -> None:
+        # Issue #341: the caller must be able to tell a capped preamble from an answer.
+        _CapturingAsyncClient._response = _FakeResponse(
+            200,
+            {
+                "choices": [
+                    {
+                        "message": {"role": "assistant", "content": "I'll pull every game."},
+                        "finish_reason": "length",
+                    }
+                ]
+            },
+        )
+        with (
+            _configured(),
+            mock.patch.object(httpx, "AsyncClient", _CapturingAsyncClient),
+            mock.patch.object(llm_client.logger, "warning") as warning,
+        ):
+            out = _run(llm_client.open_chat([], system_prompt="p"))
+        self.assertEqual(
+            out, {"role": "assistant", "content": "I'll pull every game.", "_truncated": True}
+        )
+        self.assertEqual(llm_client.TRUNCATED_KEY, "_truncated")
+        warning.assert_called_once_with("llm_open_truncated", cap=llm_client._OPEN_MAX_TOKENS)
 
     def test_open_chat_carries_the_completion_token_count(self) -> None:
         # Issue #220 (reopened): the count is the only trace of a tool call the server
@@ -3819,6 +3846,52 @@ class ToolLoopTests(_OpenPathTestCase):
         self.assertEqual(out, "Caleb Williams starts at QB for the Bears.")
         self.assertEqual(len(calls), 3)
         self.assertIsNone(calls[2]["tools"])
+
+    def test_on_a_hosted_api_a_cut_tool_round_is_never_the_answer(self) -> None:
+        # Issue #341, prod 2026-10-22: a whole-slate fan-out hit the cap and the bot
+        # posted the preamble, both on the first round and after a tool turn.
+        preamble = {
+            "role": "assistant",
+            "content": "I'll pull the outlook for every game on the slate.",
+            "_truncated": True,
+        }
+        for vendor in ("openai", "anthropic"):
+            for script in (
+                (preamble,),
+                (_tool_call_message("lookup_starter", '{"team": "CHI"}'), preamble),
+            ):
+                tool, _ = _fake_tool()
+                patcher, calls = _open_chat_returns(*script, _text("never reached"))
+                with (
+                    self.subTest(vendor=vendor, rounds=len(script) - 1),
+                    mock.patch.object(qa_open.settings, "llm_api_vendor", vendor),
+                    mock.patch.object(qa_open, "TOOLS", (tool,)),
+                    patcher,
+                ):
+                    text, turns = _run(
+                        qa_open._run_tool_loop(
+                            [{"role": "user", "content": "DK lines for every game?"}],
+                            system_prompt="s",
+                        )
+                    )
+                self.assertIsNone(text)
+                self.assertEqual(turns, [])
+                self.assertEqual(len(calls), len(script))
+
+    def test_on_local_a_cut_round_keeps_its_old_path(self) -> None:
+        tool, _ = _fake_tool()
+        cut = {"role": "assistant", "content": "Brady, and it is not close.", "_truncated": True}
+        patcher, calls = _open_chat_returns(cut)
+        with (
+            mock.patch.object(qa_open.settings, "llm_api_vendor", "local"),
+            mock.patch.object(qa_open, "TOOLS", (tool,)),
+            patcher,
+        ):
+            text, _ = _run(
+                qa_open._run_tool_loop([{"role": "user", "content": "goat?"}], system_prompt="s")
+            )
+        self.assertEqual(text, "Brady, and it is not close.")
+        self.assertEqual(len(calls), 1)
 
     def test_a_first_round_text_answer_still_returns_at_once(self) -> None:
         # No tool result in the conversation, no doubling measured: one call, no close.
