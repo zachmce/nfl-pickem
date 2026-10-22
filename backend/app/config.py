@@ -84,8 +84,10 @@ class Settings(BaseSettings):
     llm_api_key: str | None = None
     # Which wire dialect ``llm_client._post_chat`` speaks. "local" (default) sends the
     # vLLM/llama.cpp body unchanged; "openai" translates it for api.openai.com (the
-    # GPT-5.6 models reject chat_template_kwargs, max_tokens, temperature and top_p).
-    # Switching back to the local server is this one value plus the three above.
+    # GPT-5.6 models reject chat_template_kwargs, max_tokens, temperature and top_p);
+    # "anthropic" is the openai body for Anthropic's OpenAI-compatible endpoint with
+    # thinking turned off. Switching back to the local server is this one value plus
+    # the three above.
     llm_api_vendor: str = "local"
     # Optional model for the OPEN NFL path only (tool calling, longer answers). Unset
     # means every path uses LLM_API_MODEL. Lets a stronger model serve the open path
@@ -143,10 +145,10 @@ class Settings(BaseSettings):
     @field_validator("llm_api_vendor", mode="before")
     @classmethod
     def _normalize_llm_vendor(cls, v: object) -> str:
-        """Accept ``local`` / ``openai`` in any case; anything else fails at startup."""
+        """Accept ``local`` / ``openai`` / ``anthropic`` in any case; anything else fails at startup."""
         vendor = str(v or "local").strip().lower() or "local"
-        if vendor not in ("local", "openai"):
-            raise ValueError(f"LLM_API_VENDOR must be 'local' or 'openai', got {v!r}")
+        if vendor not in ("local", "openai", "anthropic"):
+            raise ValueError(f"LLM_API_VENDOR must be 'local', 'openai' or 'anthropic', got {v!r}")
         return vendor
 
     @model_validator(mode="after")

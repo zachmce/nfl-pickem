@@ -116,6 +116,35 @@ class VendorTranslationTests(unittest.TestCase):
         self.assertEqual(body["reasoning_effort"], "none")
         self.assertEqual(body["max_completion_tokens"], llm_client._OPEN_MAX_TOKENS)
 
+    def test_anthropic_vendor_is_the_openai_body_with_thinking_off(self) -> None:
+        # Measured 2026-10-22: reasoning_effort none left thinking on and emptied the
+        # 80-token phrase; thinking between_tools returned the line.
+        with (
+            _configured(llm_api_vendor="anthropic", llm_api_model="claude-sonnet-5-5"),
+            _script(_OK),
+        ):
+            out = _run(llm_client.phrase("fact", system_prompt="sys"))
+        self.assertEqual(out, "voiced line")
+        body = _ScriptedClient.posted[0]
+        self.assertEqual(body["thinking"], {"type": "between_tools"})
+        self.assertNotIn("reasoning_effort", body)
+        self.assertEqual(body["max_completion_tokens"], llm_client._MAX_TOKENS)
+        for rejected in ("chat_template_kwargs", "temperature", "top_p", "max_tokens"):
+            self.assertNotIn(rejected, body)
+
+    def test_anthropic_vendor_keeps_tools_on_the_open_path(self) -> None:
+        tools = [{"type": "function", "function": {"name": "t", "parameters": {}}}]
+        with _configured(llm_api_vendor="anthropic"), _script(_OK):
+            _run(
+                llm_client.open_chat(
+                    [{"role": "user", "content": "q"}], system_prompt="s", tools=tools
+                )
+            )
+        body = _ScriptedClient.posted[0]
+        self.assertEqual(body["tools"], tools)
+        self.assertEqual(body["tool_choice"], "auto")
+        self.assertEqual(body["thinking"], {"type": "between_tools"})
+
 
 class OpenModelOverrideTests(unittest.TestCase):
     def test_open_path_uses_the_open_model_when_set(self) -> None:
@@ -163,11 +192,14 @@ class VendorSettingTests(unittest.TestCase):
         self.assertEqual(
             Settings.model_validate({"llm_api_vendor": "OpenAI"}).llm_api_vendor, "openai"
         )
+        self.assertEqual(
+            Settings.model_validate({"llm_api_vendor": "Anthropic"}).llm_api_vendor, "anthropic"
+        )
         self.assertEqual(Settings.model_validate({"llm_api_vendor": ""}).llm_api_vendor, "local")
 
     def test_unknown_vendor_fails_at_startup(self) -> None:
         with self.assertRaises(ValueError):
-            Settings.model_validate({"llm_api_vendor": "anthropic"})
+            Settings.model_validate({"llm_api_vendor": "gemini"})
 
     def test_blank_open_model_means_unset(self) -> None:
         self.assertIsNone(Settings.model_validate({"llm_api_open_model": "  "}).llm_api_open_model)
