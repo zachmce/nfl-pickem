@@ -16,7 +16,8 @@ updates:
     # (e.g. by osv-scanner's MAL- advisories) before we pull it. Applied to the
     # third-party PACKAGE ecosystems only, NOT the docker base images below —
     # those are pinned for CVE freshness and a cooldown would delay security
-    # patches.
+    # patches. A fixable advisory on a uv/npm lockfile skips the cooldown via
+    # .github/workflows/security-audit.yml (Dependabot alerts can lag the advisory).
     cooldown:
       default-days: 5
     groups:
