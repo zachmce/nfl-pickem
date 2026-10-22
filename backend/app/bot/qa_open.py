@@ -3824,7 +3824,8 @@ _LINES_STATEMENT = (
 _LINES_CAVEAT = (
     "Report each spread and total exactly as listed for its game, and never state a line "
     "for a game that is not listed. These are the lines the league locked for its picks; "
-    "a sportsbook's current number may differ, so never call these the live market."
+    "a sportsbook's current number may differ, so never call these the live market. "
+    "lookup_slate_odds has DraftKings' current lines."
 )
 
 _LINES_TOOL_DESCRIPTION = (
@@ -3835,8 +3836,9 @@ _LINES_TOOL_DESCRIPTION = (
     "when picks lock. Pass the team argument, as a standard abbreviation such as KC, only "
     "when the member names a team. Leave the week argument out for this week and pass it "
     "only when the member names a week or says last week. These are the league's locked "
-    "lines, not a live sportsbook. For how a team did against the spread across a "
-    "season, lookup_team_ats is the tool."
+    "lines, not a live sportsbook: for DraftKings' current lines, lookup_slate_odds is the "
+    "tool. For how a team did against the spread across a season, lookup_team_ats is the "
+    "tool."
 )
 
 
@@ -4487,13 +4489,158 @@ _OUTLOOK_CAVEAT = (
 )
 _GAME_OUTLOOK_TOOL_DESCRIPTION = (
     "Look up one team's game in any week of this season: the bot's own rating-model "
-    "read of who wins and by how much, the pick'em league's line, how the sportsbook "
-    "line moved from its opening number, and the kickoff forecast at the stadium. Call "
+    "read of who wins and by how much, the pick'em league's line, DraftKings' opening and "
+    "current line and moneylines, and the kickoff forecast at the stadium. Call "
     "this tool when the member asks who the bot or the model likes in a game, what the "
-    "model thinks, whether a line has moved, where a line opened, the moneyline, or "
-    "what the weather will be for a game. The team argument is a standard abbreviation, "
-    "such as KC. Leave the week argument out for this week and pass it when the member "
-    "names a week."
+    "model thinks, whether a line has moved, where a line opened, the moneyline, the "
+    "current DraftKings line for one game, or what the weather will be for a game. The "
+    "team argument is a standard abbreviation, such as KC. Leave the week argument out "
+    "for this week and pass it when the member names a week. For the current DraftKings "
+    "lines of several games or the whole slate, lookup_slate_odds is the tool."
+)
+
+
+async def _lookup_slate_odds(week: int | None = None) -> object | None:
+    """Issue #343: DraftKings' current line for every game of a week, next to the league's."""
+    from app.bot import db_bridge
+    from app.services import live_odds
+
+    asked_week = _coerce_week_arg(week)
+    if week is not None and asked_week is None:
+        return {"note": _BAD_WEEK_NOTE}
+    data = await db_bridge.get_slate_odds_async(asked_week)
+    if data.get("week") is None:
+        return {"note": _NO_SEASON_NOTE}
+    games = list(data.get("games") or [])
+    if not games:
+        return {"note": _NO_LINES_POSTED_NOTE.format(week=data["week"])}
+
+    async def _current(game: dict) -> dict | None:
+        event_id = game.get("espn_event_id")
+        if game.get("status") != "SCHEDULED" or not isinstance(event_id, int):
+            return None
+        return await live_odds.fetch_line_movement(event_id, game.get("espn_competition_id"))
+
+    movements = await asyncio.gather(*(_current(game) for game in games))
+    rows = [_slate_odds_row(game, movement) for game, movement in zip(games, movements)]
+    differ = [row["game"] for row in rows if row.pop("_differs")]
+    return {
+        "week": data["week"],
+        "now": _fmt_close(datetime.now(UTC)),
+        "statement": _SLATE_ODDS_STATEMENT.format(
+            count=len(rows),
+            week=data["week"],
+            state="frozen for picks" if data.get("frozen") else "not frozen yet",
+            differ=", ".join(differ) if differ else "none",
+        ),
+        "games": rows,
+        "caveat": _SLATE_ODDS_CAVEAT,
+    }
+
+
+def _slate_odds_row(game: dict, movement: dict | None) -> dict:
+    """One game's league line, current book line and their difference, in words. Pure."""
+    home, away = game.get("home") or "home", game.get("away") or "away"
+    row: dict = {"game": f"{away} at {home}", "kickoff": _fmt_close(game.get("kickoff_at"))}
+    league_home = _league_home_spread(game, home)
+    league_total = _as_number(game.get("total"))
+    row["league_line"] = (
+        f"{_spread_words(league_home, home, away)}, total {_num(league_total)}"
+        if league_home is not None
+        else "no league line yet"
+    )
+    status = game.get("status")
+    # Probe 2026-10-22: with only kickoff times, Sonnet called a game 5 h out "already kicked off".
+    row["state"] = _GAME_STATE_WORDS.get(str(status), "not kicked off yet")
+    if status == "FINAL":
+        row["current_line"] = "This game is over, so there is no current line."
+        row["_differs"] = False
+        return row
+    if status == "IN_PROGRESS":
+        row["current_line"] = "This game is being played now, so the pre-game line is closed."
+        row["_differs"] = False
+        return row
+    if movement is None:
+        row["current_line"] = "No current sportsbook line could be read for this game just now."
+        row["_differs"] = False
+        return row
+    book = movement.get("provider") or "The sportsbook"
+    book_home = _as_number(movement.get("home_spread_now"))
+    book_total = _as_number(movement.get("total_now"))
+    spread_words = _spread_words(book_home, home, away) if book_home is not None else "no spread"
+    row["current_line"] = (
+        f"{book} now: {spread_words}, total {_num(book_total)}; moneyline {home} "
+        f"{movement.get('home_moneyline_now') or 'not given'}, {away} "
+        f"{movement.get('away_moneyline_now') or 'not given'}"
+    )
+    spread_gap = (
+        abs(book_home - league_home) if book_home is not None and league_home is not None else None
+    )
+    total_gap = (
+        abs(book_total - league_total)
+        if book_total is not None and league_total is not None
+        else None
+    )
+    row["comparison"] = f"Spread: {_gap_words(spread_gap)}. Total: {_gap_words(total_gap)}."
+    row["_differs"] = bool(spread_gap) or bool(total_gap)
+    return row
+
+
+def _league_home_spread(game: dict, home: str) -> float | None:
+    spread = _as_number(game.get("spread"))
+    if spread is None or not game.get("favorite"):
+        return None
+    return -abs(spread) if game["favorite"] == home else abs(spread)
+
+
+def _as_number(value: object) -> float | None:
+    if isinstance(value, str) and value.strip().upper() in ("PK", "EVEN", "PICK"):
+        return 0.0
+    try:
+        return float(value) if isinstance(value, (int, float, str)) else None
+    except ValueError:
+        return None
+
+
+def _num(value: float | None) -> str:
+    return "not given" if value is None else f"{value:g}"
+
+
+def _spread_words(home_spread: float, home: str, away: str) -> str:
+    """A home-side spread as the favorite laying points, such as ``SEA -3``."""
+    if home_spread == 0:
+        return "a pick'em with no favorite"
+    if home_spread < 0:
+        return f"{home} -{_num(-home_spread)}"
+    return f"{away} -{_num(home_spread)}"
+
+
+def _gap_words(gap: float | None) -> str:
+    if gap is None:
+        return "cannot be compared"
+    if gap == 0:
+        return "the same"
+    return f"differs by {_num(gap)} points"
+
+
+_GAME_STATE_WORDS = {"FINAL": "over", "IN_PROGRESS": "being played now"}
+_SLATE_ODDS_STATEMENT = (
+    "These are the {count} games of week {week}: for each, the pick'em league's line "
+    "({state}) next to the sportsbook's current line. Games where the spread or the total "
+    "differs: {differ}."
+)
+_SLATE_ODDS_CAVEAT = (
+    "Report every number exactly as listed and name the book as listed. A spread is "
+    "written as the favorite laying points. The league line is the one picks are graded "
+    "against; the sportsbook's current line is the live market and can move at any time."
+)
+_SLATE_ODDS_TOOL_DESCRIPTION = (
+    "Look up DraftKings' current point spread, total and moneylines for every game in a "
+    "week of this season, next to the pick'em league's frozen line, with each difference "
+    "worked out. Call this tool when the member asks for the current, live, Vegas or "
+    "sportsbook lines, DraftKings or DK lines, or the odds for the whole slate or for "
+    "several games, or asks which league lines differ from the sportsbook. Leave the week "
+    "argument out for this week and pass it only when the member names a week."
 )
 
 
@@ -6064,6 +6211,28 @@ _BASE_TOOLS: tuple[_Tool, ...] = (
             },
         },
         run=_lookup_game_outlook,
+        volatile=True,
+    ),
+    _Tool(
+        name="lookup_slate_odds",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_slate_odds",
+                "description": _SLATE_ODDS_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "week": {
+                            "type": "integer",
+                            "description": "Optional week number. Leave it out for this week.",
+                        },
+                    },
+                    "required": [],
+                },
+            },
+        },
+        run=_lookup_slate_odds,
         volatile=True,
     ),
     _Tool(

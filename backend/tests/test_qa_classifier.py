@@ -203,6 +203,13 @@ class ClassifierAskerNameTests(unittest.TestCase):
         self.assertIn("a question that names a LATER week", qa.CLASSIFIER_SYSTEM_PROMPT)
         self.assertIn("each open_nfl, NOT prediction", qa.CLASSIFIER_SYSTEM_PROMPT)
 
+    def test_a_plain_draftkings_line_request_leaves_lines_slate(self) -> None:
+        # Issue #343: lines_slate only has the frozen lines, so a DK request is open_nfl.
+        self.assertIn(
+            "such as DraftKings or DK, alone or compared with the league's line",
+            qa.CLASSIFIER_SYSTEM_PROMPT,
+        )
+
 
 class ValidateClassificationTests(unittest.TestCase):
     """The pure, DB-free security seam: coerce anything sketchy to ``unknown``."""

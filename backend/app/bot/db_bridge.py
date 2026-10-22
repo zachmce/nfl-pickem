@@ -52,6 +52,7 @@ from app.services.notifications_read import (
     get_recap_context,
     get_roster_complete_context,
     get_season_record_and_ats_for_team,
+    get_slate_odds_inputs,
     get_slate_predictions_for_week,
     get_standings_table,
     get_team_ats_by_game,
@@ -801,6 +802,22 @@ async def get_league_records_async() -> dict:
             if season is None:
                 return {"season": None}
             return get_league_records(session, season)
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_slate_odds_async(week: int | None = None) -> dict:
+    """Async wrapper: a week's games with league lines and ESPN ids (this week by default)."""
+
+    def _sync() -> dict:
+        with task_session() as session:
+            season = current_season(session)
+            if season is None:
+                return {"week": None, "frozen": False, "games": []}
+            target = week if week is not None else resolve_current_week(session, season)
+            if target is None:
+                return {"week": None, "frozen": False, "games": []}
+            return get_slate_odds_inputs(session, season, target)
 
     return await asyncio.to_thread(_sync)
 

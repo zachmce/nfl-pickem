@@ -2153,6 +2153,41 @@ def get_game_outlook_inputs(session: Session, season: int, week: int, *, team_ab
     }
 
 
+def get_slate_odds_inputs(session: Session, season: int, week: int) -> dict:
+    """Issue #343: every game of ``week`` with its league line and ESPN ids, for a live-odds join.
+
+    Returns ``{week, frozen, games: [...]}``; display-only, no pick or user rows.
+    """
+    games = list(session.exec(select(Game).where(Game.season == season, Game.week == week)).all())
+    abbr = {t.id: t.abbreviation for t in session.exec(select(Team)).all() if t.id is not None}
+    week_row = session.exec(
+        select(Week).where(Week.season == season, Week.week == week)
+    ).one_or_none()
+    try:
+        frozen = week_row is not None and is_odds_frozen(week_row, games)
+    except ValueError:
+        frozen = False
+    games.sort(key=lambda g: (_as_aware(g.kickoff_at) or datetime.max.replace(tzinfo=UTC), g.id))
+    return {
+        "week": week,
+        "frozen": frozen,
+        "games": [
+            {
+                "home": abbr.get(g.home_team_id),
+                "away": abbr.get(g.away_team_id),
+                "status": g.status.value,
+                "kickoff_at": _as_aware(g.kickoff_at),
+                "espn_event_id": g.espn_event_id,
+                "espn_competition_id": g.espn_competition_id,
+                "favorite": abbr.get(g.favorite_team_id) if g.favorite_team_id else None,
+                "spread": str(g.spread) if g.spread is not None else None,
+                "total": str(g.total) if g.total is not None else None,
+            }
+            for g in games
+        ],
+    }
+
+
 # Issue #248 item 7: pick counts reach the injury watcher ONLY for a week whose pick
 # window has closed (the ONE hard rule); before that every game reads as not heavy.
 _INJURY_WATCH_DAYS = 7

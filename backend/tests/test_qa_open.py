@@ -938,6 +938,7 @@ class ShippedRegistryTests(_OpenPathTestCase):
                 "lookup_head_to_head",
                 "lookup_league_records",
                 "lookup_game_outlook",
+                "lookup_slate_odds",
                 "lookup_slate_weather",
                 "lookup_player_career",
                 "lookup_season_awards",
@@ -1221,9 +1222,10 @@ class ShippedRegistryTests(_OpenPathTestCase):
         # with career, awards, FPI, QBR and transactions (33 tools); 45,121 with the
         # championships and Hall of Fame corpus tools and the awards player argument;
         # 45,873 with the slate weather tool (issue #286); 47,561 with the game player
-        # stats tool and the misc wording on the league picks tool (2026-10-05).
+        # stats tool and the misc wording on the league picks tool (2026-10-05); 48,507
+        # with the slate odds tool and the DraftKings wording (issue #343).
         total = sum(len(json.dumps(tool.spec)) for tool in qa_open.TOOLS)
-        self.assertLess(total, 47600, f"the shipped tool specs now total {total} bytes")
+        self.assertLess(total, 48600, f"the shipped tool specs now total {total} bytes")
         for tool in qa_open.TOOLS[5:]:
             with self.subTest(tool=tool.name):
                 self.assertLess(len(json.dumps(tool.spec)), 1700)
@@ -4290,6 +4292,7 @@ class GroundingReplayTests(_OpenPathTestCase):
                 "lookup_injury_report",
                 "lookup_league_records",
                 "lookup_game_outlook",
+                "lookup_slate_odds",
                 "lookup_slate_weather",
                 "lookup_transactions",
             },
