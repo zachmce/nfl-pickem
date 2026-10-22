@@ -470,9 +470,10 @@ def _carries_a_tool_call(message: dict) -> bool:
     text = _message_content(message) or ""
     if _TOOL_CALL_MARKER in text:
         return True
-    # OpenAI never strips a call out of the text, so the gap only measures tokenization:
-    # measured 2026-09-24, a digit-heavy ATS answer tripped it 3/11 on gpt-5.6-terra.
-    if settings.llm_api_vendor == "openai":
+    # A hosted API never strips a call out of the text, so the gap only measures
+    # tokenization: measured 2026-09-24, a digit-heavy ATS answer tripped it 3/11 on
+    # gpt-5.6-terra.
+    if settings.llm_api_vendor != "local":
         return False
     generated = message.get(llm_client.COMPLETION_TOKENS_KEY)
     if not isinstance(generated, int):
@@ -6544,8 +6545,8 @@ async def _run_tool_loop(
             if not _has_tool_turn(working) and not _carries_a_tool_call(message):
                 return _message_content(message), []  # answered from memory — done
             # The doubling below is the served Qwen's; terra wrote the round text once in
-            # 30/30 (2026-09-24), so the close would only cost a call and ~2 s.
-            if settings.llm_api_vendor == "openai" and not _not_an_answer(message):
+            # 30/30 (2026-09-24), so on a hosted API the close only costs a call and ~2 s.
+            if settings.llm_api_vendor != "local" and not _not_an_answer(message):
                 return _message_content(message), working[len(messages) :]
             break  # the model is done with tools; the tools-free close answers
         bot_telemetry.note_round()

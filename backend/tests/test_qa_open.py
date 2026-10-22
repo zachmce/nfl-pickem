@@ -323,16 +323,20 @@ class CarriesAToolCallTests(unittest.TestCase):
         self.assertFalse(qa_open._carries_a_tool_call({"role": "assistant", "content": None}))
         self.assertFalse(qa_open._carries_a_tool_call({"role": "assistant", "content": "Let me."}))
 
-    def test_the_token_gap_is_not_a_tool_call_on_openai(self) -> None:
+    def test_the_token_gap_is_not_a_tool_call_on_a_hosted_api(self) -> None:
         # Measured 2026-09-24 on gpt-5.6-terra: a digit-heavy ATS answer, 151 tokens.
         rows = "Week 1 at IND: +1.5, lost 8\u201333 \u2014 did not cover.  \n" * 6
         message = {"role": "assistant", "content": rows, "_completion_tokens": 151}
         with mock.patch.object(qa_open.settings, "llm_api_vendor", "local"):
             self.assertTrue(qa_open._carries_a_tool_call(message))
-        with mock.patch.object(qa_open.settings, "llm_api_vendor", "openai"):
-            self.assertFalse(qa_open._carries_a_tool_call(message))
-            leaked = {"role": "assistant", "content": "<tool_call>x</tool_call>"}
-            self.assertTrue(qa_open._carries_a_tool_call(leaked))
+        for vendor in ("openai", "anthropic"):
+            with (
+                self.subTest(vendor),
+                mock.patch.object(qa_open.settings, "llm_api_vendor", vendor),
+            ):
+                self.assertFalse(qa_open._carries_a_tool_call(message))
+                leaked = {"role": "assistant", "content": "<tool_call>x</tool_call>"}
+                self.assertTrue(qa_open._carries_a_tool_call(leaked))
 
     def test_a_literal_marker_is_a_tool_call_on_any_server(self) -> None:
         leaked = "Let me look.\n\n<tool_call>\n<function=lookup_player>\n</function>\n</tool_call>"
@@ -3775,27 +3779,29 @@ class ToolLoopTests(_OpenPathTestCase):
         self.assertEqual(close[-1]["role"], "tool")
         self.assertFalse(any(m.get("content") == doubled for m in close))
 
-    def test_on_openai_the_round_text_is_the_answer_and_no_close_is_made(self) -> None:
+    def test_on_a_hosted_api_the_round_text_is_the_answer_and_no_close_is_made(self) -> None:
         # Measured 2026-09-24: terra wrote the round text once in 30/30, so the close
         # only cost a call. The tool turns still come back for the grounding replay.
-        tool, _ = _fake_tool()
-        patcher, calls = _open_chat_returns(
-            _tool_call_message("lookup_starter", '{"team": "CHI"}'),
-            _text("Caleb Williams starts at QB for the Bears."),
-        )
-        with (
-            mock.patch.object(qa_open.settings, "llm_api_vendor", "openai"),
-            mock.patch.object(qa_open, "TOOLS", (tool,)),
-            patcher,
-        ):
-            text, turns = _run(
-                qa_open._run_tool_loop(
-                    [{"role": "user", "content": "who starts?"}], system_prompt="s"
-                )
+        for vendor in ("openai", "anthropic"):
+            tool, _ = _fake_tool()
+            patcher, calls = _open_chat_returns(
+                _tool_call_message("lookup_starter", '{"team": "CHI"}'),
+                _text("Caleb Williams starts at QB for the Bears."),
             )
-        self.assertEqual(text, "Caleb Williams starts at QB for the Bears.")
-        self.assertEqual(len(calls), 2)
-        self.assertEqual([t.get("role") for t in turns], ["assistant", "tool"])
+            with (
+                self.subTest(vendor),
+                mock.patch.object(qa_open.settings, "llm_api_vendor", vendor),
+                mock.patch.object(qa_open, "TOOLS", (tool,)),
+                patcher,
+            ):
+                text, turns = _run(
+                    qa_open._run_tool_loop(
+                        [{"role": "user", "content": "who starts?"}], system_prompt="s"
+                    )
+                )
+            self.assertEqual(text, "Caleb Williams starts at QB for the Bears.")
+            self.assertEqual(len(calls), 2)
+            self.assertEqual([t.get("role") for t in turns], ["assistant", "tool"])
 
     def test_on_openai_an_empty_round_still_goes_to_the_close(self) -> None:
         tool, _ = _fake_tool()

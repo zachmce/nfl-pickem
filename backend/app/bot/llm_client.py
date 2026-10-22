@@ -168,6 +168,20 @@ def _translate_for_openai(body: dict) -> dict:
     return out
 
 
+def _translate_for_anthropic(body: dict) -> dict:
+    """The openai body for Anthropic's OpenAI-compatible endpoint (measured 2026-10-22).
+
+    claude-sonnet-5-5 ignores ``reasoning_effort: none`` there and thinks anyway: the
+    80-token phrase cap came back empty with ``finish_reason: length``. A top-level
+    ``thinking: between_tools`` turns thinking off (30 tokens, text returned); per the
+    API docs Sonnet 5.5 returns a 400 on ``{"type": "disabled"}``.
+    """
+    out = _translate_for_openai(body)
+    del out["reasoning_effort"]
+    out["thinking"] = {"type": "between_tools"}
+    return out
+
+
 # One pooled client per event loop and timeout: a client per call paid a new TCP + TLS
 # handshake on every model call, up to six per open answer on api.openai.com. Keyed by
 # the loop because a client is bound to the loop it first ran on, and by the
@@ -228,6 +242,8 @@ async def _post_chat(
     wire_body = {"model": model or default_model, **body}
     if settings.llm_api_vendor == "openai":
         wire_body = _translate_for_openai(wire_body)
+    elif settings.llm_api_vendor == "anthropic":
+        wire_body = _translate_for_anthropic(wire_body)
 
     try:
         client = _shared_client(timeout)
