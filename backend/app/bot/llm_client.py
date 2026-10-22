@@ -173,12 +173,16 @@ def _translate_for_anthropic(body: dict) -> dict:
 
     claude-sonnet-5-5 ignores ``reasoning_effort: none`` there and thinks anyway: the
     80-token phrase cap came back empty with ``finish_reason: length``. A top-level
-    ``thinking: between_tools`` turns thinking off (30 tokens, text returned); per the
-    API docs Sonnet 5.5 returns a 400 on ``{"type": "disabled"}``.
+    ``thinking`` turns it off, but the accepted type depends on the model: Sonnet 5.5
+    takes only ``between_tools`` (``disabled`` is a 400 per the API docs), and Haiku 5.5
+    returns a 400 on ``between_tools`` but takes ``disabled`` (both measured).
     """
     out = _translate_for_openai(body)
     del out["reasoning_effort"]
-    out["thinking"] = {"type": "between_tools"}
+    off = (
+        "between_tools" if str(out.get("model", "")).startswith("claude-sonnet-5-5") else "disabled"
+    )
+    out["thinking"] = {"type": off}
     return out
 
 

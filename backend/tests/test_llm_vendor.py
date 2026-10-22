@@ -132,9 +132,36 @@ class VendorTranslationTests(unittest.TestCase):
         for rejected in ("chat_template_kwargs", "temperature", "top_p", "max_tokens"):
             self.assertNotIn(rejected, body)
 
+    def test_anthropic_vendor_disables_thinking_on_haiku(self) -> None:
+        # Measured 2026-10-22: claude-haiku-5-5 returns a 400 on between_tools.
+        with (
+            _configured(llm_api_vendor="anthropic", llm_api_model="claude-haiku-5-5"),
+            _script(_OK),
+        ):
+            _run(llm_client.classify("q", system_prompt="sys"))
+        self.assertEqual(_ScriptedClient.posted[0]["thinking"], {"type": "disabled"})
+
+    def test_anthropic_thinking_follows_each_call_model(self) -> None:
+        with (
+            _configured(
+                llm_api_vendor="anthropic",
+                llm_api_model="claude-haiku-5-5",
+                llm_api_open_model="claude-sonnet-5-5",
+            ),
+            _script(_OK),
+        ):
+            _run(llm_client.phrase("fact", system_prompt="sys"))
+            _run(llm_client.open_chat([{"role": "user", "content": "q"}], system_prompt="s"))
+        self.assertEqual(
+            [b["thinking"]["type"] for b in _ScriptedClient.posted], ["disabled", "between_tools"]
+        )
+
     def test_anthropic_vendor_keeps_tools_on_the_open_path(self) -> None:
         tools = [{"type": "function", "function": {"name": "t", "parameters": {}}}]
-        with _configured(llm_api_vendor="anthropic"), _script(_OK):
+        with (
+            _configured(llm_api_vendor="anthropic", llm_api_open_model="claude-sonnet-5-5"),
+            _script(_OK),
+        ):
             _run(
                 llm_client.open_chat(
                     [{"role": "user", "content": "q"}], system_prompt="s", tools=tools
