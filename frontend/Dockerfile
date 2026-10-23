@@ -20,7 +20,7 @@ RUN npm run build
 # refreshes the pin. Caveat (same as backend): Dependabot bumping a third-party
 # cgr.dev `:latest@sha256` digest is less battle-tested than Docker Hub semver —
 # confirm on the first weekly PR, Renovate/manual bump as fallback.
-FROM cgr.dev/chainguard/nginx:latest@sha256:9d34c0a9f349eaf64ec75b3e8c09774fa234152a03cee94121e09e7220e2a560 AS runtime
+FROM cgr.dev/chainguard/nginx:latest@sha256:5b397d323878cd75f6c6968b2836bf5497b6e2d29f0cd7609f8d9d03ea6db2e6 AS runtime
 # OVERWRITE the base image's stock conf.d/nginx.default.conf (a `server_name
 # localhost; listen 8080` block with no SPA fallback, no /api proxy, and no
 # security headers). The main nginx.conf `include /etc/nginx/conf.d/*.conf` loads
