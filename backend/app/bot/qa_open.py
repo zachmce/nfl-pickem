@@ -129,9 +129,21 @@ OPEN_SPEAKERS_CLAUSE = (
     "one question you answer, and you answer it for the member who wrote it. A follow-up "
     "continues that same member's earlier messages and your replies to them; a question "
     "that a different member asked earlier is a separate conversation, and you never "
-    "answer it again in place of the last message. Never start your own reply with a name "
-    "and a colon."
+    "answer it again in place of the last message. A name can carry that member's league "
+    'name in brackets, for example "Sam (league name sam_picks)": the league data lists '
+    "that member's picks under the league name, so those picks are the member's own. "
+    "Never start your own reply with a name and a colon."
 )
+
+# Transcript 2026-10-28: a member called the AI model behind another member's picks the
+# bot's "cousin", and the bot, which did not know its own model, read it as the member's.
+_MODEL_STATEMENT = "You are an AI chat bot, and the AI model you run on is {model}."
+
+
+def _model_statement() -> str:
+    model = settings.llm_api_open_model or settings.llm_api_model
+    return _MODEL_STATEMENT.format(model=model) if model else ""
+
 
 # The old first sentence said "using your own football knowledge rather than any figure
 # read from the app's database", which contradicted OPEN_TOOLS_CLAUSE's league tools.
@@ -760,6 +772,27 @@ async def _resolve_player(player: str, team: str) -> dict[str, object]:
     return {"athlete_id": found_id, "identity": resolved, "on_roster": None}
 
 
+def _hall_of_famer(found: list[dict]) -> dict | None:
+    """The ONE candidate who is a Pro Football Hall of Famer, else ``None``.
+
+    Issue #253: "Reggie White career sacks" asked "which Reggie White?" among current
+    namesakes. A match needs the same name AND his ESPN club's franchise among the clubs
+    of the inductee's row, so a namesake never borrows the honour.
+    """
+    from app.services import history_corpus
+
+    famers = []
+    for one in found:
+        name = str(one["display_name"])
+        # By franchise, not by name: ESPN says "Las Vegas Raiders" for Jerry Rice, and his
+        # inductee row says "Oakland Raiders".
+        club = history_corpus.franchise(one["team_name"])
+        rows = history_corpus.hall_of_fame(player=name, team=club) if club else []
+        if any(row["name"].casefold() == name.casefold() for row in rows):
+            famers.append(one)
+    return famers[0] if len(famers) == 1 else None
+
+
 def _join_teams(teams: list[str]) -> str:
     """Join club names into one readable phrase — "the A and the B", "the A, the B and…"."""
     articled = [f"the {team}" for team in teams]
@@ -823,8 +856,11 @@ def _close_first_name(written: str, listed: str) -> bool:
     return _edit_distance(written.lower(), listed.lower()) <= limit
 
 
-async def _search_nfl_players(player: str) -> tuple[list[dict] | None, str | None]:
-    """ESPN's NFL players matching ``player``, plus the note for a corrected name.
+async def _search_nfl_players(
+    player: str,
+) -> tuple[list[dict] | None, str | None, list[dict]]:
+    """ESPN's NFL players matching ``player``, the note for a corrected name, and every
+    NFL match past the ambiguity window (issue #253's Hall of Fame namesakes).
 
     ``None`` is a failed search, ``[]`` a search that found nobody. When the full name
     finds nobody, the surname alone is searched, and exactly one NFL player with that
@@ -832,13 +868,17 @@ async def _search_nfl_players(player: str) -> tuple[list[dict] | None, str | Non
     """
     from app.services import espn_extra
 
+    window = espn_extra.ATHLETE_SEARCH_AMBIGUITY_WINDOW
     payload = await espn_extra.fetch_athlete_search(player)
-    found = espn_extra.parse_athlete_search(payload) if payload is not None else None
+    found = espn_extra.parse_athlete_search(payload, window=window) if payload is not None else None
+    everyone = (espn_extra.parse_athlete_search(payload) or []) if payload is not None else []
     words = player.split()
     if found != [] or len(words) < 2:
-        return found, None
+        return found, None, everyone
     retry = await espn_extra.fetch_athlete_search(words[-1])
-    by_surname = espn_extra.parse_athlete_search(retry) if retry is not None else None
+    by_surname = (
+        espn_extra.parse_athlete_search(retry, window=window) if retry is not None else None
+    )
     close = [
         one
         for one in by_surname or []
@@ -847,9 +887,9 @@ async def _search_nfl_players(player: str) -> tuple[list[dict] | None, str | Non
         and _close_first_name(words[0], listed[0])
     ]
     if len(close) != 1:
-        return found, None
+        return found, None, everyone
     name = str(close[0]["display_name"])
-    return close, _CORRECTED_NAME_NOTE.format(asked=player, name=name)
+    return close, _CORRECTED_NAME_NOTE.format(asked=player, name=name), close
 
 
 async def _resolve_off_roster(player: str, team_abbr: str) -> dict[str, object]:
@@ -867,7 +907,7 @@ async def _resolve_off_roster(player: str, team_abbr: str) -> dict[str, object]:
     where he plays today, which is not the team a past season's figures belong to, and
     narrating it is what produced the live "he played for the Detroit Lions in 2025".
     """
-    found, name_note = await _search_nfl_players(player)
+    found, name_note, everyone = await _search_nfl_players(player)
     if found is None:
         note = _note(
             _SEARCH_UNAVAILABLE_NOTE, _NAME_SEARCH_FAILED_NOTE, team=team_abbr, player=player
@@ -876,6 +916,21 @@ async def _resolve_off_roster(player: str, team_abbr: str) -> dict[str, object]:
     if not found:
         note = _note(_NOT_ON_ROSTER_NOTE, _NAME_NOT_IN_NFL_NOTE, team=team_abbr, player=player)
         return {"note": note}
+    famer = _hall_of_famer(everyone) if len(found) > 1 else None
+    if famer is not None:
+        others = [
+            f"{one['display_name']} of the {one['team_name']}"
+            for one in everyone
+            if one is not famer
+        ]
+        return {
+            "athlete_id": str(famer["athlete_id"]),
+            "player": str(famer["display_name"]),
+            "position": None,
+            "name_note": _HALL_OF_FAMER_NOTE.format(
+                player=famer["display_name"], others=", ".join(others)
+            ),
+        }
     if len(found) > 1:
         candidates = [f"{one['display_name']} of the {one['team_name']}" for one in found]
         return {
@@ -1016,6 +1071,12 @@ _NAME_SEARCH_FAILED_NOTE = (
     "no figures for him this time. Say that you could not look him up, and never give a "
     "figure from your own memory instead."
 )
+_HALL_OF_FAMER_NOTE = (
+    "More than one NFL player is named {player}, and this result is about the one who is "
+    "in the Pro Football Hall of Fame. The others are {others}. Say that you took "
+    "{player} to mean the Hall of Famer, and that the member can name the team if he "
+    "meant one of the others."
+)
 _AMBIGUOUS_NAME_NOTE = (
     "ESPN's player search found more than one NFL player whose name matches {player}, "
     "and here is each of them with the team he is on right now: {candidates}. Ask the "
@@ -1130,7 +1191,7 @@ async def _lookup_player_current_team(player: str = "") -> object | None:
     if not asked_for:
         return None
 
-    found, name_note = await _search_nfl_players(asked_for)
+    found, name_note, _ = await _search_nfl_players(asked_for)
     if found is None:
         return {"note": _CURRENT_TEAM_SEARCH_FAILED_NOTE.format(player=asked_for)}
     if not found:
@@ -3643,7 +3704,89 @@ _LEAGUE_PICKS_TOOL_DESCRIPTION = (
     "current week and pass it only when the member names a week number. Picks are hidden "
     "until the week's pick window closes at its first kickoff, and when they are hidden "
     "this tool says so and says when they unlock, so call it anyway and relay that. For "
-    "who has and has not finished their card, lookup_pick_completion is the tool."
+    "who has and has not finished their card, lookup_pick_completion is the tool. For "
+    "how the league's picks did on one team's games across the season, "
+    "lookup_team_pick_record is the tool."
+)
+
+
+async def _lookup_team_pick_record(team: str = "") -> object | None:
+    """How the league's picks did on one team's games, counted in code."""
+    from app.bot import db_bridge
+
+    team_abbr = team.strip().upper() if isinstance(team, str) else ""
+    if not team_abbr:
+        return {"note": _NO_TEAM_FOR_PICK_RECORD_NOTE}
+    data = await db_bridge.get_team_pick_record_async(team_abbr)
+    if data.get("season") is None:
+        return {"note": _NO_SEASON_NOTE}
+    if data.get("team") is None:
+        return {"note": _UNKNOWN_PICK_RECORD_TEAM_NOTE.format(team=team_abbr)}
+    totals = data.get("totals") or {}
+    if not totals.get("picks"):
+        return {
+            "note": _NO_PICKS_ON_TEAM_NOTE.format(
+                team=data["team"], weeks=data.get("weeks_counted", 0)
+            )
+        }
+    statement = _TEAM_PICK_RECORD_STATEMENT.format(
+        team=data["team"],
+        weeks=data["weeks_counted"],
+        picks=totals["picks"],
+        won=totals["won"],
+        lost=totals["lost"],
+        pushed=totals["pushed"],
+        waiting=totals["awaiting_admin_grade"] + totals["not_graded"],
+    )
+    if totals.get("win_percent") is not None:
+        statement += _TEAM_PICK_RECORD_PERCENT_CLAUSE.format(
+            decided=totals["won"] + totals["lost"], won=totals["won"], percent=totals["win_percent"]
+        )
+    return {
+        "season": data["season"],
+        "team": data["team"],
+        "weeks_counted": data["weeks_counted"],
+        "totals": totals,
+        "members": data.get("members") or [],
+        "picks": data.get("picks") or [],
+        "record_statement": statement,
+    }
+
+
+# Every count is STATED: the model miscounted 25 picks and corrected itself mid-answer
+# (transcript 2026-10-28).
+_TEAM_PICK_RECORD_STATEMENT = (
+    "Across the {weeks} weeks whose picks are locked this season, league members made "
+    "{picks} picks on {team} games: {won} won, {lost} lost and {pushed} pushed, and {waiting} "
+    "have no grade yet. The app counted these figures, and each member's own counts are "
+    "in members. Report these counts exactly as they are, and never count the picks again "
+    "yourself."
+)
+_TEAM_PICK_RECORD_PERCENT_CLAUSE = (
+    " Of the {decided} picks that won or lost, {won} won, which is {percent} percent."
+)
+_NO_TEAM_FOR_PICK_RECORD_NOTE = (
+    "The member's question named no NFL team, so this tool has no picks to count. Ask "
+    "the member which team he means."
+)
+_UNKNOWN_PICK_RECORD_TEAM_NOTE = (
+    "The app knows no club under the abbreviation {team}, so this tool counted no picks. "
+    "Ask the member which team he means."
+)
+_NO_PICKS_ON_TEAM_NOTE = (
+    "Across the {weeks} weeks whose picks are locked this season, no league member made a "
+    "pick on a {team} game. Tell the member that plainly."
+)
+_TEAM_PICK_RECORD_TOOL_DESCRIPTION = (
+    "Count how the pick'em league's own picks did on one NFL team's games this season: "
+    "every pick any member made on a game that team played, with each pick's outcome, "
+    "the totals won, lost and pushed, the win percentage, and each member's own counts. "
+    "Call this tool when the member asks how the league, or a member, does when picking "
+    "a team's games, a success rate or a hit rate on a team's games, or whether every "
+    "pick on a team was wrong. The team argument is that team's standard abbreviation, "
+    "for example KC for the Kansas City Chiefs. It counts only weeks whose picks are "
+    "locked. For one week's picks, lookup_league_picks is the tool; for how the team "
+    "itself did against the spread, lookup_team_ats is the tool."
 )
 
 
@@ -5975,6 +6118,28 @@ _BASE_TOOLS: tuple[_Tool, ...] = (
         volatile=True,
     ),
     _Tool(
+        name="lookup_team_pick_record",
+        spec={
+            "type": "function",
+            "function": {
+                "name": "lookup_team_pick_record",
+                "description": _TEAM_PICK_RECORD_TOOL_DESCRIPTION,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {
+                            "type": "string",
+                            "description": "The team's standard abbreviation, for example KC.",
+                        },
+                    },
+                    "required": ["team"],
+                },
+            },
+        },
+        run=_lookup_team_pick_record,
+        volatile=True,
+    ),
+    _Tool(
         name="lookup_pick_completion",
         spec={
             "type": "function",
@@ -6475,6 +6640,13 @@ _GROUNDING: OrderedDict[str, deque[tuple[str, list[dict], float]]] = OrderedDict
 # has a 131k context; twelve turns at these caps stay under ~4k tokens.
 _HISTORY_TURN_CHARS = 1200
 _QUESTION_CHARS = 600
+# The bot's own turn gets more room: a 2,100-char league tally was cut at 1200, and the
+# next answer told the channel "my last answer got cut off" (transcript 2026-10-28).
+_OWN_TURN_CHARS = 3000
+_OWN_TURN_CUT_NOTE = (
+    " [The rest of this earlier reply is left out here. The member saw the whole reply, "
+    "so never say that it was cut off.]"
+)
 
 # Each failure mode gets its OWN fixed payload so the model is TOLD what happened
 # instead of being handed silence (silence reads as "the data says nothing", which is
@@ -6827,8 +6999,9 @@ async def answer_open(
 
     ``history`` is a sequence of ``(role, text)`` turns oldest-first; any role that is
     not exactly ``assistant`` is coerced to ``user``, so a smuggled ``system`` turn can
-    never become an instruction. Each history turn is capped at
-    :data:`_HISTORY_TURN_CHARS` and the question at :data:`_QUESTION_CHARS`.
+    never become an instruction. A member turn is capped at :data:`_HISTORY_TURN_CHARS`,
+    the bot's own turn at :data:`_OWN_TURN_CHARS` (plus a cut note), and the question at
+    :data:`_QUESTION_CHARS`.
 
     ``conversation_key`` (issue #220) names the conversation the history belongs to —
     the cog passes the channel id. With it, the tool turns behind each answer this
@@ -6843,10 +7016,15 @@ async def answer_open(
     try:
         messages: list[dict] = []
         for role, text in history:
-            fenced_turn = chat_personality._fence_untrusted(text, limit=_HISTORY_TURN_CHARS)
+            safe_role = "assistant" if role == "assistant" else "user"
+            limit = _OWN_TURN_CHARS if safe_role == "assistant" else _HISTORY_TURN_CHARS
+            fenced_turn = chat_personality._fence_untrusted(text, limit=limit + 1)
             if not fenced_turn:
                 continue
-            safe_role = "assistant" if role == "assistant" else "user"
+            if len(fenced_turn) > limit:
+                fenced_turn = fenced_turn[:limit]
+                if safe_role == "assistant":
+                    fenced_turn += _OWN_TURN_CUT_NOTE
             if safe_role == "assistant":
                 messages.extend(_grounding_for(conversation_key, str(text)))
             messages.append({"role": safe_role, "content": fenced_turn})
@@ -6858,7 +7036,9 @@ async def answer_open(
             }
         )
 
-        role = f"{OPEN_ROLE} {await _calendar_facts()}"
+        role = " ".join(
+            part for part in (OPEN_ROLE, _model_statement(), await _calendar_facts()) if part
+        )
         system_prompt = compose_prompt(voice, role, OPEN_GUARD)
         try:
             content, new_turns = await asyncio.wait_for(

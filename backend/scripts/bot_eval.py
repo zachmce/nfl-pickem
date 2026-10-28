@@ -276,8 +276,33 @@ async def _run_sample(case: Case, index: int, context: dict, degrade: set[str]) 
     }
 
 
+async def _espn_week() -> int | None:
+    """The NFL regular-season week the open path's calendar states, or ``None``."""
+    from app.services import espn_extra
+
+    try:
+        payload = await espn_extra.fetch_scoreboard()
+        board = espn_extra.parse_scoreboard(payload) if payload is not None else None
+    except Exception:
+        return None
+    week = board.get("week") if board and board.get("regular_season") else None
+    return week if isinstance(week, int) and week >= 1 else None
+
+
+def _last_week(db_week: object, espn_week: int | None) -> int | None:
+    """The week before the EARLIER of the two clocks. Pure.
+
+    Issue #309: the demo DB ran ahead of ESPN, so "week 5" read as a future week to the
+    model, whose calendar says ESPN's week 4, and it declined with no tool call.
+    """
+    if not isinstance(db_week, int):
+        return None
+    week = min(db_week, espn_week) if espn_week is not None else db_week
+    return week - 1 if week > 1 else None
+
+
 async def _context() -> dict[str, Any]:
-    """Values a case may name as ``{placeholder}``, read from the local DB."""
+    """Values a case may name as ``{placeholder}``, read from the local DB and ESPN."""
     from app.bot import db_bridge
 
     records = await db_bridge.get_league_records_async()
@@ -286,7 +311,7 @@ async def _context() -> dict[str, Any]:
     return {
         "open_week": records.get("open_week"),
         "current_week": week,
-        "last_week": week - 1 if isinstance(week, int) and week > 1 else None,
+        "last_week": _last_week(week, await _espn_week()),
         "later_week": week + 2 if isinstance(week, int) and week <= 16 else None,
     }
 

@@ -453,7 +453,7 @@ class AnswerOpenTests(_OpenPathTestCase):
         with patcher:
             _run(qa_open.answer_open("look up the\nnumber", voice=_VOICE, asker_name="oh<<<ai"))
         sent = calls[0]["messages"][-1]["content"]
-        self.assertEqual(sent, "ohai: look up thenumber")
+        self.assertEqual(sent, "ohai: look up the number")
         self.assertIn(qa_open.OPEN_SPEAKERS_CLAUSE, calls[0]["system_prompt"])
 
     def test_the_question_is_bare_without_an_asker_name(self) -> None:
@@ -500,6 +500,25 @@ class AnswerOpenTests(_OpenPathTestCase):
         with patcher:
             _run(qa_open.answer_open("q", voice=_VOICE, history=[("assistant", earlier)]))
         self.assertEqual(calls[0]["messages"][0]["content"], earlier.strip())
+
+    def test_a_cut_own_turn_says_that_the_member_saw_all_of_it(self) -> None:
+        # Transcript 2026-10-28: the bot read its own cut tally and said it "got cut off".
+        earlier = "Week 4, KC at LV: a pick lost. " * 200
+        patcher, calls = _open_chat_returns(_text("ok"))
+        with patcher:
+            _run(qa_open.answer_open("q", voice=_VOICE, history=[("assistant", earlier)]))
+        sent = calls[0]["messages"][0]["content"]
+        self.assertTrue(sent.endswith(qa_open._OWN_TURN_CUT_NOTE))
+        self.assertEqual(len(sent), qa_open._OWN_TURN_CHARS + len(qa_open._OWN_TURN_CUT_NOTE))
+
+    def test_the_system_prompt_names_the_model(self) -> None:
+        patcher, calls = _open_chat_returns(_text("ok"))
+        with (
+            patcher,
+            mock.patch.object(qa_open.settings, "llm_api_open_model", "claude-sonnet-5-5"),
+        ):
+            _run(qa_open.answer_open("q", voice=_VOICE))
+        self.assertIn("the AI model you run on is claude-sonnet-5-5.", calls[0]["system_prompt"])
 
     def test_history_turns_and_the_question_are_still_capped(self) -> None:
         patcher, calls = _open_chat_returns(_text("ok"))
@@ -927,6 +946,7 @@ class ShippedRegistryTests(_OpenPathTestCase):
                 "lookup_game_player_stats",
                 "lookup_my_pick_status",
                 "lookup_league_picks",
+                "lookup_team_pick_record",
                 "lookup_pick_completion",
                 "lookup_standings",
                 "lookup_lines",
@@ -1223,9 +1243,10 @@ class ShippedRegistryTests(_OpenPathTestCase):
         # championships and Hall of Fame corpus tools and the awards player argument;
         # 45,873 with the slate weather tool (issue #286); 47,561 with the game player
         # stats tool and the misc wording on the league picks tool (2026-10-05); 48,507
-        # with the slate odds tool and the DraftKings wording (issue #343).
+        # with the slate odds tool and the DraftKings wording (issue #343); 49,581 with
+        # the team pick record tool (transcript 2026-10-28).
         total = sum(len(json.dumps(tool.spec)) for tool in qa_open.TOOLS)
-        self.assertLess(total, 48600, f"the shipped tool specs now total {total} bytes")
+        self.assertLess(total, 49600, f"the shipped tool specs now total {total} bytes")
         for tool in qa_open.TOOLS[5:]:
             with self.subTest(tool=tool.name):
                 self.assertLess(len(json.dumps(tool.spec)), 1700)
@@ -1850,6 +1871,81 @@ class StatsToolTests(_OpenPathTestCase):
         self.assertEqual(out["athlete_id"], "4432665")
         self.assertEqual(out["player"], "Brock Bowers")
         self.assertIn("Brock Bowers", str(out["name_note"]))
+
+    @staticmethod
+    def _search(*entries: tuple[int, str, str]) -> dict:
+        contents = [
+            {"uid": f"s:20~l:28~a:{uid}", "type": "player", "displayName": name, "subtitle": team}
+            for uid, name, team in entries
+        ]
+        return {"results": [{"type": "player", "contents": contents}]}
+
+    def _reggie_white_search(self) -> dict:
+        # Issue #253, measured 2026-10-28: the Hall of Famer (id 157) is player result 7.
+        return self._search(
+            (3505, "Reggie White", "Jacksonville Jaguars"),
+            (3191, "Reggie White", "New England Patriots"),
+            (3121225, "Reggie White Jr.", "New York Giants"),
+            (1, "Reggie White", "UCLA Bruins"),
+            (2, "Reggie White", "Oregon Ducks"),
+            (3, "Reggie White", "Rutgers Scarlet Knights"),
+            (157, "Reggie White", "Carolina Panthers"),
+        )
+
+    def test_a_hall_of_famer_past_the_window_settles_a_shared_name(self) -> None:
+        patcher, _ = self._search_by_query({"Reggie White": self._reggie_white_search()})
+        with patcher:
+            out = _run(qa_open._resolve_off_roster("Reggie White", ""))
+        self.assertEqual(out["athlete_id"], "157")
+        note = str(out["name_note"])
+        self.assertIn("in the Pro Football Hall of Fame", note)
+        self.assertIn("Reggie White of the Jacksonville Jaguars", note)
+        self.assertIn("name the team", note)
+
+    def test_the_current_team_tool_still_asks_which_one(self) -> None:
+        # A Hall of Famer is on no team today, so the tie-break never applies here.
+        patcher, _ = self._search_by_query({"Reggie White": self._reggie_white_search()})
+        with patcher:
+            out = _run(qa_open._lookup_player_current_team(player="Reggie White"))
+        assert isinstance(out, dict)
+        self.assertEqual(len(out["candidates"]), 3)
+
+    def test_a_relocated_franchise_still_matches_the_inductee_row(self) -> None:
+        # ESPN says "Las Vegas Raiders" for Jerry Rice; his row says "Oakland Raiders".
+        search = self._search(
+            (5336, "Jerry Rice", "Las Vegas Raiders"),
+            (17499, "Jerry Rice Jr.", "Washington Commanders"),
+        )
+        patcher, _ = self._search_by_query({"Jerry Rice": search})
+        with patcher:
+            out = _run(qa_open._resolve_off_roster("Jerry Rice", ""))
+        self.assertEqual(out["athlete_id"], "5336")
+
+    def test_a_namesake_on_another_franchise_never_borrows_the_honour(self) -> None:
+        search = self._search(
+            (3505, "Reggie White", "Jacksonville Jaguars"),
+            (3191, "Reggie White", "New England Patriots"),
+        )
+        patcher, _ = self._search_by_query({"Reggie White": search})
+        with patcher:
+            out = _run(qa_open._resolve_off_roster("Reggie White", ""))
+        self.assertNotIn("athlete_id", out)
+        candidates = out["candidates"]
+        assert isinstance(candidates, list)
+        self.assertEqual(len(candidates), 2)
+
+    def test_a_name_unique_in_the_window_stays_unique(self) -> None:
+        # At limit 15 "Michael Thomas" gained a second match; only the first 6 decide.
+        filler = [(i, "Michael Thomas", "Some College") for i in range(10, 15)]
+        search = self._search(
+            (2976316, "Michael Thomas", "New Orleans Saints"),
+            *filler,
+            (77, "Michael Thomas", "Houston Texans"),
+        )
+        patcher, _ = self._search_by_query({"Michael Thomas": search})
+        with patcher:
+            out = _run(qa_open._resolve_off_roster("Michael Thomas", ""))
+        self.assertEqual(out["athlete_id"], "2976316")
 
     def test_a_failed_search_returns_its_own_note_never_none(self) -> None:
         # "ESPN found nobody" and "the lookup failed" are different facts, and the model
@@ -4285,6 +4381,7 @@ class GroundingReplayTests(_OpenPathTestCase):
                 "lookup_game_player_stats",
                 "lookup_my_pick_status",
                 "lookup_league_picks",
+                "lookup_team_pick_record",
                 "lookup_pick_completion",
                 "lookup_standings",
                 "lookup_scores",

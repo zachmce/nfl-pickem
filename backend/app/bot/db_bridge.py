@@ -56,6 +56,7 @@ from app.services.notifications_read import (
     get_slate_predictions_for_week,
     get_standings_table,
     get_team_ats_by_game,
+    get_team_pick_record,
     get_team_topic_for_token,
     get_week_pick_keys,
     get_week_recap_context,
@@ -766,6 +767,19 @@ async def get_team_ats_async(team_abbr: str, season: int | None = None) -> dict:
             if target is None:
                 return {"season": None, "team": None, "source": None, "games": [], "record": {}}
             return get_team_ats_by_game(session, target, team_abbr=team_abbr)
+
+    return await asyncio.to_thread(_sync)
+
+
+async def get_team_pick_record_async(team_abbr: str) -> dict:
+    """Async wrapper: how the league's picks did on one team's games this season."""
+
+    def _sync() -> dict:
+        with task_session() as session:
+            season = current_season(session)
+            if season is None:
+                return {"season": None, "team": None, "weeks_counted": 0, "totals": {}}
+            return get_team_pick_record(session, season, team_abbr=team_abbr)
 
     return await asyncio.to_thread(_sync)
 

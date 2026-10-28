@@ -28,6 +28,7 @@ from app.services.notifications_read import (
     get_slate_odds_inputs,
     get_standings_table,
     get_team_ats_by_game,
+    get_team_pick_record,
     get_week_scores,
 )
 
@@ -209,6 +210,13 @@ class LeaguePicksWindowOpenTests(_ReaderTestCase):
         self.assertEqual(out["open_week"], WEEK)
         self.assertEqual(out["members"], [])
         self.assertNotIn("alice", str(out))
+
+    def test_team_pick_record_counts_no_open_week(self) -> None:
+        with self._session() as session:
+            out = get_team_pick_record(session, SEASON, team_abbr="BUF")
+        self.assertEqual(out["weeks_counted"], 0)
+        self.assertEqual(out["picks"], [])
+        self.assertEqual(out["totals"]["picks"], 0)
 
 
 class LeaguePicksWindowClosedTests(_ReaderTestCase):
@@ -404,6 +412,40 @@ class LeagueRecordsAndTendencyTests(_ReaderTestCase):
         streaks = _lock_streaks(["WIN", "WIN", "LOSS", "WIN", "PUSH", "UNGRADEABLE", "WIN"])
         self.assertEqual(streaks, {"longest_win_streak": 2, "current_streak": "2 won in a row"})
         self.assertEqual(_lock_streaks([]), {"longest_win_streak": 0, "current_streak": None})
+
+    def test_team_pick_record_counts_every_pick_on_the_teams_games(self) -> None:
+        with self._session() as session:
+            out = get_team_pick_record(session, SEASON, team_abbr="det")
+        self.assertEqual(out["team"], "DET")
+        self.assertEqual(out["weeks_counted"], 1)
+        self.assertEqual(
+            out["totals"],
+            {
+                "picks": 4,
+                "won": 3,
+                "lost": 1,
+                "pushed": 0,
+                "awaiting_admin_grade": 0,
+                "not_graded": 0,
+                "win_percent": 75,
+            },
+        )
+        self.assertEqual(
+            [(m["member"], m["won"], m["lost"]) for m in out["members"]],
+            [("alice", 3, 0), ("bob", 0, 1)],
+        )
+
+    def test_team_pick_record_keeps_ungraded_picks_out_of_the_percent(self) -> None:
+        with self._session() as session:
+            out = get_team_pick_record(session, SEASON, team_abbr="KC")
+        self.assertEqual(out["totals"]["picks"], 3)
+        self.assertEqual(out["totals"]["not_graded"], 3)
+        self.assertIsNone(out["totals"]["win_percent"])
+
+    def test_team_pick_record_names_no_team_for_an_unknown_token(self) -> None:
+        with self._session() as session:
+            out = get_team_pick_record(session, SEASON, team_abbr="XYZ")
+        self.assertIsNone(out["team"])
 
     def test_league_records_name_the_week_winner_and_the_perfect_card(self) -> None:
         with self._session() as session:

@@ -388,7 +388,30 @@ export interface BotTranscriptEntry {
   latency_ms: number | null;
   vendor: string | null;
   model: string | null;
+  llm?: Record<string, BotLlmUsage> | null;
   answer: string | null;
+}
+
+/** One call kind's usage, with the models the API answered with (issue #354). */
+export interface BotLlmUsage {
+  calls: number;
+  models: string[];
+  prompt: number;
+  completion: number;
+  cached: number;
+}
+
+/** The models that answered, per call kind, and the summed prompt/completion usage. */
+export function formatLlm(llm: Record<string, BotLlmUsage>): string {
+  let prompt = 0;
+  let completion = 0;
+  const kinds = Object.entries(llm).map(([kind, u]) => {
+    prompt += u.prompt;
+    completion += u.completion;
+    const count = u.calls > 1 ? ` ×${u.calls}` : "";
+    return `${kind} ${u.models.join("/") || "unknown model"}${count}`;
+  });
+  return `${kinds.join(" · ")} · ${prompt} in / ${completion} out`;
 }
 
 /** `available` is false when the server cannot reach the transcript store. */

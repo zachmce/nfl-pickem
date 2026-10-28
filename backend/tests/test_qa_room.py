@@ -105,7 +105,7 @@ class RenderTranscriptTests(unittest.TestCase):
         self.assertNotIn(">>>", out)
         self.assertNotIn("\r", out)
         # The smuggled newline is gone, so the injected text can never become its own
-        # transcript line (it is glued onto the speaker token instead).
+        # transcript line (it stays on the speaker token's line instead).
         self.assertEqual(len([line for line in out.split("\n") if ": " in line]), 1)
 
     def test_bot_name_is_fenced_too(self) -> None:
@@ -116,6 +116,15 @@ class RenderTranscriptTests(unittest.TestCase):
         out = qa_room._render_transcript([("Ada", "y" * 5000)], bot_name="Bot")
         body = out.split("\n")[-1].split(": ", 1)[1]
         self.assertLessEqual(len(body), qa_room._MAX_TURN_CHARS)
+
+    def test_a_long_bot_turn_keeps_its_head_and_its_tail(self) -> None:
+        # Transcript 2026-10-28: the bot's closing question was cut off the gate's view.
+        long_answer = "Week 1 picks. " + "x" * 2000 + " Want me to finish the tally?"
+        out = qa_room._render_transcript([("Bot", long_answer)], bot_name="Bot")
+        body = out.split("\n")[-1].split(": ", 1)[1]
+        self.assertTrue(body.startswith("Week 1 picks."))
+        self.assertTrue(body.endswith("Want me to finish the tally?"))
+        self.assertLessEqual(len(body), qa_room._BOT_HEAD_CHARS + qa_room._BOT_TAIL_CHARS + 3)
 
     def test_only_the_last_max_turns_are_rendered(self) -> None:
         turns = [(f"user{i}", f"message {i}") for i in range(qa_room._MAX_TURNS + 5)]
