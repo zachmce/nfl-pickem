@@ -203,6 +203,11 @@ class ClassifierAskerNameTests(unittest.TestCase):
         self.assertIn("a question that names a LATER week", qa.CLASSIFIER_SYSTEM_PROMPT)
         self.assertIn("each open_nfl, NOT prediction", qa.CLASSIFIER_SYSTEM_PROMPT)
 
+    def test_the_askers_own_mortal_lock_is_open_nfl(self) -> None:
+        # Issue #352: Haiku read "mortal lock" as a locked card, 0/3 on pick_status.
+        self.assertIn("which pick is their mortal lock", qa.CLASSIFIER_SYSTEM_PROMPT)
+        self.assertIn("a mortal lock is a pick and not a locked card", qa.CLASSIFIER_SYSTEM_PROMPT)
+
     def test_a_plain_draftkings_line_request_leaves_lines_slate(self) -> None:
         # Issue #343: lines_slate only has the frozen lines, so a DK request is open_nfl.
         self.assertIn(
