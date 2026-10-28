@@ -784,13 +784,30 @@ def _hall_of_famer(found: list[dict]) -> dict | None:
     famers = []
     for one in found:
         name = str(one["display_name"])
-        # By franchise, not by name: ESPN says "Las Vegas Raiders" for Jerry Rice, and his
-        # inductee row says "Oakland Raiders".
+        # By franchise, not by name: ESPN names today's club ("Las Vegas Raiders"), and an
+        # inductee row can name the old city ("Oakland Raiders").
         club = history_corpus.franchise(one["team_name"])
         rows = history_corpus.hall_of_fame(player=name, team=club) if club else []
         if any(row["name"].casefold() == name.casefold() for row in rows):
             famers.append(one)
     return famers[0] if len(famers) == 1 else None
+
+
+def _missing_hall_of_famer(player: str, everyone: list[dict]) -> str | None:
+    """The note for an inductee that ESPN's NFL search does not hold, else ``None``.
+
+    Measured 2026-10-28: "Jerry Rice" finds only Jerry Rice Jr., so without this note
+    the tool gives the son's figures for the father.
+    """
+    from app.services import history_corpus
+
+    asked = player.casefold().strip()
+    if any(str(one["display_name"]).casefold() == asked for one in everyone):
+        return None
+    rows = [r for r in history_corpus.hall_of_fame(player=player) if r["name"].casefold() == asked]
+    if len(rows) != 1:
+        return None
+    return _FAMER_NOT_IN_ESPN_NOTE.format(player=rows[0]["name"], year=rows[0]["class"])
 
 
 def _join_teams(teams: list[str]) -> str:
@@ -913,6 +930,9 @@ async def _resolve_off_roster(player: str, team_abbr: str) -> dict[str, object]:
             _SEARCH_UNAVAILABLE_NOTE, _NAME_SEARCH_FAILED_NOTE, team=team_abbr, player=player
         )
         return {"note": note}
+    missing = _missing_hall_of_famer(player, everyone)
+    if missing is not None:
+        return {"note": missing}
     if not found:
         note = _note(_NOT_ON_ROSTER_NOTE, _NAME_NOT_IN_NFL_NOTE, team=team_abbr, player=player)
         return {"note": note}
@@ -1070,6 +1090,12 @@ _NAME_SEARCH_FAILED_NOTE = (
     "The player search that would have found {player} failed just now, so this tool has "
     "no figures for him this time. Say that you could not look him up, and never give a "
     "figure from your own memory instead."
+)
+_FAMER_NOT_IN_ESPN_NOTE = (
+    "{player} is in the Pro Football Hall of Fame (class of {year}), but ESPN's data has "
+    "no record for him, so this tool has no figures for him. Any player the search found "
+    "with a similar name is a different person. Tell the member plainly that ESPN's data "
+    "does not cover him, and never give a figure from your own memory instead."
 )
 _HALL_OF_FAMER_NOTE = (
     "More than one NFL player is named {player}, and this result is about the one who is "

@@ -189,8 +189,10 @@ ATHLETE_SEARCH_CACHE_TTL_SECONDS = 3600
 SEARCH_QUERY_MAX_CHARS = 40
 
 # The athlete id lives in ``uid`` as ``s:20~l:28~a:4361529``; the top-level ``id`` is a
-# GUID and is never usable against the stats endpoint (issue #183, Route B).
-_SEARCH_UID_ATHLETE_RE = re.compile(r"a:([0-9]{1,12})$")
+# GUID and is never usable against the stats endpoint (issue #183, Route B). ``s:20~l:28``
+# is NFL football: ESPN files Jerry Rice only as a golfer (``s:1100~a:5336``) with the
+# subtitle "Las Vegas Raiders", and that id 404s on every NFL endpoint.
+_SEARCH_UID_ATHLETE_RE = re.compile(r"^s:20~l:28~a:([0-9]{1,12})$")
 
 # DERIVED from the canonical seed table, never retyped (same reason as NFL_TEAM_ABBRS).
 # The search is cross-sport and cross-level — the measured "josh allen" page returns a

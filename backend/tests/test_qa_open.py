@@ -1910,8 +1910,19 @@ class StatsToolTests(_OpenPathTestCase):
         assert isinstance(out, dict)
         self.assertEqual(len(out["candidates"]), 3)
 
+    def test_an_inductee_espn_does_not_hold_never_gets_a_namesakes_figures(self) -> None:
+        # Live 2026-10-28: ESPN's NFL search holds only Jerry Rice Jr.
+        search = self._search((17499, "Jerry Rice Jr.", "Washington Commanders"))
+        patcher, _ = self._search_by_query({"Jerry Rice": search})
+        with patcher:
+            out = _run(qa_open._resolve_off_roster("Jerry Rice", ""))
+        self.assertNotIn("athlete_id", out)
+        note = str(out["note"])
+        self.assertIn("Hall of Fame (class of 2010)", note)
+        self.assertIn("never give a figure from your own memory", note)
+
     def test_a_relocated_franchise_still_matches_the_inductee_row(self) -> None:
-        # ESPN says "Las Vegas Raiders" for Jerry Rice; his row says "Oakland Raiders".
+        # ESPN names "Las Vegas Raiders"; the inductee row names "Oakland Raiders".
         search = self._search(
             (5336, "Jerry Rice", "Las Vegas Raiders"),
             (17499, "Jerry Rice Jr.", "Washington Commanders"),
