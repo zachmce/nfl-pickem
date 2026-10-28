@@ -17,6 +17,7 @@ import httpx
 
 from app.bot import llm_client
 from app.config import Settings, settings
+from app.services import bot_telemetry
 
 
 class _FakeResponse:
@@ -203,6 +204,58 @@ class OpenModelOverrideTests(unittest.TestCase):
             _run(llm_client.phrase("fact", system_prompt="sys"))
             _run(llm_client.classify("q", system_prompt="sys"))
         self.assertEqual([b["model"] for b in _ScriptedClient.posted], ["gemma", "gemma"])
+
+
+class ResponseModelTests(unittest.TestCase):
+    """Issue #354: the trace keeps the model and the usage the API RETURNED."""
+
+    def test_each_call_records_the_answering_model_and_usage(self) -> None:
+        reply = _FakeResponse(
+            200,
+            {
+                "model": "claude-sonnet-5-5",
+                "usage": {
+                    "prompt_tokens": 900,
+                    "completion_tokens": 40,
+                    "prompt_tokens_details": {"cached_tokens": 800},
+                },
+                "choices": [{"message": {"content": "ok"}}],
+            },
+        )
+
+        async def _go() -> bot_telemetry.AnswerTrace:
+            trace = bot_telemetry.start("q", conversation_key=None, asker_name=None)
+            await llm_client.open_chat([{"role": "user", "content": "q"}], system_prompt="s")
+            await llm_client.classify("q", system_prompt="sys")
+            return trace
+
+        with _configured(llm_api_open_model="claude-sonnet-5-5"), _script(reply, _OK):
+            trace = _run(_go())
+        bot_telemetry._CURRENT.set(None)
+        self.assertEqual(
+            trace.llm_calls,
+            [
+                {
+                    "kind": "open",
+                    "model": "claude-sonnet-5-5",
+                    "prompt": 900,
+                    "completion": 40,
+                    "cached": 800,
+                },
+                {"kind": "classify", "model": None, "prompt": 0, "completion": 0, "cached": 0},
+            ],
+        )
+
+    def test_a_failed_call_records_nothing(self) -> None:
+        async def _go() -> bot_telemetry.AnswerTrace:
+            trace = bot_telemetry.start("q", conversation_key=None, asker_name=None)
+            await llm_client.phrase("fact", system_prompt="sys")
+            return trace
+
+        with _configured(), _script(_FakeResponse(400, {})):
+            trace = _run(_go())
+        bot_telemetry._CURRENT.set(None)
+        self.assertEqual(trace.llm_calls, [])
 
 
 class RetryTests(unittest.TestCase):
