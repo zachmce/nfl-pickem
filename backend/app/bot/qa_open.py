@@ -772,6 +772,27 @@ async def _resolve_player(player: str, team: str) -> dict[str, object]:
     return {"athlete_id": found_id, "identity": resolved, "on_roster": None}
 
 
+def _hall_of_famer(found: list[dict]) -> dict | None:
+    """The ONE candidate who is a Pro Football Hall of Famer, else ``None``.
+
+    Issue #253: "Reggie White career sacks" asked "which Reggie White?" among current
+    namesakes. A match needs the same name AND his ESPN club's franchise among the clubs
+    of the inductee's row, so a namesake never borrows the honour.
+    """
+    from app.services import history_corpus
+
+    famers = []
+    for one in found:
+        name = str(one["display_name"])
+        # By franchise, not by name: ESPN says "Las Vegas Raiders" for Jerry Rice, and his
+        # inductee row says "Oakland Raiders".
+        club = history_corpus.franchise(one["team_name"])
+        rows = history_corpus.hall_of_fame(player=name, team=club) if club else []
+        if any(row["name"].casefold() == name.casefold() for row in rows):
+            famers.append(one)
+    return famers[0] if len(famers) == 1 else None
+
+
 def _join_teams(teams: list[str]) -> str:
     """Join club names into one readable phrase — "the A and the B", "the A, the B and…"."""
     articled = [f"the {team}" for team in teams]
@@ -835,8 +856,11 @@ def _close_first_name(written: str, listed: str) -> bool:
     return _edit_distance(written.lower(), listed.lower()) <= limit
 
 
-async def _search_nfl_players(player: str) -> tuple[list[dict] | None, str | None]:
-    """ESPN's NFL players matching ``player``, plus the note for a corrected name.
+async def _search_nfl_players(
+    player: str,
+) -> tuple[list[dict] | None, str | None, list[dict]]:
+    """ESPN's NFL players matching ``player``, the note for a corrected name, and every
+    NFL match past the ambiguity window (issue #253's Hall of Fame namesakes).
 
     ``None`` is a failed search, ``[]`` a search that found nobody. When the full name
     finds nobody, the surname alone is searched, and exactly one NFL player with that
@@ -844,13 +868,17 @@ async def _search_nfl_players(player: str) -> tuple[list[dict] | None, str | Non
     """
     from app.services import espn_extra
 
+    window = espn_extra.ATHLETE_SEARCH_AMBIGUITY_WINDOW
     payload = await espn_extra.fetch_athlete_search(player)
-    found = espn_extra.parse_athlete_search(payload) if payload is not None else None
+    found = espn_extra.parse_athlete_search(payload, window=window) if payload is not None else None
+    everyone = (espn_extra.parse_athlete_search(payload) or []) if payload is not None else []
     words = player.split()
     if found != [] or len(words) < 2:
-        return found, None
+        return found, None, everyone
     retry = await espn_extra.fetch_athlete_search(words[-1])
-    by_surname = espn_extra.parse_athlete_search(retry) if retry is not None else None
+    by_surname = (
+        espn_extra.parse_athlete_search(retry, window=window) if retry is not None else None
+    )
     close = [
         one
         for one in by_surname or []
@@ -859,9 +887,9 @@ async def _search_nfl_players(player: str) -> tuple[list[dict] | None, str | Non
         and _close_first_name(words[0], listed[0])
     ]
     if len(close) != 1:
-        return found, None
+        return found, None, everyone
     name = str(close[0]["display_name"])
-    return close, _CORRECTED_NAME_NOTE.format(asked=player, name=name)
+    return close, _CORRECTED_NAME_NOTE.format(asked=player, name=name), close
 
 
 async def _resolve_off_roster(player: str, team_abbr: str) -> dict[str, object]:
@@ -879,7 +907,7 @@ async def _resolve_off_roster(player: str, team_abbr: str) -> dict[str, object]:
     where he plays today, which is not the team a past season's figures belong to, and
     narrating it is what produced the live "he played for the Detroit Lions in 2025".
     """
-    found, name_note = await _search_nfl_players(player)
+    found, name_note, everyone = await _search_nfl_players(player)
     if found is None:
         note = _note(
             _SEARCH_UNAVAILABLE_NOTE, _NAME_SEARCH_FAILED_NOTE, team=team_abbr, player=player
@@ -888,6 +916,21 @@ async def _resolve_off_roster(player: str, team_abbr: str) -> dict[str, object]:
     if not found:
         note = _note(_NOT_ON_ROSTER_NOTE, _NAME_NOT_IN_NFL_NOTE, team=team_abbr, player=player)
         return {"note": note}
+    famer = _hall_of_famer(everyone) if len(found) > 1 else None
+    if famer is not None:
+        others = [
+            f"{one['display_name']} of the {one['team_name']}"
+            for one in everyone
+            if one is not famer
+        ]
+        return {
+            "athlete_id": str(famer["athlete_id"]),
+            "player": str(famer["display_name"]),
+            "position": None,
+            "name_note": _HALL_OF_FAMER_NOTE.format(
+                player=famer["display_name"], others=", ".join(others)
+            ),
+        }
     if len(found) > 1:
         candidates = [f"{one['display_name']} of the {one['team_name']}" for one in found]
         return {
@@ -1028,6 +1071,12 @@ _NAME_SEARCH_FAILED_NOTE = (
     "no figures for him this time. Say that you could not look him up, and never give a "
     "figure from your own memory instead."
 )
+_HALL_OF_FAMER_NOTE = (
+    "More than one NFL player is named {player}, and this result is about the one who is "
+    "in the Pro Football Hall of Fame. The others are {others}. Say that you took "
+    "{player} to mean the Hall of Famer, and that the member can name the team if he "
+    "meant one of the others."
+)
 _AMBIGUOUS_NAME_NOTE = (
     "ESPN's player search found more than one NFL player whose name matches {player}, "
     "and here is each of them with the team he is on right now: {candidates}. Ask the "
@@ -1142,7 +1191,7 @@ async def _lookup_player_current_team(player: str = "") -> object | None:
     if not asked_for:
         return None
 
-    found, name_note = await _search_nfl_players(asked_for)
+    found, name_note, _ = await _search_nfl_players(asked_for)
     if found is None:
         return {"note": _CURRENT_TEAM_SEARCH_FAILED_NOTE.format(player=asked_for)}
     if not found:
