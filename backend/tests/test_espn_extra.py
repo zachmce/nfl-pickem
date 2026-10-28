@@ -1622,6 +1622,28 @@ class ParseAthleteSearchTests(unittest.TestCase):
         )
 
 
+class AthleteSearchWindowTests(unittest.TestCase):
+    def test_the_window_counts_player_entries_before_the_nfl_filter(self) -> None:
+        def _entry(uid: int, team: str) -> dict:
+            return {
+                "type": "player",
+                "displayName": f"P{uid}",
+                "subtitle": team,
+                "uid": f"s:20~l:28~a:{uid}",
+            }
+
+        payload = {
+            "results": [
+                {"contents": [_entry(1, "Buffalo Bills"), _entry(2, "UCLA Bruins")]},
+                {"contents": [{"type": "team"}, _entry(3, "Detroit Lions")]},
+            ]
+        }
+        ids = lambda found: [one["athlete_id"] for one in found]
+        self.assertEqual(ids(espn_extra.parse_athlete_search(payload)), ["1", "3"])
+        self.assertEqual(ids(espn_extra.parse_athlete_search(payload, window=2)), ["1"])
+        self.assertEqual(ids(espn_extra.parse_athlete_search(payload, window=3)), ["1", "3"])
+
+
 class FetchAthleteSearchTests(unittest.TestCase):
     def _arm_client(self, response: object) -> None:
         _CapturingAsyncClient.calls = 0
@@ -1656,7 +1678,7 @@ class FetchAthleteSearchTests(unittest.TestCase):
         assert url is not None
         base, _, query_string = url.partition("?")
         self.assertEqual(base, "https://site.web.api.espn.com/apis/search/v2")
-        self.assertEqual(query_string, "query=a%26type%3Dteam%23%2F..%2Fx%3Fb&limit=6&type=player")
+        self.assertEqual(query_string, "query=a%26type%3Dteam%23%2F..%2Fx%3Fb&limit=15&type=player")
         self.assertEqual(len(query_string.split("&")), 3)
 
     def test_cache_miss_issues_one_get_on_the_web_api_host(self) -> None:

@@ -172,9 +172,11 @@ ATHLETE_SEARCH_URL = (
     "https://site.web.api.espn.com/apis/search/v2?query={query}&limit={limit}&type=player"
 )
 
-# Six is enough to see the ambiguity: the measured "josh allen" page needs four rows
-# before the NFL matches are all in hand.
-ATHLETE_SEARCH_LIMIT = 6
+# Issue #253: 15 are fetched because the Hall of Famer Reggie White (ESPN id 157) is
+# result 7, but only the first 6 decide whether a name is ambiguous: at 15, "Michael
+# Thomas" gained a second match (measured 2026-10-28).
+ATHLETE_SEARCH_LIMIT = 15
+ATHLETE_SEARCH_AMBIGUITY_WINDOW = 6
 
 # Which team a player is on moves on the scale of days, so this matches the roster's hour
 # rather than the stats table's six.
@@ -1500,7 +1502,7 @@ def find_roster_athletes(payload: Any, name: Any) -> list[dict[str, Any]] | None
     return matches
 
 
-def parse_athlete_search(payload: Any) -> list[dict[str, Any]] | None:
+def parse_athlete_search(payload: Any, *, window: int | None = None) -> list[dict[str, Any]] | None:
     """Extract the NFL players from a raw ``search/v2`` payload. Pure, never raises.
 
     Returns ``None`` ONLY when the top-level shape is unusable (a non-dict payload);
@@ -1510,7 +1512,8 @@ def parse_athlete_search(payload: Any) -> list[dict[str, Any]] | None:
     Two filters, both measured against issue #183's Route B traps. The id comes from
     ``uid`` and never from the GUID ``id``. Only an entry whose ``subtitle`` is one of the
     32 club display names survives, which is what drops the soccer and college players
-    the cross-sport search returns for a football name.
+    the cross-sport search returns for a football name. ``window`` keeps only the first
+    ``window`` player entries, counted before the NFL filter, as a smaller fetch would.
     """
     if not isinstance(payload, dict):
         return None
@@ -1519,6 +1522,7 @@ def parse_athlete_search(payload: Any) -> list[dict[str, Any]] | None:
         return []
 
     found: list[dict[str, Any]] = []
+    seen = 0
     for result in results:
         if not isinstance(result, dict):
             continue
@@ -1528,6 +1532,9 @@ def parse_athlete_search(payload: Any) -> list[dict[str, Any]] | None:
         for entry in contents:
             if not isinstance(entry, dict) or entry.get("type") != "player":
                 continue
+            seen += 1
+            if window is not None and seen > window:
+                return found
             display_name = _first_str(entry.get("displayName"))
             team_name = _first_str(entry.get("subtitle"))
             if display_name is None or team_name is None:
