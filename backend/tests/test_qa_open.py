@@ -595,10 +595,10 @@ class OpenChatWireFormatTests(unittest.TestCase):
         )
         # The chat-quip styling directive is NEVER appended on the open path.
         self.assertNotIn("Vary your closing line", body["messages"][0]["content"])
-        # Its OWN knobs — and the 80-token chat cap is untouched (invariant 4).
+        # Its OWN knobs — and the chat cap is untouched (invariant 4).
         self.assertEqual(body["max_tokens"], llm_client._OPEN_MAX_TOKENS)
         self.assertEqual(llm_client._OPEN_MAX_TOKENS, 600)
-        self.assertEqual(llm_client._MAX_TOKENS, 80)
+        self.assertEqual(llm_client._MAX_TOKENS, 200)
         # Its OWN transport timeout (issue #220): a 600-token answer outlasts the 10 s
         # chat timeout on the served model, and the chat trio keep theirs.
         self.assertEqual(_CapturingAsyncClient.last_timeout, llm_client._OPEN_TIMEOUT_SECONDS)

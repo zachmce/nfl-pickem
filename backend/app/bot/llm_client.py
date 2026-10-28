@@ -40,8 +40,10 @@ from app.services import bot_telemetry
 
 logger = structlog.get_logger(__name__)
 
-# Keep the line short — this is one chat quip, not an essay.
-_MAX_TOKENS = 80
+# Keep the line short — this is one chat quip, not an essay. 80 -> 200 on 2026-10-28:
+# Haiku 5.5 writes injury posts at 85-101 tokens, so 80 cut every prod injury alert,
+# game final and week recap mid-sentence.
+_MAX_TOKENS = 200
 # Modestly raised (0.9 → 1.0) for lexical diversity; bounded by _TOP_P nucleus
 # sampling so the low-probability tail (where invented facts live) stays capped.
 _TEMPERATURE = 1.0
