@@ -38,6 +38,7 @@ line — :func:`embellish_chat` NEVER raises (T-t5u-03 / T-vpc).
 from __future__ import annotations
 
 import hashlib
+import re
 
 import structlog
 
@@ -181,6 +182,7 @@ def _final_descriptor(home_score: int, away_score: int) -> str:
 # player cannot smuggle in their own closing (or opening) fence and break out.
 _FENCE_OPEN = "<<<"
 _FENCE_CLOSE = ">>>"
+_CONTROL_RUN_RE = re.compile(r"[\x00-\x1f]+")
 
 
 def _fence_untrusted(text: object, *, limit: int = 280) -> str:
@@ -188,16 +190,17 @@ def _fence_untrusted(text: object, *, limit: int = 280) -> str:
 
     This is the untrusted-input sanitizer for the one LLM-facing free-text field (the
     MISC ``prediction``). It is pure and deterministic: it coerces ``text`` to
-    ``str``; strips newlines, carriage-returns, and other control characters (anything
-    below space) so no fake instruction line can be smuggled in; removes the fence
-    delimiter markers so the player cannot inject a closing/opening fence and break
-    out; collapses to a single stripped line; and length-caps the result (default
-    280 — belt-and-suspenders over the model's own cap). Clean interior text is never
-    mutated. Control chars are stripped BEFORE the markers so a marker split by a
-    control char cannot be reassembled into a live fence after the strip.
+    ``str``; replaces each run of newlines, carriage-returns, and other control
+    characters (anything below space) with ONE space so no fake instruction line can be
+    smuggled in; removes the fence delimiter markers so the player cannot inject a
+    closing/opening fence and break out; collapses to a single stripped line; and
+    length-caps the result (default 280 — belt-and-suspenders over the model's own cap).
+    Clean interior text is never mutated. Control chars are replaced BEFORE the markers
+    so a marker split by a control char cannot be reassembled into a live fence.
     """
-    raw = str(text)
-    cleaned = "".join(ch for ch in raw if ord(ch) >= 32)
+    # A space, not nothing: deletion joined the bot's own paragraphs in its history
+    # ("and lost.Week 6, LAC at KC:ohai-AI took…", transcript 2026-10-28).
+    cleaned = _CONTROL_RUN_RE.sub(" ", str(text))
     for marker in (_FENCE_OPEN, _FENCE_CLOSE):
         while marker in cleaned:
             cleaned = cleaned.replace(marker, "")
