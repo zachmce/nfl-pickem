@@ -36,6 +36,7 @@ import structlog
 
 from app.bot.personality import DEFAULT_PERSONALITY_ID, PERSONALITIES, compose_prompt
 from app.config import settings
+from app.services import bot_telemetry
 
 logger = structlog.get_logger(__name__)
 
@@ -275,6 +276,7 @@ async def _post_chat(
     if not isinstance(payload, dict):
         logger.warning(f"{log_prefix}_malformed_payload")
         return None
+    bot_telemetry.note_llm_call(log_prefix.removeprefix("llm_"), payload)
     return payload
 
 

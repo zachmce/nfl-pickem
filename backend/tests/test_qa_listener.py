@@ -32,6 +32,7 @@ from discord.ext import commands
 from app.bot import qa, qa_room
 from app.bot.commands import mention_qa
 from app.bot.commands.mention_qa import MentionQaCog
+from app.services import bot_telemetry
 
 # A stand-in bot user; identity equality makes ``bot_user in message.mentions`` work.
 _BOT_USER = SimpleNamespace(id=999, bot=True, display_name="Pick'em Bot")
@@ -556,6 +557,32 @@ class ChannelHistoryTests(unittest.TestCase):
                 ("user", f"Ada: lol{mention_qa._SKIPPED_MARK}"),
             ],
         )
+
+    def test_the_gates_own_llm_calls_reach_the_transcript(self) -> None:
+        # Issue #354: the gate runs before the answer trace opens.
+        async def _gate_with_call(turns, *, bot_name):
+            bot_telemetry.note_llm_call("classify", {"model": "claude-sonnet-5-5"})
+            return verdict
+
+        stored: list[dict] = []
+        cog = MentionQaCog(cast(commands.Bot, SimpleNamespace(user=_BOT_USER)))
+        answer_patch, _ = _answer_returns("ok")
+        with (
+            answer_patch,
+            mock.patch.object(qa_room, "is_addressed", _gate_with_call),
+            mock.patch.object(bot_telemetry, "_store", stored.append),
+            mock.patch.object(mention_qa.settings, "discord_chat_channel", "77"),
+        ):
+            _deliver(cog, _make_message(content="<@999> who wins?", author_id=1))
+            verdict = False
+            _deliver(cog, _make_message(content="lol", mentions_bot=False, author_id=2))
+            verdict = True
+            _deliver(cog, _make_message(content="and now?", mentions_bot=False, author_id=3))
+        skipped = next(e for e in stored if e.get("decision") == "not_addressed:room_gate_said_no")
+        answered = [e for e in stored if e.get("decision") == "answered"][-1]
+        for entry in (skipped, answered):
+            self.assertEqual(entry["llm"]["room_gate"]["models"], ["claude-sonnet-5-5"])
+            self.assertNotIn("classify", entry["llm"])
 
     def test_a_failed_league_name_lookup_keeps_the_discord_name(self) -> None:
         async def _boom(discord_id: int) -> str | None:

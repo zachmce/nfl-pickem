@@ -170,6 +170,8 @@ class BotTranscriptEntry(BaseModel):
     latency_ms: int | None = None
     vendor: str | None = None
     model: str | None = None
+    # Issue #354: per call kind, the models the API answered with and the summed usage.
+    llm: dict[str, Any] | None = None
     answer: str | None = None
 
 

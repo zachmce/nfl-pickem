@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ApiError } from "../lib/api";
 import {
   filterEntries,
+  formatLlm,
   listBotTranscript,
   transcriptExportUrl,
   type BotTranscriptEntry,
@@ -85,9 +86,10 @@ function Entry({ e }: { e: BotTranscriptEntry }) {
               {e.rounds} round{e.rounds === 1 ? "" : "s"}
             </span>
             {e.latency_ms !== null && <span>{(e.latency_ms / 1000).toFixed(1)} s</span>}
-            <span>{e.model ?? e.vendor}</span>
+            {!e.llm && <span>{e.model ?? e.vendor}</span>}
           </>
         )}
+        {e.llm && <span>{formatLlm(e.llm)}</span>}
         {e.fallback && <span className="font-semibold text-danger-fg">{e.fallback}</span>}
       </div>
       <p className={isPost ? "text-fg-muted" : "font-medium"}>

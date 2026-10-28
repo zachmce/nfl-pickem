@@ -485,10 +485,19 @@ class MentionQaCog(commands.Cog):
             reply_to_bot = bot_user is not None and _is_reply_to_bot(message, bot_user.id)
             meta = _message_meta(message, mentioned=mentioned, reply_to_bot=reply_to_bot)
 
+            gate_calls: list[dict] = []
+
             def skip(decision: str, text: str | None = None) -> None:
                 if in_chat or mentioned or reply_to_bot:
+                    extra = {}
+                    if gate_calls:
+                        extra["llm"] = bot_telemetry.summarize_llm_calls(gate_calls)
                     bot_telemetry.log_message(
-                        kind="member", **meta, question=text or message.content, decision=decision
+                        kind="member",
+                        **meta,
+                        question=text or message.content,
+                        decision=decision,
+                        **extra,
                     )
 
             # (1) Ignore messages from bots / the bot itself (its event posts are logged).
@@ -534,9 +543,12 @@ class MentionQaCog(commands.Cog):
                     turn.skipped = True
                     skip("not_addressed:bot_not_recently_active", question)
                     return
+                gate_calls = bot_telemetry.collect_llm_calls()
                 addressed = await qa_room.is_addressed(
                     self._memory.transcript(channel_id), bot_name=self._bot_name()
                 )
+                for call in gate_calls:
+                    call["kind"] = "room_gate"
                 # Logged both ways: a silent drop was undiagnosable from a transcript.
                 logger.info("mention_qa_gate_decision", channel_id=channel_id, addressed=addressed)
                 if not addressed:
@@ -572,6 +584,7 @@ class MentionQaCog(commands.Cog):
                     conversation_key=str(channel_id),
                     asker_name=speaker,
                     message=trace_meta,
+                    llm_calls=gate_calls,
                 )
                 line = await qa.answer_question(
                     asked,
