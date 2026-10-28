@@ -181,6 +181,59 @@ class LeagueRecordsToolTests(unittest.TestCase):
             )
 
 
+class TeamPickRecordToolTests(unittest.TestCase):
+    """Transcript 2026-10-28: the model counted 25 picks itself and got it wrong."""
+
+    _TOTALS = {
+        "picks": 25,
+        "won": 8,
+        "lost": 17,
+        "pushed": 0,
+        "awaiting_admin_grade": 1,
+        "not_graded": 0,
+        "win_percent": 32,
+    }
+
+    def test_the_counts_are_stated_and_the_team_is_upper_cased(self) -> None:
+        calls: list = []
+        data = {
+            "season": 2026,
+            "team": "KC",
+            "weeks_counted": 7,
+            "totals": self._TOTALS,
+            "members": [{"member": "ohai-AI", "won": 4, "lost": 3}],
+            "picks": [{"week": 3, "member": "ohai-AI", "outcome": "WIN"}],
+        }
+        with _db("get_team_pick_record_async", data, calls):
+            body = _run(qa_open._lookup_team_pick_record(team=" kc "))
+        assert isinstance(body, dict)
+        self.assertEqual(calls[0][0], ("KC",))
+        statement = body["record_statement"]
+        self.assertIn("25 picks on KC games: 8 won, 17 lost and 0 pushed", statement)
+        self.assertIn("1 have no grade yet", statement)
+        self.assertIn("Of the 25 picks that won or lost, 8 won, which is 32 percent.", statement)
+        self.assertIn("never count the picks again", statement)
+        self.assertEqual(body["members"], data["members"])
+
+    def test_every_miss_is_a_note(self) -> None:
+        self.assertEqual(
+            _run(qa_open._lookup_team_pick_record()),
+            {"note": qa_open._NO_TEAM_FOR_PICK_RECORD_NOTE},
+        )
+        with _db("get_team_pick_record_async", {"season": None}):
+            self.assertEqual(
+                _run(qa_open._lookup_team_pick_record(team="KC")),
+                {"note": qa_open._NO_SEASON_NOTE},
+            )
+        with _db("get_team_pick_record_async", {"season": 2026, "team": None}):
+            body = _run(qa_open._lookup_team_pick_record(team="XYZ"))
+        self.assertEqual(body, {"note": qa_open._UNKNOWN_PICK_RECORD_TEAM_NOTE.format(team="XYZ")})
+        empty = {"season": 2026, "team": "KC", "weeks_counted": 2, "totals": {"picks": 0}}
+        with _db("get_team_pick_record_async", empty):
+            body = _run(qa_open._lookup_team_pick_record(team="KC"))
+        self.assertEqual(body, {"note": qa_open._NO_PICKS_ON_TEAM_NOTE.format(team="KC", weeks=2)})
+
+
 def _outlook(**overrides: object) -> dict:
     data = {
         "found": True,

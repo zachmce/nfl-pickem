@@ -238,6 +238,12 @@ class MiscGradedFencingTests(unittest.TestCase):
         self.assertEqual(chat_personality._fence_untrusted(None), "None")
         self.assertEqual(chat_personality._fence_untrusted(42), "42")
 
+    def test_fence_untrusted_turns_a_line_break_into_one_space(self) -> None:
+        # Transcript 2026-10-28: deletion joined "lost.\nWeek 6" into "lost.Week 6".
+        self.assertEqual(
+            chat_personality._fence_untrusted("and lost.\n\nWeek 6\r\nKC"), "and lost. Week 6 KC"
+        )
+
     def test_fence_untrusted_caps_length(self) -> None:
         capped = chat_personality._fence_untrusted("y" * 500, limit=280)
         self.assertEqual(len(capped), 280)

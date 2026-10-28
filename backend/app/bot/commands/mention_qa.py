@@ -35,13 +35,14 @@ import re
 import time
 from collections import OrderedDict, deque
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import discord
 import structlog
 from discord.ext import commands
 
-from app.bot import qa, qa_room
+from app.bot import db_bridge, qa, qa_room
 from app.bot.team_emoji import decorate_team_logos
 from app.config import settings
 from app.services import bot_telemetry
@@ -66,6 +67,12 @@ _MEMORY_MAX_TURNS = 12
 # the bot has actually spoken in this channel recently bounds that cost if channel
 # volume grows, and it costs nothing when it says no.
 _ROOM_RECENT_SECONDS = 300.0
+
+# Discord id -> league display name (None = no account), so a speaker label is a fact and
+# not a guess: the model matched the Discord name "ohai" to the league name "ohai-AI" by
+# itself (transcript 2026-10-28). Bounded, and refreshed after a TTL for a rename.
+_LEAGUE_NAME_MAX = 256
+_LEAGUE_NAME_TTL_SECONDS = 3600.0
 
 
 def _strip_bot_mention(content: str, bot_id: int) -> str:
@@ -180,10 +187,28 @@ def _split_for_discord(text: str, *, limit: int = _DISCORD_MAX_CHARS) -> list[st
     return chunks
 
 
+# Issue #339 / transcript 2026-10-28: an unanswered member turn read as a message the
+# bot had missed, and the bot made up reasons for the gap.
+# Not "it was not addressed to you": stated as fact, the bot argued with a member who
+# said a message was for it (probe 2026-10-28).
+_SKIPPED_MARK = (
+    " [You did not reply to this message, because a check judged that it was not meant "
+    "for you. That check can be wrong.]"
+)
+
+
+@dataclass(eq=False)
+class _Turn:
+    speaker: str
+    text: str
+    is_bot: bool = False
+    skipped: bool = False
+
+
 class _ChannelMemory:
     """A bounded per-channel transcript plus the bot's last-reply timestamp.
 
-    Turns are ``(speaker, text, is_bot)`` oldest-first in a ``deque`` capped at
+    Turns are :class:`_Turn` objects oldest-first in a ``deque`` capped at
     :data:`_MEMORY_MAX_TURNS`; channels live in an ``OrderedDict`` capped at
     :data:`_MEMORY_MAX_CHANNELS` with least-recently-touched eviction. ``is_bot`` is
     stored explicitly rather than inferred by comparing the speaker to the bot's
@@ -192,11 +217,11 @@ class _ChannelMemory:
     """
 
     def __init__(self) -> None:
-        self._turns: OrderedDict[int, deque[tuple[str, str, bool]]] = OrderedDict()
+        self._turns: OrderedDict[int, deque[_Turn]] = OrderedDict()
         self._last_bot_reply: dict[int, float] = {}
         self._locks: dict[int, asyncio.Lock] = {}
 
-    def _touch(self, channel_id: int) -> deque[tuple[str, str, bool]]:
+    def _touch(self, channel_id: int) -> deque[_Turn]:
         """Return ``channel_id``'s turn deque, creating + evicting as needed."""
         existing = self._turns.get(channel_id)
         if existing is None:
@@ -213,15 +238,13 @@ class _ChannelMemory:
                 self._locks.pop(evicted, None)
         return existing
 
-    def record(
-        self, channel_id: int, speaker: str, text: str, *, is_bot: bool = False
-    ) -> tuple[str, str, bool]:
+    def record(self, channel_id: int, speaker: str, text: str, *, is_bot: bool = False) -> _Turn:
         """Append one turn to ``channel_id``'s transcript and return that turn."""
-        turn = (speaker, text, is_bot)
+        turn = _Turn(speaker, text, is_bot)
         self._touch(channel_id).append(turn)
         return turn
 
-    def forget(self, channel_id: int, turn: tuple[str, str, bool]) -> None:
+    def forget(self, channel_id: int, turn: _Turn) -> None:
         """Drop ``turn`` BY IDENTITY, for a question the bot will not answer.
 
         An unanswered question left in the transcript reads, in the next answer's
@@ -251,21 +274,22 @@ class _ChannelMemory:
 
     def transcript(self, channel_id: int) -> list[tuple[str, str]]:
         """The ``(speaker, text)`` turns for the room gate, oldest-first."""
-        return [(speaker, text) for speaker, text, _ in self._turns.get(channel_id, ())]
+        return [(turn.speaker, turn.text) for turn in self._turns.get(channel_id, ())]
 
-    def history(
-        self, channel_id: int, *, exclude: tuple[str, str, bool] | None = None
-    ) -> list[tuple[str, str]]:
+    def history(self, channel_id: int, *, exclude: _Turn | None = None) -> list[tuple[str, str]]:
         """The ``(role, text)`` turns for ``qa.answer_question``, oldest-first.
 
         ``exclude`` drops one turn BY IDENTITY (the question being answered), so a
         second message with the same text stays in the history. A member's turn carries
         the speaker's name, because every member shares the one ``user`` role and a
         follow-up belongs to the member who wrote it. The bot's turn stays bare: the
-        open path matches it byte-for-byte to replay its tool turns.
+        open path matches it byte-for-byte to replay its tool turns. A turn the bot
+        chose not to answer carries :data:`_SKIPPED_MARK`.
         """
         return [
-            ("assistant", turn[1]) if turn[2] else ("user", f"{turn[0]}: {turn[1]}")
+            ("assistant", turn.text)
+            if turn.is_bot
+            else ("user", f"{turn.speaker}: {turn.text}{_SKIPPED_MARK if turn.skipped else ''}")
             for turn in self._turns.get(channel_id, ())
             if turn is not exclude
         ]
@@ -274,6 +298,13 @@ class _ChannelMemory:
         """Whether the bot replied in ``channel_id`` within the recency window."""
         last = self._last_bot_reply.get(channel_id)
         return last is not None and (now - last) <= _ROOM_RECENT_SECONDS
+
+
+def _speaker_label(display_name: str, league_name: str | None) -> str:
+    """The speaker's Discord name, plus the league name when the two differ. Pure."""
+    if not league_name or league_name.casefold() == display_name.casefold():
+        return display_name
+    return f"{display_name} (league name {league_name})"
 
 
 def _is_chat_channel(channel: object) -> bool:
@@ -343,6 +374,24 @@ class MentionQaCog(commands.Cog):
         # The bot's own Q&A reply ids: the answer entry already holds that text, so the
         # echo through on_message is not logged a second time.
         self._reply_ids: deque[int] = deque(maxlen=200)
+        self._league_names: OrderedDict[int, tuple[str | None, float]] = OrderedDict()
+
+    async def _league_name(self, discord_id: int) -> str | None:
+        """The member's league display name, or None. Never raises."""
+        cached = self._league_names.get(discord_id)
+        now = time.monotonic()
+        if cached is not None and now - cached[1] < _LEAGUE_NAME_TTL_SECONDS:
+            return cached[0]
+        try:
+            name = await db_bridge.get_account_async(discord_id)
+        except Exception:
+            logger.info("mention_qa_league_name_failed", exc_info=True)
+            return cached[0] if cached is not None else None
+        self._league_names[discord_id] = (name, now)
+        self._league_names.move_to_end(discord_id)
+        while len(self._league_names) > _LEAGUE_NAME_MAX:
+            self._league_names.popitem(last=False)
+        return name
 
     def _is_rate_limited(self, message: discord.Message) -> bool:
         """Whether ``message``'s author is over the per-user cooldown right now.
@@ -466,7 +515,10 @@ class MentionQaCog(commands.Cog):
 
             # (5) Record first so the gate's transcript ends in this message.
             channel_id = message.channel.id
-            speaker = getattr(message.author, "display_name", None) or "someone"
+            speaker = _speaker_label(
+                getattr(message.author, "display_name", None) or "someone",
+                await self._league_name(message.author.id),
+            )
             turn = self._memory.record(channel_id, speaker, question)
 
             # (6) Is this addressed to the bot?
@@ -474,10 +526,12 @@ class MentionQaCog(commands.Cog):
             if not (mentioned or reply_to_bot):
                 if message.mentions:
                     # addressed to another member — the gate is never consulted
+                    turn.skipped = True
                     skip("not_addressed:mentions_another_member", question)
                     return
                 if not self._memory.spoke_recently(channel_id, now=time.time()):
                     # cold channel — the gate is never consulted
+                    turn.skipped = True
                     skip("not_addressed:bot_not_recently_active", question)
                     return
                 addressed = await qa_room.is_addressed(
@@ -486,6 +540,7 @@ class MentionQaCog(commands.Cog):
                 # Logged both ways: a silent drop was undiagnosable from a transcript.
                 logger.info("mention_qa_gate_decision", channel_id=channel_id, addressed=addressed)
                 if not addressed:
+                    turn.skipped = True
                     skip("not_addressed:room_gate_said_no", question)
                     return
 

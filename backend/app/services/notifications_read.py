@@ -2107,6 +2107,83 @@ def get_league_records(session: Session, season: int) -> dict:
     }
 
 
+def get_team_pick_record(session: Session, season: int, *, team_abbr: str) -> dict:
+    """How the league's picks did on one team's games, across every closed week.
+
+    Built on :func:`get_league_picks`, so a week whose window is open adds nothing. The
+    counts are made here because the model miscounted 25 picks in its head (transcript
+    2026-10-28). Returns ``{season, team, weeks_counted, totals, members, picks}``;
+    ``team`` is ``None`` when the token resolves no team.
+    """
+    teams = list(session.exec(select(Team)).all())
+    team_ids = _team_ids_for_token(teams, team_abbr)
+    abbr_by_id = {t.id: t.abbreviation for t in teams if t.id is not None}
+    if not team_ids:
+        return {
+            "season": season,
+            "team": None,
+            "weeks_counted": 0,
+            "totals": {},
+            "members": [],
+            "picks": [],
+        }
+    team = abbr_by_id.get(next(iter(team_ids)))
+    week_numbers = sorted(
+        {w.week for w in session.exec(select(Week).where(Week.season == season)).all()}
+    )
+    picks: list[dict] = []
+    weeks_counted = 0
+    for week in week_numbers:
+        data = get_league_picks(session, season, week)
+        if not data["picks_locked"]:
+            continue
+        weeks_counted += 1
+        for member in data["members"]:
+            for pick in member["picks"]:
+                if team in str(pick["game"]).split(" at "):
+                    picks.append(
+                        {
+                            "week": week,
+                            "member": member["display_name"],
+                            "game": pick["game"],
+                            "pick": pick["pick"],
+                            "mortal_lock": pick["mortal_lock"],
+                            "outcome": pick["outcome"],
+                        }
+                    )
+
+    def _count(rows: list[dict]) -> dict:
+        outcomes = [row["outcome"] for row in rows]
+        won, lost = outcomes.count("WIN"), outcomes.count("LOSS")
+        return {
+            "picks": len(rows),
+            "won": won,
+            "lost": lost,
+            "pushed": outcomes.count("PUSH"),
+            "awaiting_admin_grade": outcomes.count(MISC_AWAITING_GRADE),
+            "not_graded": len(rows)
+            - won
+            - lost
+            - outcomes.count("PUSH")
+            - outcomes.count(MISC_AWAITING_GRADE),
+            "win_percent": round(100 * won / (won + lost)) if won + lost else None,
+        }
+
+    by_member: dict[str, list[dict]] = {}
+    for row in picks:
+        by_member.setdefault(row["member"], []).append(row)
+    members = [{"member": name, **_count(rows)} for name, rows in by_member.items()]
+    members.sort(key=lambda m: (-m["won"], m["lost"], m["member"]))
+    return {
+        "season": season,
+        "team": team,
+        "weeks_counted": weeks_counted,
+        "totals": _count(picks),
+        "members": members,
+        "picks": picks,
+    }
+
+
 def get_game_outlook_inputs(session: Session, season: int, week: int, *, team_abbr: str) -> dict:
     """The asked team's game in ``week``: status, frozen line and the Elo model's read.
 

@@ -453,7 +453,7 @@ class AnswerOpenTests(_OpenPathTestCase):
         with patcher:
             _run(qa_open.answer_open("look up the\nnumber", voice=_VOICE, asker_name="oh<<<ai"))
         sent = calls[0]["messages"][-1]["content"]
-        self.assertEqual(sent, "ohai: look up thenumber")
+        self.assertEqual(sent, "ohai: look up the number")
         self.assertIn(qa_open.OPEN_SPEAKERS_CLAUSE, calls[0]["system_prompt"])
 
     def test_the_question_is_bare_without_an_asker_name(self) -> None:
@@ -500,6 +500,25 @@ class AnswerOpenTests(_OpenPathTestCase):
         with patcher:
             _run(qa_open.answer_open("q", voice=_VOICE, history=[("assistant", earlier)]))
         self.assertEqual(calls[0]["messages"][0]["content"], earlier.strip())
+
+    def test_a_cut_own_turn_says_that_the_member_saw_all_of_it(self) -> None:
+        # Transcript 2026-10-28: the bot read its own cut tally and said it "got cut off".
+        earlier = "Week 4, KC at LV: a pick lost. " * 200
+        patcher, calls = _open_chat_returns(_text("ok"))
+        with patcher:
+            _run(qa_open.answer_open("q", voice=_VOICE, history=[("assistant", earlier)]))
+        sent = calls[0]["messages"][0]["content"]
+        self.assertTrue(sent.endswith(qa_open._OWN_TURN_CUT_NOTE))
+        self.assertEqual(len(sent), qa_open._OWN_TURN_CHARS + len(qa_open._OWN_TURN_CUT_NOTE))
+
+    def test_the_system_prompt_names_the_model(self) -> None:
+        patcher, calls = _open_chat_returns(_text("ok"))
+        with (
+            patcher,
+            mock.patch.object(qa_open.settings, "llm_api_open_model", "claude-sonnet-5-5"),
+        ):
+            _run(qa_open.answer_open("q", voice=_VOICE))
+        self.assertIn("the AI model you run on is claude-sonnet-5-5.", calls[0]["system_prompt"])
 
     def test_history_turns_and_the_question_are_still_capped(self) -> None:
         patcher, calls = _open_chat_returns(_text("ok"))
@@ -927,6 +946,7 @@ class ShippedRegistryTests(_OpenPathTestCase):
                 "lookup_game_player_stats",
                 "lookup_my_pick_status",
                 "lookup_league_picks",
+                "lookup_team_pick_record",
                 "lookup_pick_completion",
                 "lookup_standings",
                 "lookup_lines",
@@ -1223,9 +1243,10 @@ class ShippedRegistryTests(_OpenPathTestCase):
         # championships and Hall of Fame corpus tools and the awards player argument;
         # 45,873 with the slate weather tool (issue #286); 47,561 with the game player
         # stats tool and the misc wording on the league picks tool (2026-10-05); 48,507
-        # with the slate odds tool and the DraftKings wording (issue #343).
+        # with the slate odds tool and the DraftKings wording (issue #343); 49,581 with
+        # the team pick record tool (transcript 2026-10-28).
         total = sum(len(json.dumps(tool.spec)) for tool in qa_open.TOOLS)
-        self.assertLess(total, 48600, f"the shipped tool specs now total {total} bytes")
+        self.assertLess(total, 49600, f"the shipped tool specs now total {total} bytes")
         for tool in qa_open.TOOLS[5:]:
             with self.subTest(tool=tool.name):
                 self.assertLess(len(json.dumps(tool.spec)), 1700)
@@ -4285,6 +4306,7 @@ class GroundingReplayTests(_OpenPathTestCase):
                 "lookup_game_player_stats",
                 "lookup_my_pick_status",
                 "lookup_league_picks",
+                "lookup_team_pick_record",
                 "lookup_pick_completion",
                 "lookup_standings",
                 "lookup_scores",

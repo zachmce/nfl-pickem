@@ -46,6 +46,10 @@ logger = structlog.get_logger(__name__)
 # sent to the bot, so every token it reads is paid for on ordinary chatter.
 _MAX_TURNS = 8
 _MAX_TURN_CHARS = 200
+# A bot turn keeps its head AND its tail: the bot often ends on a question ("Want me
+# to…?"), and a head-only cut hid it from the gate (transcript 2026-10-28).
+_BOT_HEAD_CHARS = 120
+_BOT_TAIL_CHARS = 280
 
 # JSON-ONLY, ONE decision. Deliberately enumerates the FALSE cases concretely (the local
 # Gemma handles concrete enumerations far better than an abstract rule) and ends on an
@@ -59,9 +63,13 @@ ROOM_GATE_SYSTEM_PROMPT = (
     "boolean true or the boolean false. "
     "Answer true when the last message is a question or a request aimed at the bot, "
     "including a follow-up that continues something the bot just said. "
-    "Answer false when two people are talking to each other, when the last message is a "
-    "reaction to or a comment ABOUT the bot rather than a question TO it, when it is "
-    "unrelated channel chatter, and in every case where you are not sure. "
+    "Also answer true when the last message replies to the bot's most recent message, "
+    "with no other member speaking in between: it corrects that message, disagrees with "
+    'it, teases the bot, or speaks to the bot as "you". '
+    "Answer false when two people are talking to each other, when the last message talks "
+    'ABOUT the bot in the third person ("the bot", "the bawt", the name of its AI model) '
+    'rather than TO it, when it is only a reaction such as an emoji, a laugh or "o_O", '
+    "when it is unrelated channel chatter, and in every case where you are not sure. "
     "When in doubt, answer false."
 )
 
@@ -74,7 +82,8 @@ def _render_transcript(turns: Sequence[tuple[str, str]], *, bot_name: str) -> st
     and the body — and the bot name itself — go through
     :func:`app.bot.chat_personality._fence_untrusted`, which strips control characters
     (so no smuggled newline can forge its own transcript line) and the fence markers, and
-    length-caps each piece at :data:`_MAX_TURN_CHARS`. Only the last :data:`_MAX_TURNS`
+    length-caps each piece at :data:`_MAX_TURN_CHARS` (a bot turn keeps its head and its
+    tail instead). Only the last :data:`_MAX_TURNS`
     turns are rendered.
     """
     safe_bot = chat_personality._fence_untrusted(bot_name, limit=_MAX_TURN_CHARS) or "the bot"
@@ -88,7 +97,15 @@ def _render_transcript(turns: Sequence[tuple[str, str]], *, bot_name: str) -> st
         safe_speaker = (
             chat_personality._fence_untrusted(speaker, limit=_MAX_TURN_CHARS) or "someone"
         )
-        safe_body = chat_personality._fence_untrusted(body, limit=_MAX_TURN_CHARS)
+        if safe_speaker == safe_bot:
+            whole = chat_personality._fence_untrusted(body, limit=len(str(body)))
+            safe_body = (
+                whole
+                if len(whole) <= _BOT_HEAD_CHARS + _BOT_TAIL_CHARS
+                else f"{whole[:_BOT_HEAD_CHARS]} … {whole[-_BOT_TAIL_CHARS:]}"
+            )
+        else:
+            safe_body = chat_personality._fence_untrusted(body, limit=_MAX_TURN_CHARS)
         lines.append(f"{safe_speaker}: {safe_body}")
     return "\n".join(lines)
 

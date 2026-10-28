@@ -41,6 +41,26 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+# The cog resolves each speaker's league name; offline, no member has an account unless
+# a test sets one in _LEAGUE_NAMES.
+_LEAGUE_NAMES: dict[int, str] = {}
+
+
+async def _fake_account(discord_id: int) -> str | None:
+    return _LEAGUE_NAMES.get(discord_id)
+
+
+_ACCOUNT_PATCH = mock.patch.object(mention_qa.db_bridge, "get_account_async", _fake_account)
+
+
+def setUpModule() -> None:
+    _ACCOUNT_PATCH.start()
+
+
+def tearDownModule() -> None:
+    _ACCOUNT_PATCH.stop()
+
+
 class _FakeTyping:
     """A minimal async context manager standing in for ``channel.typing()``.
 
@@ -501,6 +521,51 @@ class ChannelHistoryTests(unittest.TestCase):
         self.assertEqual(calls[0]["conversation_key"], calls[1]["conversation_key"])
         self.assertIsInstance(calls[0]["conversation_key"], str)
         self.assertTrue(calls[0]["conversation_key"])
+
+    def test_a_speaker_with_a_different_league_name_carries_it(self) -> None:
+        cog = MentionQaCog(cast(commands.Bot, SimpleNamespace(user=_BOT_USER)))
+        answer_patch, calls = _answer_returns("ok")
+        with answer_patch, mock.patch.dict(_LEAGUE_NAMES, {1: "ohai-AI", 2: "ultimatedoomsday"}):
+            _deliver(cog, _make_message(content="<@999> hi", author_id=1, author_name="ohai"))
+            _deliver(
+                cog,
+                _make_message(
+                    content="<@999> and me?", author_id=2, author_name="UltimateDoomsday"
+                ),
+            )
+        self.assertEqual(calls[0]["asker_name"], "ohai (league name ohai-AI)")
+        # A case-only difference is the same name, so no label is added.
+        self.assertEqual(calls[1]["asker_name"], "UltimateDoomsday")
+        self.assertEqual(calls[1]["history"][0][1], "ohai (league name ohai-AI): hi")
+
+    def test_a_message_the_gate_rejected_is_marked_in_the_next_history(self) -> None:
+        cog = MentionQaCog(cast(commands.Bot, SimpleNamespace(user=_BOT_USER)))
+        answer_patch, calls = _answer_returns("ok")
+        no_patch, _ = _gate(verdict=False)
+        with answer_patch:
+            _deliver(cog, _make_message(content="<@999> who wins?", author_id=1))
+            with no_patch:
+                _deliver(cog, _make_message(content="lol", mentions_bot=False, author_id=2))
+            _deliver(cog, _make_message(content="<@999> and now?", author_id=3))
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(
+            calls[1]["history"],
+            [
+                ("user", "Ada: who wins?"),
+                ("assistant", "ok"),
+                ("user", f"Ada: lol{mention_qa._SKIPPED_MARK}"),
+            ],
+        )
+
+    def test_a_failed_league_name_lookup_keeps_the_discord_name(self) -> None:
+        async def _boom(discord_id: int) -> str | None:
+            raise RuntimeError("db down")
+
+        cog = MentionQaCog(cast(commands.Bot, SimpleNamespace(user=_BOT_USER)))
+        answer_patch, calls = _answer_returns("ok")
+        with answer_patch, mock.patch.object(mention_qa.db_bridge, "get_account_async", _boom):
+            _deliver(cog, _make_message(content="<@999> hi", author_name="ohai"))
+        self.assertEqual(calls[0]["asker_name"], "ohai")
 
     def test_the_bots_own_reply_is_recorded_into_the_channel_transcript(self) -> None:
         cog = _cog()
