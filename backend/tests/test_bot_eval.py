@@ -59,6 +59,19 @@ class LoaderTests(unittest.TestCase):
         self.assertEqual(bot_eval.fill("no placeholder", {}), "no placeholder")
 
 
+class LastWeekTests(unittest.TestCase):
+    def test_last_week_follows_the_earlier_clock(self) -> None:
+        # Issue #309: the DB at week 6 and ESPN at week 4 asked about a "future" week 5.
+        self.assertEqual(bot_eval._last_week(6, 4), 3)
+        self.assertEqual(bot_eval._last_week(6, 9), 5)
+        self.assertEqual(bot_eval._last_week(6, None), 5)
+
+    def test_no_week_or_week_one_has_no_last_week(self) -> None:
+        self.assertIsNone(bot_eval._last_week(None, 4))
+        self.assertIsNone(bot_eval._last_week(6, 1))
+        self.assertIsNone(bot_eval._last_week(1, None))
+
+
 class ScoreTests(unittest.TestCase):
     def test_a_clean_answer_passes(self) -> None:
         case = _case(expect_intent=["open_nfl"], tools_any=["t1"], must_match=["35"])
