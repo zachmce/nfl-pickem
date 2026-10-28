@@ -32,6 +32,7 @@ from discord.ext import commands
 from app.bot import qa, qa_room
 from app.bot.commands import mention_qa
 from app.bot.commands.mention_qa import MentionQaCog
+from app.services import bot_telemetry
 
 # A stand-in bot user; identity equality makes ``bot_user in message.mentions`` work.
 _BOT_USER = SimpleNamespace(id=999, bot=True, display_name="Pick'em Bot")
@@ -39,6 +40,26 @@ _BOT_USER = SimpleNamespace(id=999, bot=True, display_name="Pick'em Bot")
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+# The cog resolves each speaker's league name; offline, no member has an account unless
+# a test sets one in _LEAGUE_NAMES.
+_LEAGUE_NAMES: dict[int, str] = {}
+
+
+async def _fake_account(discord_id: int) -> str | None:
+    return _LEAGUE_NAMES.get(discord_id)
+
+
+_ACCOUNT_PATCH = mock.patch.object(mention_qa.db_bridge, "get_account_async", _fake_account)
+
+
+def setUpModule() -> None:
+    _ACCOUNT_PATCH.start()
+
+
+def tearDownModule() -> None:
+    _ACCOUNT_PATCH.stop()
 
 
 class _FakeTyping:
@@ -501,6 +522,77 @@ class ChannelHistoryTests(unittest.TestCase):
         self.assertEqual(calls[0]["conversation_key"], calls[1]["conversation_key"])
         self.assertIsInstance(calls[0]["conversation_key"], str)
         self.assertTrue(calls[0]["conversation_key"])
+
+    def test_a_speaker_with_a_different_league_name_carries_it(self) -> None:
+        cog = MentionQaCog(cast(commands.Bot, SimpleNamespace(user=_BOT_USER)))
+        answer_patch, calls = _answer_returns("ok")
+        with answer_patch, mock.patch.dict(_LEAGUE_NAMES, {1: "ohai-AI", 2: "ultimatedoomsday"}):
+            _deliver(cog, _make_message(content="<@999> hi", author_id=1, author_name="ohai"))
+            _deliver(
+                cog,
+                _make_message(
+                    content="<@999> and me?", author_id=2, author_name="UltimateDoomsday"
+                ),
+            )
+        self.assertEqual(calls[0]["asker_name"], "ohai (league name ohai-AI)")
+        # A case-only difference is the same name, so no label is added.
+        self.assertEqual(calls[1]["asker_name"], "UltimateDoomsday")
+        self.assertEqual(calls[1]["history"][0][1], "ohai (league name ohai-AI): hi")
+
+    def test_a_message_the_gate_rejected_is_marked_in_the_next_history(self) -> None:
+        cog = MentionQaCog(cast(commands.Bot, SimpleNamespace(user=_BOT_USER)))
+        answer_patch, calls = _answer_returns("ok")
+        no_patch, _ = _gate(verdict=False)
+        with answer_patch:
+            _deliver(cog, _make_message(content="<@999> who wins?", author_id=1))
+            with no_patch:
+                _deliver(cog, _make_message(content="lol", mentions_bot=False, author_id=2))
+            _deliver(cog, _make_message(content="<@999> and now?", author_id=3))
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(
+            calls[1]["history"],
+            [
+                ("user", "Ada: who wins?"),
+                ("assistant", "ok"),
+                ("user", f"Ada: lol{mention_qa._SKIPPED_MARK}"),
+            ],
+        )
+
+    def test_the_gates_own_llm_calls_reach_the_transcript(self) -> None:
+        # Issue #354: the gate runs before the answer trace opens.
+        async def _gate_with_call(turns, *, bot_name):
+            bot_telemetry.note_llm_call("classify", {"model": "claude-sonnet-5-5"})
+            return verdict
+
+        stored: list[dict] = []
+        cog = MentionQaCog(cast(commands.Bot, SimpleNamespace(user=_BOT_USER)))
+        answer_patch, _ = _answer_returns("ok")
+        with (
+            answer_patch,
+            mock.patch.object(qa_room, "is_addressed", _gate_with_call),
+            mock.patch.object(bot_telemetry, "_store", stored.append),
+            mock.patch.object(mention_qa.settings, "discord_chat_channel", "77"),
+        ):
+            _deliver(cog, _make_message(content="<@999> who wins?", author_id=1))
+            verdict = False
+            _deliver(cog, _make_message(content="lol", mentions_bot=False, author_id=2))
+            verdict = True
+            _deliver(cog, _make_message(content="and now?", mentions_bot=False, author_id=3))
+        skipped = next(e for e in stored if e.get("decision") == "not_addressed:room_gate_said_no")
+        answered = [e for e in stored if e.get("decision") == "answered"][-1]
+        for entry in (skipped, answered):
+            self.assertEqual(entry["llm"]["room_gate"]["models"], ["claude-sonnet-5-5"])
+            self.assertNotIn("classify", entry["llm"])
+
+    def test_a_failed_league_name_lookup_keeps_the_discord_name(self) -> None:
+        async def _boom(discord_id: int) -> str | None:
+            raise RuntimeError("db down")
+
+        cog = MentionQaCog(cast(commands.Bot, SimpleNamespace(user=_BOT_USER)))
+        answer_patch, calls = _answer_returns("ok")
+        with answer_patch, mock.patch.object(mention_qa.db_bridge, "get_account_async", _boom):
+            _deliver(cog, _make_message(content="<@999> hi", author_name="ohai"))
+        self.assertEqual(calls[0]["asker_name"], "ohai")
 
     def test_the_bots_own_reply_is_recorded_into_the_channel_transcript(self) -> None:
         cog = _cog()

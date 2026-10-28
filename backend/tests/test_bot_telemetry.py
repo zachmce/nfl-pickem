@@ -128,6 +128,54 @@ class AnswerTraceTests(unittest.TestCase):
         self.assertEqual(trace.history_turns, 1)
         self.assertEqual(trace.tools[0]["name"], "lookup_standings")
 
+    def test_the_record_summarizes_the_llm_calls_per_kind(self) -> None:
+        trace = bot_telemetry.start(
+            "q",
+            conversation_key=None,
+            asker_name=None,
+            llm_calls=[
+                {"kind": "room_gate", "model": "s", "prompt": 100, "completion": 5, "cached": 0}
+            ],
+        )
+        bot_telemetry.note_llm_call(
+            "open", {"model": "s", "usage": {"prompt_tokens": 10, "completion_tokens": 2}}
+        )
+        bot_telemetry.note_llm_call("open", {"model": "t", "usage": "junk"})
+        record = trace.record("a")
+        bot_telemetry.finish(trace, "a")
+        self.assertEqual(
+            record["llm"],
+            {
+                "room_gate": {
+                    "calls": 1,
+                    "models": ["s"],
+                    "prompt": 100,
+                    "completion": 5,
+                    "cached": 0,
+                },
+                "open": {
+                    "calls": 2,
+                    "models": ["s", "t"],
+                    "prompt": 10,
+                    "completion": 2,
+                    "cached": 0,
+                },
+            },
+        )
+        # The log redaction hides any key that contains "token" (#341).
+        self.assertNotIn("token", json.dumps(record["llm"]))
+
+    def test_calls_before_a_trace_go_to_the_collector_only_when_one_is_open(self) -> None:
+        async def _go() -> list[dict]:
+            bot_telemetry.note_llm_call("classify", {"model": "lost"})
+            calls = bot_telemetry.collect_llm_calls()
+            bot_telemetry.note_llm_call("classify", {"model": "kept"})
+            return calls
+
+        calls = _run(_go())
+        self.assertEqual([c["model"] for c in calls], ["kept"])
+        self.assertIsNone(bot_telemetry.summarize_llm_calls([]))
+
     def test_a_trace_outside_an_answer_is_ignored(self) -> None:
         bot_telemetry.note_tool("x", {})
         bot_telemetry.note_round()

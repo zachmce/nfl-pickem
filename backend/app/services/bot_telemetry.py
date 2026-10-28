@@ -37,6 +37,8 @@ _NOTE_LIMIT = 200
 _REDIS_TIMEOUT_SECONDS = 1.0
 
 _CURRENT: ContextVar[AnswerTrace | None] = ContextVar("bot_answer_trace", default=None)
+# LLM calls made before a trace exists (the room gate), from collect_llm_calls().
+_COLLECTOR: ContextVar[list[dict] | None] = ContextVar("bot_llm_calls", default=None)
 # Detached writes are held here so the loop does not garbage-collect them mid-flight.
 _PENDING: set[asyncio.Task] = set()
 
@@ -68,6 +70,7 @@ class AnswerTrace:
     rounds: int = 0
     fallback: str | None = None
     history_turns: int | None = None
+    llm_calls: list[dict] = field(default_factory=list)
 
     def record(self, answer: str | None) -> dict:
         model = settings.llm_api_model
@@ -91,6 +94,7 @@ class AnswerTrace:
             "latency_ms": round((time.monotonic() - self.started) * 1000),
             "vendor": settings.llm_api_vendor,
             "model": model,
+            "llm": summarize_llm_calls(self.llm_calls),
             "answer": _clip(answer, ANSWER_LIMIT),
         }
 
@@ -101,12 +105,14 @@ def start(
     conversation_key: str | None,
     asker_name: str | None,
     message: dict[str, Any] | None = None,
+    llm_calls: list[dict] | None = None,
 ) -> AnswerTrace:
     trace = AnswerTrace(
         question=question,
         conversation_key=conversation_key,
         asker_name=asker_name,
         message=dict(message or {}),
+        llm_calls=list(llm_calls or []),
     )
     _CURRENT.set(trace)
     return trace
@@ -159,6 +165,60 @@ def note_tool(
     if note is not None:
         call["note"] = _clip(note, _NOTE_LIMIT)
     trace.tools.append(call)
+
+
+def _count(value: object) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def note_llm_call(kind: str, payload: dict) -> None:
+    """Record the model and the usage the API RETURNED for one call (issue #354).
+
+    The configured model in ``record`` is only what was asked for; this is what answered.
+    """
+    usage = payload.get("usage")
+    usage = usage if isinstance(usage, dict) else {}
+    details = usage.get("prompt_tokens_details")
+    details = details if isinstance(details, dict) else {}
+    model = payload.get("model")
+    call = {
+        "kind": kind,
+        "model": _clip(model, _ARG_TEXT_LIMIT) if isinstance(model, str) else None,
+        "prompt": _count(usage.get("prompt_tokens")),
+        "completion": _count(usage.get("completion_tokens")),
+        "cached": _count(details.get("cached_tokens")),
+    }
+    if (trace := current()) is not None:
+        trace.llm_calls.append(call)
+    elif (calls := _COLLECTOR.get()) is not None:
+        calls.append(call)
+
+
+def collect_llm_calls() -> list[dict]:
+    """Start collecting this task's LLM calls made while no trace is open."""
+    calls: list[dict] = []
+    _COLLECTOR.set(calls)
+    return calls
+
+
+def summarize_llm_calls(calls: list[dict]) -> dict[str, dict] | None:
+    """Per call kind: the call count, the models that answered and the summed usage.
+
+    The keys avoid "token": the log redaction hides any key that contains it (#341).
+    """
+    if not calls:
+        return None
+    summary: dict[str, dict] = {}
+    for call in calls:
+        row = summary.setdefault(
+            call["kind"], {"calls": 0, "models": [], "prompt": 0, "completion": 0, "cached": 0}
+        )
+        row["calls"] += 1
+        if call["model"] and call["model"] not in row["models"]:
+            row["models"].append(call["model"])
+        for key in ("prompt", "completion", "cached"):
+            row[key] += call[key]
+    return summary
 
 
 def note_fallback(kind: str) -> None:

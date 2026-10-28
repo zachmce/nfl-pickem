@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { filterEntries, transcriptExportUrl, type BotTranscriptEntry } from "../lib/admin";
+import {
+  filterEntries,
+  formatLlm,
+  transcriptExportUrl,
+  type BotTranscriptEntry,
+} from "../lib/admin";
 
 function entry(overrides: Partial<BotTranscriptEntry>): BotTranscriptEntry {
   return {
@@ -62,5 +67,22 @@ describe("transcriptExportUrl", () => {
     const since = new URL(url, "http://x").searchParams.get("since");
     expect(since).toBe(new Date("2026-09-20T08:00").toISOString());
     expect(url).not.toContain("until");
+  });
+});
+
+describe("formatLlm", () => {
+  it("names the models that answered per call kind and sums the usage", () => {
+    const llm = {
+      classify: { calls: 1, models: ["claude-haiku-5-5"], prompt: 800, completion: 20, cached: 0 },
+      open: { calls: 3, models: ["claude-sonnet-5-5"], prompt: 30000, completion: 400, cached: 0 },
+    };
+    expect(formatLlm(llm)).toBe(
+      "classify claude-haiku-5-5 · open claude-sonnet-5-5 ×3 · 30800 in / 420 out",
+    );
+  });
+
+  it("says so when the API named no model", () => {
+    const llm = { room_gate: { calls: 1, models: [], prompt: 1, completion: 1, cached: 0 } };
+    expect(formatLlm(llm)).toBe("room_gate unknown model · 1 in / 1 out");
   });
 });
