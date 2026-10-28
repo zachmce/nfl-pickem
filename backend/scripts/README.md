@@ -202,7 +202,7 @@ usage it read from the model responses.
 | Key | Meaning |
 |---|---|
 | `id` | `group.name`. The group is the prefix. |
-| `question` | The member's message. `{current_week}`, `{last_week}`, `{later_week}` and `{open_week}` come from the local DB. A case whose placeholder has no value is skipped. |
+| `question` | The member's message. `{current_week}`, `{later_week}` and `{open_week}` come from the local DB. `{last_week}` is the week before the earlier of the DB week and the ESPN week, so it never reads as a future week (issue #309). A case whose placeholder has no value is skipped. |
 | `history` / `setup` | Earlier turns. The runner sends `setup` questions first, with the same conversation key, so the grounding replay is tested. |
 | `expect_intent`, `open_path` | The classifier intent (any of the list), and whether the answer went to the open path. |
 | `tools_any` / `tools_all` / `tools_none` / `no_tools` | The tools the answer must call, must all call, must not call, or none at all. |
