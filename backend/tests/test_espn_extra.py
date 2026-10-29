@@ -1622,6 +1622,19 @@ class ParseAthleteSearchTests(unittest.TestCase):
         )
 
 
+class AthleteSearchSportTests(unittest.TestCase):
+    def test_a_golfer_with_an_nfl_club_subtitle_is_not_an_nfl_player(self) -> None:
+        # Live 2026-10-28: ESPN files Jerry Rice only as a golfer, and id 5336 404s.
+        golfer = {
+            "type": "player",
+            "displayName": "Jerry Rice",
+            "subtitle": "Las Vegas Raiders",
+            "uid": "s:1100~a:5336",
+        }
+        payload = {"results": [{"contents": [golfer]}]}
+        self.assertEqual(espn_extra.parse_athlete_search(payload), [])
+
+
 class AthleteSearchWindowTests(unittest.TestCase):
     def test_the_window_counts_player_entries_before_the_nfl_filter(self) -> None:
         def _entry(uid: int, team: str) -> dict:
