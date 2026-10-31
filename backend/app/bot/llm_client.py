@@ -29,10 +29,12 @@ No ``discord`` import (this module stays on the Discord-free side). Uses
 from __future__ import annotations
 
 import asyncio
+import json
 import weakref
 
 import httpx
 import structlog
+from anthropic import AsyncAnthropic
 
 from app.bot.personality import DEFAULT_PERSONALITY_ID, PERSONALITIES, compose_prompt
 from app.config import settings
@@ -178,22 +180,187 @@ def _translate_for_openai(body: dict) -> dict:
     return out
 
 
-def _translate_for_anthropic(body: dict) -> dict:
-    """The openai body for Anthropic's OpenAI-compatible endpoint (measured 2026-10-22).
+_EPHEMERAL = {"type": "ephemeral"}
+_FINISH_REASONS = {
+    "end_turn": "stop",
+    "stop_sequence": "stop",
+    "max_tokens": "length",
+    "tool_use": "tool_calls",
+    "refusal": "content_filter",
+}
 
-    claude-sonnet-5-5 ignores ``reasoning_effort: none`` there and thinks anyway: the
-    80-token phrase cap came back empty with ``finish_reason: length``. A top-level
-    ``thinking`` turns it off, but the accepted type depends on the model: Sonnet 5.5
-    takes only ``between_tools`` (``disabled`` is a 400 per the API docs), and Haiku 5.5
-    returns a 400 on ``between_tools`` but takes ``disabled`` (both measured).
+
+def _thinking_off(model: str) -> dict:
+    """The lowest thinking setting ``model`` accepts (both measured 2026-10-22).
+
+    Left on, Sonnet 5.5 thinks through the 80-token phrase cap and returns no text. It
+    takes only ``between_tools`` (``disabled`` is a 400); Haiku 5.5 is the reverse.
     """
-    out = _translate_for_openai(body)
-    del out["reasoning_effort"]
-    off = (
-        "between_tools" if str(out.get("model", "")).startswith("claude-sonnet-5-5") else "disabled"
-    )
-    out["thinking"] = {"type": off}
-    return out
+    return {"type": "between_tools" if model.startswith("claude-sonnet-5-5") else "disabled"}
+
+
+def _tool_input(arguments: object) -> dict:
+    try:
+        decoded = json.loads(arguments) if isinstance(arguments, str) and arguments else {}
+    except ValueError:
+        decoded = {}
+    return decoded if isinstance(decoded, dict) else {}
+
+
+def _to_anthropic_messages(messages: list[dict]) -> tuple[str, list[dict]]:
+    """The chat-completions ``messages`` as Messages API ``(system, messages)``. Pure.
+
+    System turns are joined into ``system``, as the compatible endpoint did. Each run of
+    tool turns becomes ONE user turn of ``tool_result`` blocks, which the API requires.
+    """
+    system_parts: list[str] = []
+    out: list[dict] = []
+    for message in messages:
+        role = message.get("role")
+        content = message.get("content")
+        text = content if isinstance(content, str) else ""
+        if role == "system":
+            system_parts.append(text)
+        elif role == "tool":
+            block = {
+                "type": "tool_result",
+                "tool_use_id": message.get("tool_call_id") or "",
+                "content": text,
+            }
+            last = out[-1] if out else None
+            if last is not None and last.get("_tool_results"):
+                last["content"].append(block)
+            else:
+                out.append({"role": "user", "content": [block], "_tool_results": True})
+        elif role == "assistant":
+            blocks: list[dict] = [{"type": "text", "text": text}] if text.strip() else []
+            for call in message.get("tool_calls") or []:
+                function = call.get("function") or {}
+                blocks.append(
+                    {
+                        "type": "tool_use",
+                        "id": call.get("id") or "",
+                        "name": function.get("name") or "",
+                        "input": _tool_input(function.get("arguments")),
+                    }
+                )
+            if blocks:
+                out.append({"role": "assistant", "content": blocks})
+        else:
+            out.append({"role": "user", "content": text})
+    for turn in out:
+        turn.pop("_tool_results", None)
+    return "\n".join(system_parts), out
+
+
+def _to_anthropic_tool(spec: dict) -> dict:
+    function = spec.get("function") or {}
+    schema = dict(function.get("parameters") or {})
+    schema.setdefault("type", "object")
+    tool = {"name": function.get("name") or "", "input_schema": schema}
+    if function.get("description"):
+        tool["description"] = function["description"]
+    return tool
+
+
+def _anthropic_request(body: dict) -> dict:
+    """The chat-completions ``body`` as ``messages.create`` keyword arguments. Pure.
+
+    Sampling knobs and ``chat_template_kwargs`` are dropped, as the compatible endpoint
+    dropped them. Cache breakpoints: the last tool and the system prompt, which repeat
+    across calls; on a tools round, also the automatic one on the conversation tail,
+    which the next round of the same answer reads.
+    """
+    model = str(body.get("model") or "")
+    system, messages = _to_anthropic_messages(body.get("messages") or [])
+    request: dict = {
+        "model": model,
+        "max_tokens": body["max_tokens"],
+        "messages": messages,
+        "thinking": _thinking_off(model),
+    }
+    if system:
+        request["system"] = [{"type": "text", "text": system, "cache_control": _EPHEMERAL}]
+    specs = body.get("tools") or []
+    if specs:
+        tools = [_to_anthropic_tool(spec) for spec in specs]
+        tools[-1]["cache_control"] = _EPHEMERAL
+        request["tools"] = tools
+        request["tool_choice"] = {"type": "auto"}
+        request["cache_control"] = _EPHEMERAL
+    return request
+
+
+def _to_chat_payload(response: dict) -> dict:
+    """A Messages API response as the chat-completions payload callers read. Pure.
+
+    Thinking blocks are dropped, as the compatible endpoint dropped them, so a replayed
+    turn never carries one. ``prompt_tokens`` counts cached input too, as OpenAI's does.
+    """
+    text_parts: list[str] = []
+    calls: list[dict] = []
+    for block in response.get("content") or []:
+        if block.get("type") == "text":
+            text_parts.append(block.get("text") or "")
+        elif block.get("type") == "tool_use":
+            calls.append(
+                {
+                    "id": block.get("id"),
+                    "type": "function",
+                    "function": {
+                        "name": block.get("name"),
+                        "arguments": json.dumps(block.get("input") or {}),
+                    },
+                }
+            )
+    message: dict = {"role": "assistant", "content": "".join(text_parts) or None}
+    if calls:
+        message["tool_calls"] = calls
+    stop_reason = response.get("stop_reason")
+    if stop_reason == "refusal":
+        logger.warning("llm_refusal", details=response.get("stop_details"))
+    usage = response.get("usage") or {}
+    read = usage.get("cache_read_input_tokens") or 0
+    written = usage.get("cache_creation_input_tokens") or 0
+    return {
+        "model": response.get("model"),
+        "choices": [
+            {
+                "message": message,
+                "finish_reason": _FINISH_REASONS.get(str(stop_reason), stop_reason),
+            }
+        ],
+        "usage": {
+            "prompt_tokens": (usage.get("input_tokens") or 0) + read + written,
+            "completion_tokens": usage.get("output_tokens") or 0,
+            "prompt_tokens_details": {"cached_tokens": read, "cache_write_tokens": written},
+        },
+    }
+
+
+# One SDK client per event loop, for the same reason as ``_CLIENTS`` below.
+_ANTHROPIC_CLIENTS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, AsyncAnthropic] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _anthropic_client() -> AsyncAnthropic:
+    loop = asyncio.get_running_loop()
+    client = _ANTHROPIC_CLIENTS.get(loop)
+    if client is None:
+        # LLM_API_SERVER kept its compatible-endpoint value (".../v1"); the SDK adds /v1.
+        base_url = (settings.llm_api_server or "").rstrip("/").removesuffix("/v1")
+        # One retry, as _post_chat retries a 5xx once.
+        client = AsyncAnthropic(api_key=settings.llm_api_key, base_url=base_url, max_retries=1)
+        _ANTHROPIC_CLIENTS[loop] = client
+    return client
+
+
+async def _post_messages(body: dict, *, timeout: float) -> dict:
+    """POST ``body`` to the native Messages API; return a chat-completions payload."""
+    client = _anthropic_client().with_options(timeout=timeout)
+    response = await client.messages.create(**_anthropic_request(body))
+    return _to_chat_payload(response.model_dump(mode="json"))
 
 
 # One pooled client per event loop and timeout: a client per call paid a new TCP + TLS
@@ -257,7 +424,14 @@ async def _post_chat(
     if settings.llm_api_vendor == "openai":
         wire_body = _translate_for_openai(wire_body)
     elif settings.llm_api_vendor == "anthropic":
-        wire_body = _translate_for_anthropic(wire_body)
+        # The native Messages API: the compatible endpoint does not cache prompts.
+        try:
+            payload = await _post_messages(wire_body, timeout=timeout)
+        except Exception:
+            logger.warning(f"{log_prefix}_failed", exc_info=True)
+            return None
+        bot_telemetry.note_llm_call(log_prefix.removeprefix("llm_"), payload)
+        return payload
 
     try:
         client = _shared_client(timeout)

@@ -29,6 +29,7 @@ dependencies = [
     # Must be a runtime dep (not dev-only): the image installs `[project.dependencies]`
     # via `uv pip install --system .`, so a dev-group entry is absent at runtime.
     "httpx>=0.28.1",
+    "anthropic>=2.3.0",
 ]
 
 [dependency-groups]

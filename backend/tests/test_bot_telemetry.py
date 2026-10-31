@@ -152,6 +152,7 @@ class AnswerTraceTests(unittest.TestCase):
                     "prompt": 100,
                     "completion": 5,
                     "cached": 0,
+                    "cache_write": 0,
                 },
                 "open": {
                     "calls": 2,
@@ -159,6 +160,7 @@ class AnswerTraceTests(unittest.TestCase):
                     "prompt": 10,
                     "completion": 2,
                     "cached": 0,
+                    "cache_write": 0,
                 },
             },
         )
