@@ -30,7 +30,7 @@ import unittest
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-import httpx
+import httpx2
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
@@ -176,7 +176,7 @@ class SlateTests(unittest.TestCase):
         assert "code" in err, f"envelope missing 'code': {err}"
         return err
 
-    def _get(self, week: int) -> httpx.Response:
+    def _get(self, week: int) -> httpx2.Response:
         return self.client.get(
             f"/api/slate?season={SEASON}&week={week}",
             headers=self._bearer_headers(self.user_id),

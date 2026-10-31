@@ -187,6 +187,7 @@ def note_llm_call(kind: str, payload: dict) -> None:
         "prompt": _count(usage.get("prompt_tokens")),
         "completion": _count(usage.get("completion_tokens")),
         "cached": _count(details.get("cached_tokens")),
+        "cache_write": _count(details.get("cache_write_tokens")),
     }
     if (trace := current()) is not None:
         trace.llm_calls.append(call)
@@ -211,13 +212,14 @@ def summarize_llm_calls(calls: list[dict]) -> dict[str, dict] | None:
     summary: dict[str, dict] = {}
     for call in calls:
         row = summary.setdefault(
-            call["kind"], {"calls": 0, "models": [], "prompt": 0, "completion": 0, "cached": 0}
+            call["kind"],
+            {"calls": 0, "models": [], "prompt": 0, "completion": 0, "cached": 0, "cache_write": 0},
         )
         row["calls"] += 1
         if call["model"] and call["model"] not in row["models"]:
             row["models"].append(call["model"])
-        for key in ("prompt", "completion", "cached"):
-            row[key] += call[key]
+        for key in ("prompt", "completion", "cached", "cache_write"):
+            row[key] += call.get(key, 0)
     return summary
 
 
