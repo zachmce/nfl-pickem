@@ -1,0 +1,9 @@
+# osv-scanner reads this file for ./frontend (the osv-scan job in ci.yml).
+# Every entry needs a reason and an ignoreUntil date; the gate fails again after it.
+
+[[IgnoredVulns]]
+id = "GHSA-g3hv-75wg-m249" # CVE-2026-118764, minimatch < 11.0.1
+ignoreUntil = 2026-12-31
+reason = """Dev-only: ESLint's config globbing, not in the nginx image, and the globs \
+are our own. No 10.x fix; eslint 10.14 and typescript-eslint 8.72 still require \
+minimatch ^10. Remove when they accept 11. Tracked in issue #365."""
