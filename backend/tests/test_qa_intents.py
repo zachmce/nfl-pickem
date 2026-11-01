@@ -22,6 +22,7 @@ from datetime import UTC, datetime
 from unittest import mock
 
 from app.bot import db_bridge, qa
+from app.config import settings
 from app.scoreboard.types import ScoreboardOdds
 from app.services import espn_extra, live_odds, weather
 
@@ -397,6 +398,31 @@ class IntentRoutingTests(unittest.TestCase):
         # Even with phrase returning garbage, the real answer lands verbatim.
         self.assertNotIn("INVERTED", out)
         self.assertIn("/register", out)
+
+    def test_bot_help_links_the_web_app(self) -> None:
+        phrase_patch, _ = _phrase_returns(None)
+        with _classify_returns({"intent": "bot_help"}), _tokens("KC"), _voice(), phrase_patch:
+            out = _run(qa.answer_question("help", discord_id=7))
+        self.assertIn(settings.app_base_url.rstrip("/"), out)
+
+    def test_a_remark_about_the_bot_goes_to_the_open_path(self) -> None:
+        # Issue #373: both got the fixed command list in prod (2026-11-01).
+        for remark in (
+            "....you can do that",
+            "you'd have been better off to send me to the calendar and the purple games",
+        ):
+            open_patch, open_calls = self._open_returns("Fair point — here's the calendar.")
+            phrase_patch, _ = _phrase_returns(None)
+            with (
+                _classify_returns({"intent": "bot_help"}),
+                _tokens("KC"),
+                _voice(),
+                phrase_patch,
+                open_patch,
+            ):
+                out = _run(qa.answer_question(remark, discord_id=7))
+            self.assertEqual(open_calls, [remark])
+            self.assertNotIn("/register", out)
 
     def test_bot_help_does_not_advertise_admin_commands(self) -> None:
         # The reply is posted publicly in-channel; /admin is admin-gated.

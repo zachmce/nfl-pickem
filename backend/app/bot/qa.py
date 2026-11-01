@@ -39,6 +39,7 @@ import structlog
 
 from app.bot import chat_personality, llm_client, qa_open
 from app.bot.personality import compose_prompt
+from app.config import settings
 
 if TYPE_CHECKING:
     from app.scoreboard.types import ScoreboardOdds
@@ -772,6 +773,13 @@ _OWN_PICKS_RE = re.compile(
     r"losing|lost|covering|doing)\b",
     re.IGNORECASE,
 )
+# Issue #373: "....you can do that" and a long correction of the bot each got the fixed
+# command list. Only a plain help request keeps it; any other remark about the bot is
+# answered by the open path, which knows the tools and the web app.
+_HELP_REQUEST_RE = re.compile(
+    r"\b(help|commands?|register|sign ?up|password|what can you do|how do i use)\b",
+    re.IGNORECASE,
+)
 
 # Deterministic short-circuit line for an unregistered asker (no LLM call needed).
 _REGISTER_LINE = "You need a pick'em account first — run /register to get set up."
@@ -931,7 +939,11 @@ _HELP_FACT = _ListAnswer(
         "status, the standings, this week's lines and slate (and when picks close), "
         "scores, a team's injury report, game-time weather, ESPN headlines, who I "
         "like in a given game, a game in progress (score, yards, kicks, what channel "
-        "it's on), player and team stats, or pretty much anything else."
+        "it's on), player and team stats, or pretty much anything else.\n"
+        "\n"
+        f"The web app: {settings.app_base_url.rstrip('/')} — your picks, the standings, "
+        "everyone's picks once a week locks, and a calendar that marks the games you "
+        "picked."
     ),
     phrase_header=False,
 )
@@ -2181,6 +2193,8 @@ async def _answer_question(
             matchup_team = _matchup_team(question, known_team_tokens)
             if matchup_team is not None:
                 result = QaResult(intent=QaIntent.prediction, team=matchup_team)
+        if result.intent is QaIntent.bot_help and not _HELP_REQUEST_RE.search(question):
+            result = QaResult(intent=QaIntent.open_nfl)
         bot_telemetry.note_intent(result.intent.value)
 
         # The OPEN branch (260820-lw6) is taken BEFORE the slate facet / _build_fact
@@ -2268,12 +2282,22 @@ async def _answer_question(
                     (line for line in header.splitlines() if line.strip()),
                     fact.header_fact,
                 ).strip()
-            return f"{header}\n{fact.body}"
-
-        phrased = await llm_client.phrase(fact, system_prompt=system_prompt)
-        if phrased is None:
-            bot_telemetry.note_fallback("unphrased")
-        return phrased if phrased is not None else fact
+            answer = f"{header}\n{fact.body}"
+            fact_text = f"{fact.header_fact}\n{fact.body}"
+        else:
+            phrased = await llm_client.phrase(fact, system_prompt=system_prompt)
+            if phrased is None:
+                bot_telemetry.note_fallback("unphrased")
+            answer = phrased if phrased is not None else fact
+            fact_text = fact
+        qa_open.remember_grounded_answer(
+            conversation_key,
+            answer,
+            intent=result.intent.value,
+            args={"team": result.team, "week": result.week},
+            fact=fact_text,
+        )
+        return answer
     except Exception:
         # A classify / db / phrase hiccup must never escape into the gateway loop.
         logger.warning("answer_question_failed", exc_info=True)

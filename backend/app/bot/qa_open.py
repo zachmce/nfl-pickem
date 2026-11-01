@@ -53,6 +53,7 @@ import asyncio
 import json
 import re
 import time
+import uuid
 from collections import OrderedDict, deque
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
@@ -143,6 +144,37 @@ _MODEL_STATEMENT = "You are an AI chat bot, and the AI model you run on is {mode
 def _model_statement() -> str:
     model = settings.llm_api_open_model or settings.llm_api_model
     return _MODEL_STATEMENT.format(model=model) if model else ""
+
+
+# Issue #373: asked which games today carried the member's picks, the bot said "check the
+# app's pick sheet"; the member had to name the Calendar page and its purple games. The
+# page list mirrors frontend/src/router.tsx — update both together.
+_APP_STATEMENT = (
+    "The league plays on its own web app at {url}, and you can link a member to a page "
+    "of it. My Picks ({url}/) is where a member makes and changes the week's picks. "
+    "Standings ({url}/standings) ranks the members by season points, week by week. "
+    "Weekly ({url}/weekly) shows every member's picks and results for a week, and other "
+    "members' picks only after that week locks. Calendar ({url}/calendar) shows the "
+    "schedule month by month with each kickoff time, and marks every game the member has "
+    "a pick on: purple until it is graded, green after a win and red after a loss. Help "
+    "({url}/help) has the rules, the pick window and the scoring. Profile ({url}/profile) "
+    "changes the member's password. In Discord a member can run /register to get an "
+    "account and /reset-password for a new temporary password. When a member asks where "
+    "to find something, or a lookup cannot answer it, name the page and give its link."
+)
+# Same transcript: "....you can do that" and a long correction each got the fixed
+# command list, and the member's next message was "worthless bawt".
+_SELF_STATEMENT = (
+    "When a member questions, corrects or complains about something you said or "
+    "cannot do, answer the point they make: say plainly what you can and cannot look "
+    "up, and when a lookup covers what they wanted, call it and answer now. Never reply "
+    "to such a message with a list of commands."
+)
+
+
+def _app_statement() -> str:
+    url = settings.app_base_url.rstrip("/")
+    return f"{_APP_STATEMENT.format(url=url)} {_SELF_STATEMENT}"
 
 
 # The old first sentence said "using your own football knowledge rather than any figure
@@ -7012,6 +7044,42 @@ def _remember_grounding(key: str, answer: str, turns: list[dict]) -> None:
         _GROUNDING.popitem(last=False)
 
 
+# Issue #371: after two grounded injury answers, the open path told the channel it had
+# "posted those injury lists without calling the tool". A grounded answer reached it as
+# bare text. Storing the grounded read as the matching tool's exchange shows the source.
+_GROUNDED_TOOLS = {
+    "injuries": "lookup_injury_report",
+    "lines_slate": "lookup_lines",
+    "scores": "lookup_scores",
+    "pick_status": "lookup_my_pick_status",
+}
+
+
+def remember_grounded_answer(
+    key: str | None, answer: str, *, intent: str, args: dict, fact: str
+) -> None:
+    """Keep a grounded-path ``answer`` as a tool exchange in conversation ``key``."""
+    tool = _lookup_tool(_GROUNDED_TOOLS.get(intent, ""))
+    if key is None or tool is None:
+        return
+    name = tool.name
+    declared = _declared_properties(tool)
+    arguments = {k: v for k, v in args.items() if k in declared and v is not None}
+    call_id = f"grounded_{uuid.uuid4().hex[:12]}"
+    call = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": call_id,
+                "type": "function",
+                "function": {"name": name, "arguments": json.dumps(arguments)},
+            }
+        ],
+    }
+    _remember_grounding(key, answer, [call, _tool_message(call_id, name, {"result": fact})])
+
+
 async def answer_open(
     question: str,
     *,
@@ -7077,7 +7145,9 @@ async def answer_open(
         )
 
         role = " ".join(
-            part for part in (OPEN_ROLE, _model_statement(), await _calendar_facts()) if part
+            part
+            for part in (OPEN_ROLE, _model_statement(), await _calendar_facts(), _app_statement())
+            if part
         )
         system_prompt = compose_prompt(voice, role, OPEN_GUARD)
         try:
