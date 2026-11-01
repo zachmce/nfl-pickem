@@ -685,6 +685,14 @@ QA_GUARD = (
     "ONE short line and at most one emoji."
 )
 
+# Issue #369: handed only "KC injury report — 5 listed", Haiku told the member the names
+# "aren't in what I was given" — above the five names. The phrase call never sees the body.
+LIST_HEADER_CLAUSE = (
+    "Your line is the lead-in to a full list that the app prints directly below it, so "
+    "the member sees every name and every detail of that list. Never say that a name, a "
+    "detail or any data is missing, unavailable or not given to you."
+)
+
 # Prediction leads phrase through a DIFFERENT prompt: the game-prediction intent has no
 # asker-pick concept at all, so it must NOT inherit QA_ROLE/QA_GUARD's pick-status framing
 # (which primes the model to narrate "you have/haven't picked …" onto an asker who made no
@@ -755,6 +763,15 @@ _GAME_UNDERWAY = _OpenHandoff()
 # Issue #286: "how many games does the Nor'easter affect today?" got "name a team" in
 # prod; the open path reads every stadium with lookup_slate_weather.
 _LEAGUE_WEATHER = _OpenHandoff()
+# Issue #372: "what games today do i have picks on? what time are they?" went to pick_status
+# despite the #352 prompt rule, and the locked verdict cannot name a pick. After lock the
+# asker's picks are visible to lookup_league_picks, so a question about them goes there.
+_OWN_PICKS_AFTER_LOCK = _OpenHandoff()
+_OWN_PICKS_RE = re.compile(
+    r"\b(what|which|who|games?|teams?|today|tonight|time|when|hit|won|win|winning|"
+    r"losing|lost|covering|doing)\b",
+    re.IGNORECASE,
+)
 
 # Deterministic short-circuit line for an unregistered asker (no LLM call needed).
 _REGISTER_LINE = "You need a pick'em account first — run /register to get set up."
@@ -1176,6 +1193,32 @@ def _injuries_fact(team_abbr: str, players: list[dict]) -> str | _ListAnswer:
     header = f"{team_abbr} injury report — {len(players)} listed{as_of_clause}."
     body = "\n".join(_injury_player_line(player) for player in players)
     return _ListAnswer(header_fact=header, body=body)
+
+
+# Issue #370: "injuries for the KC game? either team" got the KC list only. One ESPN
+# summary already carries both teams, so the whole game costs no extra HTTP.
+_WHOLE_GAME_RE = re.compile(
+    r"\b(game|matchup|both|either|each team|vs\.?|versus|against|opponent)\b", re.IGNORECASE
+)
+
+
+def _wants_whole_game(question: str) -> bool:
+    return bool(_WHOLE_GAME_RE.search(question))
+
+
+def _game_injuries_fact(teams: list[tuple[str, list[dict]]]) -> str | _ListAnswer:
+    """Both teams' injury lists for one game, each under its own team line."""
+    if len(teams) == 1:
+        return _injuries_fact(*teams[0])
+    counts = " and ".join(f"{abbr} {len(players)}" for abbr, players in teams)
+    as_of = _injuries_as_of([p for _, players in teams for p in players])
+    as_of_clause = f" (as of {as_of})" if as_of else ""
+    header = f"Injury reports for both teams — listed: {counts}{as_of_clause}."
+    sections = []
+    for abbr, players in teams:
+        lines = [_injury_player_line(p) for p in players] or ["No injuries listed."]
+        sections.append("\n".join([f"{abbr}:", *lines]))
+    return _ListAnswer(header_fact=header, body="\n\n".join(sections))
 
 
 def _indoor_fact(stadium: Stadium) -> str:
@@ -1823,7 +1866,11 @@ def _slate_predictions_fact(slate: dict, *, facet: str | None = None) -> str | _
 
 
 async def _build_fact(
-    result: QaResult, *, discord_id: int, slate_facet: str | None = None
+    result: QaResult,
+    *,
+    discord_id: int,
+    slate_facet: str | None = None,
+    question: str = "",
 ) -> str | _ListAnswer | _OpenHandoff | None:
     """Route a validated intent to its deterministic reader and build the FACT.
 
@@ -1839,6 +1886,8 @@ async def _build_fact(
         status = await db_bridge.get_pick_status_async(discord_id)
         if not status.get("registered"):
             return None  # -> _REGISTER_LINE (deterministic, no LLM)
+        if not status.get("pick_open") and _OWN_PICKS_RE.search(question):
+            return _OWN_PICKS_AFTER_LOCK
         return _pick_status_fact(status)
 
     if result.intent is QaIntent.lines_slate:
@@ -1883,7 +1932,15 @@ async def _build_fact(
         players = espn_extra.parse_injuries(payload, canonical_abbr)
         if players is None:
             return _INJURIES_DEGRADE_FACT  # unusable shape — never invent
-        return _injuries_fact(canonical_abbr, players)
+        if not _wants_whole_game(question):
+            return _injuries_fact(canonical_abbr, players)
+        teams: list[tuple[str, list[dict]]] = [(canonical_abbr, players)]
+        for abbr in espn_extra.injury_team_abbrs(payload):
+            if abbr != canonical_abbr.upper():
+                other = espn_extra.parse_injuries(payload, abbr)
+                if other is not None:
+                    teams.append((abbr, other))
+        return _game_injuries_fact(teams)
 
     if result.intent is QaIntent.weather:
         if result.team is None:
@@ -2150,7 +2207,12 @@ async def _answer_question(
         slate_facet = (
             _slate_facet(question) if result.intent is QaIntent.slate_predictions else None
         )
-        fact = await _build_fact(result, discord_id=discord_id, slate_facet=slate_facet)
+        fact = await _build_fact(
+            result,
+            discord_id=discord_id,
+            slate_facet=slate_facet,
+            question=question,
+        )
         if fact is None:
             # pick_status, unregistered asker — deterministic, no phrasing.
             return _REGISTER_LINE
@@ -2186,7 +2248,7 @@ async def _answer_question(
             # never sent to the LLM — so the verbatim relay is absolute.
             if fact.phrase_header:
                 phrased_header = await llm_client.phrase(
-                    fact.header_fact, system_prompt=system_prompt
+                    fact.header_fact, system_prompt=f"{system_prompt} {LIST_HEADER_CLAUSE}"
                 )
                 if phrased_header is None:
                     bot_telemetry.note_fallback("unphrased")

@@ -246,6 +246,17 @@ class LeaguePicksWindowClosedTests(_ReaderTestCase):
         self.assertEqual([m["display_name"] for m in out["members"]], ["alice", "bob"])
         self.assertNotIn("user_id", str(out))
 
+    def test_each_pick_carries_its_game_kickoff(self) -> None:
+        # Issue #372: "what games today do I have picks on? what time are they?"
+        with self._session() as session:
+            out = get_league_picks(session, SEASON, WEEK)
+            kickoffs = {g.kickoff_at for g in session.exec(select(Game)).all() if g.kickoff_at}
+        picks = [p for m in out["members"] for p in m["picks"]]
+        self.assertTrue(picks)
+        naive = {k.replace(tzinfo=None) for k in kickoffs}
+        for pick in picks:
+            self.assertIn(pick["kickoff_at"].replace(tzinfo=None), naive)
+
     def test_an_ungraded_misc_on_a_final_game_awaits_the_admin(self) -> None:
         with self._session() as session:
             before = get_league_picks(session, SEASON, WEEK)

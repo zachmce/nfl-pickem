@@ -1244,9 +1244,10 @@ class ShippedRegistryTests(_OpenPathTestCase):
         # 45,873 with the slate weather tool (issue #286); 47,561 with the game player
         # stats tool and the misc wording on the league picks tool (2026-10-05); 48,507
         # with the slate odds tool and the DraftKings wording (issue #343); 49,581 with
-        # the team pick record tool (transcript 2026-10-28).
+        # the team pick record tool (transcript 2026-10-28); 49,708 with the own-picks and
+        # kickoff wording on the league picks tool (issue #372).
         total = sum(len(json.dumps(tool.spec)) for tool in qa_open.TOOLS)
-        self.assertLess(total, 49600, f"the shipped tool specs now total {total} bytes")
+        self.assertLess(total, 49800, f"the shipped tool specs now total {total} bytes")
         for tool in qa_open.TOOLS[5:]:
             with self.subTest(tool=tool.name):
                 self.assertLess(len(json.dumps(tool.spec)), 1700)
@@ -5232,6 +5233,35 @@ class LeaguePicksToolTests(_OpenPathTestCase):
     """The pick gate is relayed as a note while the window is open, and the picks
     land under their members once it has closed."""
 
+    def test_a_pick_reports_its_kickoff_as_text(self) -> None:
+        # Issue #372: "what games today do I have picks on? what time are they?"
+        revealed = {
+            "week": 8,
+            "picks_locked": True,
+            "close_at": _CLOSE_AT,
+            "members": [
+                {
+                    "display_name": "ohai",
+                    "weekly_score": 0,
+                    "picks": [
+                        {
+                            "game": "DEN at KC",
+                            "pick": "KC to cover as the favorite (3.5)",
+                            "outcome": "UNGRADEABLE",
+                            "kickoff_at": datetime(2026, 11, 1, 21, 25, tzinfo=UTC),
+                        }
+                    ],
+                }
+            ],
+        }
+        with _db("get_league_picks_async", revealed):
+            body = _run(qa_open._lookup_league_picks())
+        assert isinstance(body, dict)
+        pick = body["members"][0]["picks"][0]
+        self.assertEqual(pick["kickoff"], "Sun Nov 1, 9:25 PM UTC")
+        self.assertNotIn("kickoff_at", pick)
+        json.dumps(body)
+
     def test_hidden_picks_come_back_as_a_note_with_the_unlock_time(self) -> None:
         calls: list = []
         hidden = {
@@ -5298,6 +5328,8 @@ class LeaguePicksToolTests(_OpenPathTestCase):
         assert isinstance(body, dict)
         self.assertEqual(calls, [((2,), {})])
         self.assertFalse(body["picks_hidden"])
+        # Issue #372: no raw datetime ever reaches the tool result.
+        self.assertNotIn("kickoff_at", str(body))
         self.assertEqual(body["members"], revealed["members"])
         self.assertIn("2 members have picks listed below", body["picks_statement"])
         self.assertIn("never move a pick from one member to another", body["caveat"])
