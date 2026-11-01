@@ -5229,6 +5229,64 @@ class AskerBindingTests(_OpenPathTestCase):
             )
 
 
+class GroundedAnswerReplayTests(unittest.TestCase):
+    """Issue #371: a grounded answer is replayed with its source like an open one."""
+
+    def setUp(self) -> None:
+        qa_open._GROUNDING.clear()
+        self.addCleanup(qa_open._GROUNDING.clear)
+
+    def test_a_grounded_injury_answer_replays_as_the_injury_tool(self) -> None:
+        qa_open.remember_grounded_answer(
+            "chan", "KC 👇\nA (CB): Out", intent="injuries", args={"team": "KC"}, fact="F"
+        )
+        call, result = qa_open._grounding_for("chan", "KC 👇\nA (CB): Out")
+        function = call["tool_calls"][0]["function"]
+        self.assertEqual(function["name"], "lookup_injury_report")
+        self.assertEqual(json.loads(function["arguments"]), {"team": "KC"})
+        self.assertEqual(result["tool_call_id"], call["tool_calls"][0]["id"])
+        self.assertEqual(json.loads(result["content"]), {"result": "F"})
+
+    def test_an_intent_with_no_matching_tool_is_not_stored(self) -> None:
+        qa_open.remember_grounded_answer("chan", "x", intent="prediction", args={}, fact="F")
+        qa_open.remember_grounded_answer(None, "y", intent="injuries", args={}, fact="F")
+        self.assertEqual(qa_open._GROUNDING, {})
+
+    def test_undeclared_and_empty_arguments_are_dropped(self) -> None:
+        qa_open.remember_grounded_answer(
+            "chan", "z", intent="pick_status", args={"team": None, "week": 3}, fact="F"
+        )
+        (call, _result) = qa_open._grounding_for("chan", "z")
+        self.assertEqual(json.loads(call["tool_calls"][0]["function"]["arguments"]), {})
+
+
+class AppStatementTests(unittest.TestCase):
+    """Issue #373: the open path knows the web app's pages and links them."""
+
+    def test_every_page_in_the_router_is_named_with_its_link(self) -> None:
+        router_file = Path(__file__).parents[2] / "frontend/src/router.tsx"
+        if not router_file.exists():
+            self.skipTest("the frontend tree is not checked out")
+        router = router_file.read_text()
+        statement = qa_open._app_statement()
+        url = settings.app_base_url.rstrip("/")
+        for path in ("standings", "weekly", "calendar", "help", "profile"):
+            self.assertIn(f'path: "{path}"', router)
+            self.assertIn(f"{url}/{path}", statement)
+        self.assertIn("purple", statement)
+
+    def test_the_statement_reaches_the_open_prompt(self) -> None:
+        prompts: list[str] = []
+
+        async def _fake_chat(messages, *, system_prompt, tools):
+            prompts.append(system_prompt)
+            return {"role": "assistant", "content": "Try the calendar."}
+
+        with mock.patch.object(llm_client, "open_chat", _fake_chat):
+            _run(qa_open.answer_open("where do I see my games?", voice="v"))
+        self.assertIn(qa_open._app_statement(), prompts[0])
+
+
 class LeaguePicksToolTests(_OpenPathTestCase):
     """The pick gate is relayed as a note while the window is open, and the picks
     land under their members once it has closed."""
