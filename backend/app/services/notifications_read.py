@@ -1664,7 +1664,8 @@ def get_league_picks(session: Session, season: int, week: int) -> dict:
     Reuses :func:`app.services.standings.week_results` with NO caller, so while the
     window is open every member's pick list comes back empty and ``picks_locked`` is
     ``False``. Returns ``{week, picks_locked, close_at, members: [{display_name,
-    weekly_score, picks: [{game, pick, mortal_lock, outcome, points}]}]}``. Members are
+    weekly_score, picks: [{game, pick, mortal_lock, outcome, points, game_status,
+    kickoff_at}]}]}``. Members are
     ordered by ``(-weekly_score, display_name)``. Display-only; no ``user_id``.
     """
     games = list(session.exec(select(Game).where(Game.season == season, Game.week == week)).all())
@@ -1694,6 +1695,7 @@ def get_league_picks(session: Session, season: int, week: int) -> dict:
                     "outcome": _public_outcome(pick.pick_type, pick.outcome, game),
                     "points": pick.points,
                     "game_status": _GAME_STATUS_WORDS[game.status],
+                    "kickoff_at": game.kickoff_at,
                 }
             )
         members.append(

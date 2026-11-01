@@ -1027,6 +1027,18 @@ def parse_injuries(payload: Any, team_abbr: str) -> list[dict[str, str | None]] 
     return None
 
 
+def injury_team_abbrs(payload: Any) -> list[str]:
+    """The upper-cased team abbreviations that have an injury block in ``payload``. Pure."""
+    blocks = payload.get("injuries") if isinstance(payload, dict) else None
+    abbrs: list[str] = []
+    for block in blocks if isinstance(blocks, list) else []:
+        team = block.get("team") if isinstance(block, dict) else None
+        abbr = team.get("abbreviation") if isinstance(team, dict) else None
+        if isinstance(abbr, str) and abbr.strip():
+            abbrs.append(abbr.strip().upper())
+    return abbrs
+
+
 def _article_teams(article: dict) -> list[str]:
     """Collect the upper-cased team descriptors an article is tagged with.
 

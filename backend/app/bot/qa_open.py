@@ -3621,6 +3621,14 @@ _MY_PICK_STATUS_TOOL_DESCRIPTION = (
 )
 
 
+def _with_kickoff(pick: dict) -> dict:
+    """``pick`` with its ``kickoff_at`` datetime as readable text (issue #372). Pure."""
+    out = {key: value for key, value in pick.items() if key != "kickoff_at"}
+    if "kickoff_at" in pick:
+        out["kickoff"] = _fmt_close(pick["kickoff_at"])
+    return out
+
+
 async def _lookup_league_picks(week: int | None = None) -> object | None:
     """Every member's picks for a week, ONLY once that week's window has closed."""
     from app.bot import db_bridge
@@ -3640,7 +3648,10 @@ async def _lookup_league_picks(week: int | None = None) -> object | None:
                 week=data["week"], when=_fmt_close(data.get("close_at"))
             ),
         }
-    members = data.get("members") or []
+    members = [
+        {**member, "picks": [_with_kickoff(pick) for pick in member.get("picks") or []]}
+        for member in data.get("members") or []
+    ]
     if not members:
         return {"note": _NO_PICKS_THAT_WEEK_NOTE.format(week=data["week"])}
     statement = _LEAGUE_PICKS_STATEMENT.format(week=data["week"], count=len(members))
@@ -3708,7 +3719,8 @@ _LEAGUE_PICKS_STATEMENT = (
     "The week {week} pick window has closed, so every member's picks for that week are "
     "public. {count} members have picks listed below, ordered by their score for the "
     "week. A pick's outcome is WIN, LOSS or PUSH once its game is final, and UNGRADEABLE "
-    "while the game has not finished. Each pick says whether its game is final."
+    "while the game has not finished. Each pick says whether its game is final, and "
+    "its kickoff time in UTC."
 )
 _LEAGUE_PICKS_CAVEAT = (
     "Report each pick exactly as listed under the member it belongs to, and never move a "
@@ -3726,7 +3738,9 @@ _LEAGUE_PICKS_TOOL_DESCRIPTION = (
     "picked a given team or game, who has money on tonight's game, what someone else "
     "picked, who took the over or the underdog somewhere, whose mortal lock hit or "
     "busted, what a member's misc call was, whether a misc call hit, or how the league "
-    "did in a week. Leave the week argument out for the "
+    "did in a week. Call it also when the member asks which games they have picks on, "
+    "when those games kick off, or how their own picks are doing. Leave the week argument "
+    "out for the "
     "current week and pass it only when the member names a week number. Picks are hidden "
     "until the week's pick window closes at its first kickoff, and when they are hidden "
     "this tool says so and says when they unlock, so call it anyway and relay that. For "

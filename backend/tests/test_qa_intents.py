@@ -165,6 +165,8 @@ class HardLeakTests(unittest.TestCase):
                 "display_name": "You",
                 "complete": False,
                 "remaining_labels": ["over"],
+                # After lock, picks are public and the question goes to the open path (#372).
+                "pick_open": True,
             },
         )
         phrase_patch, _ = _phrase_returns(None)  # fall back to the deterministic fact
@@ -703,6 +705,33 @@ class ListAnswerAndFormattingTests(unittest.TestCase):
         self.assertIn("locked in", out)
         self.assertIn("full card", out)
 
+    def test_pick_content_question_after_lock_goes_to_the_open_path(self) -> None:
+        # Issue #372: the locked verdict cannot name a pick; lookup_league_picks can.
+        seam_patch, _ = _seam(
+            "get_pick_status_async",
+            {"registered": True, "display_name": "ohai", "complete": True, "pick_open": False},
+        )
+        phrase_patch, phrase_calls = _phrase_returns(None)
+        open_calls: list[str] = []
+
+        async def _fake_open(question, **_kwargs):
+            open_calls.append(question)
+            return "You have DEN at KC at 9:25 PM UTC."
+
+        q = "what games today do i have picks on? what time are they?"
+        with (
+            _classify_returns({"intent": "pick_status"}),
+            _tokens("KC"),
+            seam_patch,
+            _voice(),
+            phrase_patch,
+            mock.patch.object(qa.qa_open, "answer_open", _fake_open),
+        ):
+            out = _run(qa.answer_question(q, discord_id=7))
+        self.assertEqual(open_calls, [q])
+        self.assertEqual(phrase_calls, [])
+        self.assertEqual(out, "You have DEN at KC at 9:25 PM UTC.")
+
     def test_fmt_when_is_clean_and_none_safe(self) -> None:
         s = qa._fmt_when(datetime(2026, 7, 6, 12, 22, 31, 79408, tzinfo=UTC))
         assert s is not None
@@ -1083,6 +1112,51 @@ class InjuriesIntentTests(unittest.TestCase):
         # ONLY the short header is phrased (not the player block).
         self.assertIn("2 listed", calls[0]["fact"])
         self.assertNotIn("Player One", calls[0]["fact"])
+
+    def test_a_game_question_lists_both_teams_from_one_fetch(self) -> None:
+        # Issue #370: "any notable injuries for the KC game? either team" got KC only.
+        seam_patch, _ = _seam("get_injuries_event_id_async", (999, "KC"))
+        fetch_patch, fetch_calls = _fetch_injuries_returns(self._kc_multi_payload())
+        phrase_patch, calls = _phrase_returns("Both sides banged up 👇")
+        with (
+            _classify_returns({"intent": "injuries", "team": "KC"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            fetch_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            out = _run(
+                qa.answer_question(
+                    "any notable injuries for the KC game? either team", discord_id=7
+                )
+            )
+        self.assertEqual(len(fetch_calls), 1)
+        self.assertIn("KC:\nPlayer One (RB)", out)
+        self.assertIn("LAC:\nOther Team Guy: Out", out)
+        self.assertIn("KC 2 and LAC 1", calls[0]["fact"])
+
+    def test_a_team_question_does_not_widen_to_the_game(self) -> None:
+        self.assertFalse(qa._wants_whole_game("any injuries for the Chiefs?"))
+        self.assertFalse(qa._wants_whole_game("and for DEN?"))
+        self.assertTrue(qa._wants_whole_game("who's hurt in the KC vs DEN matchup"))
+
+    def test_the_list_header_is_told_the_list_follows(self) -> None:
+        # Issue #369: the header said the names "aren't in what I was given".
+        seam_patch, _ = _seam("get_injuries_event_id_async", (999, "KC"))
+        fetch_patch, _ = _fetch_injuries_returns(self._kc_multi_payload())
+        phrase_patch, calls = _phrase_returns("KC 👇")
+        with (
+            _classify_returns({"intent": "injuries", "team": "KC"}),
+            _tokens("KC", "CHIEFS"),
+            seam_patch,
+            fetch_patch,
+            _voice(),
+            phrase_patch,
+        ):
+            _run(qa.answer_question("any injuries for the Chiefs?", discord_id=7))
+        self.assertIn(qa.LIST_HEADER_CLAUSE, calls[0]["system_prompt"])
+        self.assertIn("never say that a name", qa.LIST_HEADER_CLAUSE.lower())
 
     def test_team_resolves_single_player_is_one_liner(self) -> None:
         payload = {
