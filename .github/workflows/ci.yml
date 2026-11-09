@@ -79,7 +79,7 @@ jobs:
       # buildx cache), so a poisoned uv cache cannot reach a published artifact; dropping the
       # cache would slow every CI run. Low-confidence finding; documented accept (mirrors the
       # pip-audit --ignore-vuln allowlist posture).
-      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.0  # zizmor: ignore[cache-poisoning]
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.0  # zizmor: ignore[cache-poisoning]
       - name: Install Python 3.15
         run: uv python install 3.15
       - name: Verify uv.lock is in sync with pyproject.toml
@@ -111,7 +111,7 @@ jobs:
       # buildx cache), so a poisoned uv cache cannot reach a published artifact; dropping the
       # cache would slow every CI run. Low-confidence finding; documented accept (mirrors the
       # pip-audit --ignore-vuln allowlist posture).
-      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.0  # zizmor: ignore[cache-poisoning]
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.0  # zizmor: ignore[cache-poisoning]
       - name: Install Python 3.15
         run: uv python install 3.15
       - name: Install basedpyright (dev group)
@@ -145,7 +145,7 @@ jobs:
       # buildx cache), so a poisoned uv cache cannot reach a published artifact; dropping the
       # cache would slow every CI run. Low-confidence finding; documented accept (mirrors the
       # pip-audit --ignore-vuln allowlist posture).
-      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.0  # zizmor: ignore[cache-poisoning]
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.0  # zizmor: ignore[cache-poisoning]
       - name: Install Python 3.15
         run: uv python install 3.15
       - name: Install pip-audit (dev group)
@@ -212,7 +212,7 @@ jobs:
       # buildx cache), so a poisoned uv cache cannot reach a published artifact; dropping the
       # cache would slow every CI run. Low-confidence finding; documented accept (mirrors the
       # pip-audit --ignore-vuln allowlist posture).
-      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.0  # zizmor: ignore[cache-poisoning]
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.0  # zizmor: ignore[cache-poisoning]
       - name: Install Python 3.15
         run: uv python install 3.15
       - name: Install backend into a uv venv (project + deps)
@@ -305,7 +305,7 @@ jobs:
       - name: Upload gitleaks SARIF
         if: always()
         continue-on-error: true  # never let a SARIF-upload hiccup fail the required secrets gate
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: results.sarif
           category: gitleaks  # distinct from all trivy-* / zizmor categories
@@ -394,7 +394,7 @@ jobs:
           exit-code: '0'  # report-only pass — never fails the job
       - name: Upload Trivy image SARIF
         if: always()  # upload the report even when the gate below fails the job
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: trivy-backend.sarif
           category: trivy-image-backend  # distinct per image so results don't overwrite
@@ -447,7 +447,7 @@ jobs:
           exit-code: '0'  # report-only pass — never fails the job
       - name: Upload Trivy image SARIF
         if: always()  # upload the report even when the gate below fails the job
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: trivy-frontend.sarif
           category: trivy-image-frontend  # distinct per image so results don't overwrite
@@ -519,7 +519,7 @@ jobs:
       - name: Upload osv-scanner SARIF
         if: always()  # upload the report even when the scan found vulns (mirrors gitleaks/trivy)
         continue-on-error: true  # never let a SARIF-upload hiccup flip the gate result
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: osv.sarif
           category: osv-scanner  # distinct from every existing trivy-* / zizmor / gitleaks / semgrep
@@ -570,7 +570,7 @@ jobs:
           exit-code: '0'  # advisory — never gates
       - name: Upload Trivy config SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: trivy-config.sarif
           category: trivy-config
@@ -603,12 +603,12 @@ jobs:
         with:
           persist-credentials: false  # artipacked: zizmor only reads the checked-out workflow files
       - name: zizmor — upload SARIF to code scanning (report; never fails)
-        uses: zizmorcore/zizmor-action@85b2b9fb8e3325e7a23d7d0a9d7ba5ae0f999e3e # v0.7.1
+        uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
         with:
           inputs: .github/workflows/
           advanced-security: true  # public repo — uploads to the Security tab; does not fail on findings
       - name: zizmor — blocking gate (fails on any finding)
-        uses: zizmorcore/zizmor-action@85b2b9fb8e3325e7a23d7d0a9d7ba5ae0f999e3e # v0.7.1
+        uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
         with:
           inputs: .github/workflows/
           advanced-security: false  # no SARIF upload here; exits non-zero on findings — this IS the gate
@@ -661,7 +661,7 @@ jobs:
       - name: Upload Semgrep SARIF
         if: always()  # upload the report even if a later step fails the job
         continue-on-error: true  # never let a SARIF-upload hiccup fail the semgrep gate (mirrors gitleaks)
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: semgrep.sarif
           category: semgrep  # distinct from all trivy-* / zizmor / gitleaks categories
@@ -721,7 +721,7 @@ jobs:
           persist-credentials: false  # artipacked: images are pushed via docker login + cosign signs by digest — no stored git credential used
       - name: Log in to GHCR
         # Also authenticates crane below (writes ~/.docker/config.json) — no extra auth step.
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -775,7 +775,7 @@ jobs:
           exit-code: '0'  # report-only pass — never fails the job
       - name: Upload Trivy image SARIF
         if: always()  # upload the report even when the gate below fails the job
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: trivy-backend.sarif
           category: trivy-image-backend  # same category as the PR-only image-scan job — no conflict (that runs on PR, this on push)
@@ -816,7 +816,7 @@ jobs:
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
       - name: Install cosign
         # SHA resolved + verified against the GitHub API (repos/sigstore/cosign-installer/releases/latest).
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - name: Sign image (cosign keyless)
         # Keyless signing via GitHub OIDC: Fulcio issues a short-lived cert bound to this
         # workflow's identity and the signature is logged to the Rekor transparency log — no
@@ -857,7 +857,7 @@ jobs:
           persist-credentials: false  # artipacked: images are pushed via docker login + cosign signs by digest — no stored git credential used
       - name: Log in to GHCR
         # Also authenticates crane below (writes ~/.docker/config.json) — no extra auth step.
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -911,7 +911,7 @@ jobs:
           exit-code: '0'  # report-only pass — never fails the job
       - name: Upload Trivy image SARIF
         if: always()  # upload the report even when the gate below fails the job
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: trivy-frontend.sarif
           category: trivy-image-frontend  # same category as the PR-only image-scan job — no conflict (that runs on PR, this on push)
@@ -952,7 +952,7 @@ jobs:
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
       - name: Install cosign
         # SHA resolved + verified against the GitHub API (repos/sigstore/cosign-installer/releases/latest).
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - name: Sign image (cosign keyless)
         # Keyless signing via GitHub OIDC (see publish-backend for the full rationale). Sign by
         # DIGEST — the crane-promoted OCI image index — so the signature covers the whole index;
